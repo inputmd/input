@@ -56,7 +56,7 @@ function showView(name: AppView) {
 
   // Nav buttons
   $('docs-btn').style.display = currentUser && name !== 'documents' ? '' : 'none';
-  $('viewer-btn').style.display = name !== 'input' ? '' : 'none';
+  $('viewer-btn').style.display = '';
   $('githubapp-btn').style.display = currentInstallationId && name !== 'githubapp' ? '' : 'none';
   $('repodocs-btn').style.display = selectedRepoFullName && name !== 'repodocuments' ? '' : 'none';
 }

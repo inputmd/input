@@ -2,7 +2,9 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-async function loadDotEnv() {
+// --- .env loader ---
+
+async function loadDotEnv(): Promise<void> {
   try {
     const raw = await readFile(new URL('../.env', import.meta.url), 'utf8');
     for (const line of raw.split('\n')) {
@@ -26,18 +28,37 @@ async function loadDotEnv() {
 
 await loadDotEnv();
 
+// --- Config ---
+
 const PORT = Number.parseInt(process.env.PORT ?? '8787', 10);
 
-// Session secret for HMAC-signing session tokens
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
 
 if (!process.env.SESSION_SECRET) {
-  // eslint-disable-next-line no-console
   console.warn('WARNING: SESSION_SECRET not set — using random ephemeral secret. Sessions will not survive server restarts.');
 }
 
-function createSessionToken(installationId) {
+// --- Types ---
+
+interface Session {
+  installationId: string;
+}
+
+interface TokenCacheRecord {
+  token: string;
+  expires_at: string;
+  expiresAtMs: number;
+}
+
+interface RateLimitEntry {
+  count: number;
+  resetAtMs: number;
+}
+
+// --- Session tokens (HMAC-SHA256) ---
+
+function createSessionToken(installationId: string): string {
   const payload = JSON.stringify({
     sub: String(installationId),
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
@@ -47,7 +68,7 @@ function createSessionToken(installationId) {
   return `${payloadB64}.${sig}`;
 }
 
-function validateSessionToken(token) {
+function validateSessionToken(token: string): Session | null {
   const dot = token.indexOf('.');
   if (dot === -1) return null;
   const payloadB64 = token.slice(0, dot);
@@ -55,7 +76,10 @@ function validateSessionToken(token) {
   const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
   if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
   try {
-    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as {
+      sub?: unknown;
+      exp?: unknown;
+    };
     if (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) return null;
     if (typeof payload.sub !== 'string' || !payload.sub) return null;
     return { installationId: payload.sub };
@@ -64,23 +88,20 @@ function validateSessionToken(token) {
   }
 }
 
-function requireSession(req) {
+function requireSession(req: http.IncomingMessage): Session | null {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return null;
   return validateSessionToken(auth.slice(7));
 }
 
-function json(res, statusCode, data) {
+// --- HTTP helpers ---
+
+function json(res: http.ServerResponse, statusCode: number, data: unknown): void {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
 }
 
-function text(res, statusCode, data) {
-  res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end(data);
-}
-
-function base64url(input) {
+function base64url(input: string | Buffer): string {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
   return buf
     .toString('base64')
@@ -91,30 +112,38 @@ function base64url(input) {
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
-async function readJson(req) {
-  const chunks = [];
+async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown> | null> {
+  const chunks: Buffer[] = [];
   let totalBytes = 0;
   for await (const chunk of req) {
-    totalBytes += chunk.length;
+    totalBytes += (chunk as Buffer).length;
     if (totalBytes > MAX_BODY_BYTES) throw new Error('Request body too large');
-    chunks.push(chunk);
+    chunks.push(chunk as Buffer);
   }
   const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as Record<string, unknown>;
   } catch {
     throw new Error('Invalid JSON body');
   }
 }
 
-function requireEnv(name) {
+function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env var: ${name}`);
   return v;
 }
 
-async function getAppPrivateKeyPem() {
+function requireString(body: Record<string, unknown> | null, key: string): string {
+  const v = body?.[key];
+  if (typeof v !== 'string' || !v.trim()) throw new Error(`${key} is required`);
+  return v;
+}
+
+// --- GitHub App JWT ---
+
+async function getAppPrivateKeyPem(): Promise<string> {
   const keyInline = process.env.GITHUB_APP_PRIVATE_KEY;
   const keyPath = process.env.GITHUB_APP_PRIVATE_KEY_PATH;
   if (keyInline?.trim()) return keyInline;
@@ -124,7 +153,7 @@ async function getAppPrivateKeyPem() {
   throw new Error('Missing GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_PATH');
 }
 
-async function createAppJwt() {
+async function createAppJwt(): Promise<string> {
   const appId = requireEnv('GITHUB_APP_ID');
   const privateKeyPem = await getAppPrivateKeyPem();
   const now = Math.floor(Date.now() / 1000);
@@ -148,10 +177,11 @@ async function createAppJwt() {
   return `${signingInput}.${base64url(signature)}`;
 }
 
-const installationTokenCache = new Map();
+// --- Installation token cache ---
+
+const installationTokenCache = new Map<string, TokenCacheRecord>();
 const MAX_TOKEN_CACHE_SIZE = 1000;
 
-// Evict expired tokens every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [key, record] of installationTokenCache) {
@@ -159,14 +189,15 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-// Rate limiter: per-IP fixed window
-const rateLimitWindows = new Map(); // ip -> { count, resetAtMs }
+// --- Rate limiter ---
+
+const rateLimitWindows = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
 const TRUST_PROXY = process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true';
 
-function getClientIp(req) {
+function getClientIp(req: http.IncomingMessage): string {
   if (TRUST_PROXY) {
     const forwarded = req.headers['x-forwarded-for'];
     if (typeof forwarded === 'string') {
@@ -177,7 +208,7 @@ function getClientIp(req) {
   return req.socket.remoteAddress || 'unknown';
 }
 
-function checkRateLimit(req, res) {
+function checkRateLimit(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const ip = getClientIp(req);
   const now = Date.now();
   let entry = rateLimitWindows.get(ip);
@@ -199,7 +230,6 @@ function checkRateLimit(req, res) {
   return true;
 }
 
-// Evict stale rate-limit entries every 2 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of rateLimitWindows) {
@@ -207,14 +237,16 @@ setInterval(() => {
   }
 }, 2 * 60 * 1000).unref();
 
-function cacheKey(installationId, repositoryIds) {
+// --- GitHub API helpers ---
+
+const GITHUB_FETCH_TIMEOUT_MS = 15_000;
+
+function cacheKey(installationId: string, repositoryIds?: number[]): string {
   if (!repositoryIds?.length) return `${installationId}:all`;
   return `${installationId}:${repositoryIds.map((n) => String(n)).sort().join(',')}`;
 }
 
-const GITHUB_FETCH_TIMEOUT_MS = 15_000;
-
-async function getInstallationToken(installationId, repositoryIds) {
+async function getInstallationToken(installationId: string, repositoryIds?: number[]): Promise<TokenCacheRecord> {
   const key = cacheKey(installationId, repositoryIds);
   const cached = installationTokenCache.get(key);
   if (cached && cached.expiresAtMs - Date.now() > 60_000) return cached;
@@ -235,22 +267,21 @@ async function getInstallationToken(installationId, repositoryIds) {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    // eslint-disable-next-line no-console
     console.error(`Failed to mint installation token: ${res.status} ${res.statusText}`, body);
     throw new Error(`GitHub API error: ${res.status}`);
   }
-  const data = await res.json();
+  const data = (await res.json()) as { token: string; expires_at: string };
   const expiresAtMs = Date.parse(data.expires_at);
-  const record = { token: data.token, expires_at: data.expires_at, expiresAtMs };
+  const record: TokenCacheRecord = { token: data.token, expires_at: data.expires_at, expiresAtMs };
   if (installationTokenCache.size >= MAX_TOKEN_CACHE_SIZE) {
     const oldest = installationTokenCache.keys().next().value;
-    installationTokenCache.delete(oldest);
+    if (oldest !== undefined) installationTokenCache.delete(oldest);
   }
   installationTokenCache.set(key, record);
   return record;
 }
 
-async function githubFetchWithInstallationToken(installationId, path, init = {}) {
+async function githubFetchWithInstallationToken(installationId: string, path: string, init: RequestInit = {}): Promise<Response> {
   const tokenRec = await getInstallationToken(installationId);
   const res = await fetch(`https://api.github.com${path}`, {
     ...init,
@@ -259,31 +290,26 @@ async function githubFetchWithInstallationToken(installationId, path, init = {})
       'Authorization': `Bearer ${tokenRec.token}`,
       'User-Agent': 'input-github-app-auth-server',
       'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.headers ?? {}),
+      ...(init.headers as Record<string, string> ?? {}),
     },
     signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    // eslint-disable-next-line no-console
     console.error(`GitHub API error on ${path}: ${res.status} ${res.statusText}`, body);
     throw new Error(`GitHub API error: ${res.status}`);
   }
   return res;
 }
 
-function encodePathPreserveSlashes(path) {
+function encodePathPreserveSlashes(path: string): string {
   return String(path)
     .split('/')
     .map((seg) => encodeURIComponent(seg))
     .join('/');
 }
 
-function requireString(body, key) {
-  const v = body?.[key];
-  if (typeof v !== 'string' || !v.trim()) throw new Error(`${key} is required`);
-  return v;
-}
+// --- CORS ---
 
 const ALLOWED_ORIGINS = new Set([
   'https://input.md',
@@ -291,7 +317,7 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:5174',
 ]);
 
-function corsify(req, res) {
+function corsify(req: http.IncomingMessage, res: http.ServerResponse): void {
   const origin = req.headers.origin;
   res.setHeader('Vary', 'Origin');
   if (origin && ALLOWED_ORIGINS.has(origin)) {
@@ -303,7 +329,9 @@ function corsify(req, res) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+// --- Request handler ---
+
+const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   try {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -334,7 +362,6 @@ const server = http.createServer(async (req, res) => {
       if (!installationId || typeof installationId !== 'string') {
         return json(res, 400, { error: 'installationId is required' });
       }
-      // Verify installation exists by calling GitHub API
       const jwt = await createAppJwt();
       const ghRes = await fetch(`https://api.github.com/app/installations/${encodeURIComponent(installationId)}`, {
         headers: {
@@ -348,7 +375,7 @@ const server = http.createServer(async (req, res) => {
       if (!ghRes.ok) {
         return json(res, 403, { error: 'Invalid installation' });
       }
-      const token = createSessionToken(installationId);
+      const token = createSessionToken(installationId as string);
       return json(res, 200, { token, installationId });
     }
 
@@ -361,15 +388,15 @@ const server = http.createServer(async (req, res) => {
 
     const repoListMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repositories$/);
     if (repoListMatch && req.method === 'GET') {
-      const session = requireSession(req);
+      const session = requireSession(req)!;
       const installationId = repoListMatch[1];
       if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
-      const allRepos = [];
+      const allRepos: unknown[] = [];
       const MAX_PAGES = 50;
       let page = 1;
       while (page <= MAX_PAGES) {
         const ghRes = await githubFetchWithInstallationToken(installationId, `/installation/repositories?per_page=100&page=${page}`);
-        const data = await ghRes.json();
+        const data = (await ghRes.json()) as { total_count: number; repositories?: unknown[] };
         allRepos.push(...(data.repositories ?? []));
         if (allRepos.length >= data.total_count || (data.repositories ?? []).length < 100) break;
         page++;
@@ -380,7 +407,7 @@ const server = http.createServer(async (req, res) => {
     // Repo Contents API proxy
     const contentsMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
     if (contentsMatch) {
-      const session = requireSession(req);
+      const session = requireSession(req)!;
       const installationId = contentsMatch[1];
       if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
       const owner = contentsMatch[2];
@@ -392,7 +419,7 @@ const server = http.createServer(async (req, res) => {
         const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
         const ghUrl = ref ? `${ghPath}?ref=${encodeURIComponent(ref)}` : ghPath;
         const ghRes = await githubFetchWithInstallationToken(installationId, ghUrl);
-        const data = await ghRes.json();
+        const data: unknown = await ghRes.json();
         return json(res, 200, data);
       }
 
@@ -400,7 +427,7 @@ const server = http.createServer(async (req, res) => {
         const body = await readJson(req);
         const pathParam = requireString(body, 'path');
         const message = requireString(body, 'message');
-        const content = requireString(body, 'content'); // base64
+        const content = requireString(body, 'content');
         const sha = typeof body?.sha === 'string' ? body.sha : undefined;
         const branch = typeof body?.branch === 'string' ? body.branch : undefined;
         const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
@@ -409,7 +436,7 @@ const server = http.createServer(async (req, res) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message, content, sha, branch }),
         });
-        const data = await ghRes.json();
+        const data: unknown = await ghRes.json();
         return json(res, 200, data);
       }
 
@@ -425,7 +452,7 @@ const server = http.createServer(async (req, res) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message, sha, branch }),
         });
-        const data = await ghRes.json();
+        const data: unknown = await ghRes.json();
         return json(res, 200, data);
       }
 
@@ -437,7 +464,6 @@ const server = http.createServer(async (req, res) => {
     const msg = err instanceof Error ? err.message : '';
     const safe = /^(Request body too large|Invalid JSON body|GitHub API error: \d+|\w+ is required)$/.test(msg);
     if (!safe) {
-      // eslint-disable-next-line no-console
       console.error('Unhandled server error:', err);
     }
     return json(res, safe ? 400 : 500, { error: safe ? msg : 'Internal server error' });
@@ -450,15 +476,12 @@ server.listen(PORT, () => {
     (process.env.GITHUB_APP_PRIVATE_KEY || process.env.GITHUB_APP_PRIVATE_KEY_PATH) &&
     process.env.GITHUB_APP_SLUG,
   );
-  // eslint-disable-next-line no-console
   console.log(`GitHub App auth server listening on http://localhost:${PORT} (configured=${configured})`);
 });
 
-function gracefulShutdown(signal) {
-  // eslint-disable-next-line no-console
+function gracefulShutdown(signal: string): void {
   console.log(`\n${signal} received, shutting down gracefully...`);
   server.close(() => process.exit(0));
-  // Force exit after 5 seconds if connections don't close
   setTimeout(() => process.exit(1), 5000).unref();
 }
 
