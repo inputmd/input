@@ -1,6 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
 import { config } from 'dotenv';
 
 config({ path: new URL('../.env', import.meta.url) });
@@ -285,6 +286,44 @@ function encodePathPreserveSlashes(path: string): string {
     .join('/');
 }
 
+// --- Static file serving (production) ---
+
+const DIST_DIR = path.resolve(new URL('../dist', import.meta.url).pathname);
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain',
+};
+
+async function serveStatic(res: http.ServerResponse, pathname: string): Promise<boolean> {
+  const safePath = path.normalize(decodeURIComponent(pathname));
+  const filePath = path.join(DIST_DIR, safePath);
+  if (!filePath.startsWith(DIST_DIR)) return false;
+
+  try {
+    const s = await stat(filePath);
+    if (!s.isFile()) return false;
+    const ext = path.extname(filePath);
+    const content = await readFile(filePath);
+    res.writeHead(200, {
+      'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+      ...(ext !== '.html' ? { 'Cache-Control': 'public, max-age=31536000, immutable' } : {}),
+    });
+    res.end(content);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // --- CORS ---
 
 const ALLOWED_ORIGINS = new Set([
@@ -472,6 +511,12 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
       if (!ghRes.ok) return json(res, 502, { error: 'Failed to poll for token' });
       const data = await ghRes.json() as Record<string, unknown>;
       return json(res, 200, data);
+    }
+
+    // Static files / SPA fallback
+    if (req.method === 'GET') {
+      if (await serveStatic(res, pathname)) return;
+      if (await serveStatic(res, '/index.html')) return;
     }
 
     return json(res, 404, { error: 'Not found' });

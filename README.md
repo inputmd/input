@@ -46,7 +46,7 @@ https://github.com/settings/apps/new:
 Copy the application ID, application slug, and a generated private key
 into your .env.
 
-```sh
+```
 # Terminal A — API server (default: http://localhost:8787)
 npm run server
 
@@ -56,11 +56,39 @@ npm run dev
 
 ## Building for production
 
-```sh
+```
 npm run build
 ```
 
-Output is written to `dist/`. Serve the static files and run `npm run server` for the API.
+Output is written to `dist/`. The API server serves both the API and
+static files in production, so only one process is needed:
+
+```
+npm run server
+```
+
+## Deploying to Fly.io
+
+Install the [Fly CLI](https://fly.io/docs/flyctl/install/) and sign in:
+
+```
+fly auth login
+```
+
+Create the app and set your secrets:
+
+```
+fly launch --no-deploy
+fly secrets set SESSION_SECRET=$(openssl rand -hex 32)
+fly secrets set GITHUB_CLIENT_ID=...
+fly secrets set GITHUB_APP_ID=...
+fly secrets set GITHUB_APP_SLUG=...
+fly secrets set GITHUB_APP_PRIVATE_KEY="$(cat path/to/private-key.pem)"
+fly deploy
+```
+
+After deploying, update your GitHub OAuth App and GitHub App settings
+to point to your production URL (e.g. `https://input.fly.dev`).
 
 ## License
 
