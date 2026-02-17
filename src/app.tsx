@@ -75,6 +75,8 @@ export function App() {
 
   // Track initialization
   const initialized = useRef(false);
+  // When true, loaders skip overwriting gistFiles/repoFiles (e.g. after delete/rename set them optimistically)
+  const keepFileList = useRef(false);
 
   // --- Helpers ---
   const syncRepoState = useCallback(() => {
@@ -142,6 +144,7 @@ export function App() {
 
   // --- Helpers ---
   const fetchRepoSidebarFiles = useCallback(async (instId: string, repoName: string) => {
+    if (keepFileList.current) { keepFileList.current = false; return; }
     try {
       const dirContents = await getRepoContents(instId, repoName, REPO_DOCS_DIR);
       if (Array.isArray(dirContents)) {
@@ -165,7 +168,8 @@ export function App() {
       if (!res.ok) throw new Error(`Failed to fetch gist: ${res.status} ${res.statusText}`);
       const data = await res.json();
       const files = data.files as Record<string, GistFile>;
-      setGistFiles(files);
+      if (!keepFileList.current) setGistFiles(files);
+      keepFileList.current = false;
 
       const fileKeys = Object.keys(files);
       const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
@@ -194,7 +198,8 @@ export function App() {
     setActiveView('loading');
     try {
       const gist = await getGist(id);
-      setGistFiles(gist.files);
+      if (!keepFileList.current) setGistFiles(gist.files);
+      keepFileList.current = false;
 
       const fileKeys = Object.keys(gist.files);
       const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
@@ -322,7 +327,8 @@ export function App() {
         setActiveView('loading');
         try {
           const gist = await getGist(r.params.id);
-          setGistFiles(gist.files);
+          if (!keepFileList.current) setGistFiles(gist.files);
+          keepFileList.current = false;
 
           const fileKeys = Object.keys(gist.files);
           const targetName = r.params.filename
@@ -549,6 +555,7 @@ export function App() {
       if (currentGistId) {
         const gist = await deleteFileFromGist(currentGistId, filename);
         setGistFiles(gist.files);
+        keepFileList.current = true;
         const remaining = Object.keys(gist.files);
         if (remaining.length > 0) {
           navigate(`gist/${currentGistId}/${encodeURIComponent(remaining[0])}`);
@@ -564,6 +571,7 @@ export function App() {
         await deleteRepoFile(instId, repoName, repoFile.path, `Delete ${filename}`, repoFile.sha);
         const remaining = repoFiles.filter(f => f.name !== filename);
         setRepoFiles(remaining);
+        keepFileList.current = true;
         if (remaining.length > 0) {
           navigate(`repofile/${encodeURIComponent(remaining[0].path)}`);
         } else {
@@ -583,6 +591,7 @@ export function App() {
         setGistFiles(gist.files);
         if (currentFileName === oldName) {
           setCurrentFileName(newName);
+          keepFileList.current = true;
           navigate(`gist/${currentGistId}/${encodeURIComponent(newName)}`);
         }
       } else if (selectedRepo) {
@@ -598,6 +607,7 @@ export function App() {
         await putRepoFile(instId, repoName, newPath, `Rename ${oldName} to ${newName}`, contents.content ?? '');
         await deleteRepoFile(instId, repoName, oldFile.path, `Delete ${oldName} (renamed)`, oldFile.sha);
         if (currentFileName === oldName) {
+          keepFileList.current = true;
           navigate(`repofile/${encodeURIComponent(newPath)}`);
         }
       }
