@@ -69,14 +69,19 @@ function escHtml(t: string): string {
   return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function clampRgb(r: string, g: string, b: string): string {
+  const clamp = (v: string) => Math.max(0, Math.min(255, parseInt(v, 10) || 0));
+  return `rgb(${clamp(r)},${clamp(g)},${clamp(b)})`;
+}
+
 function applyColon(part: string, s: Style) {
   const subs = part.split(':').map(x => parseInt(x, 10));
   if (subs[0] === 38 && subs[1] === 2) {
     const off = subs.length >= 6 ? 3 : 2;
-    s.fg = `rgb(${subs[off]},${subs[off + 1]},${subs[off + 2]})`;
+    s.fg = clampRgb(String(subs[off]), String(subs[off + 1]), String(subs[off + 2]));
   } else if (subs[0] === 48 && subs[1] === 2) {
     const off = subs.length >= 6 ? 3 : 2;
-    s.bg = `rgb(${subs[off]},${subs[off + 1]},${subs[off + 2]})`;
+    s.bg = clampRgb(String(subs[off]), String(subs[off + 1]), String(subs[off + 2]));
   } else if (subs[0] === 38 && subs[1] === 5 && subs.length >= 3) {
     s.fg = color256(subs[2]);
   } else if (subs[0] === 48 && subs[1] === 5 && subs.length >= 3) {
@@ -100,7 +105,7 @@ function applySgr(paramStr: string, s: Style) {
     if (c === 38 && i + 1 < parts.length) {
       const m = parseInt(parts[i + 1], 10);
       if (m === 2 && i + 4 < parts.length) {
-        s.fg = `rgb(${parts[i + 2]},${parts[i + 3]},${parts[i + 4]})`; i += 5; continue;
+        s.fg = clampRgb(parts[i + 2], parts[i + 3], parts[i + 4]); i += 5; continue;
       } else if (m === 5 && i + 2 < parts.length) {
         s.fg = color256(parseInt(parts[i + 2], 10)); i += 3; continue;
       }
@@ -108,7 +113,7 @@ function applySgr(paramStr: string, s: Style) {
     if (c === 48 && i + 1 < parts.length) {
       const m = parseInt(parts[i + 1], 10);
       if (m === 2 && i + 4 < parts.length) {
-        s.bg = `rgb(${parts[i + 2]},${parts[i + 3]},${parts[i + 4]})`; i += 5; continue;
+        s.bg = clampRgb(parts[i + 2], parts[i + 3], parts[i + 4]); i += 5; continue;
       } else if (m === 5 && i + 2 < parts.length) {
         s.bg = color256(parseInt(parts[i + 2], 10)); i += 3; continue;
       }

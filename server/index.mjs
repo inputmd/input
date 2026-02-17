@@ -12,7 +12,9 @@ async function loadDotEnv() {
       if (eq === -1) continue;
       const key = trimmed.slice(0, eq).trim();
       let value = trimmed.slice(eq + 1).trim();
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1).replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
+      } else if (value.startsWith("'") && value.endsWith("'")) {
         value = value.slice(1, -1);
       }
       if (process.env[key] == null) process.env[key] = value;
@@ -45,12 +47,23 @@ function base64url(input) {
     .replace(/\//g, '_');
 }
 
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+
 async function readJson(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let totalBytes = 0;
+  for await (const chunk of req) {
+    totalBytes += chunk.length;
+    if (totalBytes > MAX_BODY_BYTES) throw new Error('Request body too large');
+    chunks.push(chunk);
+  }
   const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw) return null;
-  return JSON.parse(raw);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error('Invalid JSON body');
+  }
 }
 
 function requireEnv(name) {
@@ -95,6 +108,48 @@ async function createAppJwt() {
 
 const installationTokenCache = new Map();
 
+// Evict expired tokens every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of installationTokenCache) {
+    if (record.expiresAtMs <= now) installationTokenCache.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
+// Rate limiter: per-IP sliding window
+const rateLimitWindows = new Map(); // ip -> { count, resetAtMs }
+const RATE_LIMIT_MAX = 30;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
+function checkRateLimit(req, res) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null)
+    || req.socket.remoteAddress
+    || 'unknown';
+  const now = Date.now();
+  let entry = rateLimitWindows.get(ip);
+  if (!entry || now >= entry.resetAtMs) {
+    entry = { count: 0, resetAtMs: now + RATE_LIMIT_WINDOW_MS };
+    rateLimitWindows.set(ip, entry);
+  }
+  entry.count++;
+  if (entry.count > RATE_LIMIT_MAX) {
+    const retryAfter = Math.ceil((entry.resetAtMs - now) / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    json(res, 429, { error: 'Too many requests' });
+    return false;
+  }
+  return true;
+}
+
+// Evict stale rate-limit entries every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitWindows) {
+    if (now >= entry.resetAtMs) rateLimitWindows.delete(ip);
+  }
+}, 2 * 60 * 1000).unref();
+
 function cacheKey(installationId, repositoryIds) {
   if (!repositoryIds?.length) return `${installationId}:all`;
   return `${installationId}:${repositoryIds.map((n) => String(n)).sort().join(',')}`;
@@ -120,7 +175,9 @@ async function getInstallationToken(installationId, repositoryIds) {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`Failed to mint installation token: ${res.status} ${res.statusText}${body ? ` - ${body}` : ''}`);
+    // eslint-disable-next-line no-console
+    console.error(`Failed to mint installation token: ${res.status} ${res.statusText}`, body);
+    throw new Error(`GitHub API error: ${res.status}`);
   }
   const data = await res.json();
   const expiresAtMs = Date.parse(data.expires_at);
@@ -143,7 +200,9 @@ async function githubFetchWithInstallationToken(installationId, path, init = {})
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}${body ? ` - ${body}` : ''}`);
+    // eslint-disable-next-line no-console
+    console.error(`GitHub API error on ${path}: ${res.status} ${res.statusText}`, body);
+    throw new Error(`GitHub API error: ${res.status}`);
   }
   return res;
 }
@@ -161,12 +220,21 @@ function requireString(body, key) {
   return v;
 }
 
+const ALLOWED_ORIGINS = new Set([
+  'http://input.md',
+  'https://input.md',
+  'http://localhost:5173',
+  'http://localhost:5174',
+]);
+
 function corsify(req, res) {
-  const origin = req.headers.origin ?? '*';
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
 }
 
 const server = http.createServer(async (req, res) => {
@@ -189,21 +257,24 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { url: installUrl.toString() });
     }
 
-    if (pathname === '/api/github-app/debug/installation-token' && req.method === 'POST') {
-      const body = await readJson(req);
-      const installationId = body?.installationId;
-      const repositoryIds = body?.repositoryIds;
-      if (!installationId) return json(res, 400, { error: 'installationId is required' });
-      const token = await getInstallationToken(installationId, repositoryIds);
-      return json(res, 200, token);
+    // Rate-limit all endpoints that mint installation tokens
+    if (pathname.startsWith('/api/github-app/installations/')) {
+      if (!checkRateLimit(req, res)) return;
     }
 
     const repoListMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repositories$/);
     if (repoListMatch && req.method === 'GET') {
       const installationId = repoListMatch[1];
-      const ghRes = await githubFetchWithInstallationToken(installationId, '/installation/repositories');
-      const data = await ghRes.json();
-      return json(res, 200, data);
+      const allRepos = [];
+      let page = 1;
+      while (true) {
+        const ghRes = await githubFetchWithInstallationToken(installationId, `/installation/repositories?per_page=100&page=${page}`);
+        const data = await ghRes.json();
+        allRepos.push(...(data.repositories ?? []));
+        if (allRepos.length >= data.total_count || (data.repositories ?? []).length < 100) break;
+        page++;
+      }
+      return json(res, 200, { total_count: allRepos.length, repositories: allRepos });
     }
 
     // Repo Contents API proxy (read)
@@ -271,8 +342,13 @@ const server = http.createServer(async (req, res) => {
 
     return json(res, 404, { error: 'Not found' });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    return json(res, 500, { error: msg });
+    const msg = err instanceof Error ? err.message : '';
+    const safe = /^(Request body too large|Invalid JSON body|GitHub API error: \d+|\w+ is required)$/.test(msg);
+    if (!safe) {
+      // eslint-disable-next-line no-console
+      console.error('Unhandled server error:', err);
+    }
+    return json(res, safe ? 400 : 500, { error: safe ? msg : 'Internal server error' });
   }
 });
 

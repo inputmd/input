@@ -30,4 +30,4 @@ It also includes a small repo-backed document store that reads/writes Markdown f
 - `GET /api/github-app/installations/:installationId/repos/:owner/:repo/contents?path=...` → reads repo contents (file or directory listing).
 - `PUT /api/github-app/installations/:installationId/repos/:owner/:repo/contents` → creates/updates a file (base64 content).
 - `DELETE /api/github-app/installations/:installationId/repos/:owner/:repo/contents` → deletes a file.
-- `POST /api/github-app/debug/installation-token` → returns an installation token (debug only; don’t expose in prod).
+

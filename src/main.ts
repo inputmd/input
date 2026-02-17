@@ -55,7 +55,7 @@ function showView(name: AppView) {
 
   // Nav buttons
   $('docs-btn').style.display = currentUser && name !== 'documents' ? '' : 'none';
-  $('viewer-btn').style.display = name !== 'input' && name !== 'auth' ? '' : 'none';
+  $('viewer-btn').style.display = name !== 'input' ? '' : 'none';
   $('githubapp-btn').style.display = currentInstallationId && name !== 'githubapp' ? '' : 'none';
   $('repodocs-btn').style.display = selectedRepoFullName && name !== 'repodocuments' ? '' : 'none';
 }
@@ -235,7 +235,7 @@ function tryHandleGitHubAppSetupRedirect(): boolean {
   const actualState = params.get('state');
   sessionStorage.removeItem('github_app_install_state');
 
-  if (expectedState && actualState && expectedState !== actualState) {
+  if (!expectedState || !actualState || expectedState !== actualState) {
     $('error-message').textContent = 'GitHub App install state mismatch. Please try again.';
     showView('error');
     return true;
