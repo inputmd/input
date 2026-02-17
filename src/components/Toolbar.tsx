@@ -93,7 +93,7 @@ export function Toolbar({
             <span class="user-name">{user.name ?? user.login}</span>
             <button type="button" onClick={onSignOut}>Sign Out</button>
           </div>
-        ) : !showSignInToSave ? (
+        ) : !showSignInToSave && view !== 'auth' ? (
           <button type="button" onClick={() => navigate('auth')}>Sign In</button>
         ) : null}
       </div>

@@ -129,7 +129,7 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
                   placeholder="ghp_xxxxxxxxxxxx"
                   autocomplete="off"
                 />
-                <button type="submit">Sign In</button>
+                <button type="submit">Sign in</button>
               </form>
               {error && <p class="auth-error">{error}</p>}
               <p class="hint">

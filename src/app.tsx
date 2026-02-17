@@ -149,7 +149,7 @@ export function App() {
       }
       const content = contents.join('\n\n');
       setRenderedHtml(parseAnsiToHtml(content));
-      setCurrentGistId(null);
+      setCurrentGistId(id);
       setCurrentRepoDocPath(null);
       setCurrentRepoDocSha(null);
       setActiveView('content');
