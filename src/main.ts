@@ -116,7 +116,7 @@ async function fetchGistContent(id: string): Promise<string> {
     if (file.content != null) {
       contents.push(file.content);
     } else if (new URL(file.raw_url).hostname === 'gist.githubusercontent.com') {
-      const raw = await fetch(file.raw_url);
+      const raw = await fetch(file.raw_url, { redirect: 'error' });
       if (raw.ok) contents.push(await raw.text());
     }
   }
@@ -290,7 +290,7 @@ function renderRepoList(list: InstallationRepoList): void {
     const a = document.createElement('a');
     a.href = repo.html_url;
     a.target = '_blank';
-    a.rel = 'noopener';
+    a.rel = 'noopener noreferrer';
     a.textContent = repo.full_name + (repo.private ? ' (private)' : '');
     li.appendChild(a);
     ul.appendChild(li);

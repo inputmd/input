@@ -149,6 +149,7 @@ async function createAppJwt() {
 }
 
 const installationTokenCache = new Map();
+const MAX_TOKEN_CACHE_SIZE = 1000;
 
 // Evict expired tokens every 5 minutes
 setInterval(() => {
@@ -158,21 +159,35 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-// Rate limiter: per-IP sliding window
+// Rate limiter: per-IP fixed window
 const rateLimitWindows = new Map(); // ip -> { count, resetAtMs }
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60_000;
+const MAX_RATE_LIMIT_ENTRIES = 10_000;
+const TRUST_PROXY = process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true';
+
+function getClientIp(req) {
+  if (TRUST_PROXY) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+      const first = forwarded.split(',')[0].trim();
+      if (first) return first;
+    }
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
 
 function checkRateLimit(req, res) {
-  const forwarded = req.headers['x-forwarded-for'];
-  const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null)
-    || req.socket.remoteAddress
-    || 'unknown';
+  const ip = getClientIp(req);
   const now = Date.now();
   let entry = rateLimitWindows.get(ip);
   if (!entry || now >= entry.resetAtMs) {
     entry = { count: 0, resetAtMs: now + RATE_LIMIT_WINDOW_MS };
     rateLimitWindows.set(ip, entry);
+  }
+  if (rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES && !rateLimitWindows.has(ip)) {
+    json(res, 429, { error: 'Too many requests' });
+    return false;
   }
   entry.count++;
   if (entry.count > RATE_LIMIT_MAX) {
@@ -197,6 +212,8 @@ function cacheKey(installationId, repositoryIds) {
   return `${installationId}:${repositoryIds.map((n) => String(n)).sort().join(',')}`;
 }
 
+const GITHUB_FETCH_TIMEOUT_MS = 15_000;
+
 async function getInstallationToken(installationId, repositoryIds) {
   const key = cacheKey(installationId, repositoryIds);
   const cached = installationTokenCache.get(key);
@@ -214,6 +231,7 @@ async function getInstallationToken(installationId, repositoryIds) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(repositoryIds?.length ? { repository_ids: repositoryIds } : {}),
+    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -224,6 +242,10 @@ async function getInstallationToken(installationId, repositoryIds) {
   const data = await res.json();
   const expiresAtMs = Date.parse(data.expires_at);
   const record = { token: data.token, expires_at: data.expires_at, expiresAtMs };
+  if (installationTokenCache.size >= MAX_TOKEN_CACHE_SIZE) {
+    const oldest = installationTokenCache.keys().next().value;
+    installationTokenCache.delete(oldest);
+  }
   installationTokenCache.set(key, record);
   return record;
 }
@@ -239,6 +261,7 @@ async function githubFetchWithInstallationToken(installationId, path, init = {})
       'X-GitHub-Api-Version': '2022-11-28',
       ...(init.headers ?? {}),
     },
+    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -263,7 +286,6 @@ function requireString(body, key) {
 }
 
 const ALLOWED_ORIGINS = new Set([
-  'http://input.md',
   'https://input.md',
   'http://localhost:5173',
   'http://localhost:5174',
@@ -271,16 +293,20 @@ const ALLOWED_ORIGINS = new Set([
 
 function corsify(req, res) {
   const origin = req.headers.origin;
+  res.setHeader('Vary', 'Origin');
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.setHeader('Access-Control-Max-Age', '600');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 }
 
 const server = http.createServer(async (req, res) => {
   try {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
     corsify(req, res);
     if (req.method === 'OPTIONS') return res.end();
 
@@ -292,6 +318,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/github-app/install-url' && req.method === 'GET') {
+      if (!checkRateLimit(req, res)) return;
       const slug = requireEnv('GITHUB_APP_SLUG');
       const state = url.searchParams.get('state');
       const installUrl = new URL(`https://github.com/apps/${slug}/installations/new`);
@@ -316,6 +343,7 @@ const server = http.createServer(async (req, res) => {
           'User-Agent': 'input-github-app-auth-server',
           'X-GitHub-Api-Version': '2022-11-28',
         },
+        signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
       });
       if (!ghRes.ok) {
         return json(res, 403, { error: 'Invalid installation' });
@@ -337,8 +365,9 @@ const server = http.createServer(async (req, res) => {
       const installationId = repoListMatch[1];
       if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
       const allRepos = [];
+      const MAX_PAGES = 50;
       let page = 1;
-      while (true) {
+      while (page <= MAX_PAGES) {
         const ghRes = await githubFetchWithInstallationToken(installationId, `/installation/repositories?per_page=100&page=${page}`);
         const data = await ghRes.json();
         allRepos.push(...(data.repositories ?? []));
@@ -348,73 +377,59 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { total_count: allRepos.length, repositories: allRepos });
     }
 
-    // Repo Contents API proxy (read)
-    const contentsGetMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
-    if (contentsGetMatch && req.method === 'GET') {
+    // Repo Contents API proxy
+    const contentsMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
+    if (contentsMatch) {
       const session = requireSession(req);
-      const installationId = contentsGetMatch[1];
+      const installationId = contentsMatch[1];
       if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
-      const owner = contentsGetMatch[2];
-      const repo = contentsGetMatch[3];
-      const pathParam = url.searchParams.get('path') ?? '';
-      const ref = url.searchParams.get('ref');
+      const owner = contentsMatch[2];
+      const repo = contentsMatch[3];
 
-      const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
-      const ghUrl = ref ? `${ghPath}?ref=${encodeURIComponent(ref)}` : ghPath;
-      const ghRes = await githubFetchWithInstallationToken(installationId, ghUrl);
-      const data = await ghRes.json();
-      return json(res, 200, data);
-    }
+      if (req.method === 'GET') {
+        const pathParam = url.searchParams.get('path') ?? '';
+        const ref = url.searchParams.get('ref');
+        const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+        const ghUrl = ref ? `${ghPath}?ref=${encodeURIComponent(ref)}` : ghPath;
+        const ghRes = await githubFetchWithInstallationToken(installationId, ghUrl);
+        const data = await ghRes.json();
+        return json(res, 200, data);
+      }
 
-    // Repo Contents API proxy (write/update)
-    const contentsPutMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
-    if (contentsPutMatch && req.method === 'PUT') {
-      const session = requireSession(req);
-      const installationId = contentsPutMatch[1];
-      if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
-      const owner = contentsPutMatch[2];
-      const repo = contentsPutMatch[3];
-      const body = await readJson(req);
+      if (req.method === 'PUT') {
+        const body = await readJson(req);
+        const pathParam = requireString(body, 'path');
+        const message = requireString(body, 'message');
+        const content = requireString(body, 'content'); // base64
+        const sha = typeof body?.sha === 'string' ? body.sha : undefined;
+        const branch = typeof body?.branch === 'string' ? body.branch : undefined;
+        const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+        const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, content, sha, branch }),
+        });
+        const data = await ghRes.json();
+        return json(res, 200, data);
+      }
 
-      const pathParam = requireString(body, 'path');
-      const message = requireString(body, 'message');
-      const content = requireString(body, 'content'); // base64
-      const sha = typeof body?.sha === 'string' ? body.sha : undefined;
-      const branch = typeof body?.branch === 'string' ? body.branch : undefined;
+      if (req.method === 'DELETE') {
+        const body = await readJson(req);
+        const pathParam = requireString(body, 'path');
+        const message = requireString(body, 'message');
+        const sha = requireString(body, 'sha');
+        const branch = typeof body?.branch === 'string' ? body.branch : undefined;
+        const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+        const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, sha, branch }),
+        });
+        const data = await ghRes.json();
+        return json(res, 200, data);
+      }
 
-      const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
-      const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, content, sha, branch }),
-      });
-      const data = await ghRes.json();
-      return json(res, 200, data);
-    }
-
-    // Repo Contents API proxy (delete)
-    const contentsDelMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
-    if (contentsDelMatch && req.method === 'DELETE') {
-      const session = requireSession(req);
-      const installationId = contentsDelMatch[1];
-      if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
-      const owner = contentsDelMatch[2];
-      const repo = contentsDelMatch[3];
-      const body = await readJson(req);
-
-      const pathParam = requireString(body, 'path');
-      const message = requireString(body, 'message');
-      const sha = requireString(body, 'sha');
-      const branch = typeof body?.branch === 'string' ? body.branch : undefined;
-
-      const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
-      const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, sha, branch }),
-      });
-      const data = await ghRes.json();
-      return json(res, 200, data);
+      return json(res, 405, { error: 'Method not allowed' });
     }
 
     return json(res, 404, { error: 'Not found' });
@@ -438,3 +453,14 @@ server.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`GitHub App auth server listening on http://localhost:${PORT} (configured=${configured})`);
 });
+
+function gracefulShutdown(signal) {
+  // eslint-disable-next-line no-console
+  console.log(`\n${signal} received, shutting down gracefully...`);
+  server.close(() => process.exit(0));
+  // Force exit after 5 seconds if connections don't close
+  setTimeout(() => process.exit(1), 5000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
