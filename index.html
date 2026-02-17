@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gist Viewer</title>
+  </head>
+  <body>
+    <div id="app">
+      <header id="toolbar">
+        <button id="theme-toggle" type="button" title="Toggle theme">
+          <span id="theme-icon">&#9728;</span>
+        </button>
+        <div id="action-buttons">
+          <button id="edit-btn" type="button" style="display:none">Edit</button>
+          <button id="save-btn" type="button" style="display:none">Save</button>
+          <button id="cancel-btn" type="button" style="display:none">Cancel</button>
+        </div>
+      </header>
+      <main>
+        <div id="input-view">
+          <h1>Gist Viewer</h1>
+          <p>Paste a GitHub Gist URL to view its contents</p>
+          <form id="gist-form">
+            <input type="text" id="gist-url" placeholder="https://gist.github.com/user/abc123" autofocus />
+            <button type="submit">Load</button>
+          </form>
+        </div>
+        <div id="loading-view" style="display:none">
+          <p>Loading gist...</p>
+        </div>
+        <div id="error-view" style="display:none">
+          <p id="error-message"></p>
+          <button id="retry-btn" type="button">Try Again</button>
+        </div>
+        <div id="content-view" style="display:none">
+          <pre id="rendered-content"></pre>
+        </div>
+        <div id="edit-view" style="display:none">
+          <div id="editor" contenteditable="true"></div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

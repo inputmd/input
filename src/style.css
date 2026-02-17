@@ -1,0 +1,259 @@
+:root {
+  --bg: #0d1117;
+  --text: #e6edf3;
+  --text-secondary: #8b949e;
+  --toolbar-bg: #161b22;
+  --border: #30363d;
+  --input-bg: #0d1117;
+  --btn-bg: #21262d;
+  --btn-text: #c9d1d9;
+  --btn-hover: #30363d;
+  --focus-border: #58a6ff;
+  --focus-shadow: rgba(88, 166, 255, 0.4);
+  --error-color: #f85149;
+
+  --ansi-black: #555555;
+  --ansi-red: #f44747;
+  --ansi-green: #0dbc79;
+  --ansi-yellow: #e5e510;
+  --ansi-blue: #2472c8;
+  --ansi-magenta: #bc3fbc;
+  --ansi-cyan: #11a8cd;
+  --ansi-white: #e5e5e5;
+  --ansi-bright-black: #666666;
+  --ansi-bright-red: #f14c4c;
+  --ansi-bright-green: #23d18b;
+  --ansi-bright-yellow: #f5f543;
+  --ansi-bright-blue: #3b8eea;
+  --ansi-bright-magenta: #d670d6;
+  --ansi-bright-cyan: #29b8db;
+  --ansi-bright-white: #ffffff;
+}
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --text: #1f2328;
+  --text-secondary: #656d76;
+  --toolbar-bg: #f6f8fa;
+  --border: #d0d7de;
+  --input-bg: #f6f8fa;
+  --btn-bg: #f6f8fa;
+  --btn-text: #1f2328;
+  --btn-hover: #eaeef2;
+  --focus-border: #0969da;
+  --focus-shadow: rgba(9, 105, 218, 0.3);
+  --error-color: #cf222e;
+
+  --ansi-black: #1e1e1e;
+  --ansi-red: #cd3131;
+  --ansi-green: #00bc00;
+  --ansi-yellow: #949800;
+  --ansi-blue: #0451a5;
+  --ansi-magenta: #bc05bc;
+  --ansi-cyan: #0598bc;
+  --ansi-white: #555555;
+  --ansi-bright-black: #666666;
+  --ansi-bright-red: #cd3131;
+  --ansi-bright-green: #14ce14;
+  --ansi-bright-yellow: #b5ba00;
+  --ansi-bright-blue: #0451a5;
+  --ansi-bright-magenta: #bc05bc;
+  --ansi-bright-cyan: #0598bc;
+  --ansi-bright-white: #a5a5a5;
+}
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Toolbar */
+
+#toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+#action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+/* Buttons */
+
+button {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  transition: background 0.15s;
+}
+
+button:hover {
+  background: var(--btn-hover);
+}
+
+#theme-toggle {
+  padding: 6px 10px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Input view */
+
+#input-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 24px 16px;
+}
+
+#input-view h1 {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+#input-view p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+#gist-form {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 600px;
+}
+
+#gist-url {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+#gist-url:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
+/* Loading view */
+
+#loading-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+/* Error view */
+
+#error-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 16px;
+}
+
+#error-message {
+  color: var(--error-color);
+}
+
+/* Content view */
+
+#content-view {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+#rendered-content {
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Edit view */
+
+#edit-view {
+  max-width: 100ch;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#editor {
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  flex: 1;
+  min-height: calc(100vh - 100px);
+  padding: 16px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  outline: none;
+}
+
+#editor:focus {
+  border-color: var(--focus-border);
+}
