@@ -28,7 +28,7 @@ async function fetchGistContent(id: string): Promise<string> {
   for (const file of files) {
     if (file.content != null) {
       contents.push(file.content);
-    } else {
+    } else if (new URL(file.raw_url).hostname === 'gist.githubusercontent.com') {
       const raw = await fetch(file.raw_url);
       if (raw.ok) contents.push(await raw.text());
     }
@@ -107,12 +107,18 @@ function init() {
     else showView('input');
   });
 
-  // Load gist from URL hash on startup
-  const hash = window.location.hash.slice(1);
-  if (hash) {
-    const id = extractGistId(decodeURIComponent(hash));
-    if (id) loadGist(id);
+  function loadFromHash() {
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      const id = extractGistId(decodeURIComponent(hash));
+      if (id) loadGist(id);
+    } else {
+      showView('input');
+    }
   }
+
+  window.addEventListener('hashchange', loadFromHash);
+  loadFromHash();
 }
 
 init();
