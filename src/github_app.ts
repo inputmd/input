@@ -1,5 +1,6 @@
 const INSTALLATION_ID_KEY = 'github_app_installation_id';
 const SELECTED_REPO_KEY = 'github_app_selected_repo';
+const SESSION_TOKEN_KEY = 'github_app_session_token';
 
 export function getInstallationId(): string | null {
   return localStorage.getItem(INSTALLATION_ID_KEY);
@@ -38,6 +39,39 @@ export function clearSelectedRepo(): void {
   localStorage.removeItem(SELECTED_REPO_KEY);
 }
 
+export function getSessionToken(): string | null {
+  return sessionStorage.getItem(SESSION_TOKEN_KEY);
+}
+
+export function setSessionToken(token: string): void {
+  sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+}
+
+export function clearSessionToken(): void {
+  sessionStorage.removeItem(SESSION_TOKEN_KEY);
+}
+
+export async function createSession(installationId: string): Promise<string> {
+  const res = await fetch('/api/github-app/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ installationId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const msg = body?.error ?? `${res.status} ${res.statusText}`;
+    throw new Error(msg);
+  }
+  const data = await res.json() as { token: string; installationId: string };
+  setSessionToken(data.token);
+  return data.token;
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getSessionToken();
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
 export function createInstallState(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -62,7 +96,9 @@ export interface InstallationRepoList {
 }
 
 export async function listInstallationRepos(installationId: string): Promise<InstallationRepoList> {
-  const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repositories`);
+  const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repositories`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const msg = body?.error ?? `${res.status} ${res.statusText}`;
@@ -102,7 +138,9 @@ export async function getRepoContents(installationId: string, repoFullName: stri
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams({ path });
   if (ref) qs.set('ref', ref);
-  const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`);
+  const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const msg = body?.error ?? `${res.status} ${res.statusText}`;
@@ -127,7 +165,7 @@ export async function putRepoFile(
   const { owner, repo } = splitFullName(repoFullName);
   const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ path, message, content: contentBase64, sha }),
   });
   if (!res.ok) {
@@ -148,7 +186,7 @@ export async function deleteRepoFile(
   const { owner, repo } = splitFullName(repoFullName);
   const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ path, message, sha }),
   });
   if (!res.ok) {

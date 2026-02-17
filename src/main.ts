@@ -7,6 +7,7 @@ import {
 import {
   getInstallationId, setInstallationId, clearInstallationId,
   getSelectedRepo, setSelectedRepo, clearSelectedRepo,
+  clearSessionToken, createSession,
   createInstallState, getInstallUrl, listInstallationRepos,
   getRepoContents, putRepoFile, deleteRepoFile,
   type InstallationRepoList,
@@ -226,7 +227,7 @@ async function connectGitHubApp() {
   window.location.assign(url);
 }
 
-function tryHandleGitHubAppSetupRedirect(): boolean {
+async function tryHandleGitHubAppSetupRedirect(): Promise<boolean> {
   const params = new URLSearchParams(window.location.search);
   const installationId = params.get('installation_id');
   if (!installationId) return false;
@@ -237,6 +238,15 @@ function tryHandleGitHubAppSetupRedirect(): boolean {
 
   if (!expectedState || !actualState || expectedState !== actualState) {
     $('error-message').textContent = 'GitHub App install state mismatch. Please try again.';
+    showView('error');
+    return true;
+  }
+
+  // Exchange installation_id for a signed session token
+  try {
+    await createSession(installationId);
+  } catch (err) {
+    $('error-message').textContent = err instanceof Error ? err.message : 'Failed to create session';
     showView('error');
     return true;
   }
@@ -747,11 +757,10 @@ function init() {
   // Hash-based routing
   window.addEventListener('hashchange', handleRoute);
 
-  // GitHub App setup redirect (runs before routing)
-  const handledSetup = tryHandleGitHubAppSetupRedirect();
-
-  // Restore auth, then handle initial route, then reveal
-  tryRestoreAuth().then(() => handledSetup ? undefined : handleRoute()).then(() => {
+  // GitHub App setup redirect (runs before routing), then restore auth + route
+  tryHandleGitHubAppSetupRedirect().then((handledSetup) =>
+    tryRestoreAuth().then(() => handledSetup ? undefined : handleRoute())
+  ).then(() => {
     $('app').classList.add('ready');
   });
 
@@ -762,6 +771,7 @@ function init() {
   $('githubapp-disconnect-btn').addEventListener('click', () => {
     clearInstallationId();
     clearSelectedRepo();
+    clearSessionToken();
     currentInstallationId = null;
     selectedRepoFullName = null;
     updateGitHubAppUI();

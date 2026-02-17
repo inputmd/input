@@ -28,6 +28,48 @@ await loadDotEnv();
 
 const PORT = Number.parseInt(process.env.PORT ?? '8787', 10);
 
+// Session secret for HMAC-signing session tokens
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
+
+if (!process.env.SESSION_SECRET) {
+  // eslint-disable-next-line no-console
+  console.warn('WARNING: SESSION_SECRET not set — using random ephemeral secret. Sessions will not survive server restarts.');
+}
+
+function createSessionToken(installationId) {
+  const payload = JSON.stringify({
+    sub: String(installationId),
+    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+  });
+  const payloadB64 = Buffer.from(payload).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
+  return `${payloadB64}.${sig}`;
+}
+
+function validateSessionToken(token) {
+  const dot = token.indexOf('.');
+  if (dot === -1) return null;
+  const payloadB64 = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    if (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (typeof payload.sub !== 'string' || !payload.sub) return null;
+    return { installationId: payload.sub };
+  } catch {
+    return null;
+  }
+}
+
+function requireSession(req) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return null;
+  return validateSessionToken(auth.slice(7));
+}
+
 function json(res, statusCode, data) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
@@ -257,14 +299,43 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { url: installUrl.toString() });
     }
 
-    // Rate-limit all endpoints that mint installation tokens
+    // Session creation: verify installation with GitHub, issue signed token
+    if (pathname === '/api/github-app/sessions' && req.method === 'POST') {
+      if (!checkRateLimit(req, res)) return;
+      const body = await readJson(req);
+      const installationId = body?.installationId;
+      if (!installationId || typeof installationId !== 'string') {
+        return json(res, 400, { error: 'installationId is required' });
+      }
+      // Verify installation exists by calling GitHub API
+      const jwt = await createAppJwt();
+      const ghRes = await fetch(`https://api.github.com/app/installations/${encodeURIComponent(installationId)}`, {
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${jwt}`,
+          'User-Agent': 'input-github-app-auth-server',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+      if (!ghRes.ok) {
+        return json(res, 403, { error: 'Invalid installation' });
+      }
+      const token = createSessionToken(installationId);
+      return json(res, 200, { token, installationId });
+    }
+
+    // All /installations/ routes require a valid session
     if (pathname.startsWith('/api/github-app/installations/')) {
       if (!checkRateLimit(req, res)) return;
+      const session = requireSession(req);
+      if (!session) return json(res, 401, { error: 'Unauthorized' });
     }
 
     const repoListMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repositories$/);
     if (repoListMatch && req.method === 'GET') {
+      const session = requireSession(req);
       const installationId = repoListMatch[1];
+      if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
       const allRepos = [];
       let page = 1;
       while (true) {
@@ -280,7 +351,9 @@ const server = http.createServer(async (req, res) => {
     // Repo Contents API proxy (read)
     const contentsGetMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
     if (contentsGetMatch && req.method === 'GET') {
+      const session = requireSession(req);
       const installationId = contentsGetMatch[1];
+      if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
       const owner = contentsGetMatch[2];
       const repo = contentsGetMatch[3];
       const pathParam = url.searchParams.get('path') ?? '';
@@ -296,7 +369,9 @@ const server = http.createServer(async (req, res) => {
     // Repo Contents API proxy (write/update)
     const contentsPutMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
     if (contentsPutMatch && req.method === 'PUT') {
+      const session = requireSession(req);
       const installationId = contentsPutMatch[1];
+      if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
       const owner = contentsPutMatch[2];
       const repo = contentsPutMatch[3];
       const body = await readJson(req);
@@ -320,7 +395,9 @@ const server = http.createServer(async (req, res) => {
     // Repo Contents API proxy (delete)
     const contentsDelMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
     if (contentsDelMatch && req.method === 'DELETE') {
+      const session = requireSession(req);
       const installationId = contentsDelMatch[1];
+      if (session.installationId !== installationId) return json(res, 403, { error: 'Forbidden' });
       const owner = contentsDelMatch[2];
       const repo = contentsDelMatch[3];
       const body = await readJson(req);
