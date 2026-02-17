@@ -1,6 +1,6 @@
 import type { GitHubUser } from '../github';
 
-export type ActiveView = 'input' | 'auth' | 'documents' | 'githubapp' | 'repodocuments' | 'loading' | 'error' | 'content' | 'edit';
+export type ActiveView = 'auth' | 'documents' | 'githubapp' | 'repodocuments' | 'loading' | 'error' | 'content' | 'edit';
 
 interface ToolbarProps {
   view: ActiveView;
@@ -29,10 +29,12 @@ export function Toolbar({
   const isRepoFile = view === 'content' && currentRepoDocPath !== null;
   const isOwnedGist = view === 'content' && user !== null && currentGistId !== null;
 
+  const isHomeDraft = view === 'edit' && currentGistId === null && currentRepoDocPath === null;
   const showEdit = isRepoFile || isOwnedGist;
   const showDelete = isOwnedGist;
-  const showSave = view === 'edit';
-  const showCancel = view === 'edit';
+  const showSave = view === 'edit' && !(isHomeDraft && !user);
+  const showCancel = view === 'edit' && !isHomeDraft;
+  const showSignInToSave = isHomeDraft && !user;
   const showDocs = !!user;
   const showHome = true;
   const showGitHubApp = !!installationId;
@@ -70,6 +72,9 @@ export function Toolbar({
           {showDelete && (
             <button type="button" class="delete-btn" onClick={onDelete}>Delete</button>
           )}
+          {showSignInToSave && (
+            <button type="button" onClick={() => navigate('auth')}>Sign in to save</button>
+          )}
         </div>
         <button type="button" class="theme-toggle" title="Toggle theme" onClick={onToggleTheme}>
           <span>{theme === 'dark' ? '\u2600' : '\u263D'}</span>
@@ -80,9 +85,9 @@ export function Toolbar({
             <span class="user-name">{user.name ?? user.login}</span>
             <button type="button" onClick={onSignOut}>Sign Out</button>
           </div>
-        ) : (
+        ) : !showSignInToSave ? (
           <button type="button" onClick={() => navigate('auth')}>Sign In</button>
-        )}
+        ) : null}
       </div>
     </header>
   );

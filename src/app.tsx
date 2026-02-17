@@ -15,7 +15,6 @@ import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
 import { REPO_DOCS_DIR } from './constants';
 import { useRoute, type Route } from './hooks/useRoute';
 import { Toolbar, type ActiveView } from './components/Toolbar';
-import { InputView } from './views/InputView';
 import { AuthView } from './views/AuthView';
 import { DocumentsView } from './views/DocumentsView';
 import { GitHubAppView } from './views/GitHubAppView';
@@ -24,6 +23,9 @@ import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { LoadingView } from './views/LoadingView';
 import { ErrorView } from './views/ErrorView';
+
+const DRAFT_TITLE_KEY = 'draft_title';
+const DRAFT_CONTENT_KEY = 'draft_content';
 
 function sanitizeTitleToFileName(title: string): string {
   const base = title
@@ -55,6 +57,7 @@ export function App() {
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [draftMode, setDraftMode] = useState(false);
 
   // Track initialization
   const initialized = useRef(false);
@@ -237,6 +240,7 @@ export function App() {
         const instId = getInstallationId();
         const repoName = getSelectedRepo()?.full_name ?? null;
         if (!instId || !repoName) { navigate('githubapp'); return; }
+        setDraftMode(false);
         setEditingBackend('repo');
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
@@ -247,6 +251,7 @@ export function App() {
         return;
       }
       case 'repoedit':
+        setDraftMode(false);
         syncRepoState();
         await loadRepoFileForEdit(decodeURIComponent(r.params.path));
         return;
@@ -255,17 +260,11 @@ export function App() {
         setActiveView('documents');
         return;
       case 'new':
-        if (!user) { navigate('auth'); return; }
-        setEditingBackend('gist');
-        setCurrentGistId(null);
-        setCurrentRepoDocPath(null);
-        setCurrentRepoDocSha(null);
-        setEditTitle('');
-        setEditContent('');
-        setActiveView('edit');
+        navigate('');
         return;
       case 'edit': {
         if (!user) { navigate('auth'); return; }
+        setDraftMode(false);
         setActiveView('loading');
         try {
           const gist = await getGist(r.params.id);
@@ -288,8 +287,19 @@ export function App() {
         else await loadGistAnonymous(id);
         return;
       }
+      case 'home':
+        setDraftMode(true);
+        setEditingBackend('gist');
+        setCurrentGistId(null);
+        setCurrentRepoDocPath(null);
+        setCurrentRepoDocSha(null);
+        setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) ?? '');
+        setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
+        setActiveView('edit');
+        return;
       default:
-        setActiveView('input');
+        setDraftMode(false);
+        setActiveView('edit');
     }
   }, [user, navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError]);
 
@@ -316,6 +326,13 @@ export function App() {
     prevRoute.current = route;
     handleRoute(route);
   }, [route, handleRoute]);
+
+  // --- Draft persistence ---
+  useEffect(() => {
+    if (!draftMode) return;
+    localStorage.setItem(DRAFT_TITLE_KEY, editTitle);
+    localStorage.setItem(DRAFT_CONTENT_KEY, editContent);
+  }, [draftMode, editTitle, editContent]);
 
   // --- Theme toggle ---
   const toggleTheme = useCallback(() => {
@@ -373,7 +390,12 @@ export function App() {
           gist = await createGist(title, content);
         }
         setCurrentGistId(gist.id);
-  
+        if (draftMode) {
+          localStorage.removeItem(DRAFT_TITLE_KEY);
+          localStorage.removeItem(DRAFT_CONTENT_KEY);
+          setDraftMode(false);
+        }
+
         setRenderedHtml(parseAnsiToHtml(content));
         navigate(`gist/${gist.id}`);
       }
@@ -383,7 +405,7 @@ export function App() {
     } finally {
       setSaving(false);
     }
-  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, navigate, handleSessionExpired]);
+  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, draftMode, navigate, handleSessionExpired]);
 
   const onCancel = useCallback(() => {
     if (currentRepoDocPath) navigate(`repofile/${encodeURIComponent(currentRepoDocPath)}`);
@@ -419,8 +441,6 @@ export function App() {
   // --- Render active view ---
   const renderView = () => {
     switch (activeView) {
-      case 'input':
-        return <InputView navigate={navigate} />;
       case 'auth':
         return <AuthView onUserChange={setUser} navigate={navigate} />;
       case 'documents':
@@ -462,7 +482,7 @@ export function App() {
       case 'error':
         return <ErrorView message={errorMessage} onRetry={() => handleRoute(route)} />;
       default:
-        return <InputView navigate={navigate} />;
+        return null;
     }
   };
 

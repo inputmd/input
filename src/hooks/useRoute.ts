@@ -34,7 +34,7 @@ function matchRoute(hash: string): Route {
       return { name, params };
     }
   }
-  return { name: 'input', params: {} };
+  return { name: 'home', params: {} };
 }
 
 export function useRoute() {

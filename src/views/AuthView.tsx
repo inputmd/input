@@ -61,7 +61,7 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
 
   return (
     <div class="auth-view">
-      <h1>Sign In</h1>
+      <h2>Sign In</h2>
 
       {/* Device Flow — primary */}
       <div class="device-flow-section">
@@ -102,7 +102,6 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
 
       {/* PAT — secondary/advanced */}
       <h2>Personal Access Token</h2>
-      <p class="hint">Or enter a GitHub token with the <code>gist</code> scope manually.</p>
       <form class="auth-form" onSubmit={onSubmit}>
         <input
           type="password"
@@ -119,7 +118,7 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
         <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer">
           github.com/settings/tokens
         </a>{' '}
-        with the <code>gist</code> scope.
+        with the <strong>gist</strong> scope.
       </p>
 
       <hr />

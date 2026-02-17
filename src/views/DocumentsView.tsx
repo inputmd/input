@@ -63,8 +63,8 @@ export function DocumentsView({ navigate }: DocumentsViewProps) {
   return (
     <div class="documents-view">
       <div class="documents-header">
-        <h1>My Documents</h1>
-        <button type="button" onClick={() => navigate('new')}>New Document</button>
+        <h1>My Gists</h1>
+        <button type="button" onClick={() => navigate('')}>New Gist</button>
       </div>
       <div class="documents-list">
         {gists.map(gist => {
