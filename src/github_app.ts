@@ -51,6 +51,40 @@ export function clearSessionToken(): void {
   sessionStorage.removeItem(SESSION_TOKEN_KEY);
 }
 
+// --- Error types ---
+
+export class SessionExpiredError extends Error {
+  constructor() {
+    super('Session expired');
+    this.name = 'SessionExpiredError';
+  }
+}
+
+// --- Fetch helpers ---
+
+function authHeaders(): Record<string, string> {
+  const token = getSessionToken();
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(url, {
+    ...init,
+    headers: { ...authHeaders(), ...(init?.headers as Record<string, string>) },
+  });
+  if (res.status === 401) {
+    clearSessionToken();
+    throw new SessionExpiredError();
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
+  }
+  return res;
+}
+
+// --- Public endpoints (no auth) ---
+
 export async function createSession(installationId: string): Promise<string> {
   const res = await fetch('/api/github-app/sessions', {
     method: 'POST',
@@ -58,18 +92,12 @@ export async function createSession(installationId: string): Promise<string> {
     body: JSON.stringify({ installationId }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const msg = body?.error ?? `${res.status} ${res.statusText}`;
-    throw new Error(msg);
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
   }
   const data = await res.json() as { token: string; installationId: string };
   setSessionToken(data.token);
   return data.token;
-}
-
-function authHeaders(): Record<string, string> {
-  const token = getSessionToken();
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
 export function createInstallState(): string {
@@ -84,6 +112,8 @@ export async function getInstallUrl(state: string): Promise<string> {
   return data.url;
 }
 
+// --- Types ---
+
 export interface InstallationRepoList {
   total_count: number;
   repositories: Array<{
@@ -93,24 +123,6 @@ export interface InstallationRepoList {
     html_url: string;
     permissions?: Record<string, boolean>;
   }>;
-}
-
-export async function listInstallationRepos(installationId: string): Promise<InstallationRepoList> {
-  const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repositories`, {
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const msg = body?.error ?? `${res.status} ${res.statusText}`;
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-function splitFullName(fullName: string): { owner: string; repo: string } {
-  const [owner, repo] = fullName.split('/');
-  if (!owner || !repo) throw new Error(`Invalid repo: ${fullName}`);
-  return { owner, repo };
 }
 
 export type RepoContents =
@@ -134,24 +146,35 @@ export type RepoContents =
     download_url: string | null;
   }>;
 
+export interface PutFileResult {
+  content: { path: string; sha: string };
+  commit: { sha: string; html_url: string };
+}
+
+// --- Authenticated API functions ---
+
+function splitFullName(fullName: string): { owner: string; repo: string } {
+  const [owner, repo] = fullName.split('/');
+  if (!owner || !repo) throw new Error(`Invalid repo: ${fullName}`);
+  return { owner, repo };
+}
+
+function installationUrl(installationId: string, ...segments: string[]): string {
+  const base = `/api/github-app/installations/${encodeURIComponent(installationId)}`;
+  return segments.length ? `${base}/${segments.map(encodeURIComponent).join('/')}` : base;
+}
+
+export async function listInstallationRepos(installationId: string): Promise<InstallationRepoList> {
+  const res = await authFetch(`${installationUrl(installationId)}/repositories`);
+  return res.json();
+}
+
 export async function getRepoContents(installationId: string, repoFullName: string, path: string, ref?: string): Promise<RepoContents> {
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams({ path });
   if (ref) qs.set('ref', ref);
-  const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`, {
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const msg = body?.error ?? `${res.status} ${res.statusText}`;
-    throw new Error(msg);
-  }
+  const res = await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/contents?${qs.toString()}`);
   return res.json();
-}
-
-export interface PutFileResult {
-  content: { path: string; sha: string };
-  commit: { sha: string; html_url: string };
 }
 
 export async function putRepoFile(
@@ -163,16 +186,11 @@ export async function putRepoFile(
   sha?: string,
 ): Promise<PutFileResult> {
   const { owner, repo } = splitFullName(repoFullName);
-  const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`, {
+  const res = await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/contents`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, message, content: contentBase64, sha }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const msg = body?.error ?? `${res.status} ${res.statusText}`;
-    throw new Error(msg);
-  }
   return res.json();
 }
 
@@ -184,14 +202,9 @@ export async function deleteRepoFile(
   sha: string,
 ): Promise<void> {
   const { owner, repo } = splitFullName(repoFullName);
-  const res = await fetch(`/api/github-app/installations/${encodeURIComponent(installationId)}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`, {
+  await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/contents`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, message, sha }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const msg = body?.error ?? `${res.status} ${res.statusText}`;
-    throw new Error(msg);
-  }
 }

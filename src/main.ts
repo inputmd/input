@@ -7,12 +7,13 @@ import {
 import {
   getInstallationId, setInstallationId, clearInstallationId,
   getSelectedRepo, setSelectedRepo, clearSelectedRepo,
-  clearSessionToken, createSession,
+  clearSessionToken, createSession, SessionExpiredError,
   createInstallState, getInstallUrl, listInstallationRepos,
   getRepoContents, putRepoFile, deleteRepoFile,
   type InstallationRepoList,
   type RepoContents,
 } from './github_app';
+import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
 import './style.css';
 
 // --- State ---
@@ -35,10 +36,7 @@ const REPO_DOCS_DIR = '.input/documents';
 
 const $ = (id: string) => document.getElementById(id)!;
 
-type View = 'input' | 'auth' | 'documents' | 'loading' | 'error' | 'content' | 'edit';
-
-type ExtendedView = View | 'githubapp';
-type AppView = ExtendedView | 'repodocuments';
+type AppView = 'input' | 'auth' | 'documents' | 'githubapp' | 'repodocuments' | 'loading' | 'error' | 'content' | 'edit';
 const ALL_VIEWS: AppView[] = ['input', 'auth', 'documents', 'githubapp', 'repodocuments', 'loading', 'error', 'content', 'edit'];
 
 function showView(name: AppView) {
@@ -46,19 +44,23 @@ function showView(name: AppView) {
     $(`${v}-view`).style.display = v === name ? '' : 'none';
   }
 
-  // Action buttons visibility
   const isRepoFile = name === 'content' && currentRepoDocPath !== null;
   const isOwnedGist = name === 'content' && currentUser !== null && currentGistId !== null;
-  $('edit-btn').style.display = (isRepoFile || isOwnedGist) ? '' : 'none';
-  $('delete-btn').style.display = isOwnedGist ? '' : 'none';
-  $('save-btn').style.display = name === 'edit' ? '' : 'none';
-  $('cancel-btn').style.display = name === 'edit' ? '' : 'none';
 
-  // Nav buttons
-  $('docs-btn').style.display = currentUser && name !== 'documents' ? '' : 'none';
-  $('viewer-btn').style.display = '';
-  $('githubapp-btn').style.display = currentInstallationId && name !== 'githubapp' ? '' : 'none';
-  $('repodocs-btn').style.display = selectedRepoFullName && name !== 'repodocuments' ? '' : 'none';
+  const buttons: Record<string, boolean> = {
+    'edit-btn': isRepoFile || isOwnedGist,
+    'delete-btn': isOwnedGist,
+    'save-btn': name === 'edit',
+    'cancel-btn': name === 'edit',
+    'docs-btn': !!currentUser && name !== 'documents',
+    'viewer-btn': true,
+    'githubapp-btn': !!currentInstallationId && name !== 'githubapp',
+    'repodocs-btn': !!selectedRepoFullName && name !== 'repodocuments',
+  };
+
+  for (const [id, visible] of Object.entries(buttons)) {
+    $(id).style.display = visible ? '' : 'none';
+  }
 }
 
 function updateAuthUI() {
@@ -87,7 +89,41 @@ function updateGitHubAppUI() {
   }
 }
 
-// --- Gist URL extraction (existing) ---
+// --- Session expiry ---
+
+function handleSessionExpired() {
+  clearInstallationId();
+  clearSelectedRepo();
+  clearSessionToken();
+  currentInstallationId = null;
+  selectedRepoFullName = null;
+  updateGitHubAppUI();
+  navigate('auth');
+}
+
+// --- Helpers ---
+
+function syncRepoState() {
+  currentInstallationId = getInstallationId();
+  selectedRepoFullName = getSelectedRepo()?.full_name ?? null;
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function sanitizeTitleToFileName(title: string): string {
+  const base = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return (base || 'untitled') + '.md';
+}
+
+// --- Gist URL extraction ---
 
 function extractGistId(input: string): string | null {
   input = input.trim();
@@ -196,29 +232,7 @@ function signOut() {
   navigate('');
 }
 
-function sanitizeTitleToFileName(title: string): string {
-  const base = title
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
-  return (base || 'untitled') + '.md';
-}
-
-function encodeUtf8ToBase64(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary);
-}
-
-function decodeBase64ToUtf8(b64: string): string {
-  const binary = atob(b64.replace(/\n/g, ''));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-}
+// --- GitHub App ---
 
 async function connectGitHubApp() {
   const state = createInstallState();
@@ -242,7 +256,6 @@ async function tryHandleGitHubAppSetupRedirect(): Promise<boolean> {
     return true;
   }
 
-  // Exchange installation_id for a signed session token
   try {
     await createSession(installationId);
   } catch (err) {
@@ -255,13 +268,14 @@ async function tryHandleGitHubAppSetupRedirect(): Promise<boolean> {
   currentInstallationId = installationId;
   updateGitHubAppUI();
 
-  // Clean up URL (remove query params).
   const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
   window.history.replaceState({}, '', cleanUrl);
 
   navigate('githubapp');
   return true;
 }
+
+// --- Rendering ---
 
 function renderRepoList(list: InstallationRepoList): void {
   const container = $('githubapp-repos');
@@ -298,6 +312,92 @@ function renderRepoList(list: InstallationRepoList): void {
   container.appendChild(ul);
 }
 
+function renderRepoDocumentCard(item: { name: string; path: string; sha: string; size: number }): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'document-card';
+
+  const info = document.createElement('div');
+  info.className = 'doc-info';
+  const titleSpan = document.createElement('span');
+  titleSpan.className = 'doc-title';
+  titleSpan.textContent = item.name;
+  const metaSpan = document.createElement('span');
+  metaSpan.className = 'doc-meta';
+  metaSpan.textContent = `${item.size} bytes`;
+  info.append(titleSpan, metaSpan);
+
+  const actions = document.createElement('div');
+  actions.className = 'doc-actions';
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.textContent = 'Open';
+  openBtn.addEventListener('click', () => navigate(`repofile/${encodeURIComponent(item.path)}`));
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'doc-delete-btn';
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.addEventListener('click', async () => {
+    if (!currentInstallationId || !selectedRepoFullName) return;
+    if (!confirm(`Delete "${item.name}" from ${selectedRepoFullName}?`)) return;
+    try {
+      await deleteRepoFile(currentInstallationId, selectedRepoFullName, item.path, `Delete ${item.name}`, item.sha);
+      card.remove();
+    } catch (err) {
+      if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
+      alert(err instanceof Error ? err.message : 'Failed to delete');
+    }
+  });
+  actions.append(openBtn, deleteBtn);
+
+  card.append(info, actions);
+  return card;
+}
+
+function renderDocumentCard(gist: GistSummary): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'document-card';
+
+  const title = gist.description || 'Untitled';
+  const fileCount = Object.keys(gist.files).length;
+  const updated = formatDate(gist.updated_at);
+
+  const info = document.createElement('div');
+  info.className = 'doc-info';
+  const titleSpan = document.createElement('span');
+  titleSpan.className = 'doc-title';
+  titleSpan.textContent = title;
+  const metaSpan = document.createElement('span');
+  metaSpan.className = 'doc-meta';
+  metaSpan.textContent = `${fileCount} file${fileCount !== 1 ? 's' : ''} \u00b7 Updated ${updated}`;
+  info.append(titleSpan, metaSpan);
+
+  const actions = document.createElement('div');
+  actions.className = 'doc-actions';
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.textContent = 'Open';
+  openBtn.addEventListener('click', () => navigate(`gist/${gist.id}`));
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'doc-delete-btn';
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.addEventListener('click', async () => {
+    if (!confirm(`Delete "${title}"?`)) return;
+    try {
+      await deleteGist(gist.id);
+      card.remove();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete');
+    }
+  });
+  actions.append(openBtn, deleteBtn);
+
+  card.append(info, actions);
+  return card;
+}
+
+// --- Data loaders ---
+
 async function loadGitHubAppRepos(): Promise<void> {
   if (!currentInstallationId) return;
   showView('loading');
@@ -306,38 +406,10 @@ async function loadGitHubAppRepos(): Promise<void> {
     renderRepoList(repos);
     showView('githubapp');
   } catch (err) {
+    if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
     $('error-message').textContent = err instanceof Error ? err.message : 'Failed to load repositories';
     showView('error');
   }
-}
-
-function renderRepoDocumentCard(item: { name: string; path: string; sha: string; size: number }): HTMLElement {
-  const card = document.createElement('div');
-  card.className = 'document-card';
-  card.innerHTML = `
-    <div class="doc-info">
-      <span class="doc-title">${escapeHtml(item.name)}</span>
-      <span class="doc-meta">${item.size} bytes</span>
-    </div>
-    <div class="doc-actions">
-      <button class="doc-open-btn" type="button">Open</button>
-      <button class="doc-delete-btn" type="button">Delete</button>
-    </div>
-  `;
-  card.querySelector('.doc-open-btn')!.addEventListener('click', () => {
-    navigate(`repofile/${encodeURIComponent(item.path)}`);
-  });
-  card.querySelector('.doc-delete-btn')!.addEventListener('click', async () => {
-    if (!currentInstallationId || !selectedRepoFullName) return;
-    if (!confirm(`Delete "${item.name}" from ${selectedRepoFullName}?`)) return;
-    try {
-      await deleteRepoFile(currentInstallationId, selectedRepoFullName, item.path, `Delete ${item.name}`, item.sha);
-      card.remove();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete');
-    }
-  });
-  return card;
 }
 
 async function loadRepoDocuments(): Promise<void> {
@@ -356,7 +428,6 @@ async function loadRepoDocuments(): Promise<void> {
         .sort((a, b) => a.name.localeCompare(b.name));
       for (const f of files) listEl.appendChild(renderRepoDocumentCard(f));
     } else {
-      // A file at that path, not a directory
       const msg = `${REPO_DOCS_DIR} is a file; expected a directory.`;
       $('error-message').textContent = msg;
       showView('error');
@@ -364,7 +435,7 @@ async function loadRepoDocuments(): Promise<void> {
     }
     showView('repodocuments');
   } catch (err) {
-    // Common case: folder doesn't exist yet
+    if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
     const msg = err instanceof Error ? err.message : 'Failed to load repo documents';
     if (String(msg).includes('404')) {
       $('repodocuments-list').innerHTML = '';
@@ -395,56 +466,10 @@ async function loadRepoFile(path: string): Promise<void> {
     $('rendered-content').innerHTML = renderedHtml;
     showView('content');
   } catch (err) {
+    if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
     $('error-message').textContent = err instanceof Error ? err.message : 'Failed to load file';
     showView('error');
   }
-}
-
-// --- Document list ---
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function renderDocumentCard(gist: GistSummary): HTMLElement {
-  const card = document.createElement('div');
-  card.className = 'document-card';
-
-  const title = gist.description || 'Untitled';
-  const fileCount = Object.keys(gist.files).length;
-  const updated = formatDate(gist.updated_at);
-
-  card.innerHTML = `
-    <div class="doc-info">
-      <span class="doc-title">${escapeHtml(title)}</span>
-      <span class="doc-meta">${fileCount} file${fileCount !== 1 ? 's' : ''} &middot; Updated ${updated}</span>
-    </div>
-    <div class="doc-actions">
-      <button class="doc-open-btn" type="button">Open</button>
-      <button class="doc-delete-btn" type="button">Delete</button>
-    </div>
-  `;
-
-  card.querySelector('.doc-open-btn')!.addEventListener('click', () => {
-    navigate(`gist/${gist.id}`);
-  });
-
-  card.querySelector('.doc-delete-btn')!.addEventListener('click', async () => {
-    if (!confirm(`Delete "${title}"?`)) return;
-    try {
-      await deleteGist(gist.id);
-      card.remove();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete');
-    }
-  });
-
-  return card;
 }
 
 async function loadDocuments(reset = false) {
@@ -542,6 +567,7 @@ async function saveDocument() {
       navigate(`gist/${gist.id}`);
     }
   } catch (err) {
+    if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
     alert(err instanceof Error ? err.message : 'Failed to save');
   } finally {
     $('save-btn').textContent = 'Save';
@@ -555,50 +581,37 @@ function navigate(route: string) {
   window.location.hash = route;
 }
 
-async function handleRoute() {
-  const hash = window.location.hash.slice(1);
+interface Route {
+  pattern: RegExp;
+  handler: (match: RegExpMatchArray) => void | Promise<void>;
+}
 
-  if (hash === 'auth') {
+const routes: Route[] = [
+  { pattern: /^auth$/, handler: () => {
     showView('auth');
     ($('pat-input') as HTMLInputElement).focus();
-    return;
-  }
-
-  if (hash === 'githubapp') {
-    currentInstallationId = getInstallationId();
-    selectedRepoFullName = getSelectedRepo()?.full_name ?? null;
+  }},
+  { pattern: /^githubapp$/, handler: () => {
+    syncRepoState();
     updateGitHubAppUI();
     showView('githubapp');
-    return;
-  }
-
-  if (hash === 'repodocuments') {
-    currentInstallationId = getInstallationId();
-    selectedRepoFullName = getSelectedRepo()?.full_name ?? null;
+  }},
+  { pattern: /^repodocuments$/, handler: async () => {
+    syncRepoState();
     await loadRepoDocuments();
-    return;
-  }
-
-  if (hash.startsWith('repofile/')) {
-    const path = decodeURIComponent(hash.slice('repofile/'.length));
-    currentInstallationId = getInstallationId();
-    selectedRepoFullName = getSelectedRepo()?.full_name ?? null;
-    await loadRepoFile(path);
-    return;
-  }
-
-  if (hash === 'reponew') {
-    currentInstallationId = getInstallationId();
-    selectedRepoFullName = getSelectedRepo()?.full_name ?? null;
+  }},
+  { pattern: /^repofile\/(.+)$/, handler: async (m) => {
+    syncRepoState();
+    await loadRepoFile(decodeURIComponent(m[1]));
+  }},
+  { pattern: /^reponew$/, handler: () => {
+    syncRepoState();
     if (!currentInstallationId || !selectedRepoFullName) { navigate('githubapp'); return; }
     startRepoEdit(null, null, '', '');
-    return;
-  }
-
-  if (hash.startsWith('repoedit/')) {
-    const path = decodeURIComponent(hash.slice('repoedit/'.length));
-    currentInstallationId = getInstallationId();
-    selectedRepoFullName = getSelectedRepo()?.full_name ?? null;
+  }},
+  { pattern: /^repoedit\/(.+)$/, handler: async (m) => {
+    const path = decodeURIComponent(m[1]);
+    syncRepoState();
     if (!currentInstallationId || !selectedRepoFullName) { navigate('githubapp'); return; }
     showView('loading');
     try {
@@ -608,26 +621,21 @@ async function handleRoute() {
       const decoded = file.content ? decodeBase64ToUtf8(file.content) : '';
       startRepoEdit(file.path, file.sha, file.name.replace(/\.md$/i, ''), decoded);
     } catch (err) {
+      if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       $('error-message').textContent = err instanceof Error ? err.message : 'Failed to load file';
       showView('error');
     }
-    return;
-  }
-
-  if (hash === 'documents') {
+  }},
+  { pattern: /^documents$/, handler: async () => {
     if (!currentUser) { navigate('auth'); return; }
     await loadDocuments(true);
-    return;
-  }
-
-  if (hash === 'new') {
+  }},
+  { pattern: /^new$/, handler: () => {
     if (!currentUser) { navigate('auth'); return; }
     startGistEdit(null, '', '');
-    return;
-  }
-
-  if (hash.startsWith('edit/')) {
-    const id = hash.slice(5);
+  }},
+  { pattern: /^edit\/(.+)$/, handler: async (m) => {
+    const id = m[1];
     if (!currentUser) { navigate('auth'); return; }
     showView('loading');
     try {
@@ -638,30 +646,26 @@ async function handleRoute() {
       $('error-message').textContent = err instanceof Error ? err.message : 'Failed to load gist';
       showView('error');
     }
-    return;
-  }
+  }},
+  { pattern: /^gist\/(.+)$/, handler: async (m) => {
+    const id = m[1];
+    if (currentUser) await loadGistAuthenticated(id);
+    else await loadGistAnonymous(id);
+  }},
+  // Legacy: bare gist ID in hash
+  { pattern: /^[a-f0-9]+$/i, handler: async (m) => {
+    const id = m[0];
+    if (currentUser) await loadGistAuthenticated(id);
+    else await loadGistAnonymous(id);
+  }},
+];
 
-  if (hash.startsWith('gist/')) {
-    const id = hash.slice(5);
-    if (currentUser) {
-      await loadGistAuthenticated(id);
-    } else {
-      await loadGistAnonymous(id);
-    }
-    return;
+async function handleRoute() {
+  const hash = window.location.hash.slice(1);
+  for (const route of routes) {
+    const match = hash.match(route.pattern);
+    if (match) { await route.handler(match); return; }
   }
-
-  // Legacy: bare gist ID in hash (existing behavior)
-  if (hash && /^[a-f0-9]+$/i.test(hash)) {
-    if (currentUser) {
-      await loadGistAuthenticated(hash);
-    } else {
-      await loadGistAnonymous(hash);
-    }
-    return;
-  }
-
-  // Default: show input view
   showView('input');
 }
 

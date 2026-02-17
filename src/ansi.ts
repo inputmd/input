@@ -1,3 +1,5 @@
+import { escapeHtml } from './util';
+
 const ANSI_FG: Record<number, string> = {
   30: 'var(--ansi-black)', 31: 'var(--ansi-red)', 32: 'var(--ansi-green)',
   33: 'var(--ansi-yellow)', 34: 'var(--ansi-blue)', 35: 'var(--ansi-magenta)',
@@ -63,10 +65,6 @@ function openTag(s: Style): string {
   if (s.fg) css.push(`color:${s.fg}`);
   if (s.bg) css.push(`background-color:${s.bg}`);
   return `<span style="${css.join(';')}">`;
-}
-
-function escHtml(t: string): string {
-  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function clampRgb(r: string, g: string, b: string): string {
@@ -159,7 +157,7 @@ export function parseAnsiToHtml(text: string): string {
   while ((match = re.exec(text)) !== null) {
     const before = text.substring(last, match.index);
     if (before) {
-      result += hasStyle(s) ? openTag(s) + escHtml(before) + '</span>' : escHtml(before);
+      result += hasStyle(s) ? openTag(s) + escapeHtml(before) + '</span>' : escapeHtml(before);
     }
     applySgr(match[1], s);
     last = re.lastIndex;
@@ -167,7 +165,7 @@ export function parseAnsiToHtml(text: string): string {
 
   const tail = text.substring(last);
   if (tail) {
-    result += hasStyle(s) ? openTag(s) + escHtml(tail) + '</span>' : escHtml(tail);
+    result += hasStyle(s) ? openTag(s) + escapeHtml(tail) + '</span>' : escapeHtml(tail);
   }
   return result;
 }
