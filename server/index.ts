@@ -1,32 +1,9 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { config } from 'dotenv';
 
-// --- .env loader ---
-
-async function loadDotEnv(): Promise<void> {
-  try {
-    const raw = await readFile(new URL('../.env', import.meta.url), 'utf8');
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq === -1) continue;
-      const key = trimmed.slice(0, eq).trim();
-      let value = trimmed.slice(eq + 1).trim();
-      if (value.startsWith('"') && value.endsWith('"')) {
-        value = value.slice(1, -1).replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
-      } else if (value.startsWith("'") && value.endsWith("'")) {
-        value = value.slice(1, -1);
-      }
-      if (process.env[key] == null) process.env[key] = value;
-    }
-  } catch {
-    // optional
-  }
-}
-
-await loadDotEnv();
+config({ path: new URL('../.env', import.meta.url) });
 
 // --- Config ---
 
