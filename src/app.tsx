@@ -604,8 +604,9 @@ export function App() {
         const contents = await getRepoContents(instId, repoName, oldFile.path);
         if (!isRepoFile(contents)) return;
         const newPath = `${REPO_DOCS_DIR}/${newName}`;
-        await putRepoFile(instId, repoName, newPath, `Rename ${oldName} to ${newName}`, contents.content ?? '');
+        const created = await putRepoFile(instId, repoName, newPath, `Rename ${oldName} to ${newName}`, contents.content ?? '');
         await deleteRepoFile(instId, repoName, oldFile.path, `Delete ${oldName} (renamed)`, oldFile.sha);
+        setRepoFiles(prev => prev.map(f => f.name === oldName ? { name: newName, path: created.content.path, sha: created.content.sha } : f));
         if (currentFileName === oldName) {
           keepFileList.current = true;
           navigate(`repofile/${encodeURIComponent(newPath)}`);
