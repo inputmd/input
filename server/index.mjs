@@ -148,6 +148,19 @@ async function githubFetchWithInstallationToken(installationId, path, init = {})
   return res;
 }
 
+function encodePathPreserveSlashes(path) {
+  return String(path)
+    .split('/')
+    .map((seg) => encodeURIComponent(seg))
+    .join('/');
+}
+
+function requireString(body, key) {
+  const v = body?.[key];
+  if (typeof v !== 'string' || !v.trim()) throw new Error(`${key} is required`);
+  return v;
+}
+
 function corsify(req, res) {
   const origin = req.headers.origin ?? '*';
   res.setHeader('Access-Control-Allow-Origin', origin);
@@ -189,6 +202,69 @@ const server = http.createServer(async (req, res) => {
     if (repoListMatch && req.method === 'GET') {
       const installationId = repoListMatch[1];
       const ghRes = await githubFetchWithInstallationToken(installationId, '/installation/repositories');
+      const data = await ghRes.json();
+      return json(res, 200, data);
+    }
+
+    // Repo Contents API proxy (read)
+    const contentsGetMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
+    if (contentsGetMatch && req.method === 'GET') {
+      const installationId = contentsGetMatch[1];
+      const owner = contentsGetMatch[2];
+      const repo = contentsGetMatch[3];
+      const pathParam = url.searchParams.get('path') ?? '';
+      const ref = url.searchParams.get('ref');
+
+      const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+      const ghUrl = ref ? `${ghPath}?ref=${encodeURIComponent(ref)}` : ghPath;
+      const ghRes = await githubFetchWithInstallationToken(installationId, ghUrl);
+      const data = await ghRes.json();
+      return json(res, 200, data);
+    }
+
+    // Repo Contents API proxy (write/update)
+    const contentsPutMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
+    if (contentsPutMatch && req.method === 'PUT') {
+      const installationId = contentsPutMatch[1];
+      const owner = contentsPutMatch[2];
+      const repo = contentsPutMatch[3];
+      const body = await readJson(req);
+
+      const pathParam = requireString(body, 'path');
+      const message = requireString(body, 'message');
+      const content = requireString(body, 'content'); // base64
+      const sha = typeof body?.sha === 'string' ? body.sha : undefined;
+      const branch = typeof body?.branch === 'string' ? body.branch : undefined;
+
+      const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+      const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, content, sha, branch }),
+      });
+      const data = await ghRes.json();
+      return json(res, 200, data);
+    }
+
+    // Repo Contents API proxy (delete)
+    const contentsDelMatch = pathname.match(/^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/);
+    if (contentsDelMatch && req.method === 'DELETE') {
+      const installationId = contentsDelMatch[1];
+      const owner = contentsDelMatch[2];
+      const repo = contentsDelMatch[3];
+      const body = await readJson(req);
+
+      const pathParam = requireString(body, 'path');
+      const message = requireString(body, 'message');
+      const sha = requireString(body, 'sha');
+      const branch = typeof body?.branch === 'string' ? body.branch : undefined;
+
+      const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+      const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, sha, branch }),
+      });
       const data = await ghRes.json();
       return json(res, 200, data);
     }
