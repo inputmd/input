@@ -3,8 +3,7 @@ import {
   getRepoContents, deleteRepoFile, SessionExpiredError,
 } from '../github_app';
 import { DocumentCard } from '../components/DocumentCard';
-
-const REPO_DOCS_DIR = '.input/documents';
+import { REPO_DOCS_DIR } from '../constants';
 
 interface RepoDocumentsViewProps {
   installationId: string;

@@ -13,6 +13,7 @@ import {
   type RepoContents,
 } from './github_app';
 import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
+import { REPO_DOCS_DIR } from './constants';
 import { useRoute } from './hooks/useRoute';
 import { Toolbar, type ActiveView } from './components/Toolbar';
 import { InputView } from './views/InputView';
@@ -24,8 +25,6 @@ import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { LoadingView } from './views/LoadingView';
 import { ErrorView } from './views/ErrorView';
-
-const REPO_DOCS_DIR = '.input/documents';
 
 function sanitizeTitleToFileName(title: string): string {
   const base = title
