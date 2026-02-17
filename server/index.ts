@@ -175,15 +175,11 @@ const rateLimitWindows = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
-const TRUST_PROXY = process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true';
-
 function getClientIp(req: http.IncomingMessage): string {
-  if (TRUST_PROXY) {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string') {
-      const first = forwarded.split(',')[0].trim();
-      if (first) return first;
-    }
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') {
+    const first = forwarded.split(',')[0].trim();
+    if (first) return first;
   }
   return req.socket.remoteAddress || 'unknown';
 }

@@ -20,55 +20,31 @@ Markdown documents, backed by Gists & repos.
 
 ## Running locally
 
-1) Install dependencies
-
-```sh
-npm install
 ```
-
-2) Configure environment
-
-Copy `.env.example` to `.env` and fill in the values:
-
-```sh
+npm install
 cp .env.example .env
 ```
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PORT` | No | Server port (default: `8787`) |
-| `TRUST_PROXY` | No | Set to `true` to trust `X-Forwarded-For` for rate limiting (when behind a reverse proxy) |
-| `SESSION_SECRET` | No | Secret for signing session tokens. If unset, a random ephemeral secret is generated (sessions won't survive restarts) |
-| `GITHUB_CLIENT_ID` | For gist auth | OAuth App Client ID for Device Flow sign-in (see step 3a below) |
-| `GITHUB_APP_ID` | For repo auth | Your GitHub App's ID (see step 3b below) |
-| `GITHUB_APP_SLUG` | For repo auth | Your GitHub App's URL slug |
-| `GITHUB_APP_PRIVATE_KEY` | One of these | RSA private key as a string (use `\n` for newlines inside double quotes) |
-| `GITHUB_APP_PRIVATE_KEY_PATH` | One of these | Absolute path to the `.pem` private key file |
+Create an OAuth app via https://github.com/settings/developers:
 
-Generate a session secret:
+- Check **Enable Device Flow**.
+- Set **Homepage URL** to your app URL (e.g. `http://localhost:5173/`).
+- **Authorization callback URL** is not used by Device Flow but is
+  required — any valid URL works.
 
-```sh
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
+Copy the **Client ID** into your .env as GITHUB_CLIENT_ID.
+No client secret is needed.
 
-3a) Create an OAuth App (for gist sign-in)
+Create a GitHub App to allow Input to be installed onto repos, via
+https://github.com/settings/apps/new:
 
-1. Go to **GitHub → Settings → Developer settings → OAuth Apps** and create a new app.
-2. Check **Enable Device Flow**.
-3. Set the **Homepage URL** to your app URL (e.g. `http://localhost:5173/`). The **Authorization callback URL** is not used by Device Flow but is required by GitHub — any valid URL works.
-4. Copy the **Client ID** into your `.env` as `GITHUB_CLIENT_ID`.
+- Set the **Homepage URL** and **Callback URL** to your app URL,
+  e.g. `http://localhost:5173/`.
+- Grant **Repository permissions → Contents: Read & write**.
+- No webhook is required.
 
-No client secret is needed — Device Flow is safe with a public client ID.
-
-3b) Create a GitHub App (for repo access)
-
-1. Go to **GitHub → Settings → Developer settings → GitHub Apps** and create a new app.
-2. Grant **Repository permissions → Contents: Read & write**.
-3. Set the **Setup URL** to your app URL (for local dev: `http://localhost:5173/`).
-   - GitHub redirects back with `?installation_id=...&setup_action=...&state=...` after install.
-4. Install the app on your account/org and select the repos you want to access.
-
-4) Start the servers
+Copy the application ID, application slug, and a generated private key
+into your .env.
 
 ```sh
 # Terminal A — API server (default: http://localhost:8787)
@@ -77,8 +53,6 @@ npm run server
 # Terminal B — Vite dev server (default: http://localhost:5173)
 npm run dev
 ```
-
-The Vite dev server proxies `/api` requests to the API server.
 
 ## Building for production
 
