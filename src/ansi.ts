@@ -167,5 +167,15 @@ export function parseAnsiToHtml(text: string): string {
   if (tail) {
     result += hasStyle(s) ? openTag(s) + escapeHtml(tail) + '</span>' : escapeHtml(tail);
   }
-  return result;
+  return sanitizeSpanOnly(result);
+}
+
+const SAFE_SPAN_RE = /^<span style="[a-zA-Z\-:;,()0-9.# %]+">$/;
+
+function sanitizeSpanOnly(html: string): string {
+  return html.replace(/<\/?[^>]*>/g, (tag) => {
+    if (tag === '</span>') return tag;
+    if (SAFE_SPAN_RE.test(tag)) return tag;
+    return escapeHtml(tag);
+  });
 }
