@@ -13,7 +13,7 @@ import {
 } from './github_app';
 import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
 import { REPO_DOCS_DIR } from './constants';
-import { useRoute } from './hooks/useRoute';
+import { useRoute, type Route } from './hooks/useRoute';
 import { Toolbar, type ActiveView } from './components/Toolbar';
 import { InputView } from './views/InputView';
 import { AuthView } from './views/AuthView';
@@ -211,110 +211,86 @@ export function App() {
   }, [navigate, handleSessionExpired, showError]);
 
   // --- Route handler ---
-  const handleRoute = useCallback(async (hash: string) => {
-    // auth
-    if (hash === 'auth') {
-      setActiveView('auth');
-      return;
-    }
-    // githubapp
-    if (hash === 'githubapp') {
-      syncRepoState();
-      setActiveView('githubapp');
-      return;
-    }
-    // repodocuments
-    if (hash === 'repodocuments') {
-      syncRepoState();
-      const instId = getInstallationId();
-      const repoName = getSelectedRepo()?.full_name ?? null;
-      if (!instId || !repoName) { navigate('githubapp'); return; }
-      setActiveView('repodocuments');
-      return;
-    }
-    // repofile/<path>
-    const repofileMatch = hash.match(/^repofile\/(.+)$/);
-    if (repofileMatch) {
-      syncRepoState();
-      await loadRepoFile(decodeURIComponent(repofileMatch[1]));
-      return;
-    }
-    // reponew
-    if (hash === 'reponew') {
-      syncRepoState();
-      const instId = getInstallationId();
-      const repoName = getSelectedRepo()?.full_name ?? null;
-      if (!instId || !repoName) { navigate('githubapp'); return; }
-      setEditingBackend('repo');
-      setCurrentRepoDocPath(null);
-      setCurrentRepoDocSha(null);
-      setCurrentGistId(null);
-      setEditTitle('');
-      setEditContent('');
-      setActiveView('edit');
-      return;
-    }
-    // repoedit/<path>
-    const repoeditMatch = hash.match(/^repoedit\/(.+)$/);
-    if (repoeditMatch) {
-      syncRepoState();
-      await loadRepoFileForEdit(decodeURIComponent(repoeditMatch[1]));
-      return;
-    }
-    // documents
-    if (hash === 'documents') {
-      if (!user) { navigate('auth'); return; }
-      setActiveView('documents');
-      return;
-    }
-    // new gist
-    if (hash === 'new') {
-      if (!user) { navigate('auth'); return; }
-      setEditingBackend('gist');
-      setCurrentGistId(null);
-      setCurrentRepoDocPath(null);
-      setCurrentRepoDocSha(null);
-      setEditTitle('');
-      setEditContent('');
-      setActiveView('edit');
-      return;
-    }
-    // edit/<id> (gist)
-    const editMatch = hash.match(/^edit\/(.+)$/);
-    if (editMatch) {
-      if (!user) { navigate('auth'); return; }
-      setActiveView('loading');
-      try {
-        const gist = await getGist(editMatch[1]);
-        const file = Object.values(gist.files)[0];
-        setEditingBackend('gist');
-        setCurrentGistId(gist.id);
+  const handleRoute = useCallback(async (r: Route) => {
+    switch (r.name) {
+      case 'auth':
+        setActiveView('auth');
+        return;
+      case 'githubapp':
+        syncRepoState();
+        setActiveView('githubapp');
+        return;
+      case 'repodocuments': {
+        syncRepoState();
+        const instId = getInstallationId();
+        const repoName = getSelectedRepo()?.full_name ?? null;
+        if (!instId || !repoName) { navigate('githubapp'); return; }
+        setActiveView('repodocuments');
+        return;
+      }
+      case 'repofile':
+        syncRepoState();
+        await loadRepoFile(decodeURIComponent(r.params.path));
+        return;
+      case 'reponew': {
+        syncRepoState();
+        const instId = getInstallationId();
+        const repoName = getSelectedRepo()?.full_name ?? null;
+        if (!instId || !repoName) { navigate('githubapp'); return; }
+        setEditingBackend('repo');
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
-        setEditTitle(gist.description ?? '');
-        setEditContent(file?.content ?? '');
+        setCurrentGistId(null);
+        setEditTitle('');
+        setEditContent('');
         setActiveView('edit');
-      } catch (err) {
-        showError(err instanceof Error ? err.message : 'Failed to load gist');
+        return;
       }
-      return;
+      case 'repoedit':
+        syncRepoState();
+        await loadRepoFileForEdit(decodeURIComponent(r.params.path));
+        return;
+      case 'documents':
+        if (!user) { navigate('auth'); return; }
+        setActiveView('documents');
+        return;
+      case 'new':
+        if (!user) { navigate('auth'); return; }
+        setEditingBackend('gist');
+        setCurrentGistId(null);
+        setCurrentRepoDocPath(null);
+        setCurrentRepoDocSha(null);
+        setEditTitle('');
+        setEditContent('');
+        setActiveView('edit');
+        return;
+      case 'edit': {
+        if (!user) { navigate('auth'); return; }
+        setActiveView('loading');
+        try {
+          const gist = await getGist(r.params.id);
+          const file = Object.values(gist.files)[0];
+          setEditingBackend('gist');
+          setCurrentGistId(gist.id);
+          setCurrentRepoDocPath(null);
+          setCurrentRepoDocSha(null);
+          setEditTitle(gist.description ?? '');
+          setEditContent(file?.content ?? '');
+          setActiveView('edit');
+        } catch (err) {
+          showError(err instanceof Error ? err.message : 'Failed to load gist');
+        }
+        return;
+      }
+      case 'gist': {
+        const id = r.params.id;
+        if (user) await loadGistAuthenticated(id);
+        else await loadGistAnonymous(id);
+        return;
+      }
+      default:
+        setActiveView('input');
     }
-    // gist/<id>
-    const gistMatch = hash.match(/^gist\/(.+)$/);
-    if (gistMatch) {
-      const id = gistMatch[1];
-      if (user) await loadGistAuthenticated(id);
-      else await loadGistAnonymous(id);
-      return;
-    }
-    // Legacy bare gist ID
-    if (/^[a-f0-9]+$/i.test(hash)) {
-      if (user) await loadGistAuthenticated(hash);
-      else await loadGistAnonymous(hash);
-      return;
-    }
-    // Default: input view
-    setActiveView('input');
   }, [user, navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError]);
 
   // --- Init ---
@@ -326,7 +302,7 @@ export function App() {
       const handledSetup = await tryHandleGitHubAppSetupRedirect();
       await tryRestoreAuth();
       if (!handledSetup) {
-        await handleRoute(window.location.hash.slice(1));
+        await handleRoute(route);
       }
       document.getElementById('app')!.classList.add('ready');
     })();
