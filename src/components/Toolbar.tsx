@@ -33,10 +33,10 @@ export function Toolbar({
   const showDelete = isOwnedGist;
   const showSave = view === 'edit';
   const showCancel = view === 'edit';
-  const showDocs = !!user && view !== 'documents';
+  const showDocs = !!user;
   const showHome = true;
-  const showGitHubApp = !!installationId && view !== 'githubapp';
-  const showRepoDocs = !!selectedRepo && view !== 'repodocuments';
+  const showGitHubApp = !!installationId;
+  const showRepoDocs = !!selectedRepo;
 
   return (
     <header class="toolbar">
@@ -45,7 +45,7 @@ export function Toolbar({
           <button type="button" onClick={() => navigate('')}>Home</button>
         )}
         {showDocs && (
-          <button type="button" onClick={() => navigate('documents')}>My Documents</button>
+          <button type="button" onClick={() => navigate('documents')}>My Gists</button>
         )}
         {showGitHubApp && (
           <button type="button" onClick={() => navigate('githubapp')}>GitHub App</button>
