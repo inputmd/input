@@ -16,6 +16,7 @@ interface AuthViewProps {
 export function AuthView({ onUserChange, navigate }: AuthViewProps) {
   const patRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showPat, setShowPat] = useState(false);
   const { phase, start, cancel } = useDeviceFlow();
 
   // Handle Device Flow success
@@ -61,7 +62,8 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
 
   return (
     <div class="auth-view">
-      <h2>Sign In</h2>
+      <h2>Connect to Github Gists</h2>
+      <p class="hint">Your notes are stored as gists.</p>
 
       {/* Device Flow — primary */}
       <div class="device-flow-section">
@@ -98,35 +100,42 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
         )}
       </div>
 
+      <a
+        class="pat-toggle"
+        onClick={() => setShowPat(!showPat)}
+      >
+        Advanced ▾
+      </a>
+
+      {showPat && (
+        <>
+          <p class="hint">
+            You can also log in with a personal access token. <br/>Create a token at{' '}
+            <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer">
+              github.com/settings/tokens
+            </a>{' '}
+            with the <strong>gist</strong> scope.
+          </p>
+          <form class="auth-form" onSubmit={onSubmit}>
+            <input
+              type="password"
+              class="pat-input"
+              ref={patRef}
+              placeholder="ghp_xxxxxxxxxxxx"
+              autocomplete="off"
+            />
+            <button type="submit">Sign In</button>
+          </form>
+          {error && <p class="auth-error">{error}</p>}
+        </>
+      )}
+
       <hr />
 
-      {/* PAT — secondary/advanced */}
-      <h2>Personal Access Token</h2>
-      <form class="auth-form" onSubmit={onSubmit}>
-        <input
-          type="password"
-          class="pat-input"
-          ref={patRef}
-          placeholder="ghp_xxxxxxxxxxxx"
-          autocomplete="off"
-        />
-        <button type="submit">Sign In</button>
-      </form>
-      {error && <p class="auth-error">{error}</p>}
-      <p class="hint">
-        Create a token at{' '}
-        <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer">
-          github.com/settings/tokens
-        </a>{' '}
-        with the <strong>gist</strong> scope.
-      </p>
-
-      <hr />
-
-      {/* GitHub App — tertiary */}
-      <h2>GitHub App (repo-scoped)</h2>
-      <p class="hint">Connect via a GitHub App installation (repo-scoped). Requires the local auth server.</p>
-      <button type="button" onClick={onConnectApp}>Install / Connect GitHub App</button>
+      {/* GitHub App */}
+      <h2>Connect to a repo</h2>
+      <p class="hint">Your notes are stored in a public repo.</p>
+      <button type="button" class="github-signin-btn" onClick={onConnectApp}>Install GitHub App</button>
     </div>
   );
 }
