@@ -98,7 +98,7 @@ main {
 
 /* Toolbar */
 
-#toolbar {
+.toolbar {
   position: sticky;
   top: 0;
   z-index: 10;
@@ -110,31 +110,31 @@ main {
   border-bottom: 1px solid var(--border);
 }
 
-#toolbar-left,
-#toolbar-right {
+.toolbar-left,
+.toolbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-#action-buttons {
+.action-buttons {
   display: flex;
   gap: 8px;
 }
 
 /* User info */
 
-#user-info {
+.user-info {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-#user-avatar {
+.user-avatar {
   border-radius: 50%;
 }
 
-#user-name {
+.user-name {
   font-size: 14px;
   color: var(--text-secondary);
 }
@@ -163,14 +163,14 @@ button:disabled {
   cursor: not-allowed;
 }
 
-#theme-toggle {
+.theme-toggle {
   padding: 6px 10px;
   font-size: 18px;
   line-height: 1;
 }
 
 .doc-delete-btn,
-#delete-btn {
+.delete-btn {
   background: var(--danger-bg);
   border-color: var(--danger-border);
   color: var(--error-color);
@@ -178,7 +178,7 @@ button:disabled {
 
 /* Input view */
 
-#input-view {
+.input-view {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -187,25 +187,25 @@ button:disabled {
   padding: 24px 16px;
 }
 
-#input-view h1 {
+.input-view h1 {
   font-size: 28px;
   font-weight: 600;
   margin-bottom: 8px;
 }
 
-#input-view p {
+.input-view p {
   color: var(--text-secondary);
   margin-bottom: 24px;
 }
 
-#gist-form {
+.gist-form {
   display: flex;
   gap: 8px;
   width: 100%;
   max-width: 600px;
 }
 
-#gist-url {
+.gist-url {
   flex: 1;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -217,14 +217,14 @@ button:disabled {
   outline: none;
 }
 
-#gist-url:focus {
+.gist-url:focus {
   border-color: var(--focus-border);
   box-shadow: 0 0 0 3px var(--focus-shadow);
 }
 
 /* Auth view */
 
-#auth-view {
+.auth-view {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -233,25 +233,25 @@ button:disabled {
   padding: 24px 16px;
 }
 
-#auth-view h1 {
+.auth-view h1 {
   font-size: 28px;
   font-weight: 600;
   margin-bottom: 8px;
 }
 
-#auth-view p {
+.auth-view p {
   color: var(--text-secondary);
   margin-bottom: 16px;
 }
 
-#auth-view code {
+.auth-view code {
   background: var(--btn-bg);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 13px;
 }
 
-#auth-view hr {
+.auth-view hr {
   width: 100%;
   max-width: 500px;
   border: none;
@@ -259,13 +259,13 @@ button:disabled {
   margin: 16px 0;
 }
 
-#auth-view h2 {
+.auth-view h2 {
   font-size: 18px;
   font-weight: 600;
   margin-bottom: 8px;
 }
 
-#auth-form {
+.auth-form {
   display: flex;
   gap: 8px;
   width: 100%;
@@ -273,7 +273,7 @@ button:disabled {
   margin-bottom: 16px;
 }
 
-#pat-input {
+.pat-input {
   flex: 1;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -285,12 +285,12 @@ button:disabled {
   outline: none;
 }
 
-#pat-input:focus {
+.pat-input:focus {
   border-color: var(--focus-border);
   box-shadow: 0 0 0 3px var(--focus-shadow);
 }
 
-#auth-error {
+.auth-error {
   color: var(--error-color);
   margin-bottom: 16px;
 }
@@ -305,40 +305,40 @@ button:disabled {
 
 /* GitHub App view */
 
-#githubapp-view {
+.githubapp-view {
   max-width: 800px;
   width: 100%;
   margin: 0 auto;
   padding: 24px 16px;
 }
 
-#githubapp-view h1 {
+.githubapp-view h1 {
   font-size: 24px;
   font-weight: 600;
   margin-bottom: 8px;
 }
 
-#githubapp-actions {
+.githubapp-actions {
   display: flex;
   gap: 8px;
   margin: 12px 0 16px;
 }
 
-#githubapp-repos ul {
+.githubapp-repos ul {
   margin-top: 8px;
   padding-left: 20px;
 }
 
 /* Repo Documents */
 
-#repodocuments-view {
+.repodocuments-view {
   max-width: 800px;
   width: 100%;
   margin: 0 auto;
   padding: 24px 16px;
 }
 
-#repodocuments-header {
+.repodocuments-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -346,17 +346,17 @@ button:disabled {
   margin-bottom: 16px;
 }
 
-#repodocuments-header h1 {
+.repodocuments-header h1 {
   font-size: 24px;
   font-weight: 600;
 }
 
-#repodocuments-meta {
+.repodocuments-meta {
   flex: 1;
   min-width: 0;
 }
 
-#repodocuments-list {
+.repodocuments-list {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -364,26 +364,26 @@ button:disabled {
 
 /* Documents view */
 
-#documents-view {
+.documents-view {
   max-width: 800px;
   width: 100%;
   margin: 0 auto;
   padding: 24px 16px;
 }
 
-#documents-header {
+.documents-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
 
-#documents-header h1 {
+.documents-header h1 {
   font-size: 24px;
   font-weight: 600;
 }
 
-#documents-list {
+.documents-list {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -429,14 +429,20 @@ button:disabled {
   margin-left: 16px;
 }
 
-#load-more-btn {
+.load-more-btn {
   margin-top: 16px;
   width: 100%;
 }
 
+.loading-hint {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-top: 16px;
+}
+
 /* Loading view */
 
-#loading-view {
+.loading-view {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -446,7 +452,7 @@ button:disabled {
 
 /* Error view */
 
-#error-view {
+.error-view {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -455,20 +461,20 @@ button:disabled {
   gap: 16px;
 }
 
-#error-message {
+.error-message {
   color: var(--error-color);
 }
 
 /* Content view */
 
-#content-view {
+.content-view {
   max-width: 960px;
   width: 100%;
   margin: 0 auto;
   padding: 24px 16px;
 }
 
-#rendered-content {
+.rendered-content {
   font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
   font-size: 14px;
   line-height: 1.6;
@@ -479,7 +485,7 @@ button:disabled {
 
 /* Edit view */
 
-#edit-view {
+.edit-view {
   max-width: 100ch;
   width: 100%;
   margin: 0 auto;
@@ -490,7 +496,7 @@ button:disabled {
   gap: 12px;
 }
 
-#doc-title {
+.edit-title {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -502,12 +508,12 @@ button:disabled {
   outline: none;
 }
 
-#doc-title:focus {
+.edit-title:focus {
   border-color: var(--focus-border);
   box-shadow: 0 0 0 3px var(--focus-shadow);
 }
 
-#doc-editor {
+.doc-editor {
   font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
   font-size: 14px;
   line-height: 1.6;
@@ -523,6 +529,6 @@ button:disabled {
   tab-size: 2;
 }
 
-#doc-editor:focus {
+.doc-editor:focus {
   border-color: var(--focus-border);
 }

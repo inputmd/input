@@ -1,0 +1,93 @@
+import { useState, useEffect } from 'preact/hooks';
+import { listGists, deleteGist, type GistSummary } from '../github';
+import { DocumentCard } from '../components/DocumentCard';
+
+interface DocumentsViewProps {
+  navigate: (route: string) => void;
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+export function DocumentsView({ navigate }: DocumentsViewProps) {
+  const [gists, setGists] = useState<GistSummary[]>([]);
+  const [page, setPage] = useState(1);
+  const [allLoaded, setAllLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPage = async (p: number, reset: boolean) => {
+    setLoading(true);
+    try {
+      const result = await listGists(p);
+      setGists(prev => reset ? result : [...prev, ...result]);
+      if (result.length < 30) {
+        setAllLoaded(true);
+      } else {
+        setPage(p + 1);
+      }
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load documents');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPage(1, true);
+  }, []);
+
+  const onDelete = async (gist: GistSummary) => {
+    const title = gist.description || 'Untitled';
+    if (!confirm(`Delete "${title}"?`)) return;
+    try {
+      await deleteGist(gist.id);
+      setGists(prev => prev.filter(g => g.id !== gist.id));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete');
+    }
+  };
+
+  if (error) {
+    return (
+      <div class="error-view">
+        <p class="error-message">{error}</p>
+        <button type="button" onClick={() => loadPage(1, true)}>Try Again</button>
+      </div>
+    );
+  }
+
+  return (
+    <div class="documents-view">
+      <div class="documents-header">
+        <h1>My Documents</h1>
+        <button type="button" onClick={() => navigate('new')}>New Document</button>
+      </div>
+      <div class="documents-list">
+        {gists.map(gist => {
+          const title = gist.description || 'Untitled';
+          const fileCount = Object.keys(gist.files).length;
+          const updated = formatDate(gist.updated_at);
+          return (
+            <DocumentCard
+              key={gist.id}
+              title={title}
+              meta={`${fileCount} file${fileCount !== 1 ? 's' : ''} \u00b7 Updated ${updated}`}
+              onOpen={() => navigate(`gist/${gist.id}`)}
+              onDelete={() => onDelete(gist)}
+            />
+          );
+        })}
+      </div>
+      {loading && <p class="loading-hint">Loading...</p>}
+      {!allLoaded && !loading && (
+        <button type="button" class="load-more-btn" onClick={() => loadPage(page, false)}>
+          Load More
+        </button>
+      )}
+    </div>
+  );
+}
