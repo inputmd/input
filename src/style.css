@@ -303,6 +303,60 @@ button:disabled {
   color: var(--focus-border);
 }
 
+/* Device Flow */
+
+.device-flow-section {
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.github-signin-btn {
+  padding: 10px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  background: #238636;
+  border-color: #2ea043;
+  color: #ffffff;
+  width: 100%;
+}
+
+.github-signin-btn:hover {
+  background: #2ea043;
+}
+
+[data-theme="light"] .github-signin-btn {
+  background: #1a7f37;
+  border-color: #1a7f37;
+}
+
+[data-theme="light"] .github-signin-btn:hover {
+  background: #218739;
+}
+
+.device-flow-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.device-flow-code {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  padding: 12px 24px;
+  background: var(--btn-bg);
+  border: 2px dashed var(--focus-border);
+  border-radius: 8px;
+  user-select: all;
+  cursor: copy;
+}
+
 /* GitHub App view */
 
 .githubapp-view {

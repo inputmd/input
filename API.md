@@ -7,6 +7,8 @@
 | `GET` | `/api/github-app/health` | Health check |
 | `GET` | `/api/github-app/install-url?state=...` | Returns the GitHub App installation URL |
 | `POST` | `/api/github-app/sessions` | Exchanges an `installationId` for a signed session token |
+| `POST` | `/api/device-flow/code` | Initiates GitHub Device Flow for gist OAuth |
+| `POST` | `/api/device-flow/token` | Polls for a Device Flow access token (requires `device_code` in body) |
 
 ### Authenticated (requires `Authorization: Bearer <session-token>`)
 
@@ -25,7 +27,7 @@ Session tokens are HMAC-SHA256 signed, scoped to a single installation, and expi
 - Per-IP rate limiting (30 requests/minute) on all API endpoints
 - 1 MB request body limit with safe JSON parsing
 - CSRF state validation on GitHub App install redirect
-- PAT stored in `sessionStorage` (cleared when the tab closes)
+- Manual PAT and GitHub App session token stored in `sessionStorage` (cleared when the tab closes); OAuth Device Flow token stored in `localStorage` (persists across sessions)
 - ANSI RGB values sanitized to prevent CSS injection
 - Error messages sanitized — internal details logged server-side only
 - 15-second timeout on all outbound GitHub API calls

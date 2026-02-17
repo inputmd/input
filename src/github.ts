@@ -1,4 +1,5 @@
-const STORAGE_KEY = 'github_pat';
+const STORAGE_KEY = 'github_pat';           // sessionStorage (manual PAT)
+const OAUTH_TOKEN_KEY = 'github_oauth_token'; // localStorage (Device Flow)
 const API_BASE = 'https://api.github.com';
 
 // --- Types ---
@@ -38,15 +39,20 @@ export interface GitHubUser {
 // --- Token management ---
 
 export function getToken(): string | null {
-  return sessionStorage.getItem(STORAGE_KEY);
+  return sessionStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(OAUTH_TOKEN_KEY);
 }
 
 export function setToken(token: string): void {
   sessionStorage.setItem(STORAGE_KEY, token);
 }
 
+export function setOAuthToken(token: string): void {
+  localStorage.setItem(OAUTH_TOKEN_KEY, token);
+}
+
 export function clearToken(): void {
   sessionStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(OAUTH_TOKEN_KEY);
 }
 
 export function isAuthenticated(): boolean {

@@ -9,6 +9,7 @@ config({ path: new URL('../.env', import.meta.url) });
 
 const PORT = Number.parseInt(process.env.PORT ?? '8787', 10);
 
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? '';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
 
@@ -436,6 +437,45 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
       }
 
       return json(res, 405, { error: 'Method not allowed' });
+    }
+
+    // --- Device Flow proxy (OAuth gist auth) ---
+
+    if (pathname === '/api/device-flow/code' && req.method === 'POST') {
+      if (!checkRateLimit(req, res)) return;
+      if (!GITHUB_CLIENT_ID) return json(res, 503, { error: 'OAuth not configured' });
+
+      const ghRes = await fetch('https://github.com/login/device/code', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: 'gist' }),
+        signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+      });
+      if (!ghRes.ok) return json(res, 502, { error: 'Failed to initiate device flow' });
+      const data = await ghRes.json() as Record<string, unknown>;
+      return json(res, 200, data);
+    }
+
+    if (pathname === '/api/device-flow/token' && req.method === 'POST') {
+      if (!checkRateLimit(req, res)) return;
+      if (!GITHUB_CLIENT_ID) return json(res, 503, { error: 'OAuth not configured' });
+
+      const body = await readJson(req);
+      const deviceCode = requireString(body, 'device_code');
+
+      const ghRes = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: GITHUB_CLIENT_ID,
+          device_code: deviceCode,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        }),
+        signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+      });
+      if (!ghRes.ok) return json(res, 502, { error: 'Failed to poll for token' });
+      const data = await ghRes.json() as Record<string, unknown>;
+      return json(res, 200, data);
     }
 
     return json(res, 404, { error: 'Not found' });

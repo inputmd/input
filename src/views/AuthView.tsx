@@ -1,11 +1,12 @@
-import { useRef, useState } from 'preact/hooks';
+import { useRef, useState, useEffect } from 'preact/hooks';
 import {
-  setToken, clearToken, getUser,
+  setToken, setOAuthToken, clearToken, getUser,
   type GitHubUser,
 } from '../github';
 import {
   createInstallState, getInstallUrl,
 } from '../github_app';
+import { useDeviceFlow } from '../hooks/useDeviceFlow';
 
 interface AuthViewProps {
   onUserChange: (user: GitHubUser | null) => void;
@@ -15,6 +16,20 @@ interface AuthViewProps {
 export function AuthView({ onUserChange, navigate }: AuthViewProps) {
   const patRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const { phase, start, cancel } = useDeviceFlow();
+
+  // Handle Device Flow success
+  useEffect(() => {
+    if (phase.status !== 'success') return;
+    setOAuthToken(phase.token);
+    getUser()
+      .then(user => { onUserChange(user); navigate('documents'); })
+      .catch(err => {
+        clearToken();
+        onUserChange(null);
+        setError(err instanceof Error ? err.message : 'Failed to verify token');
+      });
+  }, [phase]);
 
   const onSubmit = async (e: Event) => {
     e.preventDefault();
@@ -47,7 +62,47 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
   return (
     <div class="auth-view">
       <h1>Sign In</h1>
-      <p>Enter a GitHub Personal Access Token with the <code>gist</code> scope</p>
+
+      {/* Device Flow — primary */}
+      <div class="device-flow-section">
+        {(phase.status === 'idle' || phase.status === 'error') && (
+          <>
+            <button type="button" class="github-signin-btn" onClick={start}>
+              Sign in with GitHub
+            </button>
+            {phase.status === 'error' && <p class="auth-error">{phase.message}</p>}
+          </>
+        )}
+
+        {phase.status === 'requesting' && (
+          <p class="hint">Contacting GitHub...</p>
+        )}
+
+        {phase.status === 'pending' && (
+          <div class="device-flow-pending">
+            <p>
+              Go to{' '}
+              <a href={phase.verificationUri} target="_blank" rel="noopener noreferrer">
+                {phase.verificationUri}
+              </a>{' '}
+              and enter the code:
+            </p>
+            <code class="device-flow-code">{phase.userCode}</code>
+            <p class="hint">Waiting for authorization...</p>
+            <button type="button" onClick={cancel}>Cancel</button>
+          </div>
+        )}
+
+        {phase.status === 'success' && (
+          <p class="hint">Authorized! Signing you in...</p>
+        )}
+      </div>
+
+      <hr />
+
+      {/* PAT — secondary/advanced */}
+      <h2>Personal Access Token</h2>
+      <p class="hint">Or enter a GitHub token with the <code>gist</code> scope manually.</p>
       <form class="auth-form" onSubmit={onSubmit}>
         <input
           type="password"
@@ -66,7 +121,10 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
         </a>{' '}
         with the <code>gist</code> scope.
       </p>
+
       <hr />
+
+      {/* GitHub App — tertiary */}
       <h2>GitHub App (repo-scoped)</h2>
       <p class="hint">Connect via a GitHub App installation (repo-scoped). Requires the local auth server.</p>
       <button type="button" onClick={onConnectApp}>Install / Connect GitHub App</button>

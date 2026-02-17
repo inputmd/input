@@ -6,9 +6,9 @@ Markdown documents, backed by Gists & repos.
 
 - **Gist viewer** — Paste any public gist URL to render its
     contents. Supports ANSI colors for e.g. Claude Code/Codex output.
-- **Connect to gists** — Sign in with a GitHub Personal Access Token
-    (`gist` scope) to list, create, edit, and delete your gists as
-    documents.
+- **Connect to gists** — Sign in with GitHub (OAuth Device Flow) to
+    list, create, edit, and delete your gists as documents. Manual
+    Personal Access Token entry is also supported as a fallback.
 - **Connect to repos** — Connects to your Github repos as an installed
     application, to read/write Markdown files under
     `.input/documents/`.
@@ -39,8 +39,9 @@ cp .env.example .env
 | `PORT` | No | Server port (default: `8787`) |
 | `TRUST_PROXY` | No | Set to `true` to trust `X-Forwarded-For` for rate limiting (when behind a reverse proxy) |
 | `SESSION_SECRET` | No | Secret for signing session tokens. If unset, a random ephemeral secret is generated (sessions won't survive restarts) |
-| `GITHUB_APP_ID` | Yes | Your GitHub App's ID |
-| `GITHUB_APP_SLUG` | Yes | Your GitHub App's URL slug |
+| `GITHUB_CLIENT_ID` | For gist auth | OAuth App Client ID for Device Flow sign-in (see step 3a below) |
+| `GITHUB_APP_ID` | For repo auth | Your GitHub App's ID (see step 3b below) |
+| `GITHUB_APP_SLUG` | For repo auth | Your GitHub App's URL slug |
 | `GITHUB_APP_PRIVATE_KEY` | One of these | RSA private key as a string (use `\n` for newlines inside double quotes) |
 | `GITHUB_APP_PRIVATE_KEY_PATH` | One of these | Absolute path to the `.pem` private key file |
 
@@ -50,7 +51,16 @@ Generate a session secret:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-3) Create and configure a GitHub App
+3a) Create an OAuth App (for gist sign-in)
+
+1. Go to **GitHub → Settings → Developer settings → OAuth Apps** and create a new app.
+2. Check **Enable Device Flow**.
+3. Set the **Homepage URL** to your app URL (e.g. `http://localhost:5173/`). The **Authorization callback URL** is not used by Device Flow but is required by GitHub — any valid URL works.
+4. Copy the **Client ID** into your `.env` as `GITHUB_CLIENT_ID`.
+
+No client secret is needed — Device Flow is safe with a public client ID.
+
+3b) Create a GitHub App (for repo access)
 
 1. Go to **GitHub → Settings → Developer settings → GitHub Apps** and create a new app.
 2. Grant **Repository permissions → Contents: Read & write**.
