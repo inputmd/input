@@ -9,8 +9,7 @@ import {
   getInstallationId, setInstallationId, clearInstallationId,
   getSelectedRepo, setSelectedRepo as storeSelectedRepo, clearSelectedRepo,
   clearSessionToken, createSession, SessionExpiredError,
-  getRepoContents, putRepoFile,
-  type RepoContents,
+  getRepoContents, putRepoFile, isRepoFile,
 } from './github_app';
 import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
 import { REPO_DOCS_DIR } from './constants';
@@ -175,14 +174,11 @@ export function App() {
     if (!instId || !repoName) { navigate('githubapp'); return; }
     setActiveView('loading');
     try {
-      const contents = await getRepoContents(instId, repoName, path) as RepoContents;
-      if (Array.isArray(contents) || (contents as any).type !== 'file') {
-        throw new Error('Expected a file');
-      }
-      const file = contents as Extract<RepoContents, { type: 'file' }>;
-      const decoded = file.content ? decodeBase64ToUtf8(file.content) : '';
-      setCurrentRepoDocPath(file.path);
-      setCurrentRepoDocSha(file.sha);
+      const contents = await getRepoContents(instId, repoName, path);
+      if (!isRepoFile(contents)) throw new Error('Expected a file');
+      const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
+      setCurrentRepoDocPath(contents.path);
+      setCurrentRepoDocSha(contents.sha);
       setCurrentGistId(null);
       setRenderedHtml(parseAnsiToHtml(decoded));
       setActiveView('content');
@@ -198,15 +194,14 @@ export function App() {
     if (!instId || !repoName) { navigate('githubapp'); return; }
     setActiveView('loading');
     try {
-      const contents = await getRepoContents(instId, repoName, path) as RepoContents;
-      if (Array.isArray(contents) || (contents as any).type !== 'file') throw new Error('Expected a file');
-      const file = contents as Extract<RepoContents, { type: 'file' }>;
-      const decoded = file.content ? decodeBase64ToUtf8(file.content) : '';
+      const contents = await getRepoContents(instId, repoName, path);
+      if (!isRepoFile(contents)) throw new Error('Expected a file');
+      const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
       setEditingBackend('repo');
-      setCurrentRepoDocPath(file.path);
-      setCurrentRepoDocSha(file.sha);
+      setCurrentRepoDocPath(contents.path);
+      setCurrentRepoDocSha(contents.sha);
       setCurrentGistId(null);
-      setEditTitle(file.name.replace(/\.md$/i, ''));
+      setEditTitle(contents.name.replace(/\.md$/i, ''));
       setEditContent(decoded);
       setActiveView('edit');
     } catch (err) {

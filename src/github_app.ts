@@ -125,16 +125,22 @@ export interface InstallationRepoList {
   }>;
 }
 
+export interface RepoFile {
+  type: 'file';
+  name: string;
+  path: string;
+  sha: string;
+  size: number;
+  content?: string;
+  encoding?: 'base64';
+}
+
+export function isRepoFile(contents: RepoContents): contents is RepoFile {
+  return !Array.isArray(contents) && contents.type === 'file';
+}
+
 export type RepoContents =
-  | {
-    type: 'file';
-    name: string;
-    path: string;
-    sha: string;
-    size: number;
-    content?: string;
-    encoding?: 'base64';
-  }
+  | RepoFile
   | Array<{
     type: 'file' | 'dir' | 'symlink' | 'submodule';
     name: string;
