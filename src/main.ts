@@ -350,7 +350,6 @@ function toggleTheme() {
 // --- Init ---
 
 function init() {
-  document.documentElement.setAttribute('data-theme', 'dark');
   updateAuthUI();
 
   // Theme
@@ -417,8 +416,10 @@ function init() {
   // Hash-based routing
   window.addEventListener('hashchange', handleRoute);
 
-  // Restore auth, then handle initial route
-  tryRestoreAuth().then(handleRoute);
+  // Restore auth, then handle initial route, then reveal
+  tryRestoreAuth().then(handleRoute).then(() => {
+    $('app').classList.add('ready');
+  });
 }
 
 init();
