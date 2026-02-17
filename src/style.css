@@ -228,9 +228,9 @@ button:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   flex: 1;
   padding: 24px 16px;
+  padding-top: 15vh;
 }
 
 .auth-view h1 {
@@ -270,7 +270,7 @@ button:disabled {
   font-size: 13px;
   cursor: pointer;
   max-width: 500px;
-  margin: 12px 0;
+  margin: 10px 0 12px;
 }
 
 .pat-toggle:hover {
@@ -335,6 +335,7 @@ button:disabled {
   border-color: #2ea043;
   color: #ffffff;
   min-width: 300px;
+  margin-bottom: 8px;
 }
 
 .github-signin-btn:hover {

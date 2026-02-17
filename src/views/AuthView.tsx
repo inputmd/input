@@ -62,10 +62,19 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
 
   return (
     <div class="auth-view">
-      <h2>Connect to Github Gists</h2>
-      <p class="hint">Your notes are stored as gists.</p>
+      {/* GitHub App */}
+      <h2>Connect to a repo</h2>
+      <p class="hint">Install the application on a public GitHub repo.</p>
+      <button type="button" class="github-signin-btn" onClick={onConnectApp}>Install GitHub App</button>
 
-      {/* Device Flow — primary */}
+      <hr />
+
+      <h2>Connect to Github Gists</h2>
+      {phase.status !== 'pending' && (
+        <p class="hint">Use Github OAuth to save notes as individual gists.</p>
+      )}
+
+      {/* Device Flow */}
       <div class="device-flow-section">
         {(phase.status === 'idle' || phase.status === 'error') && (
           <>
@@ -81,17 +90,18 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
         )}
 
         {phase.status === 'pending' && (
-          <div class="device-flow-pending">
-            <p>
+          <div class="device-flow-pending hint">
+            <div>
               Go to{' '}
               <a href={phase.verificationUri} target="_blank" rel="noopener noreferrer">
                 {phase.verificationUri}
               </a>{' '}
               and enter the code:
-            </p>
+            </div>
             <code class="device-flow-code">{phase.userCode}</code>
-            <p class="hint">Waiting for authorization...</p>
+            <div class="hint">Waiting for authorization...</div>
             <button type="button" onClick={cancel}>Cancel</button>
+            <br/>
           </div>
         )}
 
@@ -100,42 +110,39 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
         )}
       </div>
 
-      <a
-        class="pat-toggle"
-        onClick={() => setShowPat(!showPat)}
-      >
-        Advanced ▾
-      </a>
-
-      {showPat && (
+      {phase.status !== 'pending' && (
         <>
-          <p class="hint">
-            You can also log in with a personal access token. <br/>Create a token at{' '}
-            <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer">
-              github.com/settings/tokens
-            </a>{' '}
-            with the <strong>gist</strong> scope.
-          </p>
-          <form class="auth-form" onSubmit={onSubmit}>
-            <input
-              type="password"
-              class="pat-input"
-              ref={patRef}
-              placeholder="ghp_xxxxxxxxxxxx"
-              autocomplete="off"
-            />
-            <button type="submit">Sign In</button>
-          </form>
-          {error && <p class="auth-error">{error}</p>}
+          <a
+            class="pat-toggle"
+            onClick={() => setShowPat(!showPat)}
+          >
+            Advanced ▾
+          </a>
+
+          {showPat && (
+            <>
+              <form class="auth-form" onSubmit={onSubmit}>
+                <input
+                  type="password"
+                  class="pat-input"
+                  ref={patRef}
+                  placeholder="ghp_xxxxxxxxxxxx"
+                  autocomplete="off"
+                />
+                <button type="submit">Sign In</button>
+              </form>
+              {error && <p class="auth-error">{error}</p>}
+              <p class="hint">
+                Create a personal access token at{' '}
+                <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer">
+                  github.com/settings/tokens
+                </a>{' '}
+                with the <strong>gist</strong> scope.
+              </p>
+            </>
+          )}
         </>
       )}
-
-      <hr />
-
-      {/* GitHub App */}
-      <h2>Connect to a repo</h2>
-      <p class="hint">Your notes are stored in a public repo.</p>
-      <button type="button" class="github-signin-btn" onClick={onConnectApp}>Install GitHub App</button>
     </div>
   );
 }
