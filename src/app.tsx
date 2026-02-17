@@ -76,6 +76,8 @@ export function App() {
   // Track initialization
   const initialized = useRef(false);
   // Cache refs: synced on render, eagerly updated before navigate() to avoid redundant API calls
+  const userRef = useRef<GitHubUser | null>(null);
+  userRef.current = user;
   const gistFilesRef = useRef<Record<string, GistFile> | null>(null);
   gistFilesRef.current = gistFiles;
   const currentGistIdRef = useRef<string | null>(null);
@@ -108,9 +110,11 @@ export function App() {
     if (!isAuthenticated()) return;
     try {
       const u = await getUser();
+      userRef.current = u;
       setUser(u);
     } catch {
       clearToken();
+      userRef.current = null;
       setUser(null);
     }
   }, []);
@@ -357,7 +361,7 @@ export function App() {
         await loadRepoFileForEdit(safeDecodeURIComponent(r.params.path));
         return;
       case 'documents':
-        if (!user) { navigate('auth'); return; }
+        if (!userRef.current) { navigate('auth'); return; }
         setGistFiles(null);
         setCurrentFileName(null);
         setRepoFiles([]);
@@ -367,7 +371,7 @@ export function App() {
         navigate('');
         return;
       case 'edit': {
-        if (!user) { navigate('auth'); return; }
+        if (!userRef.current) { navigate('auth'); return; }
         setDraftMode(false);
         // Serve from cache if we already have this gist's files
         const cachedFiles = currentGistIdRef.current === r.params.id ? gistFilesRef.current : null;
@@ -420,7 +424,7 @@ export function App() {
       case 'gist': {
         const id = r.params.id;
         const filename = r.params.filename;
-        if (user) await loadGistAuthenticated(id, filename);
+        if (userRef.current) await loadGistAuthenticated(id, filename);
         else await loadGistAnonymous(id, filename);
         return;
       }
@@ -444,7 +448,7 @@ export function App() {
         setDraftMode(false);
         setActiveView('edit');
     }
-  }, [user, navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError]);
+  }, [navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError]);
 
   // --- Init ---
   useEffect(() => {
@@ -755,8 +759,7 @@ export function App() {
     }
   };
 
-  const showSidebar = (activeView === 'content' || activeView === 'edit')
-    && (gistFiles !== null || repoFiles.length > 0);
+  const showSidebar = activeView === 'content' || activeView === 'edit';
 
   const sidebarFiles = useMemo(() => {
     if (gistFiles) {
