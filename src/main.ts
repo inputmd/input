@@ -1,7 +1,58 @@
 import { parseAnsiToHtml } from './ansi';
+import {
+  isAuthenticated, setToken, clearToken,
+  getUser, listGists, getGist, createGist, updateGist, deleteGist,
+  type GistSummary, type GistDetail, type GitHubUser,
+} from './github';
 import './style.css';
 
+// --- State ---
+
+let currentUser: GitHubUser | null = null;
+let currentGistId: string | null = null;
+let currentGistContent: string = '';
 let renderedHtml = '';
+let documentsPage = 1;
+let allDocumentsLoaded = false;
+
+// --- DOM helpers ---
+
+const $ = (id: string) => document.getElementById(id)!;
+
+type View = 'input' | 'auth' | 'documents' | 'loading' | 'error' | 'content' | 'edit';
+
+const ALL_VIEWS: View[] = ['input', 'auth', 'documents', 'loading', 'error', 'content', 'edit'];
+
+function showView(name: View) {
+  for (const v of ALL_VIEWS) {
+    $(`${v}-view`).style.display = v === name ? '' : 'none';
+  }
+
+  // Action buttons visibility
+  const isOwnedGist = name === 'content' && currentUser !== null && currentGistId !== null;
+  $('edit-btn').style.display = isOwnedGist ? '' : 'none';
+  $('delete-btn').style.display = isOwnedGist ? '' : 'none';
+  $('save-btn').style.display = name === 'edit' ? '' : 'none';
+  $('cancel-btn').style.display = name === 'edit' ? '' : 'none';
+
+  // Nav buttons
+  $('docs-btn').style.display = currentUser && name !== 'documents' ? '' : 'none';
+  $('viewer-btn').style.display = name !== 'input' && name !== 'auth' ? '' : 'none';
+}
+
+function updateAuthUI() {
+  if (currentUser) {
+    $('user-info').style.display = '';
+    ($('user-avatar') as HTMLImageElement).src = currentUser.avatar_url;
+    $('user-name').textContent = currentUser.name ?? currentUser.login;
+    $('signin-btn').style.display = 'none';
+  } else {
+    $('user-info').style.display = 'none';
+    $('signin-btn').style.display = '';
+  }
+}
+
+// --- Gist URL extraction (existing) ---
 
 function extractGistId(input: string): string | null {
   input = input.trim();
@@ -10,7 +61,6 @@ function extractGistId(input: string): string | null {
     const url = new URL(input);
     if (url.hostname === 'gist.github.com' || url.hostname === 'gist.githubusercontent.com') {
       const parts = url.pathname.split('/').filter(Boolean);
-      // /user/id or /id — the id is always the last hex-looking segment
       for (let i = parts.length - 1; i >= 0; i--) {
         if (/^[a-f0-9]+$/i.test(parts[i])) return parts[i];
       }
@@ -18,6 +68,8 @@ function extractGistId(input: string): string | null {
   } catch { /* not a url */ }
   return null;
 }
+
+// --- Fetch & display a gist ---
 
 async function fetchGistContent(id: string): Promise<string> {
   const res = await fetch(`https://api.github.com/gists/${id}`);
@@ -36,89 +88,337 @@ async function fetchGistContent(id: string): Promise<string> {
   return contents.join('\n\n');
 }
 
-type View = 'input' | 'loading' | 'error' | 'content' | 'edit';
-
-function showView(name: View) {
-  for (const v of ['input', 'loading', 'error', 'content', 'edit'] as const) {
-    document.getElementById(`${v}-view`)!.style.display = v === name ? '' : 'none';
-  }
-  document.getElementById('edit-btn')!.style.display = name === 'content' ? '' : 'none';
-  document.getElementById('save-btn')!.style.display = name === 'edit' ? '' : 'none';
-  document.getElementById('cancel-btn')!.style.display = name === 'edit' ? '' : 'none';
-}
-
-async function loadGist(id: string) {
+async function loadGistAnonymous(id: string) {
   showView('loading');
   try {
     const content = await fetchGistContent(id);
     renderedHtml = parseAnsiToHtml(content);
-    document.getElementById('rendered-content')!.innerHTML = renderedHtml;
+    $('rendered-content').innerHTML = renderedHtml;
+    currentGistId = null;
     showView('content');
   } catch (err) {
-    document.getElementById('error-message')!.textContent =
-      err instanceof Error ? err.message : 'Unknown error';
+    $('error-message').textContent = err instanceof Error ? err.message : 'Unknown error';
     showView('error');
   }
 }
+
+async function loadGistAuthenticated(id: string) {
+  showView('loading');
+  try {
+    const gist = await getGist(id);
+    currentGistId = gist.id;
+    const file = Object.values(gist.files)[0];
+    currentGistContent = file?.content ?? '';
+    renderedHtml = parseAnsiToHtml(currentGistContent);
+    $('rendered-content').innerHTML = renderedHtml;
+    showView('content');
+  } catch (err) {
+    $('error-message').textContent = err instanceof Error ? err.message : 'Unknown error';
+    showView('error');
+  }
+}
+
+// --- Auth ---
+
+async function tryRestoreAuth() {
+  if (!isAuthenticated()) return;
+  try {
+    currentUser = await getUser();
+    updateAuthUI();
+  } catch {
+    clearToken();
+    currentUser = null;
+    updateAuthUI();
+  }
+}
+
+async function signIn(token: string) {
+  setToken(token);
+  try {
+    currentUser = await getUser();
+    updateAuthUI();
+    $('auth-error').style.display = 'none';
+    navigate('documents');
+  } catch (err) {
+    clearToken();
+    currentUser = null;
+    updateAuthUI();
+    const errEl = $('auth-error');
+    errEl.textContent = err instanceof Error ? err.message : 'Invalid token';
+    errEl.style.display = '';
+  }
+}
+
+function signOut() {
+  clearToken();
+  currentUser = null;
+  currentGistId = null;
+  updateAuthUI();
+  navigate('');
+}
+
+// --- Document list ---
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderDocumentCard(gist: GistSummary): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'document-card';
+
+  const title = gist.description || 'Untitled';
+  const fileCount = Object.keys(gist.files).length;
+  const updated = formatDate(gist.updated_at);
+
+  card.innerHTML = `
+    <div class="doc-info">
+      <span class="doc-title">${escapeHtml(title)}</span>
+      <span class="doc-meta">${fileCount} file${fileCount !== 1 ? 's' : ''} &middot; Updated ${updated}</span>
+    </div>
+    <div class="doc-actions">
+      <button class="doc-open-btn" type="button">Open</button>
+      <button class="doc-delete-btn" type="button">Delete</button>
+    </div>
+  `;
+
+  card.querySelector('.doc-open-btn')!.addEventListener('click', () => {
+    navigate(`gist/${gist.id}`);
+  });
+
+  card.querySelector('.doc-delete-btn')!.addEventListener('click', async () => {
+    if (!confirm(`Delete "${title}"?`)) return;
+    try {
+      await deleteGist(gist.id);
+      card.remove();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete');
+    }
+  });
+
+  return card;
+}
+
+async function loadDocuments(reset = false) {
+  if (reset) {
+    documentsPage = 1;
+    allDocumentsLoaded = false;
+    $('documents-list').innerHTML = '';
+  }
+
+  showView('documents');
+
+  try {
+    const gists = await listGists(documentsPage);
+    const list = $('documents-list');
+
+    for (const gist of gists) {
+      list.appendChild(renderDocumentCard(gist));
+    }
+
+    if (gists.length < 30) {
+      allDocumentsLoaded = true;
+    } else {
+      documentsPage++;
+    }
+
+    $('load-more-btn').style.display = allDocumentsLoaded ? 'none' : '';
+  } catch (err) {
+    $('error-message').textContent = err instanceof Error ? err.message : 'Failed to load documents';
+    showView('error');
+  }
+}
+
+// --- Editor ---
+
+function enterEditMode(gistId: string | null, title: string, content: string) {
+  currentGistId = gistId;
+  ($('doc-title') as HTMLInputElement).value = title;
+  ($('doc-editor') as HTMLTextAreaElement).value = content;
+  showView('edit');
+  ($('doc-editor') as HTMLTextAreaElement).focus();
+}
+
+async function saveDocument() {
+  const title = ($('doc-title') as HTMLInputElement).value.trim() || 'Untitled';
+  const content = ($('doc-editor') as HTMLTextAreaElement).value;
+
+  $('save-btn').textContent = 'Saving...';
+  ($('save-btn') as HTMLButtonElement).disabled = true;
+
+  try {
+    let gist: GistDetail;
+    if (currentGistId) {
+      gist = await updateGist(currentGistId, title, content);
+    } else {
+      gist = await createGist(title, content);
+    }
+
+    currentGistId = gist.id;
+    currentGistContent = content;
+    renderedHtml = parseAnsiToHtml(content);
+    $('rendered-content').innerHTML = renderedHtml;
+    navigate(`gist/${gist.id}`);
+  } catch (err) {
+    alert(err instanceof Error ? err.message : 'Failed to save');
+  } finally {
+    $('save-btn').textContent = 'Save';
+    ($('save-btn') as HTMLButtonElement).disabled = false;
+  }
+}
+
+// --- Routing ---
+
+function navigate(route: string) {
+  window.location.hash = route;
+}
+
+async function handleRoute() {
+  const hash = window.location.hash.slice(1);
+
+  if (hash === 'auth') {
+    showView('auth');
+    ($('pat-input') as HTMLInputElement).focus();
+    return;
+  }
+
+  if (hash === 'documents') {
+    if (!currentUser) { navigate('auth'); return; }
+    await loadDocuments(true);
+    return;
+  }
+
+  if (hash === 'new') {
+    if (!currentUser) { navigate('auth'); return; }
+    enterEditMode(null, '', '');
+    return;
+  }
+
+  if (hash.startsWith('edit/')) {
+    const id = hash.slice(5);
+    if (!currentUser) { navigate('auth'); return; }
+    showView('loading');
+    try {
+      const gist = await getGist(id);
+      const file = Object.values(gist.files)[0];
+      enterEditMode(gist.id, gist.description ?? '', file?.content ?? '');
+    } catch (err) {
+      $('error-message').textContent = err instanceof Error ? err.message : 'Failed to load gist';
+      showView('error');
+    }
+    return;
+  }
+
+  if (hash.startsWith('gist/')) {
+    const id = hash.slice(5);
+    if (currentUser) {
+      await loadGistAuthenticated(id);
+    } else {
+      await loadGistAnonymous(id);
+    }
+    return;
+  }
+
+  // Legacy: bare gist ID in hash (existing behavior)
+  if (hash && /^[a-f0-9]+$/i.test(hash)) {
+    if (currentUser) {
+      await loadGistAuthenticated(hash);
+    } else {
+      await loadGistAnonymous(hash);
+    }
+    return;
+  }
+
+  // Default: show input view
+  showView('input');
+}
+
+// --- Theme ---
 
 function toggleTheme() {
   const root = document.documentElement;
   const isDark = root.getAttribute('data-theme') !== 'light';
   root.setAttribute('data-theme', isDark ? 'light' : 'dark');
-  document.getElementById('theme-icon')!.textContent = isDark ? '\u263D' : '\u2600';
+  $('theme-icon').textContent = isDark ? '\u263D' : '\u2600';
 }
 
-function enterEditMode() {
-  const editor = document.getElementById('editor')!;
-  editor.innerHTML = renderedHtml;
-  showView('edit');
-  editor.focus();
-}
-
-function exitEditMode() {
-  showView('content');
-}
+// --- Init ---
 
 function init() {
   document.documentElement.setAttribute('data-theme', 'dark');
+  updateAuthUI();
 
-  document.getElementById('theme-toggle')!.addEventListener('click', toggleTheme);
+  // Theme
+  $('theme-toggle').addEventListener('click', toggleTheme);
 
-  document.getElementById('gist-form')!.addEventListener('submit', (e) => {
+  // Sign in/out
+  $('signin-btn').addEventListener('click', () => navigate('auth'));
+  $('signout-btn').addEventListener('click', signOut);
+
+  // Auth form
+  $('auth-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const input = document.getElementById('gist-url') as HTMLInputElement;
-    const id = extractGistId(input.value);
-    if (id) {
-      window.location.hash = id;
-      loadGist(id);
-    }
+    const token = ($('pat-input') as HTMLInputElement).value.trim();
+    if (token) signIn(token);
   });
 
-  document.getElementById('edit-btn')!.addEventListener('click', enterEditMode);
-  document.getElementById('save-btn')!.addEventListener('click', exitEditMode);
-  document.getElementById('cancel-btn')!.addEventListener('click', () => {
-    if (confirm('Discard changes?')) exitEditMode();
+  // Gist URL form (existing viewer)
+  $('gist-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = ($('gist-url') as HTMLInputElement).value;
+    const id = extractGistId(input);
+    if (id) navigate(`gist/${id}`);
   });
 
-  document.getElementById('retry-btn')!.addEventListener('click', () => {
-    const hash = window.location.hash.slice(1);
-    const id = hash ? extractGistId(decodeURIComponent(hash)) : null;
-    if (id) loadGist(id);
-    else showView('input');
-  });
+  // Navigation buttons
+  $('docs-btn').addEventListener('click', () => navigate('documents'));
+  $('viewer-btn').addEventListener('click', () => navigate(''));
 
-  function loadFromHash() {
-    const hash = window.location.hash.slice(1);
-    if (hash) {
-      const id = extractGistId(decodeURIComponent(hash));
-      if (id) loadGist(id);
+  // Edit/Save/Cancel for content view
+  $('edit-btn').addEventListener('click', () => {
+    if (currentGistId) navigate(`edit/${currentGistId}`);
+  });
+  $('save-btn').addEventListener('click', saveDocument);
+  $('cancel-btn').addEventListener('click', () => {
+    if (currentGistId) {
+      navigate(`gist/${currentGistId}`);
     } else {
-      showView('input');
+      navigate('documents');
     }
-  }
+  });
 
-  window.addEventListener('hashchange', loadFromHash);
-  loadFromHash();
+  // Delete
+  $('delete-btn').addEventListener('click', async () => {
+    if (!currentGistId) return;
+    if (!confirm('Delete this document?')) return;
+    try {
+      await deleteGist(currentGistId);
+      currentGistId = null;
+      navigate('documents');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete');
+    }
+  });
+
+  // New document
+  $('new-doc-btn').addEventListener('click', () => navigate('new'));
+
+  // Load more documents
+  $('load-more-btn').addEventListener('click', () => loadDocuments());
+
+  // Retry
+  $('retry-btn').addEventListener('click', handleRoute);
+
+  // Hash-based routing
+  window.addEventListener('hashchange', handleRoute);
+
+  // Restore auth, then handle initial route
+  tryRestoreAuth().then(handleRoute);
 }
 
 init();

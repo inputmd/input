@@ -3,18 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gist Viewer</title>
+    <title>Input</title>
   </head>
   <body>
     <div id="app">
       <header id="toolbar">
-        <button id="theme-toggle" type="button" title="Toggle theme">
-          <span id="theme-icon">&#9728;</span>
-        </button>
-        <div id="action-buttons">
-          <button id="edit-btn" type="button" style="display:none">Edit</button>
-          <button id="save-btn" type="button" style="display:none">Save</button>
-          <button id="cancel-btn" type="button" style="display:none">Cancel</button>
+        <div id="toolbar-left">
+          <button id="theme-toggle" type="button" title="Toggle theme">
+            <span id="theme-icon">&#9728;</span>
+          </button>
+          <button id="docs-btn" type="button" style="display:none">My Documents</button>
+          <button id="viewer-btn" type="button" style="display:none">Gist Viewer</button>
+        </div>
+        <div id="toolbar-right">
+          <div id="action-buttons">
+            <button id="edit-btn" type="button" style="display:none">Edit</button>
+            <button id="save-btn" type="button" style="display:none">Save</button>
+            <button id="cancel-btn" type="button" style="display:none">Cancel</button>
+            <button id="delete-btn" type="button" style="display:none">Delete</button>
+          </div>
+          <div id="user-info" style="display:none">
+            <img id="user-avatar" alt="" width="24" height="24" />
+            <span id="user-name"></span>
+            <button id="signout-btn" type="button">Sign Out</button>
+          </div>
+          <button id="signin-btn" type="button">Sign In</button>
         </div>
       </header>
       <main>
@@ -26,8 +39,26 @@
             <button type="submit">Load</button>
           </form>
         </div>
+        <div id="auth-view" style="display:none">
+          <h1>Sign In</h1>
+          <p>Enter a GitHub Personal Access Token with the <code>gist</code> scope</p>
+          <form id="auth-form">
+            <input type="password" id="pat-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
+            <button type="submit">Sign In</button>
+          </form>
+          <p id="auth-error" style="display:none"></p>
+          <p class="hint">Create a token at <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a> with the <code>gist</code> scope.</p>
+        </div>
+        <div id="documents-view" style="display:none">
+          <div id="documents-header">
+            <h1>My Documents</h1>
+            <button id="new-doc-btn" type="button">New Document</button>
+          </div>
+          <div id="documents-list"></div>
+          <button id="load-more-btn" type="button" style="display:none">Load More</button>
+        </div>
         <div id="loading-view" style="display:none">
-          <p>Loading gist...</p>
+          <p>Loading...</p>
         </div>
         <div id="error-view" style="display:none">
           <p id="error-message"></p>
@@ -37,7 +68,8 @@
           <pre id="rendered-content"></pre>
         </div>
         <div id="edit-view" style="display:none">
-          <div id="editor" contenteditable="true"></div>
+          <input type="text" id="doc-title" placeholder="Document title" />
+          <textarea id="doc-editor" placeholder="Write your markdown here..."></textarea>
         </div>
       </main>
     </div>

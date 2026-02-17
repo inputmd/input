@@ -11,6 +11,8 @@
   --focus-border: #58a6ff;
   --focus-shadow: rgba(88, 166, 255, 0.4);
   --error-color: #f85149;
+  --danger-bg: #490202;
+  --danger-border: #f85149;
 
   --ansi-black: #555555;
   --ansi-red: #f44747;
@@ -43,6 +45,8 @@
   --focus-border: #0969da;
   --focus-shadow: rgba(9, 105, 218, 0.3);
   --error-color: #cf222e;
+  --danger-bg: #ffebe9;
+  --danger-border: #cf222e;
 
   --ansi-black: #1e1e1e;
   --ansi-red: #cd3131;
@@ -106,9 +110,33 @@ main {
   border-bottom: 1px solid var(--border);
 }
 
+#toolbar-left,
+#toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 #action-buttons {
   display: flex;
   gap: 8px;
+}
+
+/* User info */
+
+#user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#user-avatar {
+  border-radius: 50%;
+}
+
+#user-name {
+  font-size: 14px;
+  color: var(--text-secondary);
 }
 
 /* Buttons */
@@ -130,10 +158,22 @@ button:hover {
   background: var(--btn-hover);
 }
 
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 #theme-toggle {
   padding: 6px 10px;
   font-size: 18px;
   line-height: 1;
+}
+
+.doc-delete-btn,
+#delete-btn {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--error-color);
 }
 
 /* Input view */
@@ -180,6 +220,145 @@ button:hover {
 #gist-url:focus {
   border-color: var(--focus-border);
   box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
+/* Auth view */
+
+#auth-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 24px 16px;
+}
+
+#auth-view h1 {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+#auth-view p {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+#auth-view code {
+  background: var(--btn-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+#auth-form {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 500px;
+  margin-bottom: 16px;
+}
+
+#pat-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+#pat-input:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
+#auth-error {
+  color: var(--error-color);
+  margin-bottom: 16px;
+}
+
+.hint {
+  font-size: 13px;
+}
+
+.hint a {
+  color: var(--focus-border);
+}
+
+/* Documents view */
+
+#documents-view {
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+#documents-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+#documents-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+#documents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.document-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--toolbar-bg);
+}
+
+.document-card + .document-card {
+  margin-top: 8px;
+}
+
+.doc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.doc-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.doc-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+
+#load-more-btn {
+  margin-top: 16px;
+  width: 100%;
 }
 
 /* Loading view */
@@ -235,25 +414,42 @@ button:hover {
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 12px;
 }
 
-#editor {
+#doc-title {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  font-family: inherit;
+  outline: none;
+}
+
+#doc-title:focus {
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
+#doc-editor {
   font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
   font-size: 14px;
   line-height: 1.6;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
   flex: 1;
-  min-height: calc(100vh - 100px);
+  min-height: calc(100vh - 160px);
   padding: 16px;
   border: 2px solid var(--border);
   border-radius: 6px;
   background: var(--input-bg);
   color: var(--text);
   outline: none;
+  resize: vertical;
+  tab-size: 2;
 }
 
-#editor:focus {
+#doc-editor:focus {
   border-color: var(--focus-border);
 }
