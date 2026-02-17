@@ -75,8 +75,13 @@ export function App() {
 
   // Track initialization
   const initialized = useRef(false);
-  // When true, loaders skip overwriting gistFiles/repoFiles (e.g. after delete/rename set them optimistically)
-  const keepFileList = useRef(false);
+  // Cache refs: synced on render, eagerly updated before navigate() to avoid redundant API calls
+  const gistFilesRef = useRef<Record<string, GistFile> | null>(null);
+  gistFilesRef.current = gistFiles;
+  const currentGistIdRef = useRef<string | null>(null);
+  currentGistIdRef.current = currentGistId;
+  const repoFilesRef = useRef<Array<{ name: string; path: string; sha: string }>>([]);
+  repoFilesRef.current = repoFiles;
 
   // --- Helpers ---
   const syncRepoState = useCallback(() => {
@@ -144,7 +149,7 @@ export function App() {
 
   // --- Helpers ---
   const fetchRepoSidebarFiles = useCallback(async (instId: string, repoName: string) => {
-    if (keepFileList.current) { keepFileList.current = false; return; }
+    if (repoFilesRef.current.length > 0) return;
     try {
       const dirContents = await getRepoContents(instId, repoName, REPO_DOCS_DIR);
       if (Array.isArray(dirContents)) {
@@ -158,6 +163,24 @@ export function App() {
 
   // --- Data loaders ---
   const loadGistAnonymous = useCallback(async (id: string, filename?: string) => {
+    // Serve from cache if available (skip for truncated files with null content)
+    const cached = currentGistIdRef.current === id ? gistFilesRef.current : null;
+    if (cached) {
+      const cacheKeys = Object.keys(cached);
+      const cacheName = filename ? safeDecodeURIComponent(filename) : cacheKeys[0];
+      const cacheFile = cacheName ? cached[cacheName] : null;
+      if (cacheFile && cacheFile.content != null) {
+        setCurrentFileName(cacheFile.filename);
+        setRenderedHtml(parseAnsiToHtml(cacheFile.content));
+        setCurrentGistId(id);
+        setCurrentRepoDocPath(null);
+        setCurrentRepoDocSha(null);
+        setRepoFiles([]);
+        setActiveView('content');
+        return;
+      }
+    }
+
     setActiveView('loading');
     try {
       let res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
@@ -168,8 +191,7 @@ export function App() {
       if (!res.ok) throw new Error(`Failed to fetch gist: ${res.status} ${res.statusText}`);
       const data = await res.json();
       const files = data.files as Record<string, GistFile>;
-      if (!keepFileList.current) setGistFiles(files);
-      keepFileList.current = false;
+      setGistFiles(files);
 
       const fileKeys = Object.keys(files);
       const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
@@ -180,6 +202,12 @@ export function App() {
       if (content == null && file.raw_url && new URL(file.raw_url).hostname === 'gist.githubusercontent.com') {
         const raw = await fetch(file.raw_url, { redirect: 'error' });
         if (raw.ok) content = await raw.text();
+        // Store fetched content in cache for subsequent file switches
+        if (content != null) {
+          const updated = { ...files, [file.filename]: { ...file, content } };
+          gistFilesRef.current = updated;
+          setGistFiles(updated);
+        }
       }
 
       setCurrentFileName(file.filename);
@@ -195,11 +223,28 @@ export function App() {
   }, [showError]);
 
   const loadGistAuthenticated = useCallback(async (id: string, filename?: string) => {
+    // Serve from cache if we already have this gist's files
+    const cached = currentGistIdRef.current === id ? gistFilesRef.current : null;
+    if (cached) {
+      const cacheKeys = Object.keys(cached);
+      const cacheName = filename ? safeDecodeURIComponent(filename) : cacheKeys[0];
+      const cacheFile = cacheName ? cached[cacheName] : null;
+      if (cacheFile) {
+        setCurrentFileName(cacheFile.filename);
+        setCurrentGistId(id);
+        setCurrentRepoDocPath(null);
+        setCurrentRepoDocSha(null);
+        setRepoFiles([]);
+        setRenderedHtml(parseAnsiToHtml(cacheFile.content ?? ''));
+        setActiveView('content');
+        return;
+      }
+    }
+
     setActiveView('loading');
     try {
       const gist = await getGist(id);
-      if (!keepFileList.current) setGistFiles(gist.files);
-      keepFileList.current = false;
+      setGistFiles(gist.files);
 
       const fileKeys = Object.keys(gist.files);
       const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
@@ -324,11 +369,32 @@ export function App() {
       case 'edit': {
         if (!user) { navigate('auth'); return; }
         setDraftMode(false);
+        // Serve from cache if we already have this gist's files
+        const cachedFiles = currentGistIdRef.current === r.params.id ? gistFilesRef.current : null;
+        if (cachedFiles) {
+          const cacheKeys = Object.keys(cachedFiles);
+          const cacheName = r.params.filename
+            ? safeDecodeURIComponent(r.params.filename)
+            : cacheKeys[0];
+          const cacheFile = cacheName ? cachedFiles[cacheName] : null;
+          if (cacheFile) {
+            setEditingBackend('gist');
+            setCurrentGistId(r.params.id);
+            setCurrentFileName(cacheFile.filename);
+            setCurrentRepoDocPath(null);
+            setCurrentRepoDocSha(null);
+            setRepoFiles([]);
+            setEditTitle(cacheFile.filename.replace(/\.md$/i, ''));
+            setEditContent(cacheFile.content ?? '');
+            setHasUnsavedChanges(false);
+            setActiveView('edit');
+            return;
+          }
+        }
         setActiveView('loading');
         try {
           const gist = await getGist(r.params.id);
-          if (!keepFileList.current) setGistFiles(gist.files);
-          keepFileList.current = false;
+          setGistFiles(gist.files);
 
           const fileKeys = Object.keys(gist.files);
           const targetName = r.params.filename
@@ -469,8 +535,10 @@ export function App() {
           gist = await createGist(content, filename, title);
         }
         setCurrentGistId(gist.id);
+        currentGistIdRef.current = gist.id;
         setCurrentFileName(filename);
         setGistFiles(gist.files);
+        gistFilesRef.current = gist.files;
         if (draftMode) {
           localStorage.removeItem(DRAFT_TITLE_KEY);
           localStorage.removeItem(DRAFT_CONTENT_KEY);
@@ -533,6 +601,7 @@ export function App() {
       if (currentGistId) {
         const gist = await addFileToGist(currentGistId, filename, '');
         setGistFiles(gist.files);
+        gistFilesRef.current = gist.files;
         setHasUnsavedChanges(false);
         navigate(`edit/${currentGistId}/${encodeURIComponent(filename)}`);
       } else if (selectedRepo) {
@@ -540,7 +609,11 @@ export function App() {
         const repoName = getSelectedRepo()?.full_name;
         if (!instId || !repoName) return;
         const path = `${REPO_DOCS_DIR}/${filename}`;
-        await putRepoFile(instId, repoName, path, `Create ${filename}`, encodeUtf8ToBase64(''));
+        const result = await putRepoFile(instId, repoName, path, `Create ${filename}`, encodeUtf8ToBase64(''));
+        const updated = [...repoFilesRef.current, { name: filename, path, sha: result.content.sha }]
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setRepoFiles(updated);
+        repoFilesRef.current = updated;
         setHasUnsavedChanges(false);
         navigate(`repoedit/${encodeURIComponent(path)}`);
       }
@@ -555,7 +628,7 @@ export function App() {
       if (currentGistId) {
         const gist = await deleteFileFromGist(currentGistId, filename);
         setGistFiles(gist.files);
-        keepFileList.current = true;
+        gistFilesRef.current = gist.files;
         const remaining = Object.keys(gist.files);
         if (remaining.length > 0) {
           navigate(`gist/${currentGistId}/${encodeURIComponent(remaining[0])}`);
@@ -571,7 +644,7 @@ export function App() {
         await deleteRepoFile(instId, repoName, repoFile.path, `Delete ${filename}`, repoFile.sha);
         const remaining = repoFiles.filter(f => f.name !== filename);
         setRepoFiles(remaining);
-        keepFileList.current = true;
+        repoFilesRef.current = remaining;
         if (remaining.length > 0) {
           navigate(`repofile/${encodeURIComponent(remaining[0].path)}`);
         } else {
@@ -589,9 +662,9 @@ export function App() {
       if (currentGistId) {
         const gist = await renameFileInGist(currentGistId, oldName, newName);
         setGistFiles(gist.files);
+        gistFilesRef.current = gist.files;
         if (currentFileName === oldName) {
           setCurrentFileName(newName);
-          keepFileList.current = true;
           navigate(`gist/${currentGistId}/${encodeURIComponent(newName)}`);
         }
       } else if (selectedRepo) {
@@ -606,9 +679,12 @@ export function App() {
         const newPath = `${REPO_DOCS_DIR}/${newName}`;
         const created = await putRepoFile(instId, repoName, newPath, `Rename ${oldName} to ${newName}`, contents.content ?? '');
         await deleteRepoFile(instId, repoName, oldFile.path, `Delete ${oldName} (renamed)`, oldFile.sha);
-        setRepoFiles(prev => prev.map(f => f.name === oldName ? { name: newName, path: created.content.path, sha: created.content.sha } : f));
+        const updatedFiles = repoFiles.map(f =>
+          f.name === oldName ? { name: newName, path: created.content.path, sha: created.content.sha } : f
+        ).sort((a, b) => a.name.localeCompare(b.name));
+        setRepoFiles(updatedFiles);
+        repoFilesRef.current = updatedFiles;
         if (currentFileName === oldName) {
-          keepFileList.current = true;
           navigate(`repofile/${encodeURIComponent(newPath)}`);
         }
       }
