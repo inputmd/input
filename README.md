@@ -1,15 +1,19 @@
 # Input
 
-Markdown documents, backed by Gists & repos.
+Multi-file markdown documents, backed by Gists & repos.
 
 ## Features
 
+- **Multi-file documents** — Each gist or repo directory is a
+    collection of `.md` files. A sidebar lets you switch between files,
+    and create, rename, or delete them inline.
 - **Gist viewer** — Paste any public gist URL to render its
     contents. Supports ANSI colors for e.g. Claude Code/Codex output.
 - **Connect to gists** — Sign in with GitHub (OAuth Device Flow) to
-    list, create, edit, and delete your gists as documents. Manual
-    Personal Access Token entry is also supported as a fallback.
-- **Connect to repos** — Connects to your Github repos as an installed
+    list, create, edit, and delete your gists as documents. Each gist
+    holds one or more `.md` files. Manual Personal Access Token entry
+    is also supported as a fallback.
+- **Connect to repos** — Connects to your GitHub repos as an installed
     application, to read/write Markdown files under
     `.input/documents/`.
 

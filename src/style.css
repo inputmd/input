@@ -90,10 +90,17 @@ body {
   flex-direction: column;
 }
 
-main {
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.app-body main {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 /* Toolbar */
@@ -620,4 +627,141 @@ button:disabled {
 
 .doc-editor:focus {
   border-color: var(--border);
+}
+
+/* Current filename in toolbar */
+
+.current-filename {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
+  margin-left: 8px;
+}
+
+/* Sidebar */
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--toolbar-bg);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-header h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.sidebar-add-btn {
+  min-height: 24px !important;
+  min-width: 28px !important;
+  padding: 0 6px !important;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.sidebar-files {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+
+.sidebar-file:hover {
+  background: var(--btn-hover);
+}
+
+.sidebar-file.active {
+  background: var(--btn-bg);
+  border-left-color: var(--focus-border);
+  font-weight: 500;
+}
+
+.sidebar-file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.sidebar-file-actions {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sidebar-file:hover .sidebar-file-actions {
+  opacity: 1;
+}
+
+.sidebar-delete-btn {
+  min-height: 20px !important;
+  min-width: 20px !important;
+  padding: 0 4px !important;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.sidebar-delete-btn:hover {
+  color: var(--error-color);
+}
+
+.sidebar-rename-input {
+  width: 100%;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
+  border: 1px solid var(--focus-border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--text);
+  outline: none;
+}
+
+.sidebar-new {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-new-input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text);
+  outline: none;
+}
+
+.sidebar-new-input:focus {
+  border-color: var(--focus-border);
 }

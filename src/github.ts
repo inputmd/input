@@ -96,29 +96,55 @@ export async function getGist(id: string): Promise<GistDetail> {
   return res.json();
 }
 
-export async function createGist(title: string, content: string): Promise<GistDetail> {
+export async function createGist(content: string, filename = 'untitled.md', description?: string): Promise<GistDetail> {
   const res = await apiFetch('/gists', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      description: title,
+      description: description ?? '',
       public: false,
-      files: { 'document.md': { content } },
+      files: { [filename]: { content } },
     }),
   });
   return res.json();
 }
 
-export async function updateGist(id: string, title: string, content: string): Promise<GistDetail> {
+export async function updateGist(id: string, content: string, filename: string, description?: string): Promise<GistDetail> {
+  const body: Record<string, unknown> = {
+    files: { [filename]: { content } },
+  };
+  if (description !== undefined) body.description = description;
   const res = await apiFetch(`/gists/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      description: title,
-      files: { 'document.md': { content } },
-    }),
+    body: JSON.stringify(body),
   });
   return res.json();
+}
+
+type GistFileUpdate = { content: string } | { filename: string } | null;
+
+export async function updateGistFiles(id: string, files: Record<string, GistFileUpdate>, description?: string): Promise<GistDetail> {
+  const body: Record<string, unknown> = { files };
+  if (description !== undefined) body.description = description;
+  const res = await apiFetch(`/gists/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+export async function addFileToGist(id: string, filename: string, content: string): Promise<GistDetail> {
+  return updateGistFiles(id, { [filename]: { content } });
+}
+
+export async function deleteFileFromGist(id: string, filename: string): Promise<GistDetail> {
+  return updateGistFiles(id, { [filename]: null });
+}
+
+export async function renameFileInGist(id: string, oldName: string, newName: string): Promise<GistDetail> {
+  return updateGistFiles(id, { [oldName]: { filename: newName } });
 }
 
 export async function deleteGist(id: string): Promise<void> {

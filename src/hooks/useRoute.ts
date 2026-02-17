@@ -20,8 +20,10 @@ const ROUTE_TABLE: RouteDef[] = [
   { pattern: /^repoedit\/(.+)$/, name: 'repoedit', paramNames: ['path'] },
   { pattern: /^documents$/, name: 'documents' },
   { pattern: /^new$/, name: 'new' },
-  { pattern: /^edit\/(.+)$/, name: 'edit', paramNames: ['id'] },
-  { pattern: /^gist\/(.+)$/, name: 'gist', paramNames: ['id'] },
+  { pattern: /^edit\/([^/]+)\/(.+)$/, name: 'edit', paramNames: ['id', 'filename'] },
+  { pattern: /^gist\/([^/]+)\/(.+)$/, name: 'gist', paramNames: ['id', 'filename'] },
+  { pattern: /^edit\/([^/]+)$/, name: 'edit', paramNames: ['id'] },
+  { pattern: /^gist\/([^/]+)$/, name: 'gist', paramNames: ['id'] },
   { pattern: /^([a-f0-9]+)$/i, name: 'gist', paramNames: ['id'] },
 ];
 

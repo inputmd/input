@@ -1,20 +1,22 @@
-import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import {
   isAuthenticated, clearToken, getUser,
   getGist, updateGist, createGist, deleteGist,
-  type GitHubUser, type GistDetail,
+  addFileToGist, deleteFileFromGist, renameFileInGist,
+  type GitHubUser, type GistDetail, type GistFile,
 } from './github';
 import {
   getInstallationId, setInstallationId, clearInstallationId,
   getSelectedRepo, setSelectedRepo as storeSelectedRepo, clearSelectedRepo,
   clearSessionToken, createSession, SessionExpiredError,
-  getRepoContents, putRepoFile, isRepoFile,
+  getRepoContents, putRepoFile, deleteRepoFile, isRepoFile,
 } from './github_app';
 import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
 import { REPO_DOCS_DIR } from './constants';
 import { useRoute, type Route } from './hooks/useRoute';
 import { Toolbar, type ActiveView } from './components/Toolbar';
+import { Sidebar } from './components/Sidebar';
 import { AuthView } from './views/AuthView';
 import { DocumentsView } from './views/DocumentsView';
 import { GitHubAppView } from './views/GitHubAppView';
@@ -26,6 +28,14 @@ import { ErrorView } from './views/ErrorView';
 
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
+
+function safeDecodeURIComponent(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
 
 function sanitizeTitleToFileName(title: string): string {
   const base = title
@@ -58,6 +68,10 @@ export function App() {
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [draftMode, setDraftMode] = useState(false);
+  const [currentFileName, setCurrentFileName] = useState<string | null>(null);
+  const [gistFiles, setGistFiles] = useState<Record<string, GistFile> | null>(null);
+  const [repoFiles, setRepoFiles] = useState<Array<{ name: string; path: string; sha: string }>>([]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Track initialization
   const initialized = useRef(false);
@@ -126,8 +140,21 @@ export function App() {
     return true;
   }, [navigate, showError]);
 
+  // --- Helpers ---
+  const fetchRepoSidebarFiles = useCallback(async (instId: string, repoName: string) => {
+    try {
+      const dirContents = await getRepoContents(instId, repoName, REPO_DOCS_DIR);
+      if (Array.isArray(dirContents)) {
+        const mdFiles = dirContents
+          .filter((c: { type: string; name: string }) => c.type === 'file' && c.name.toLowerCase().endsWith('.md'))
+          .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
+        setRepoFiles(mdFiles);
+      }
+    } catch { /* directory listing is optional for sidebar */ }
+  }, []);
+
   // --- Data loaders ---
-  const loadGistAnonymous = useCallback(async (id: string) => {
+  const loadGistAnonymous = useCallback(async (id: string, filename?: string) => {
     setActiveView('loading');
     try {
       let res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
@@ -137,38 +164,49 @@ export function App() {
       }
       if (!res.ok) throw new Error(`Failed to fetch gist: ${res.status} ${res.statusText}`);
       const data = await res.json();
-      const files = Object.values(data.files) as Array<{ content: string | null; raw_url: string }>;
-      const contents: string[] = [];
-      for (const file of files) {
-        if (file.content != null) {
-          contents.push(file.content);
-        } else if (new URL(file.raw_url).hostname === 'gist.githubusercontent.com') {
-          const raw = await fetch(file.raw_url, { redirect: 'error' });
-          if (raw.ok) contents.push(await raw.text());
-        }
+      const files = data.files as Record<string, GistFile>;
+      setGistFiles(files);
+
+      const fileKeys = Object.keys(files);
+      const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
+      const file = targetName ? files[targetName] : null;
+      if (!file) { showError('File not found in gist'); return; }
+
+      let content = file.content;
+      if (content == null && file.raw_url && new URL(file.raw_url).hostname === 'gist.githubusercontent.com') {
+        const raw = await fetch(file.raw_url, { redirect: 'error' });
+        if (raw.ok) content = await raw.text();
       }
-      const content = contents.join('\n\n');
-      setRenderedHtml(parseAnsiToHtml(content));
+
+      setCurrentFileName(file.filename);
+      setRenderedHtml(parseAnsiToHtml(content ?? ''));
       setCurrentGistId(id);
       setCurrentRepoDocPath(null);
       setCurrentRepoDocSha(null);
+      setRepoFiles([]);
       setActiveView('content');
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Unknown error');
     }
   }, [showError]);
 
-  const loadGistAuthenticated = useCallback(async (id: string) => {
+  const loadGistAuthenticated = useCallback(async (id: string, filename?: string) => {
     setActiveView('loading');
     try {
       const gist = await getGist(id);
+      setGistFiles(gist.files);
+
+      const fileKeys = Object.keys(gist.files);
+      const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
+      const file = targetName ? gist.files[targetName] : null;
+      if (!file) { showError('File not found in gist'); return; }
+
+      setCurrentFileName(file.filename);
       setCurrentGistId(gist.id);
       setCurrentRepoDocPath(null);
       setCurrentRepoDocSha(null);
-      const file = Object.values(gist.files)[0];
-      const content = file?.content ?? '';
-
-      setRenderedHtml(parseAnsiToHtml(content));
+      setRepoFiles([]);
+      setRenderedHtml(parseAnsiToHtml(file.content ?? ''));
       setActiveView('content');
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Unknown error');
@@ -187,13 +225,16 @@ export function App() {
       setCurrentRepoDocPath(contents.path);
       setCurrentRepoDocSha(contents.sha);
       setCurrentGistId(null);
+      setGistFiles(null);
+      setCurrentFileName(contents.name);
       setRenderedHtml(parseAnsiToHtml(decoded));
+      await fetchRepoSidebarFiles(instId, repoName);
       setActiveView('content');
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       showError(err instanceof Error ? err.message : 'Failed to load file');
     }
-  }, [navigate, handleSessionExpired, showError]);
+  }, [navigate, handleSessionExpired, showError, fetchRepoSidebarFiles]);
 
   const loadRepoFileForEdit = useCallback(async (path: string) => {
     const instId = getInstallationId();
@@ -208,14 +249,17 @@ export function App() {
       setCurrentRepoDocPath(contents.path);
       setCurrentRepoDocSha(contents.sha);
       setCurrentGistId(null);
+      setGistFiles(null);
+      setCurrentFileName(contents.name);
       setEditTitle(contents.name.replace(/\.md$/i, ''));
       setEditContent(decoded);
+      await fetchRepoSidebarFiles(instId, repoName);
       setActiveView('edit');
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       showError(err instanceof Error ? err.message : 'Failed to load file');
     }
-  }, [navigate, handleSessionExpired, showError]);
+  }, [navigate, handleSessionExpired, showError, fetchRepoSidebarFiles]);
 
   // --- Route handler ---
   const handleRoute = useCallback(async (r: Route) => {
@@ -237,7 +281,7 @@ export function App() {
       }
       case 'repofile':
         syncRepoState();
-        await loadRepoFile(decodeURIComponent(r.params.path));
+        await loadRepoFile(safeDecodeURIComponent(r.params.path));
         return;
       case 'reponew': {
         syncRepoState();
@@ -249,6 +293,9 @@ export function App() {
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
         setCurrentGistId(null);
+        setCurrentFileName(null);
+        setGistFiles(null);
+        setRepoFiles([]);
         setEditTitle('');
         setEditContent('');
         setActiveView('edit');
@@ -257,10 +304,13 @@ export function App() {
       case 'repoedit':
         setDraftMode(false);
         syncRepoState();
-        await loadRepoFileForEdit(decodeURIComponent(r.params.path));
+        await loadRepoFileForEdit(safeDecodeURIComponent(r.params.path));
         return;
       case 'documents':
         if (!user) { navigate('auth'); return; }
+        setGistFiles(null);
+        setCurrentFileName(null);
+        setRepoFiles([]);
         setActiveView('documents');
         return;
       case 'new':
@@ -272,13 +322,23 @@ export function App() {
         setActiveView('loading');
         try {
           const gist = await getGist(r.params.id);
-          const file = Object.values(gist.files)[0];
+          setGistFiles(gist.files);
+
+          const fileKeys = Object.keys(gist.files);
+          const targetName = r.params.filename
+            ? safeDecodeURIComponent(r.params.filename)
+            : fileKeys[0];
+          const file = targetName ? gist.files[targetName] : null;
+          if (!file) { showError('File not found in gist'); return; }
+
           setEditingBackend('gist');
           setCurrentGistId(gist.id);
+          setCurrentFileName(file.filename);
           setCurrentRepoDocPath(null);
           setCurrentRepoDocSha(null);
-          setEditTitle(gist.description ?? '');
-          setEditContent(file?.content ?? '');
+          setRepoFiles([]);
+          setEditTitle(file.filename.replace(/\.md$/i, ''));
+          setEditContent(file.content ?? '');
           setActiveView('edit');
         } catch (err) {
           showError(err instanceof Error ? err.message : 'Failed to load gist');
@@ -287,8 +347,9 @@ export function App() {
       }
       case 'gist': {
         const id = r.params.id;
-        if (user) await loadGistAuthenticated(id);
-        else await loadGistAnonymous(id);
+        const filename = r.params.filename;
+        if (user) await loadGistAuthenticated(id, filename);
+        else await loadGistAnonymous(id, filename);
         return;
       }
       case 'home':
@@ -300,6 +361,9 @@ export function App() {
         setCurrentGistId(null);
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
+        setCurrentFileName(null);
+        setGistFiles(null);
+        setRepoFiles([]);
         setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) ?? '');
         setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
         setActiveView('edit');
@@ -361,8 +425,9 @@ export function App() {
   // --- Edit actions ---
   const onEdit = useCallback(() => {
     if (currentRepoDocPath) navigate(`repoedit/${encodeURIComponent(currentRepoDocPath)}`);
+    else if (currentGistId && currentFileName) navigate(`edit/${currentGistId}/${encodeURIComponent(currentFileName)}`);
     else if (currentGistId) navigate(`edit/${currentGistId}`);
-  }, [currentRepoDocPath, currentGistId, navigate]);
+  }, [currentRepoDocPath, currentGistId, currentFileName, navigate]);
 
   const onSave = useCallback(async () => {
     const title = editTitle.trim() || 'Untitled';
@@ -391,12 +456,15 @@ export function App() {
         navigate(`repofile/${encodeURIComponent(path)}`);
       } else {
         let gist: GistDetail;
+        const filename = currentFileName ?? sanitizeTitleToFileName(title);
         if (currentGistId) {
-          gist = await updateGist(currentGistId, title, content);
+          gist = await updateGist(currentGistId, content, filename);
         } else {
-          gist = await createGist(title, content);
+          gist = await createGist(content, filename, title);
         }
         setCurrentGistId(gist.id);
+        setCurrentFileName(filename);
+        setGistFiles(gist.files);
         if (draftMode) {
           localStorage.removeItem(DRAFT_TITLE_KEY);
           localStorage.removeItem(DRAFT_CONTENT_KEY);
@@ -404,22 +472,24 @@ export function App() {
         }
 
         setRenderedHtml(parseAnsiToHtml(content));
-        navigate(`gist/${gist.id}`);
+        navigate(`gist/${gist.id}/${encodeURIComponent(filename)}`);
       }
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       alert(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSaving(false);
+      setHasUnsavedChanges(false);
     }
-  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, draftMode, navigate, handleSessionExpired]);
+  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, currentFileName, draftMode, navigate, handleSessionExpired]);
 
   const onCancel = useCallback(() => {
     if (currentRepoDocPath) navigate(`repofile/${encodeURIComponent(currentRepoDocPath)}`);
+    else if (currentGistId && currentFileName) navigate(`gist/${currentGistId}/${encodeURIComponent(currentFileName)}`);
     else if (currentGistId) navigate(`gist/${currentGistId}`);
     else if (selectedRepo) navigate('repodocuments');
     else navigate('documents');
-  }, [currentRepoDocPath, currentGistId, selectedRepo, navigate]);
+  }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
   const onDelete = useCallback(async () => {
     if (!currentGistId) return;
@@ -432,6 +502,110 @@ export function App() {
       alert(err instanceof Error ? err.message : 'Failed to delete');
     }
   }, [currentGistId, navigate]);
+
+  // --- Sidebar actions ---
+  const handleSelectFile = useCallback((filename: string) => {
+    const doNavigate = () => {
+      setHasUnsavedChanges(false);
+      if (currentGistId) {
+        navigate(`gist/${currentGistId}/${encodeURIComponent(filename)}`);
+      } else if (selectedRepo) {
+        navigate(`repofile/${encodeURIComponent(REPO_DOCS_DIR + '/' + filename)}`);
+      }
+    };
+
+    if (activeView === 'edit' && hasUnsavedChanges) {
+      const action = confirm('You have unsaved changes. Discard and switch files?');
+      if (action) doNavigate();
+      return;
+    }
+    doNavigate();
+  }, [currentGistId, selectedRepo, activeView, hasUnsavedChanges, currentFileName, navigate]);
+
+  const handleCreateFile = useCallback(async (filename: string) => {
+    try {
+      if (currentGistId) {
+        const gist = await addFileToGist(currentGistId, filename, '');
+        setGistFiles(gist.files);
+        setHasUnsavedChanges(false);
+        navigate(`edit/${currentGistId}/${encodeURIComponent(filename)}`);
+      } else if (selectedRepo) {
+        const instId = getInstallationId();
+        const repoName = getSelectedRepo()?.full_name;
+        if (!instId || !repoName) return;
+        const path = `${REPO_DOCS_DIR}/${filename}`;
+        await putRepoFile(instId, repoName, path, `Create ${filename}`, encodeUtf8ToBase64(''));
+        setHasUnsavedChanges(false);
+        navigate(`repoedit/${encodeURIComponent(path)}`);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create file');
+    }
+  }, [currentGistId, selectedRepo, navigate]);
+
+  const handleDeleteFile = useCallback(async (filename: string) => {
+    if (!confirm(`Delete "${filename}"?`)) return;
+    try {
+      if (currentGistId) {
+        const gist = await deleteFileFromGist(currentGistId, filename);
+        setGistFiles(gist.files);
+        const remaining = Object.keys(gist.files);
+        if (remaining.length > 0) {
+          navigate(`gist/${currentGistId}/${encodeURIComponent(remaining[0])}`);
+        } else {
+          navigate('documents');
+        }
+      } else if (selectedRepo) {
+        const instId = getInstallationId();
+        const repoName = getSelectedRepo()?.full_name;
+        if (!instId || !repoName) return;
+        const repoFile = repoFiles.find(f => f.name === filename);
+        if (!repoFile) return;
+        await deleteRepoFile(instId, repoName, repoFile.path, `Delete ${filename}`, repoFile.sha);
+        const remaining = repoFiles.filter(f => f.name !== filename);
+        setRepoFiles(remaining);
+        if (remaining.length > 0) {
+          navigate(`repofile/${encodeURIComponent(remaining[0].path)}`);
+        } else {
+          navigate('repodocuments');
+        }
+      }
+    } catch (err) {
+      if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
+      alert(err instanceof Error ? err.message : 'Failed to delete file');
+    }
+  }, [currentGistId, selectedRepo, repoFiles, navigate, handleSessionExpired]);
+
+  const handleRenameFile = useCallback(async (oldName: string, newName: string) => {
+    try {
+      if (currentGistId) {
+        const gist = await renameFileInGist(currentGistId, oldName, newName);
+        setGistFiles(gist.files);
+        if (currentFileName === oldName) {
+          setCurrentFileName(newName);
+          navigate(`gist/${currentGistId}/${encodeURIComponent(newName)}`);
+        }
+      } else if (selectedRepo) {
+        const instId = getInstallationId();
+        const repoName = getSelectedRepo()?.full_name;
+        if (!instId || !repoName) return;
+        const oldFile = repoFiles.find(f => f.name === oldName);
+        if (!oldFile) return;
+        // Repo rename: read content, create new, delete old
+        const contents = await getRepoContents(instId, repoName, oldFile.path);
+        if (!isRepoFile(contents)) return;
+        const newPath = `${REPO_DOCS_DIR}/${newName}`;
+        await putRepoFile(instId, repoName, newPath, `Rename ${oldName} to ${newName}`, contents.content ?? '');
+        await deleteRepoFile(instId, repoName, oldFile.path, `Delete ${oldName} (renamed)`, oldFile.sha);
+        if (currentFileName === oldName) {
+          navigate(`repofile/${encodeURIComponent(newPath)}`);
+        }
+      }
+    } catch (err) {
+      if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
+      alert(err instanceof Error ? err.message : 'Failed to rename file');
+    }
+  }, [currentGistId, selectedRepo, currentFileName, repoFiles, navigate, handleSessionExpired]);
 
   // --- GitHub App callbacks ---
   const onSelectRepo = useCallback((fullName: string, id: number) => {
@@ -480,8 +654,9 @@ export function App() {
           <EditView
             title={editTitle}
             content={editContent}
-            onTitleChange={setEditTitle}
-            onContentChange={setEditContent}
+            showTitle={draftMode || !currentFileName}
+            onTitleChange={(t: string) => { setEditTitle(t); setHasUnsavedChanges(true); }}
+            onContentChange={(c: string) => { setEditContent(c); setHasUnsavedChanges(true); }}
           />
         );
       case 'loading':
@@ -493,6 +668,26 @@ export function App() {
     }
   };
 
+  const showSidebar = (activeView === 'content' || activeView === 'edit')
+    && (gistFiles !== null || repoFiles.length > 0);
+
+  const sidebarFiles = useMemo(() => {
+    if (gistFiles) {
+      return Object.keys(gistFiles).map(name => ({
+        name,
+        active: name === currentFileName,
+      }));
+    }
+    if (repoFiles.length > 0 && currentRepoDocPath) {
+      const currentName = currentRepoDocPath.split('/').pop() ?? '';
+      return repoFiles.map(f => ({
+        name: f.name,
+        active: f.name === currentName,
+      }));
+    }
+    return [];
+  }, [gistFiles, currentFileName, repoFiles, currentRepoDocPath]);
+
   return (
     <>
       <Toolbar
@@ -502,6 +697,7 @@ export function App() {
         selectedRepo={selectedRepo}
         currentGistId={currentGistId}
         currentRepoDocPath={currentRepoDocPath}
+        currentFileName={currentFileName}
         theme={theme}
         saving={saving}
         navigate={navigate}
@@ -512,7 +708,18 @@ export function App() {
         onCancel={onCancel}
         onDelete={onDelete}
       />
-      <main>{renderView()}</main>
+      <div class={showSidebar ? 'app-body' : 'app-body app-body--no-sidebar'}>
+        {showSidebar && (
+          <Sidebar
+            files={sidebarFiles}
+            onSelectFile={handleSelectFile}
+            onCreateFile={handleCreateFile}
+            onDeleteFile={handleDeleteFile}
+            onRenameFile={handleRenameFile}
+          />
+        )}
+        <main>{renderView()}</main>
+      </div>
     </>
   );
 }

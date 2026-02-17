@@ -9,6 +9,7 @@ interface ToolbarProps {
   selectedRepo: string | null;
   currentGistId: string | null;
   currentRepoDocPath: string | null;
+  currentFileName: string | null;
   theme: 'dark' | 'light';
   saving: boolean;
   navigate: (route: string) => void;
@@ -22,7 +23,7 @@ interface ToolbarProps {
 
 export function Toolbar({
   view, user, installationId, selectedRepo,
-  currentGistId, currentRepoDocPath, theme, saving,
+  currentGistId, currentRepoDocPath, currentFileName, theme, saving,
   navigate, onSignOut, onToggleTheme,
   onEdit, onSave, onCancel, onDelete,
 }: ToolbarProps) {
@@ -54,6 +55,9 @@ export function Toolbar({
         )}
         {showRepoDocs && (
           <button type="button" onClick={() => navigate('repodocuments')}>Repo Docs</button>
+        )}
+        {currentFileName && (view === 'content' || view === 'edit') && (
+          <span class="current-filename">{currentFileName}</span>
         )}
       </div>
       <div class="toolbar-right">
