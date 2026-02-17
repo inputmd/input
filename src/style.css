@@ -540,10 +540,9 @@ button:disabled {
 /* Edit view */
 
 .edit-view {
-  max-width: 100ch;
   width: 100%;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 24px 20px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -556,15 +555,14 @@ button:disabled {
   border-radius: 6px;
   background: var(--input-bg);
   color: var(--text);
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
-  font-family: inherit;
+  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
   outline: none;
 }
 
 .edit-title:focus {
-  border-color: var(--focus-border);
-  box-shadow: 0 0 0 3px var(--focus-shadow);
+  border-color: var(--border);
 }
 
 .doc-editor {
@@ -574,7 +572,7 @@ button:disabled {
   flex: 1;
   min-height: calc(100vh - 160px);
   padding: 16px;
-  border: 2px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--input-bg);
   color: var(--text);
@@ -584,5 +582,5 @@ button:disabled {
 }
 
 .doc-editor:focus {
-  border-color: var(--focus-border);
+  border-color: var(--border);
 }
