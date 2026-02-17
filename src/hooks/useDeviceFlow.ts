@@ -99,7 +99,8 @@ export function useDeviceFlow() {
         }
       } catch (err) {
         if (signal.aborted) return;
-        setPhase({ status: 'error', message: err instanceof Error ? err.message : 'Network error.' });
+        const isNetwork = err instanceof TypeError && /fetch|network/i.test(err.message);
+        setPhase({ status: 'error', message: isNetwork ? 'Cannot reach the API server — is it running?' : (err instanceof Error ? err.message : 'Network error.') });
       }
     }, intervalMs);
   };
@@ -142,7 +143,8 @@ export function useDeviceFlow() {
       poll(data.device_code, data.interval * 1000, controller.signal);
     } catch (err) {
       if (controller.signal.aborted) return;
-      setPhase({ status: 'error', message: err instanceof Error ? err.message : 'Failed to start sign-in.' });
+      const isNetwork = err instanceof TypeError && /fetch|network/i.test(err.message);
+      setPhase({ status: 'error', message: isNetwork ? 'Cannot reach the API server — is it running?' : (err instanceof Error ? err.message : 'Failed to start sign-in.') });
     }
   }, []);
 
