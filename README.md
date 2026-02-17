@@ -25,6 +25,10 @@ npm install
 cp .env.example .env
 ```
 
+Create a fine-grained personal access token, with no expiration date
+and no permissions, via https://github.com/settings/personal-access-tokens.
+Copy it into your .env as GITHUB_TOKEN.
+
 Create an OAuth app via https://github.com/settings/developers:
 
 - Check **Enable Device Flow**.
@@ -33,7 +37,6 @@ Create an OAuth app via https://github.com/settings/developers:
   required — any valid URL works.
 
 Copy the **Client ID** into your .env as GITHUB_CLIENT_ID.
-No client secret is needed.
 
 Create a GitHub App to allow Input to be installed onto repos, via
 https://github.com/settings/apps/new:

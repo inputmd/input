@@ -130,7 +130,11 @@ export function App() {
   const loadGistAnonymous = useCallback(async (id: string) => {
     setActiveView('loading');
     try {
-      const res = await fetch(`https://api.github.com/gists/${id}`);
+      let res = await fetch(`/api/gists/${encodeURIComponent(id)}`);
+      if (!res.ok) {
+        console.warn(`Gist proxy failed (${res.status}), falling back to GitHub API directly`);
+        res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
+      }
       if (!res.ok) throw new Error(`Failed to fetch gist: ${res.status} ${res.statusText}`);
       const data = await res.json();
       const files = Object.values(data.files) as Array<{ content: string | null; raw_url: string }>;

@@ -11,6 +11,7 @@ config({ path: new URL('../.env', import.meta.url) });
 const PORT = Number.parseInt(process.env.PORT ?? '8787', 10);
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? '';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
 
@@ -33,6 +34,13 @@ interface TokenCacheRecord {
 interface RateLimitEntry {
   count: number;
   resetAtMs: number;
+}
+
+interface GistCacheEntry {
+  data: unknown;
+  etag: string | null;
+  cachedAt: number;
+  size: number;
 }
 
 // --- Session tokens (HMAC-SHA256) ---
@@ -169,6 +177,39 @@ setInterval(() => {
     if (record.expiresAtMs <= now) installationTokenCache.delete(key);
   }
 }, 5 * 60 * 1000).unref();
+
+// --- Gist cache ---
+
+const gistCache = new Map<string, GistCacheEntry>();
+let gistCacheTotalBytes = 0;
+const GIST_CACHE_TTL_MS = 5 * 60 * 1000;
+const GIST_CACHE_MAX_BYTES = 50 * 1024 * 1024;
+const GIST_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
+
+function gistCacheSet(id: string, entry: GistCacheEntry): void {
+  const existing = gistCache.get(id);
+  if (existing) gistCacheTotalBytes -= existing.size;
+  // Evict oldest entries until there's room
+  while (gistCacheTotalBytes + entry.size > GIST_CACHE_MAX_BYTES && gistCache.size > 0) {
+    const oldest = gistCache.keys().next().value;
+    if (oldest === undefined) break;
+    const removed = gistCache.get(oldest)!;
+    gistCacheTotalBytes -= removed.size;
+    gistCache.delete(oldest);
+  }
+  gistCache.set(id, entry);
+  gistCacheTotalBytes += entry.size;
+}
+
+setInterval(() => {
+  const cutoff = Date.now() - GIST_CACHE_TTL_MS * 10;
+  for (const [key, entry] of gistCache) {
+    if (entry.cachedAt < cutoff) {
+      gistCacheTotalBytes -= entry.size;
+      gistCache.delete(key);
+    }
+  }
+}, 10 * 60 * 1000).unref();
 
 // --- Rate limiter ---
 
@@ -472,6 +513,75 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
       }
 
       return json(res, 405, { error: 'Method not allowed' });
+    }
+
+    // --- Public gist proxy with cache ---
+
+    const gistMatch = pathname.match(/^\/api\/gists\/([a-f0-9]+)$/i);
+    if (gistMatch && req.method === 'GET') {
+      if (!checkRateLimit(req, res)) return;
+      const gistId = gistMatch[1];
+      const cached = gistCache.get(gistId);
+      const now = Date.now();
+
+      // Fresh cache hit
+      if (cached && (now - cached.cachedAt) < GIST_CACHE_TTL_MS) {
+        res.setHeader('X-Cache', 'hit');
+        return json(res, 200, cached.data);
+      }
+
+      // Build GitHub request headers
+      const ghHeaders: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'input-github-app-auth-server',
+        'X-GitHub-Api-Version': '2022-11-28',
+      };
+      if (GITHUB_TOKEN) ghHeaders['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
+      if (cached?.etag) ghHeaders['If-None-Match'] = cached.etag;
+
+      try {
+        const ghRes = await fetch(`https://api.github.com/gists/${encodeURIComponent(gistId)}`, {
+          headers: ghHeaders,
+          signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+        });
+
+        // ETag revalidation: not modified
+        if (ghRes.status === 304 && cached) {
+          cached.cachedAt = now;
+          res.setHeader('X-Cache', 'revalidated');
+          return json(res, 200, cached.data);
+        }
+
+        if (!ghRes.ok) {
+          // Serve stale cache on GitHub error
+          if (cached) {
+            res.setHeader('X-Cache', 'stale');
+            return json(res, 200, cached.data);
+          }
+          return json(res, ghRes.status === 404 ? 404 : 502, {
+            error: ghRes.status === 404 ? 'Gist not found' : 'GitHub API error',
+          });
+        }
+
+        const data: unknown = await ghRes.json();
+        const serialized = JSON.stringify(data);
+        const size = Buffer.byteLength(serialized, 'utf8');
+        const etag = ghRes.headers.get('etag');
+
+        if (size <= GIST_CACHE_MAX_ENTRY_BYTES) {
+          gistCacheSet(gistId, { data, etag, cachedAt: now, size });
+        }
+
+        res.setHeader('X-Cache', 'miss');
+        return json(res, 200, data);
+      } catch (err) {
+        // Network error — serve stale if available
+        if (cached) {
+          res.setHeader('X-Cache', 'stale');
+          return json(res, 200, cached.data);
+        }
+        throw err;
+      }
     }
 
     // --- Device Flow proxy (OAuth gist auth) ---
