@@ -603,7 +603,7 @@ export function App() {
   const handleCreateFile = useCallback(async (filename: string) => {
     try {
       if (currentGistId) {
-        const gist = await addFileToGist(currentGistId, filename, '');
+        const gist = await addFileToGist(currentGistId, filename, '\u200B');
         setGistFiles(gist.files);
         gistFilesRef.current = gist.files;
         setHasUnsavedChanges(false);
