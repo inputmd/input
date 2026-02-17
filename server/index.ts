@@ -73,8 +73,10 @@ function validateSessionToken(token: string): Session | null {
   if (dot === -1) return null;
   const payloadB64 = token.slice(0, dot);
   const sig = token.slice(dot + 1);
-  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
+  if (sigBuf.length !== Buffer.byteLength(expectedBuf)) return null;
+  if (!crypto.timingSafeEqual(sigBuf, Buffer.from(expectedBuf))) return null;
   try {
     const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as {
       sub?: unknown;
