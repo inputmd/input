@@ -25,9 +25,13 @@ const ROUTE_TABLE: RouteDef[] = [
   { pattern: /^([a-f0-9]+)$/i, name: 'gist', paramNames: ['id'] },
 ];
 
-function matchRoute(hash: string): Route {
+function getPathSegment(): string {
+  return window.location.pathname.replace(/^\//, '');
+}
+
+function matchRoute(path: string): Route {
   for (const { pattern, name, paramNames } of ROUTE_TABLE) {
-    const m = hash.match(pattern);
+    const m = path.match(pattern);
     if (m) {
       const params: Record<string, string> = {};
       paramNames?.forEach((key, i) => { params[key] = m[i + 1]; });
@@ -38,16 +42,18 @@ function matchRoute(hash: string): Route {
 }
 
 export function useRoute() {
-  const [route, setRoute] = useState<Route>(() => matchRoute(window.location.hash.slice(1)));
+  const [route, setRoute] = useState<Route>(() => matchRoute(getPathSegment()));
 
   useEffect(() => {
-    const onHashChange = () => setRoute(matchRoute(window.location.hash.slice(1)));
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    const onPopState = () => setRoute(matchRoute(getPathSegment()));
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   const navigate = useCallback((r: string) => {
-    window.location.hash = r;
+    const path = '/' + r;
+    window.history.pushState(null, '', path);
+    setRoute(matchRoute(r));
   }, []);
 
   return { route, navigate };

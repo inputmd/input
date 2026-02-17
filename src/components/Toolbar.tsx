@@ -76,6 +76,14 @@ export function Toolbar({
             <button type="button" onClick={() => navigate('auth')}>Sign in to save</button>
           )}
         </div>
+        {view === 'content' && currentGistId && (
+          <a
+            class="view-original-btn"
+            href={`https://gist.github.com/${currentGistId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >View Original</a>
+        )}
         <button type="button" class="theme-toggle" title="Toggle theme" onClick={onToggleTheme}>
           <span>{theme === 'dark' ? '\u2600' : '\u263D'}</span>
         </button>

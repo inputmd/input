@@ -119,7 +119,7 @@ export function App() {
     setInstallationId(id);
     setInstId(id);
 
-    const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+    const cleanUrl = window.location.pathname;
     window.history.replaceState({}, '', cleanUrl);
 
     navigate('githubapp');
@@ -292,6 +292,9 @@ export function App() {
         return;
       }
       case 'home':
+        if (window.location.pathname !== '/') {
+          window.history.replaceState(null, '', '/');
+        }
         setDraftMode(true);
         setEditingBackend('gist');
         setCurrentGistId(null);

@@ -163,6 +163,23 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.view-original-btn {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.view-original-btn:hover {
+  background: var(--btn-hover);
+}
+
 .theme-toggle {
   padding: 6px 10px;
   font-size: 18px;
