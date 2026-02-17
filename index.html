@@ -20,6 +20,7 @@
           </button>
           <button id="docs-btn" type="button" style="display:none">My Documents</button>
           <button id="viewer-btn" type="button" style="display:none">Gist Viewer</button>
+          <button id="githubapp-btn" type="button" style="display:none">GitHub App</button>
         </div>
         <div id="toolbar-right">
           <div id="action-buttons">
@@ -54,6 +55,19 @@
           </form>
           <p id="auth-error" style="display:none"></p>
           <p class="hint">Create a token at <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a> with the <code>gist</code> scope.</p>
+          <hr />
+          <h2>GitHub App (repo-scoped)</h2>
+          <p class="hint">Connect via a GitHub App installation (repo-scoped). Requires the local auth server.</p>
+          <button id="githubapp-connect-btn" type="button">Install / Connect GitHub App</button>
+        </div>
+        <div id="githubapp-view" style="display:none">
+          <h1>GitHub App</h1>
+          <p id="githubapp-status" class="hint"></p>
+          <div id="githubapp-actions">
+            <button id="githubapp-refresh-btn" type="button">Load Accessible Repos</button>
+            <button id="githubapp-disconnect-btn" type="button">Disconnect</button>
+          </div>
+          <div id="githubapp-repos"></div>
         </div>
         <div id="documents-view" style="display:none">
           <div id="documents-header">

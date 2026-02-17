@@ -4,6 +4,11 @@ import {
   getUser, listGists, getGist, createGist, updateGist, deleteGist,
   type GistSummary, type GistDetail, type GitHubUser,
 } from './github';
+import {
+  getInstallationId, setInstallationId, clearInstallationId,
+  createInstallState, getInstallUrl, listInstallationRepos,
+  type InstallationRepoList,
+} from './github_app';
 import './style.css';
 
 // --- State ---
@@ -14,6 +19,7 @@ let currentGistContent: string = '';
 let renderedHtml = '';
 let documentsPage = 1;
 let allDocumentsLoaded = false;
+let currentInstallationId: string | null = null;
 
 // --- DOM helpers ---
 
@@ -21,9 +27,10 @@ const $ = (id: string) => document.getElementById(id)!;
 
 type View = 'input' | 'auth' | 'documents' | 'loading' | 'error' | 'content' | 'edit';
 
-const ALL_VIEWS: View[] = ['input', 'auth', 'documents', 'loading', 'error', 'content', 'edit'];
+type ExtendedView = View | 'githubapp';
+const ALL_VIEWS: ExtendedView[] = ['input', 'auth', 'documents', 'githubapp', 'loading', 'error', 'content', 'edit'];
 
-function showView(name: View) {
+function showView(name: ExtendedView) {
   for (const v of ALL_VIEWS) {
     $(`${v}-view`).style.display = v === name ? '' : 'none';
   }
@@ -38,6 +45,7 @@ function showView(name: View) {
   // Nav buttons
   $('docs-btn').style.display = currentUser && name !== 'documents' ? '' : 'none';
   $('viewer-btn').style.display = name !== 'input' && name !== 'auth' ? '' : 'none';
+  $('githubapp-btn').style.display = currentInstallationId && name !== 'githubapp' ? '' : 'none';
 }
 
 function updateAuthUI() {
@@ -49,6 +57,20 @@ function updateAuthUI() {
   } else {
     $('user-info').style.display = 'none';
     $('signin-btn').style.display = '';
+  }
+}
+
+function updateGitHubAppUI() {
+  const status = $('githubapp-status');
+  if (currentInstallationId) {
+    status.textContent = `Connected (installation_id=${currentInstallationId}).`;
+    $('githubapp-disconnect-btn').style.display = '';
+    $('githubapp-refresh-btn').style.display = '';
+  } else {
+    status.textContent = 'Not connected.';
+    $('githubapp-disconnect-btn').style.display = 'none';
+    $('githubapp-refresh-btn').style.display = 'none';
+    $('githubapp-repos').innerHTML = '';
   }
 }
 
@@ -155,6 +177,76 @@ function signOut() {
   currentGistId = null;
   updateAuthUI();
   navigate('');
+}
+
+async function connectGitHubApp() {
+  const state = createInstallState();
+  sessionStorage.setItem('github_app_install_state', state);
+  const url = await getInstallUrl(state);
+  window.location.assign(url);
+}
+
+function tryHandleGitHubAppSetupRedirect(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  const installationId = params.get('installation_id');
+  if (!installationId) return false;
+
+  const expectedState = sessionStorage.getItem('github_app_install_state');
+  const actualState = params.get('state');
+  sessionStorage.removeItem('github_app_install_state');
+
+  if (expectedState && actualState && expectedState !== actualState) {
+    $('error-message').textContent = 'GitHub App install state mismatch. Please try again.';
+    showView('error');
+    return true;
+  }
+
+  setInstallationId(installationId);
+  currentInstallationId = installationId;
+  updateGitHubAppUI();
+
+  // Clean up URL (remove query params).
+  const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+  window.history.replaceState({}, '', cleanUrl);
+
+  navigate('githubapp');
+  return true;
+}
+
+function renderRepoList(list: InstallationRepoList): void {
+  const container = $('githubapp-repos');
+  container.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'hint';
+  header.textContent = `${list.total_count} repo${list.total_count === 1 ? '' : 's'} accessible via this installation:`;
+  container.appendChild(header);
+
+  const ul = document.createElement('ul');
+  for (const repo of list.repositories) {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = repo.html_url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = repo.full_name + (repo.private ? ' (private)' : '');
+    li.appendChild(a);
+    ul.appendChild(li);
+  }
+  container.appendChild(ul);
+}
+
+async function loadGitHubAppRepos(): Promise<void> {
+  if (!currentInstallationId) return;
+  showView('loading');
+  try {
+    const repos = await listInstallationRepos(currentInstallationId);
+    renderRepoList(repos);
+    showView('githubapp');
+  } catch (err) {
+    $('error-message').textContent = err instanceof Error ? err.message : 'Failed to load repositories';
+    showView('error');
+  }
 }
 
 // --- Document list ---
@@ -287,6 +379,13 @@ async function handleRoute() {
     return;
   }
 
+  if (hash === 'githubapp') {
+    currentInstallationId = getInstallationId();
+    updateGitHubAppUI();
+    showView('githubapp');
+    return;
+  }
+
   if (hash === 'documents') {
     if (!currentUser) { navigate('auth'); return; }
     await loadDocuments(true);
@@ -350,7 +449,9 @@ function toggleTheme() {
 // --- Init ---
 
 function init() {
+  currentInstallationId = getInstallationId();
   updateAuthUI();
+  updateGitHubAppUI();
 
   // Theme
   $('theme-toggle').addEventListener('click', toggleTheme);
@@ -366,6 +467,15 @@ function init() {
     if (token) signIn(token);
   });
 
+  // GitHub App connect (repo-scoped)
+  $('githubapp-connect-btn').addEventListener('click', () => {
+    connectGitHubApp().catch((err) => {
+      const errEl = $('auth-error');
+      errEl.textContent = err instanceof Error ? err.message : 'Failed to connect GitHub App';
+      errEl.style.display = '';
+    });
+  });
+
   // Gist URL form (existing viewer)
   $('gist-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -377,6 +487,7 @@ function init() {
   // Navigation buttons
   $('docs-btn').addEventListener('click', () => navigate('documents'));
   $('viewer-btn').addEventListener('click', () => navigate(''));
+  $('githubapp-btn').addEventListener('click', () => navigate('githubapp'));
 
   // Edit/Save/Cancel for content view
   $('edit-btn').addEventListener('click', () => {
@@ -416,9 +527,23 @@ function init() {
   // Hash-based routing
   window.addEventListener('hashchange', handleRoute);
 
+  // GitHub App setup redirect (runs before routing)
+  const handledSetup = tryHandleGitHubAppSetupRedirect();
+
   // Restore auth, then handle initial route, then reveal
-  tryRestoreAuth().then(handleRoute).then(() => {
+  tryRestoreAuth().then(() => handledSetup ? undefined : handleRoute()).then(() => {
     $('app').classList.add('ready');
+  });
+
+  // GitHub App view actions
+  $('githubapp-refresh-btn').addEventListener('click', () => {
+    loadGitHubAppRepos();
+  });
+  $('githubapp-disconnect-btn').addEventListener('click', () => {
+    clearInstallationId();
+    currentInstallationId = null;
+    updateGitHubAppUI();
+    navigate('auth');
   });
 }
 
