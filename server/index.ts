@@ -215,12 +215,12 @@ function checkRateLimit(req: http.IncomingMessage, res: http.ServerResponse): bo
   const now = Date.now();
   let entry = rateLimitWindows.get(ip);
   if (!entry || now >= entry.resetAtMs) {
+    if (!entry && rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES) {
+      json(res, 429, { error: 'Too many requests' });
+      return false;
+    }
     entry = { count: 0, resetAtMs: now + RATE_LIMIT_WINDOW_MS };
     rateLimitWindows.set(ip, entry);
-  }
-  if (rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES && !rateLimitWindows.has(ip)) {
-    json(res, 429, { error: 'Too many requests' });
-    return false;
   }
   entry.count++;
   if (entry.count > RATE_LIMIT_MAX) {
