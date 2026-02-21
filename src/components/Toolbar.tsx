@@ -1,7 +1,7 @@
 import type { GitHubUser } from '../github';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Menu } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 export type ActiveView = 'auth' | 'documents' | 'githubapp' | 'repodocuments' | 'loading' | 'error' | 'content' | 'edit';
 
@@ -11,7 +11,6 @@ interface ToolbarProps {
   installationId: string | null;
   selectedRepo: string | null;
   draftMode: boolean;
-  currentFileName: string | null;
   saving: boolean;
   canSave: boolean;
   canToggleSidebar: boolean;
@@ -27,7 +26,7 @@ interface ToolbarProps {
 
 export function Toolbar({
   view, user, installationId, selectedRepo, draftMode,
-  currentFileName, saving, canSave, canToggleSidebar, sidebarVisible, showSave,
+  saving, canSave, canToggleSidebar, sidebarVisible, showSave,
   navigate, onSignOut, onToggleTheme,
   onSave, onToggleSidebar, onCancel,
 }: ToolbarProps) {
@@ -36,7 +35,6 @@ export function Toolbar({
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!installationId;
   const showRepoDocs = !!selectedRepo;
-  const showDocumentActions = canToggleSidebar;
 
   return (
     <header class="toolbar">
@@ -49,28 +47,17 @@ export function Toolbar({
         )}
         {isHomeDraft ? (
           <span class="document-menu-label">New Wiki</span>
-        ) : (
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <button
-                type="button"
-                class={`document-menu-trigger${showDocumentActions ? '' : ' document-menu-trigger-caret'}`}
-                aria-label="Document menu"
-              >
-                {showDocumentActions && currentFileName ? currentFileName : <Menu size={16} aria-hidden="true" />}
-              </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content class="document-menu-content" sideOffset={6} align="start">
-                {canToggleSidebar && (
-                  <DropdownMenu.Item class="user-menu-item" onSelect={onToggleSidebar}>
-                    {sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-                  </DropdownMenu.Item>
-                )}
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-        )}
+        ) : canToggleSidebar ? (
+          <button
+            type="button"
+            class="document-menu-trigger"
+            onClick={onToggleSidebar}
+            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+          >
+            {sidebarVisible ? <PanelLeftClose size={20} aria-hidden="true" /> : <PanelLeftOpen size={20} aria-hidden="true" />}
+          </button>
+        ) : null}
       </div>
       <div class="toolbar-right">
         <div class="action-buttons">

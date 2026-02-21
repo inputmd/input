@@ -143,43 +143,20 @@ body {
 /* Document menu */
 
 .document-menu-trigger {
-  max-width: 280px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
   font-size: 14px;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.document-menu-trigger-caret {
-  max-width: none;
-  min-width: 35px;
-  padding: 6px 10px;
-  font-family: inherit;
-  font-size: 16px;
   line-height: 1;
-}
-
-.document-menu-trigger-caret svg {
-  transform: translateY(1px);
 }
 
 .document-menu-trigger:focus,
 .document-menu-trigger:focus-visible {
   outline: none;
   box-shadow: none;
-}
-
-.document-menu-content {
-  min-width: 160px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--toolbar-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  z-index: 20;
 }
 
 .document-menu-label {
@@ -854,7 +831,7 @@ button:disabled {
 
 .sidebar-context-menu {
   position: fixed;
-  min-width: 170px;
+  min-width: 80px;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 8px;

@@ -823,7 +823,6 @@ export function App() {
         installationId={installationId}
         selectedRepo={selectedRepo}
         draftMode={draftMode}
-        currentFileName={currentFileName}
         saving={saving}
         canSave={hasUnsavedChanges}
         canToggleSidebar={canToggleSidebar}
