@@ -133,7 +133,8 @@ async function handlePutContents(ctx: RouteContext): Promise<void> {
   const body = await readJson(ctx.req);
   const pathParam = requireString(body, 'path');
   const message = requireString(body, 'message');
-  const content = requireString(body, 'content');
+  const content = body?.content;
+  if (typeof content !== 'string') throw new ClientError('content is required');
   const sha = typeof body?.sha === 'string' ? body.sha : undefined;
   const branch = typeof body?.branch === 'string' ? body.branch : undefined;
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
