@@ -4,18 +4,24 @@ import { parseMarkdownToHtml } from './markdown';
 import {
   isAuthenticated, clearToken, getUser,
   getGist, updateGist, createGist,
-  addFileToGist, deleteFileFromGist, renameFileInGist,
   type GitHubUser, type GistDetail, type GistFile,
 } from './github';
 import {
   getInstallationId, setInstallationId, clearInstallationId,
   getSelectedRepo, setSelectedRepo as storeSelectedRepo, clearSelectedRepo,
   clearSessionToken, createSession, SessionExpiredError,
-  getRepoContents, putRepoFile, deleteRepoFile, isRepoFile,
+  getRepoContents, putRepoFile, isRepoFile,
 } from './github_app';
 import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
 import { markGistRecentlyCreated } from './gist_consistency';
 import { REPO_DOCS_DIR } from './constants';
+import {
+  createGistDocumentStore,
+  createRepoDocumentStore,
+  findRepoDocFile,
+  toRepoDocPath,
+  type RepoDocFile,
+} from './document_store';
 import { useRoute, type Route } from './hooks/useRoute';
 import { Toolbar, type ActiveView } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -78,7 +84,7 @@ export function App() {
   const [draftMode, setDraftMode] = useState(false);
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [gistFiles, setGistFiles] = useState<Record<string, GistFile> | null>(null);
-  const [repoFiles, setRepoFiles] = useState<Array<{ name: string; path: string; sha: string }>>([]);
+  const [repoFiles, setRepoFiles] = useState<RepoDocFile[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
 
@@ -91,7 +97,7 @@ export function App() {
   gistFilesRef.current = gistFiles;
   const currentGistIdRef = useRef<string | null>(null);
   currentGistIdRef.current = currentGistId;
-  const repoFilesRef = useRef<Array<{ name: string; path: string; sha: string }>>([]);
+  const repoFilesRef = useRef<RepoDocFile[]>([]);
   repoFilesRef.current = repoFiles;
   const activeViewRef = useRef<ActiveView>('loading');
   activeViewRef.current = activeView;
@@ -606,6 +612,21 @@ export function App() {
     else navigate('documents');
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
+  const getActiveDocumentStore = useCallback(() => {
+    if (currentGistId) {
+      return createGistDocumentStore(currentGistId);
+    }
+
+    if (selectedRepo) {
+      const instId = getInstallationId();
+      const repoName = getSelectedRepo()?.full_name;
+      if (!instId || !repoName) return null;
+      return createRepoDocumentStore(instId, repoName, REPO_DOCS_DIR);
+    }
+
+    return null;
+  }, [currentGistId, selectedRepo]);
+
   // --- Sidebar actions ---
   const handleSelectFile = useCallback(async (filename: string) => {
     const doNavigate = () => {
@@ -627,18 +648,18 @@ export function App() {
 
   const handleCreateFile = useCallback(async (filename: string) => {
     try {
-      if (currentGistId) {
-        const gist = await addFileToGist(currentGistId, filename, '\u200B');
+      const store = getActiveDocumentStore();
+      if (!store) return;
+
+      if (store.kind === 'gist') {
+        const gist = await store.createFile(filename);
         setGistFiles(gist.files);
         gistFilesRef.current = gist.files;
         setHasUnsavedChanges(false);
         navigate(`edit/${currentGistId}/${encodeURIComponent(filename)}`);
-      } else if (selectedRepo) {
-        const instId = getInstallationId();
-        const repoName = getSelectedRepo()?.full_name;
-        if (!instId || !repoName) return;
-        const path = `${REPO_DOCS_DIR}/${filename}`;
-        const result = await putRepoFile(instId, repoName, path, `Create ${filename}`, encodeUtf8ToBase64(''));
+      } else {
+        const result = await store.createFile(filename);
+        const path = toRepoDocPath(REPO_DOCS_DIR, filename);
         const updated = [...repoFilesRef.current, { name: filename, path, sha: result.content.sha }]
           .sort((a, b) => a.name.localeCompare(b.name));
         setRepoFiles(updated);
@@ -649,7 +670,7 @@ export function App() {
     } catch (err) {
       void showAlert(err instanceof Error ? err.message : 'Failed to create file');
     }
-  }, [currentGistId, selectedRepo, navigate, showAlert]);
+  }, [getActiveDocumentStore, currentGistId, navigate, showAlert]);
 
   const handleEditFile = useCallback(async (filename: string) => {
     if (activeView === 'edit' && currentFileName === filename) return;
@@ -683,8 +704,11 @@ export function App() {
   const handleDeleteFile = useCallback(async (filename: string) => {
     if (!await showConfirm(`Delete "${filename}"?`)) return;
     try {
-      if (currentGistId) {
-        const gist = await deleteFileFromGist(currentGistId, filename);
+      const store = getActiveDocumentStore();
+      if (!store) return;
+
+      if (store.kind === 'gist') {
+        const gist = await store.deleteFile({ name: filename });
         setGistFiles(gist.files);
         gistFilesRef.current = gist.files;
         const deletedCurrent = currentFileName === filename;
@@ -696,13 +720,10 @@ export function App() {
             navigate('documents');
           }
         }
-      } else if (selectedRepo) {
-        const instId = getInstallationId();
-        const repoName = getSelectedRepo()?.full_name;
-        if (!instId || !repoName) return;
-        const repoFile = repoFiles.find(f => f.name === filename);
+      } else {
+        const repoFile = findRepoDocFile(repoFiles, filename);
         if (!repoFile) return;
-        await deleteRepoFile(instId, repoName, repoFile.path, `Delete ${filename}`, repoFile.sha);
+        await store.deleteFile(repoFile);
         const remaining = repoFiles.filter(f => f.name !== filename);
         setRepoFiles(remaining);
         repoFilesRef.current = remaining;
@@ -719,30 +740,26 @@ export function App() {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       void showAlert(err instanceof Error ? err.message : 'Failed to delete file');
     }
-  }, [currentGistId, currentFileName, selectedRepo, repoFiles, currentRepoDocPath, navigate, handleSessionExpired, showConfirm, showAlert]);
+  }, [getActiveDocumentStore, currentFileName, repoFiles, currentRepoDocPath, navigate, handleSessionExpired, showConfirm, showAlert]);
 
   const handleRenameFile = useCallback(async (oldName: string, newName: string) => {
     try {
-      if (currentGistId) {
-        const gist = await renameFileInGist(currentGistId, oldName, newName);
+      const store = getActiveDocumentStore();
+      if (!store) return;
+
+      if (store.kind === 'gist') {
+        const gist = await store.renameFile({ name: oldName }, newName);
         setGistFiles(gist.files);
         gistFilesRef.current = gist.files;
         if (currentFileName === oldName) {
           setCurrentFileName(newName);
           navigate(`gist/${currentGistId}/${encodeURIComponent(newName)}`);
         }
-      } else if (selectedRepo) {
-        const instId = getInstallationId();
-        const repoName = getSelectedRepo()?.full_name;
-        if (!instId || !repoName) return;
-        const oldFile = repoFiles.find(f => f.name === oldName);
+      } else {
+        const oldFile = findRepoDocFile(repoFiles, oldName);
         if (!oldFile) return;
-        // Repo rename: read content, create new, delete old
-        const contents = await getRepoContents(instId, repoName, oldFile.path);
-        if (!isRepoFile(contents)) return;
-        const newPath = `${REPO_DOCS_DIR}/${newName}`;
-        const created = await putRepoFile(instId, repoName, newPath, `Rename ${oldName} to ${newName}`, contents.content ?? '');
-        await deleteRepoFile(instId, repoName, oldFile.path, `Delete ${oldName} (renamed)`, oldFile.sha);
+        const created = await store.renameFile(oldFile, newName);
+        const newPath = toRepoDocPath(REPO_DOCS_DIR, newName);
         const updatedFiles = repoFiles.map(f =>
           f.name === oldName ? { name: newName, path: created.content.path, sha: created.content.sha } : f
         ).sort((a, b) => a.name.localeCompare(b.name));
@@ -756,7 +773,7 @@ export function App() {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       void showAlert(err instanceof Error ? err.message : 'Failed to rename file');
     }
-  }, [currentGistId, selectedRepo, currentFileName, repoFiles, navigate, handleSessionExpired, showAlert]);
+  }, [getActiveDocumentStore, currentGistId, currentFileName, repoFiles, navigate, handleSessionExpired, showAlert]);
 
   // --- GitHub App callbacks ---
   const onSelectRepo = useCallback((fullName: string, id: number) => {
