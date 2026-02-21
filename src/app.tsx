@@ -13,6 +13,7 @@ import {
   getRepoContents, putRepoFile, deleteRepoFile, isRepoFile,
 } from './github_app';
 import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
+import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import { REPO_DOCS_DIR } from './constants';
 import { useRoute, type Route } from './hooks/useRoute';
 import { Toolbar, type ActiveView } from './components/Toolbar';
@@ -547,6 +548,7 @@ export function App() {
           gist = await updateGist(currentGistId, content, filename);
         } else {
           gist = await createGist(content, filename, title);
+          markGistRecentlyCreated(user?.login ?? null, gist);
         }
         setCurrentGistId(gist.id);
         currentGistIdRef.current = gist.id;
@@ -569,7 +571,7 @@ export function App() {
       setSaving(false);
       setHasUnsavedChanges(false);
     }
-  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, currentFileName, draftMode, navigate, handleSessionExpired]);
+  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, currentFileName, draftMode, navigate, handleSessionExpired, user]);
 
   const onCancel = useCallback(() => {
     if (currentRepoDocPath) navigate(`repofile/${encodeURIComponent(currentRepoDocPath)}`);
@@ -584,12 +586,13 @@ export function App() {
     if (!confirm('Delete this document?')) return;
     try {
       await deleteGist(currentGistId);
+      markGistRecentlyDeleted(user?.login ?? null, currentGistId);
       setCurrentGistId(null);
       navigate('documents');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete');
     }
-  }, [currentGistId, navigate]);
+  }, [currentGistId, navigate, user]);
 
   // --- Sidebar actions ---
   const handleSelectFile = useCallback((filename: string) => {
@@ -726,7 +729,7 @@ export function App() {
       case 'auth':
         return <AuthView onUserChange={setUser} navigate={navigate} />;
       case 'documents':
-        return <DocumentsView navigate={navigate} />;
+        return <DocumentsView navigate={navigate} userLogin={user?.login ?? null} />;
       case 'githubapp':
         return installationId ? (
           <GitHubAppView

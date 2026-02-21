@@ -5,11 +5,12 @@ interface DocumentCardProps {
   meta: ComponentChildren;
   onOpen: () => void;
   onDelete: () => void;
+  pending?: boolean;
 }
 
-export function DocumentCard({ title, meta, onOpen, onDelete }: DocumentCardProps) {
+export function DocumentCard({ title, meta, onOpen, onDelete, pending = false }: DocumentCardProps) {
   return (
-    <div class="document-card">
+    <div class={`document-card${pending ? ' document-card-pending' : ''}`}>
       <div class="doc-info">
         <span class="doc-title">{title}</span>
         <span class="doc-meta">{meta}</span>

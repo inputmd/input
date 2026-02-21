@@ -633,6 +633,10 @@ button:disabled {
   margin-top: 8px;
 }
 
+.document-card-pending .doc-info {
+  opacity: 0.62;
+}
+
 .doc-info {
   display: flex;
   flex-direction: column;

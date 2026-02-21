@@ -1,9 +1,16 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useMemo } from 'preact/hooks';
 import { listGists, deleteGist, type GistSummary } from '../github';
+import {
+  getRecentlyCreatedGists,
+  getRecentlyDeletedGistIds,
+  markGistRecentlyDeleted,
+  reconcileRecentGists,
+} from '../gist_consistency';
 import { DocumentCard } from '../components/DocumentCard';
 
 interface DocumentsViewProps {
   navigate: (route: string) => void;
+  userLogin: string | null;
 }
 
 function formatDate(iso: string): string {
@@ -11,7 +18,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export function DocumentsView({ navigate }: DocumentsViewProps) {
+export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
   const [gists, setGists] = useState<GistSummary[]>([]);
   const [page, setPage] = useState(1);
   const [allLoaded, setAllLoaded] = useState(false);
@@ -40,11 +47,32 @@ export function DocumentsView({ navigate }: DocumentsViewProps) {
     loadPage(1, true);
   }, []);
 
+  useEffect(() => {
+    reconcileRecentGists(userLogin, gists);
+  }, [userLogin, gists]);
+
+  const visibleGists = useMemo(() => {
+    const deleted = new Set(getRecentlyDeletedGistIds(userLogin));
+    const created = getRecentlyCreatedGists(userLogin);
+    const apiIds = new Set(gists.map(g => g.id));
+
+    const pendingCreated = created
+      .filter(g => !apiIds.has(g.id) && !deleted.has(g.id))
+      .map(g => ({ gist: g, pending: true }));
+
+    const apiVisible = gists
+      .filter(g => !deleted.has(g.id))
+      .map(g => ({ gist: g, pending: false }));
+
+    return [...pendingCreated, ...apiVisible];
+  }, [gists, userLogin]);
+
   const onDelete = async (gist: GistSummary) => {
     const title = gist.description || 'Untitled';
     if (!confirm(`Delete "${title}"?`)) return;
     try {
       await deleteGist(gist.id);
+      markGistRecentlyDeleted(userLogin, gist.id);
       setGists(prev => prev.filter(g => g.id !== gist.id));
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete');
@@ -70,7 +98,7 @@ export function DocumentsView({ navigate }: DocumentsViewProps) {
         <button type="button" onClick={() => navigate('')}>New Wiki</button>
       </div>
       <div class="documents-list">
-        {gists.map(gist => {
+        {visibleGists.map(({ gist, pending }) => {
           const title = gist.description || 'Untitled';
           const fileCount = Object.keys(gist.files).length;
           const updated = formatDate(gist.updated_at);
@@ -78,6 +106,7 @@ export function DocumentsView({ navigate }: DocumentsViewProps) {
             <DocumentCard
               key={gist.id}
               title={title}
+              pending={pending}
               meta={(
                 <>
                   {fileCount} file{fileCount !== 1 ? 's' : ''} {'\u00b7'} Updated {updated} {'\u00b7'}{' '}
