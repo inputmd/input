@@ -3,6 +3,7 @@ import {
   getRepoContents, deleteRepoFile, SessionExpiredError,
 } from '../github_app';
 import { DocumentCard } from '../components/DocumentCard';
+import { useDialogs } from '../components/DialogProvider';
 import { REPO_DOCS_DIR } from '../constants';
 
 interface RepoDocumentsViewProps {
@@ -20,6 +21,7 @@ interface RepoFile {
 }
 
 export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSessionExpired }: RepoDocumentsViewProps) {
+  const { showAlert, showConfirm } = useDialogs();
   const [files, setFiles] = useState<RepoFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,13 +60,13 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
   };
 
   const onDelete = async (file: RepoFile) => {
-    if (!confirm(`Delete "${file.name}" from ${selectedRepo}?`)) return;
+    if (!await showConfirm(`Delete "${file.name}" from ${selectedRepo}?`)) return;
     try {
       await deleteRepoFile(installationId, selectedRepo, file.path, `Delete ${file.name}`, file.sha);
       setFiles(prev => prev.filter(f => f.path !== file.path));
     } catch (err) {
       if (err instanceof SessionExpiredError) { onSessionExpired(); return; }
-      alert(err instanceof Error ? err.message : 'Failed to delete');
+      void showAlert(err instanceof Error ? err.message : 'Failed to delete');
     }
   };
 

@@ -7,6 +7,7 @@ import {
   reconcileRecentGists,
 } from '../gist_consistency';
 import { DocumentCard } from '../components/DocumentCard';
+import { useDialogs } from '../components/DialogProvider';
 
 interface DocumentsViewProps {
   navigate: (route: string) => void;
@@ -19,6 +20,7 @@ function formatDate(iso: string): string {
 }
 
 export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
+  const { showAlert, showConfirm, showPrompt } = useDialogs();
   const [gists, setGists] = useState<GistSummary[]>([]);
   const [page, setPage] = useState(1);
   const [allLoaded, setAllLoaded] = useState(false);
@@ -69,19 +71,19 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
 
   const onDelete = async (gist: GistSummary) => {
     const title = gist.description || 'Untitled';
-    if (!confirm(`Delete "${title}"?`)) return;
+    if (!await showConfirm(`Delete "${title}"?`)) return;
     try {
       await deleteGist(gist.id);
       markGistRecentlyDeleted(userLogin, gist.id);
       setGists(prev => prev.filter(g => g.id !== gist.id));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete');
+      void showAlert(err instanceof Error ? err.message : 'Failed to delete');
     }
   };
 
   const onRename = async (gist: GistSummary) => {
     const currentTitle = gist.description ?? '';
-    const input = prompt('New wiki name:', currentTitle);
+    const input = await showPrompt('New wiki name:', currentTitle);
     if (input === null) return;
     const nextTitle = input.trim();
     if (nextTitle === currentTitle) return;
@@ -93,7 +95,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
           : g
       )));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to rename');
+      void showAlert(err instanceof Error ? err.message : 'Failed to rename');
     }
   };
 

@@ -27,6 +27,7 @@ import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { LoadingView } from './views/LoadingView';
 import { ErrorView } from './views/ErrorView';
+import { useDialogs } from './components/DialogProvider';
 
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
@@ -53,6 +54,7 @@ function sanitizeTitleToFileName(title: string): string {
 
 export function App() {
   const { route, navigate } = useRoute();
+  const { showAlert, showConfirm } = useDialogs();
 
   // --- Shared state ---
   const [user, setUser] = useState<GitHubUser | null>(null);
@@ -586,12 +588,12 @@ export function App() {
       }
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
-      alert(err instanceof Error ? err.message : 'Failed to save');
+      void showAlert(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSaving(false);
       setHasUnsavedChanges(false);
     }
-  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, currentFileName, draftMode, navigate, handleSessionExpired, user]);
+  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, currentFileName, draftMode, navigate, handleSessionExpired, user, showAlert]);
 
   const onCancel = useCallback(() => {
     if (currentRepoDocPath) navigate(`repofile/${encodeURIComponent(currentRepoDocPath)}`);
@@ -602,7 +604,7 @@ export function App() {
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
   // --- Sidebar actions ---
-  const handleSelectFile = useCallback((filename: string) => {
+  const handleSelectFile = useCallback(async (filename: string) => {
     const doNavigate = () => {
       setHasUnsavedChanges(false);
       if (currentGistId) {
@@ -613,12 +615,12 @@ export function App() {
     };
 
     if (activeView === 'edit' && hasUnsavedChanges) {
-      const action = confirm('You have unsaved changes. Discard and switch files?');
+      const action = await showConfirm('You have unsaved changes. Discard and switch files?');
       if (action) doNavigate();
       return;
     }
     doNavigate();
-  }, [currentGistId, selectedRepo, activeView, hasUnsavedChanges, navigate]);
+  }, [currentGistId, selectedRepo, activeView, hasUnsavedChanges, navigate, showConfirm]);
 
   const handleCreateFile = useCallback(async (filename: string) => {
     try {
@@ -642,9 +644,9 @@ export function App() {
         navigate(`repoedit/${encodeURIComponent(path)}`);
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create file');
+      void showAlert(err instanceof Error ? err.message : 'Failed to create file');
     }
-  }, [currentGistId, selectedRepo, navigate]);
+  }, [currentGistId, selectedRepo, navigate, showAlert]);
 
   const handleEditFile = useCallback(async (filename: string) => {
     if (activeView === 'edit' && currentFileName === filename) return;
@@ -657,18 +659,18 @@ export function App() {
     if (!target) return;
 
     if (activeView === 'edit' && hasUnsavedChanges) {
-      const saveFirst = confirm('You have unsaved changes. Save before editing another file?');
+      const saveFirst = await showConfirm('You have unsaved changes. Save before editing another file?');
       if (saveFirst) {
         await onSave();
       } else {
-        const discard = confirm('Discard unsaved changes and continue editing another file?');
+        const discard = await showConfirm('Discard unsaved changes and continue editing another file?');
         if (!discard) return;
         setHasUnsavedChanges(false);
       }
     }
 
     navigate(target);
-  }, [currentGistId, selectedRepo, activeView, currentFileName, hasUnsavedChanges, onSave, navigate]);
+  }, [currentGistId, selectedRepo, activeView, currentFileName, hasUnsavedChanges, onSave, navigate, showConfirm]);
 
   const handleViewOnGitHub = useCallback(() => {
     if (!currentGistId) return;
@@ -676,7 +678,7 @@ export function App() {
   }, [currentGistId]);
 
   const handleDeleteFile = useCallback(async (filename: string) => {
-    if (!confirm(`Delete "${filename}"?`)) return;
+    if (!await showConfirm(`Delete "${filename}"?`)) return;
     try {
       if (currentGistId) {
         const gist = await deleteFileFromGist(currentGistId, filename);
@@ -712,9 +714,9 @@ export function App() {
       }
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
-      alert(err instanceof Error ? err.message : 'Failed to delete file');
+      void showAlert(err instanceof Error ? err.message : 'Failed to delete file');
     }
-  }, [currentGistId, currentFileName, selectedRepo, repoFiles, currentRepoDocPath, navigate, handleSessionExpired]);
+  }, [currentGistId, currentFileName, selectedRepo, repoFiles, currentRepoDocPath, navigate, handleSessionExpired, showConfirm, showAlert]);
 
   const handleRenameFile = useCallback(async (oldName: string, newName: string) => {
     try {
@@ -749,9 +751,9 @@ export function App() {
       }
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
-      alert(err instanceof Error ? err.message : 'Failed to rename file');
+      void showAlert(err instanceof Error ? err.message : 'Failed to rename file');
     }
-  }, [currentGistId, selectedRepo, currentFileName, repoFiles, navigate, handleSessionExpired]);
+  }, [currentGistId, selectedRepo, currentFileName, repoFiles, navigate, handleSessionExpired, showAlert]);
 
   // --- GitHub App callbacks ---
   const onSelectRepo = useCallback((fullName: string, id: number) => {
