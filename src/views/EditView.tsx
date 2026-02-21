@@ -98,12 +98,42 @@ export function EditView({
   };
 
   const handleEditorKeyDown = (e: JSX.TargetedKeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Tab') return;
-    e.preventDefault();
+    const isMod = e.metaKey || e.ctrlKey;
     const ta = e.currentTarget;
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     const value = content;
+
+    const wrapSelection = (marker: string) => {
+      const selected = value.slice(start, end);
+      const next = `${value.slice(0, start)}${marker}${selected}${marker}${value.slice(end)}`;
+      onContentChange(next);
+      requestAnimationFrame(() => {
+        if (start === end) {
+          const cursor = start + marker.length;
+          ta.selectionStart = cursor;
+          ta.selectionEnd = cursor;
+          return;
+        }
+        ta.selectionStart = start + marker.length;
+        ta.selectionEnd = end + marker.length;
+      });
+    };
+
+    if (isMod && (e.key === 'b' || e.key === 'B')) {
+      e.preventDefault();
+      wrapSelection('**');
+      return;
+    }
+
+    if (isMod && (e.key === 'i' || e.key === 'I')) {
+      e.preventDefault();
+      wrapSelection('*');
+      return;
+    }
+
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
 
     if (!e.shiftKey) {
       // Tab: insert \t or indent selected lines
