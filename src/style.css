@@ -668,6 +668,24 @@ button:disabled {
   margin-top: 16px;
 }
 
+/* Empty state */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 48px 16px;
+  color: var(--text-secondary);
+  text-align: center;
+  gap: 4px;
+}
+
+.empty-state button {
+  margin-top: 16px;
+}
+
 /* Loading view */
 
 .loading-view {

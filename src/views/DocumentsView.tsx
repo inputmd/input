@@ -115,6 +115,13 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
         </div>
         <button type="button" onClick={() => navigate('')}>New Wiki</button>
       </div>
+      {!loading && visibleGists.length === 0 ? (
+        <div class="empty-state">
+          <p>No wikis yet.</p>
+          <p>Create your first wiki to get started.</p>
+          <button type="button" onClick={() => navigate('')}>New Wiki</button>
+        </div>
+      ) : (
       <div class="documents-list">
         {visibleGists.map(({ gist, pending }) => {
           const title = gist.description || 'Untitled';
@@ -145,6 +152,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
           );
         })}
       </div>
+      )}
       {loading && <p class="loading-hint">Loading...</p>}
       {!allLoaded && !loading && (
         <button type="button" class="load-more-btn" onClick={() => loadPage(page, false)}>

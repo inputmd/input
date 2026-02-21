@@ -81,6 +81,22 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
     return <div class="loading-view"><p>Loading...</p></div>;
   }
 
+  if (files.length === 0) {
+    return (
+      <div class="repodocuments-view">
+        <div class="repodocuments-header">
+          <h1>Repo Documents</h1>
+          <div class="repodocuments-meta hint">{metaText}</div>
+        </div>
+        <div class="empty-state">
+          <p>No documents yet.</p>
+          <p>Create your first document to get started.</p>
+          <button type="button" onClick={() => navigate('reponew')}>New Document</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div class="repodocuments-view">
       <div class="repodocuments-header">
