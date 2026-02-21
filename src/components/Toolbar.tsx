@@ -66,16 +66,16 @@ export function Toolbar({
           <DropdownMenu.Portal>
             <DropdownMenu.Content class="document-menu-content" sideOffset={6} align="start">
               <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate('new')}>
-                New
+                New Wiki
               </DropdownMenu.Item>
               {showDocumentActions && <DropdownMenu.Separator class="user-menu-separator" />}
               {showViewOriginal && (
                 <DropdownMenu.Item
-                  class="user-menu-item"
+                  class="user-menu-item user-menu-item-with-icon"
                   onSelect={() => window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer')}
                 >
-                  <ExternalLink size={14} aria-hidden="true" />
                   View Gist
+                  <ExternalLink size={14} aria-hidden="true" />
                 </DropdownMenu.Item>
               )}
               {showEdit && (
@@ -135,7 +135,7 @@ export function Toolbar({
                   <DropdownMenu.Label class="user-menu-label">{user.login}</DropdownMenu.Label>
                   <DropdownMenu.Separator class="user-menu-separator" />
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate('documents')}>
-                    My Gists
+                    My Wikis
                   </DropdownMenu.Item>
                   <DropdownMenu.Separator class="user-menu-separator" />
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>

@@ -377,7 +377,7 @@ export function App() {
           localStorage.removeItem(DRAFT_CONTENT_KEY);
           setHasUnsavedChanges(false);
         }
-        navigate('');
+        navigate('', { replace: true });
         if (activeView === 'edit') {
           focusEditorSoon();
         }

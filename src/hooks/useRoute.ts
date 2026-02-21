@@ -52,9 +52,13 @@ export function useRoute() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const navigate = useCallback((r: string) => {
+  const navigate = useCallback((r: string, options?: { replace?: boolean }) => {
     const path = '/' + r;
-    window.history.pushState(null, '', path);
+    if (options?.replace) {
+      window.history.replaceState(null, '', path);
+    } else {
+      window.history.pushState(null, '', path);
+    }
     setRoute(matchRoute(r));
   }, []);
 

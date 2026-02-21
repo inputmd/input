@@ -255,6 +255,10 @@ body {
   font-size: 15px;
 }
 
+.user-menu-item-with-icon {
+  gap: 6px;
+}
+
 .user-menu-item[data-highlighted] {
   background: var(--btn-hover);
   outline: none;
@@ -599,6 +603,16 @@ button:disabled {
   font-weight: 600;
 }
 
+.documents-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.documents-subtitle {
+  color: color-mix(in srgb, var(--text-secondary) 75%, transparent);
+}
+
 .documents-list {
   display: flex;
   flex-direction: column;
@@ -636,6 +650,15 @@ button:disabled {
 .doc-meta {
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.doc-meta-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.doc-meta-link:hover {
+  text-decoration: underline;
 }
 
 .doc-actions {

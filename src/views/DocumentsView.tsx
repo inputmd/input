@@ -63,8 +63,11 @@ export function DocumentsView({ navigate }: DocumentsViewProps) {
   return (
     <div class="documents-view">
       <div class="documents-header">
-        <h1>My Gists</h1>
-        <button type="button" onClick={() => navigate('')}>New Gist</button>
+        <div class="documents-header-copy">
+          <h1>My Wikis</h1>
+          <p class="hint documents-subtitle">Wikis are stored as multi-file Gists on GitHub.</p>
+        </div>
+        <button type="button" onClick={() => navigate('')}>New Wiki</button>
       </div>
       <div class="documents-list">
         {gists.map(gist => {
@@ -75,7 +78,19 @@ export function DocumentsView({ navigate }: DocumentsViewProps) {
             <DocumentCard
               key={gist.id}
               title={title}
-              meta={`${fileCount} file${fileCount !== 1 ? 's' : ''} \u00b7 Updated ${updated}`}
+              meta={(
+                <>
+                  {fileCount} file{fileCount !== 1 ? 's' : ''} {'\u00b7'} Updated {updated} {'\u00b7'}{' '}
+                  <a
+                    href={`https://gist.github.com/${gist.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="doc-meta-link"
+                  >
+                    {gist.id.slice(0, 8)}
+                  </a>
+                </>
+              )}
               onOpen={() => navigate(`gist/${gist.id}`)}
               onDelete={() => onDelete(gist)}
             />
