@@ -8,6 +8,7 @@ import {
 } from '../gist_consistency';
 import { DocumentCard } from '../components/DocumentCard';
 import { useDialogs } from '../components/DialogProvider';
+import { routePath } from '../routing';
 
 interface DocumentsViewProps {
   navigate: (route: string) => void;
@@ -115,13 +116,13 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
           <h1>My Wikis</h1>
           <p class="hint documents-subtitle">Wikis are stored as multi-file Gists on GitHub.</p>
         </div>
-        <button type="button" onClick={() => navigate('')}>New Wiki</button>
+        <button type="button" onClick={() => navigate(routePath.home())}>New Wiki</button>
       </div>
       {!loading && visibleGists.length === 0 ? (
         <div class="empty-state">
           <p>No wikis yet.</p>
           <p>Create your first wiki to get started.</p>
-          <button type="button" onClick={() => navigate('')}>New Wiki</button>
+          <button type="button" onClick={() => navigate(routePath.home())}>New Wiki</button>
         </div>
       ) : (
       <div class="documents-list">
@@ -147,7 +148,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
                   </a>
                 </>
               )}
-              onOpen={() => navigate(`gist/${gist.id}`)}
+              onOpen={() => navigate(routePath.gistView(gist.id))}
               onRename={() => onRename(gist)}
               onDelete={() => onDelete(gist)}
             />

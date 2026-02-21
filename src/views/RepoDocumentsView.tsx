@@ -5,6 +5,7 @@ import {
 import { DocumentCard } from '../components/DocumentCard';
 import { useDialogs } from '../components/DialogProvider';
 import { REPO_DOCS_DIR } from '../constants';
+import { routePath } from '../routing';
 
 interface RepoDocumentsViewProps {
   installationId: string;
@@ -93,7 +94,7 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
         <div class="empty-state">
           <p>No documents yet.</p>
           <p>Create your first document to get started.</p>
-          <button type="button" onClick={() => navigate('reponew')}>New Document</button>
+          <button type="button" onClick={() => navigate(routePath.repoNew())}>New Document</button>
         </div>
       </div>
     );
@@ -104,7 +105,7 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
       <div class="repodocuments-header">
         <h1>Repo Documents</h1>
         <div class="repodocuments-meta hint">{metaText}</div>
-        <button type="button" onClick={() => navigate('reponew')}>New Document</button>
+        <button type="button" onClick={() => navigate(routePath.repoNew())}>New Document</button>
       </div>
       <div class="repodocuments-list">
         {files.map(file => (
@@ -112,7 +113,7 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
             key={file.path}
             title={file.name}
             meta={`${file.size} bytes`}
-            onOpen={() => navigate(`repofile/${encodeURIComponent(file.path)}`)}
+            onOpen={() => navigate(routePath.repoFile(file.path))}
             onDelete={() => onDelete(file)}
           />
         ))}

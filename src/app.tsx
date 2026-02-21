@@ -22,7 +22,8 @@ import {
   toRepoDocPath,
   type RepoDocFile,
 } from './document_store';
-import { useRoute, type Route } from './hooks/useRoute';
+import { useRoute } from './hooks/useRoute';
+import { routePath, type Route } from './routing';
 import { Toolbar, type ActiveView } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { AuthView } from './views/AuthView';
@@ -114,7 +115,7 @@ export function App() {
     clearSessionToken();
     setInstId(null);
     setSelectedRepo(null);
-    navigate('auth');
+    navigate(routePath.auth());
   }, [navigate]);
 
   const showError = useCallback((msg: string) => {
@@ -182,7 +183,7 @@ export function App() {
     const cleanUrl = window.location.pathname;
     window.history.replaceState({}, '', cleanUrl);
 
-    navigate('githubapp');
+    navigate(routePath.githubApp());
     return true;
   }, [navigate, showError]);
 
@@ -305,7 +306,7 @@ export function App() {
   const loadRepoFile = useCallback(async (path: string) => {
     const instId = getInstallationId();
     const repoName = getSelectedRepo()?.full_name ?? null;
-    if (!instId || !repoName) { navigate('githubapp'); return; }
+    if (!instId || !repoName) { navigate(routePath.githubApp()); return; }
     setActiveView('loading');
     try {
       const contents = await getRepoContents(instId, repoName, path);
@@ -328,7 +329,7 @@ export function App() {
   const loadRepoFileForEdit = useCallback(async (path: string) => {
     const instId = getInstallationId();
     const repoName = getSelectedRepo()?.full_name ?? null;
-    if (!instId || !repoName) { navigate('githubapp'); return; }
+    if (!instId || !repoName) { navigate(routePath.githubApp()); return; }
     setActiveView('loading');
     try {
       const contents = await getRepoContents(instId, repoName, path);
@@ -364,7 +365,7 @@ export function App() {
         syncRepoState();
         const instId = getInstallationId();
         const repoName = getSelectedRepo()?.full_name ?? null;
-        if (!instId || !repoName) { navigate('githubapp'); return; }
+        if (!instId || !repoName) { navigate(routePath.githubApp()); return; }
         setActiveView('repodocuments');
         return;
       }
@@ -376,7 +377,7 @@ export function App() {
         syncRepoState();
         const instId = getInstallationId();
         const repoName = getSelectedRepo()?.full_name ?? null;
-        if (!instId || !repoName) { navigate('githubapp'); return; }
+        if (!instId || !repoName) { navigate(routePath.githubApp()); return; }
         setDraftMode(false);
         setEditingBackend('repo');
         setCurrentRepoDocPath(null);
@@ -396,7 +397,7 @@ export function App() {
         await loadRepoFileForEdit(safeDecodeURIComponent(r.params.path));
         return;
       case 'documents':
-        if (!userRef.current) { navigate('auth'); return; }
+        if (!userRef.current) { navigate(routePath.auth()); return; }
         setGistFiles(null);
         setCurrentFileName(null);
         setRepoFiles([]);
@@ -408,13 +409,13 @@ export function App() {
           localStorage.removeItem(DRAFT_CONTENT_KEY);
           setHasUnsavedChanges(false);
         }
-        navigate('', { replace: true });
+        navigate(routePath.home(), { replace: true });
         if (activeViewRef.current === 'edit') {
           focusEditorSoon();
         }
         return;
       case 'edit': {
-        if (!userRef.current) { navigate('auth', { replace: true }); return; }
+        if (!userRef.current) { navigate(routePath.auth(), { replace: true }); return; }
         setDraftMode(false);
         // Serve from cache if we already have this gist's files
         const cachedFiles = currentGistIdRef.current === r.params.id ? gistFilesRef.current : null;
@@ -537,13 +538,13 @@ export function App() {
     clearToken();
     setUser(null);
     setCurrentGistId(null);
-    navigate('');
+    navigate(routePath.home());
   }, [navigate]);
 
   const onEdit = useCallback(() => {
-    if (currentRepoDocPath) navigate(`repoedit/${encodeURIComponent(currentRepoDocPath)}`);
-    else if (currentGistId && currentFileName) navigate(`edit/${currentGistId}/${encodeURIComponent(currentFileName)}`);
-    else if (currentGistId) navigate(`edit/${currentGistId}`);
+    if (currentRepoDocPath) navigate(routePath.repoEdit(currentRepoDocPath));
+    else if (currentGistId && currentFileName) navigate(routePath.gistEdit(currentGistId, currentFileName));
+    else if (currentGistId) navigate(routePath.gistEdit(currentGistId));
   }, [currentRepoDocPath, currentGistId, currentFileName, navigate]);
 
   const onSave = useCallback(async () => {
@@ -560,7 +561,7 @@ export function App() {
         await putRepoFile(instId, repoName, currentRepoDocPath, `Update ${currentRepoDocPath}`, contentB64, currentRepoDocSha ?? undefined);
   
         renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null);
-        navigate(`repofile/${encodeURIComponent(currentRepoDocPath)}`);
+        navigate(routePath.repoFile(currentRepoDocPath));
       } else if (editingBackend === 'repo' && repoName && instId) {
         const filename = sanitizeTitleToFileName(title);
         const path = `${REPO_DOCS_DIR}/${filename}`;
@@ -570,7 +571,7 @@ export function App() {
         setCurrentRepoDocSha(null);
   
         renderDocumentContent(content, filename);
-        navigate(`repofile/${encodeURIComponent(path)}`);
+        navigate(routePath.repoFile(path));
       } else {
         let gist: GistDetail;
         const filename = currentFileName ?? sanitizeTitleToFileName(title);
@@ -592,7 +593,7 @@ export function App() {
         }
 
         renderDocumentContent(content, filename);
-        navigate(`gist/${gist.id}/${encodeURIComponent(filename)}`);
+        navigate(routePath.gistView(gist.id, filename));
       }
       showToast('Saved');
     } catch (err) {
@@ -605,11 +606,11 @@ export function App() {
   }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, currentFileName, draftMode, navigate, handleSessionExpired, user, showAlert, showToast]);
 
   const onCancel = useCallback(() => {
-    if (currentRepoDocPath) navigate(`repofile/${encodeURIComponent(currentRepoDocPath)}`);
-    else if (currentGistId && currentFileName) navigate(`gist/${currentGistId}/${encodeURIComponent(currentFileName)}`);
-    else if (currentGistId) navigate(`gist/${currentGistId}`);
-    else if (selectedRepo) navigate('repodocuments');
-    else navigate('documents');
+    if (currentRepoDocPath) navigate(routePath.repoFile(currentRepoDocPath));
+    else if (currentGistId && currentFileName) navigate(routePath.gistView(currentGistId, currentFileName));
+    else if (currentGistId) navigate(routePath.gistView(currentGistId));
+    else if (selectedRepo) navigate(routePath.repoDocuments());
+    else navigate(routePath.documents());
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
   const getActiveDocumentStore = useCallback(() => {
@@ -632,9 +633,9 @@ export function App() {
     const doNavigate = () => {
       setHasUnsavedChanges(false);
       if (currentGistId) {
-        navigate(`gist/${currentGistId}/${encodeURIComponent(filename)}`);
+        navigate(routePath.gistView(currentGistId, filename));
       } else if (selectedRepo) {
-        navigate(`repofile/${encodeURIComponent(REPO_DOCS_DIR + '/' + filename)}`);
+        navigate(routePath.repoFile(toRepoDocPath(REPO_DOCS_DIR, filename)));
       }
     };
 
@@ -652,11 +653,12 @@ export function App() {
       if (!store) return;
 
       if (store.kind === 'gist') {
+        if (!currentGistId) return;
         const gist = await store.createFile(filename);
         setGistFiles(gist.files);
         gistFilesRef.current = gist.files;
         setHasUnsavedChanges(false);
-        navigate(`edit/${currentGistId}/${encodeURIComponent(filename)}`);
+        navigate(routePath.gistEdit(currentGistId, filename));
       } else {
         const result = await store.createFile(filename);
         const path = toRepoDocPath(REPO_DOCS_DIR, filename);
@@ -665,7 +667,7 @@ export function App() {
         setRepoFiles(updated);
         repoFilesRef.current = updated;
         setHasUnsavedChanges(false);
-        navigate(`repoedit/${encodeURIComponent(path)}`);
+        navigate(routePath.repoEdit(path));
       }
     } catch (err) {
       void showAlert(err instanceof Error ? err.message : 'Failed to create file');
@@ -676,9 +678,9 @@ export function App() {
     if (activeView === 'edit' && currentFileName === filename) return;
 
     const target = currentGistId
-      ? `edit/${currentGistId}/${encodeURIComponent(filename)}`
+      ? routePath.gistEdit(currentGistId, filename)
       : selectedRepo
-        ? `repoedit/${encodeURIComponent(REPO_DOCS_DIR + '/' + filename)}`
+        ? routePath.repoEdit(toRepoDocPath(REPO_DOCS_DIR, filename))
         : null;
     if (!target) return;
 
@@ -708,6 +710,7 @@ export function App() {
       if (!store) return;
 
       if (store.kind === 'gist') {
+        if (!currentGistId) return;
         const gist = await store.deleteFile({ name: filename });
         setGistFiles(gist.files);
         gistFilesRef.current = gist.files;
@@ -715,9 +718,9 @@ export function App() {
         if (deletedCurrent) {
           const remaining = Object.keys(gist.files);
           if (remaining.length > 0) {
-            navigate(`gist/${currentGistId}/${encodeURIComponent(remaining[0])}`);
+            navigate(routePath.gistView(currentGistId, remaining[0]));
           } else {
-            navigate('documents');
+            navigate(routePath.documents());
           }
         }
       } else {
@@ -730,9 +733,9 @@ export function App() {
         const deletedCurrent = currentRepoDocPath === repoFile.path;
         if (deletedCurrent) {
           if (remaining.length > 0) {
-            navigate(`repofile/${encodeURIComponent(remaining[0].path)}`);
+            navigate(routePath.repoFile(remaining[0].path));
           } else {
-            navigate('repodocuments');
+            navigate(routePath.repoDocuments());
           }
         }
       }
@@ -748,12 +751,13 @@ export function App() {
       if (!store) return;
 
       if (store.kind === 'gist') {
+        if (!currentGistId) return;
         const gist = await store.renameFile({ name: oldName }, newName);
         setGistFiles(gist.files);
         gistFilesRef.current = gist.files;
         if (currentFileName === oldName) {
           setCurrentFileName(newName);
-          navigate(`gist/${currentGistId}/${encodeURIComponent(newName)}`);
+          navigate(routePath.gistView(currentGistId, newName));
         }
       } else {
         const oldFile = findRepoDocFile(repoFiles, oldName);
@@ -766,7 +770,7 @@ export function App() {
         setRepoFiles(updatedFiles);
         repoFilesRef.current = updatedFiles;
         if (currentFileName === oldName) {
-          navigate(`repofile/${encodeURIComponent(newPath)}`);
+          navigate(routePath.repoFile(newPath));
         }
       }
     } catch (err) {
@@ -784,7 +788,7 @@ export function App() {
   const onDisconnect = useCallback(() => {
     setInstId(null);
     setSelectedRepo(null);
-    navigate('auth');
+    navigate(routePath.auth());
   }, [navigate]);
 
   // --- Render active view ---

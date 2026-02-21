@@ -2,6 +2,7 @@ import type { GitHubUser } from '../github';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { routePath } from '../routing';
 
 export type ActiveView = 'auth' | 'documents' | 'githubapp' | 'repodocuments' | 'loading' | 'error' | 'content' | 'edit';
 
@@ -36,10 +37,10 @@ export function Toolbar({
     <header class="toolbar">
       <div class="toolbar-left">
         {showGitHubApp && (
-          <button type="button" onClick={() => navigate('githubapp')}>GitHub App</button>
+          <button type="button" onClick={() => navigate(routePath.githubApp())}>GitHub App</button>
         )}
         {showRepoDocs && (
-          <button type="button" onClick={() => navigate('repodocuments')}>Repo Docs</button>
+          <button type="button" onClick={() => navigate(routePath.repoDocuments())}>Repo Docs</button>
         )}
         {isHomeDraft ? (
           <span class="document-menu-label">New Wiki</span>
@@ -61,7 +62,7 @@ export function Toolbar({
             <button type="button" onClick={onEdit}>Edit</button>
           )}
           {showSignInToSave && (
-            <button type="button" onClick={() => navigate('auth')}>Sign in</button>
+            <button type="button" onClick={() => navigate(routePath.auth())}>Sign in</button>
           )}
         </div>
         {user ? (
@@ -87,7 +88,7 @@ export function Toolbar({
                 <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
                   <DropdownMenu.Label class="user-menu-label">{user.login}</DropdownMenu.Label>
                   <DropdownMenu.Separator class="user-menu-separator" />
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate('documents')}>
+                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.documents())}>
                     My Wikis
                   </DropdownMenu.Item>
                   <DropdownMenu.Separator class="user-menu-separator" />
@@ -103,7 +104,7 @@ export function Toolbar({
             </DropdownMenu.Root>
           </Tooltip.Provider>
         ) : !showSignInToSave && view !== 'auth' ? (
-          <button type="button" onClick={() => navigate('auth')}>Sign In</button>
+          <button type="button" onClick={() => navigate(routePath.auth())}>Sign In</button>
         ) : null}
       </div>
     </header>

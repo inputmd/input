@@ -7,6 +7,7 @@ import {
   createInstallState, getInstallUrl,
 } from '../github_app';
 import { useDeviceFlow } from '../hooks/useDeviceFlow';
+import { routePath } from '../routing';
 
 interface AuthViewProps {
   onUserChange: (user: GitHubUser | null) => void;
@@ -24,7 +25,7 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
     if (phase.status !== 'success') return;
     setOAuthToken(phase.token);
     getUser()
-      .then(user => { onUserChange(user); navigate('documents'); })
+      .then(user => { onUserChange(user); navigate(routePath.documents()); })
       .catch(err => {
         clearToken();
         onUserChange(null);
@@ -41,7 +42,7 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
       const user = await getUser();
       onUserChange(user);
       setError(null);
-      navigate('documents');
+      navigate(routePath.documents());
     } catch (err) {
       clearToken();
       onUserChange(null);

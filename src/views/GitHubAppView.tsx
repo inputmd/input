@@ -5,6 +5,7 @@ import {
   setSelectedRepo, SessionExpiredError,
   type InstallationRepoList,
 } from '../github_app';
+import { routePath } from '../routing';
 
 interface GitHubAppViewProps {
   installationId: string;
@@ -48,7 +49,7 @@ export function GitHubAppView({ installationId, selectedRepo, onSelectRepo, onDi
   const handleSelect = (repo: { full_name: string; id: number }) => {
     onSelectRepo(repo.full_name, repo.id);
     setSelectedRepo({ full_name: repo.full_name, id: repo.id });
-    navigate('repodocuments');
+    navigate(routePath.repoDocuments());
   };
 
   return (
