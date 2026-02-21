@@ -1126,17 +1126,21 @@ button:disabled {
   width: 100%;
   min-height: 34px;
   padding: 0 10px;
-  border: 0;
   border-radius: 6px;
+  outline: none;
   background: transparent;
   color: var(--text);
   text-align: left;
   font-size: 14px;
   font-family: inherit;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  user-select: none;
 }
 
-.sidebar-context-menu-item:hover {
+.sidebar-context-menu-item:hover,
+.sidebar-context-menu-item[data-highlighted] {
   background: var(--btn-hover);
 }
 

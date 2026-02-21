@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
+import * as ContextMenu from '@radix-ui/react-context-menu';
 
 export interface SidebarFile {
   name: string;
@@ -30,11 +31,8 @@ export function Sidebar({
   const [newFileName, setNewFileName] = useState('');
   const [renamingFile, setRenamingFile] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [contextFile, setContextFile] = useState<string | null>(null);
-  const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   const createInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -44,32 +42,6 @@ export function Sidebar({
   useEffect(() => {
     if (renamingFile) renameInputRef.current?.focus();
   }, [renamingFile]);
-
-  useEffect(() => {
-    if (!contextFile) return;
-    const closeMenu = () => {
-      setContextFile(null);
-      setContextPos(null);
-    };
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (contextMenuRef.current?.contains(target)) return;
-      closeMenu();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMenu();
-    };
-    window.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('scroll', closeMenu, true);
-    window.addEventListener('resize', closeMenu);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', onPointerDown);
-      window.removeEventListener('scroll', closeMenu, true);
-      window.removeEventListener('resize', closeMenu);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [contextFile]);
 
   const handleCreateSubmit = async () => {
     if (createInFlightRef.current) return;
@@ -115,51 +87,74 @@ export function Sidebar({
         >+</button>
       </div>
       <div class="sidebar-files">
-        {files.map(f => (
-          <div
-            key={f.name}
-            class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.name ? ' renaming' : ''}`}
-            tabIndex={0}
-            role="button"
-            aria-current={f.active ? 'true' : undefined}
-            onClick={() => !f.active && onSelectFile(f.name)}
-            onDblClick={() => startRename(f.name)}
-            onKeyDown={e => {
-              if (renamingFile === f.name) return;
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                if (!f.active) onSelectFile(f.name);
-              } else if (e.key === 'F2') {
-                e.preventDefault();
-                startRename(f.name);
-              }
-            }}
-            onContextMenu={e => {
-              if (renamingFile) return;
-              e.preventDefault();
-              setContextFile(f.name);
-              setContextPos({ x: e.clientX, y: e.clientY });
-            }}
-          >
-            {renamingFile === f.name ? (
-              <input
-                ref={renameInputRef}
-                class="sidebar-rename-input"
-                type="text"
-                value={renameValue}
-                onInput={e => setRenameValue((e.target as HTMLInputElement).value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleRenameSubmit();
-                  if (e.key === 'Escape') { setRenamingFile(null); setRenameValue(''); }
-                }}
-                onBlur={handleRenameSubmit}
-                onClick={e => e.stopPropagation()}
-              />
-            ) : (
-              <span class="sidebar-file-name">{f.name}</span>
-            )}
-          </div>
-        ))}
+        {files.map(f => {
+          const fileRow = (
+            <div
+              class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.name ? ' renaming' : ''}`}
+              tabIndex={0}
+              role="button"
+              aria-current={f.active ? 'true' : undefined}
+              onClick={() => !f.active && onSelectFile(f.name)}
+              onDblClick={() => startRename(f.name)}
+              onKeyDown={e => {
+                if (renamingFile === f.name) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  if (!f.active) onSelectFile(f.name);
+                } else if (e.key === 'F2') {
+                  e.preventDefault();
+                  startRename(f.name);
+                }
+              }}
+            >
+              {renamingFile === f.name ? (
+                <input
+                  ref={renameInputRef}
+                  class="sidebar-rename-input"
+                  type="text"
+                  value={renameValue}
+                  onInput={e => setRenameValue((e.target as HTMLInputElement).value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleRenameSubmit();
+                    if (e.key === 'Escape') { setRenamingFile(null); setRenameValue(''); }
+                  }}
+                  onBlur={handleRenameSubmit}
+                  onClick={e => e.stopPropagation()}
+                />
+              ) : (
+                <span class="sidebar-file-name">{f.name}</span>
+              )}
+            </div>
+          );
+
+          if (renamingFile === f.name) {
+            return <div key={f.name}>{fileRow}</div>;
+          }
+
+          return (
+            <ContextMenu.Root key={f.name}>
+              <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
+              <ContextMenu.Portal>
+                <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
+                  <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onEditFile(f.name)}>
+                    Edit
+                  </ContextMenu.Item>
+                  <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => startRename(f.name)}>
+                    Rename
+                  </ContextMenu.Item>
+                  {canViewOnGitHub && (
+                    <ContextMenu.Item class="sidebar-context-menu-item" onSelect={onViewOnGitHub}>
+                      View on GitHub
+                    </ContextMenu.Item>
+                  )}
+                  <ContextMenu.Item class="sidebar-context-menu-item sidebar-context-menu-item-danger" onSelect={() => onDeleteFile(f.name)}>
+                    Delete
+                  </ContextMenu.Item>
+                </ContextMenu.Content>
+              </ContextMenu.Portal>
+            </ContextMenu.Root>
+          );
+        })}
         {creatingNew && (
           <div class="sidebar-file renaming">
             <input
@@ -183,61 +178,6 @@ export function Sidebar({
           </div>
         )}
       </div>
-      {contextFile && contextPos && (
-        <div
-          ref={contextMenuRef}
-          class="sidebar-context-menu"
-          style={{ left: `${contextPos.x}px`, top: `${contextPos.y}px` }}
-          role="menu"
-        >
-          <button
-            type="button"
-            class="sidebar-context-menu-item"
-            onClick={() => {
-              onEditFile(contextFile);
-              setContextFile(null);
-              setContextPos(null);
-            }}
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            class="sidebar-context-menu-item"
-            onClick={() => {
-              startRename(contextFile);
-              setContextFile(null);
-              setContextPos(null);
-            }}
-          >
-            Rename
-          </button>
-          {canViewOnGitHub && (
-            <button
-              type="button"
-              class="sidebar-context-menu-item"
-              onClick={() => {
-                onViewOnGitHub();
-                setContextFile(null);
-                setContextPos(null);
-              }}
-            >
-              View on GitHub
-            </button>
-          )}
-          <button
-            type="button"
-            class="sidebar-context-menu-item sidebar-context-menu-item-danger"
-            onClick={() => {
-              onDeleteFile(contextFile);
-              setContextFile(null);
-              setContextPos(null);
-            }}
-          >
-            Delete
-          </button>
-        </div>
-      )}
     </aside>
   );
 }
