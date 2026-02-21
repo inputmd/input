@@ -791,7 +791,13 @@ export function App() {
           />
         ) : null;
       case 'content':
-        return <ContentView html={renderedHtml} markdown={renderMode === 'markdown'} />;
+        return (
+          <ContentView
+            html={renderedHtml}
+            markdown={renderMode === 'markdown'}
+            onInternalLinkNavigate={navigate}
+          />
+        );
       case 'edit':
         return (
           <EditView
