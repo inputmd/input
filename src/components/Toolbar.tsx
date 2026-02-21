@@ -15,20 +15,22 @@ interface ToolbarProps {
   canSave: boolean;
   canToggleSidebar: boolean;
   sidebarVisible: boolean;
+  showEdit: boolean;
   showSave: boolean;
   navigate: (route: string) => void;
   onSignOut: () => void;
   onToggleTheme: () => void;
   onSave: () => void;
   onToggleSidebar: () => void;
+  onEdit: () => void;
   onCancel: () => void;
 }
 
 export function Toolbar({
   view, user, installationId, selectedRepo, draftMode,
-  saving, canSave, canToggleSidebar, sidebarVisible, showSave,
+  saving, canSave, canToggleSidebar, sidebarVisible, showEdit, showSave,
   navigate, onSignOut, onToggleTheme,
-  onSave, onToggleSidebar, onCancel,
+  onSave, onToggleSidebar, onEdit, onCancel,
 }: ToolbarProps) {
   const isHomeDraft = view === 'edit' && draftMode;
   const showCancel = view === 'edit' && !isHomeDraft;
@@ -61,6 +63,9 @@ export function Toolbar({
       </div>
       <div class="toolbar-right">
         <div class="action-buttons">
+          {showEdit && (
+            <button type="button" onClick={onEdit}>Edit</button>
+          )}
           {showCancel && (
             <button type="button" onClick={onCancel}>Cancel</button>
           )}

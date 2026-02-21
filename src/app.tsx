@@ -510,6 +510,12 @@ export function App() {
     navigate('');
   }, [navigate]);
 
+  const onEdit = useCallback(() => {
+    if (currentRepoDocPath) navigate(`repoedit/${encodeURIComponent(currentRepoDocPath)}`);
+    else if (currentGistId && currentFileName) navigate(`edit/${currentGistId}/${encodeURIComponent(currentFileName)}`);
+    else if (currentGistId) navigate(`edit/${currentGistId}`);
+  }, [currentRepoDocPath, currentGistId, currentFileName, navigate]);
+
   const onSave = useCallback(async () => {
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
     const content = editContent;
@@ -813,6 +819,7 @@ export function App() {
     });
   }, [defaultShowSidebar]);
   const isHomeDraft = activeView === 'edit' && currentGistId === null && currentRepoDocPath === null;
+  const showHeaderEdit = activeView === 'content' && (currentRepoDocPath !== null || currentGistId !== null);
   const showHeaderSave = activeView === 'edit' && !(isHomeDraft && !user);
 
   return (
@@ -827,12 +834,14 @@ export function App() {
         canSave={hasUnsavedChanges}
         canToggleSidebar={canToggleSidebar}
         sidebarVisible={showSidebar}
+        showEdit={showHeaderEdit}
         showSave={showHeaderSave}
         navigate={navigate}
         onSignOut={signOut}
         onToggleTheme={toggleTheme}
         onSave={onSave}
         onToggleSidebar={onToggleSidebar}
+        onEdit={onEdit}
         onCancel={onCancel}
       />
       <div class={showSidebar ? 'app-body' : 'app-body app-body--no-sidebar'}>
