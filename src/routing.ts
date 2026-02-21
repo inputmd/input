@@ -1,41 +1,37 @@
-export type RouteName =
-  | 'home'
-  | 'auth'
-  | 'githubapp'
-  | 'repodocuments'
-  | 'repofile'
-  | 'reponew'
-  | 'repoedit'
-  | 'documents'
-  | 'new'
-  | 'edit'
-  | 'gist';
+export type Route =
+  | { name: 'home'; params: Record<string, never> }
+  | { name: 'auth'; params: Record<string, never> }
+  | { name: 'githubapp'; params: Record<string, never> }
+  | { name: 'repodocuments'; params: Record<string, never> }
+  | { name: 'repofile'; params: { path: string } }
+  | { name: 'reponew'; params: Record<string, never> }
+  | { name: 'repoedit'; params: { path: string } }
+  | { name: 'documents'; params: Record<string, never> }
+  | { name: 'new'; params: Record<string, never> }
+  | { name: 'edit'; params: { id: string; filename?: string } }
+  | { name: 'gist'; params: { id: string; filename?: string } };
 
-export interface Route {
-  name: RouteName;
-  params: Record<string, string>;
-}
+export type RouteName = Route['name'];
 
 interface RouteDef {
   pattern: RegExp;
-  name: Exclude<RouteName, 'home'>;
-  paramNames?: string[];
+  build: (match: RegExpMatchArray) => Route;
 }
 
 const ROUTE_TABLE: RouteDef[] = [
-  { pattern: /^auth$/, name: 'auth' },
-  { pattern: /^githubapp$/, name: 'githubapp' },
-  { pattern: /^repodocuments$/, name: 'repodocuments' },
-  { pattern: /^repofile\/(.+)$/, name: 'repofile', paramNames: ['path'] },
-  { pattern: /^reponew$/, name: 'reponew' },
-  { pattern: /^repoedit\/(.+)$/, name: 'repoedit', paramNames: ['path'] },
-  { pattern: /^documents$/, name: 'documents' },
-  { pattern: /^new$/, name: 'new' },
-  { pattern: /^edit\/([^/]+)\/(.+)$/, name: 'edit', paramNames: ['id', 'filename'] },
-  { pattern: /^gist\/([^/]+)\/(.+)$/, name: 'gist', paramNames: ['id', 'filename'] },
-  { pattern: /^edit\/([^/]+)$/, name: 'edit', paramNames: ['id'] },
-  { pattern: /^gist\/([^/]+)$/, name: 'gist', paramNames: ['id'] },
-  { pattern: /^([a-f0-9]+)$/i, name: 'gist', paramNames: ['id'] },
+  { pattern: /^auth$/, build: () => ({ name: 'auth', params: {} }) },
+  { pattern: /^githubapp$/, build: () => ({ name: 'githubapp', params: {} }) },
+  { pattern: /^repodocuments$/, build: () => ({ name: 'repodocuments', params: {} }) },
+  { pattern: /^repofile\/(.+)$/, build: (m) => ({ name: 'repofile', params: { path: m[1] } }) },
+  { pattern: /^reponew$/, build: () => ({ name: 'reponew', params: {} }) },
+  { pattern: /^repoedit\/(.+)$/, build: (m) => ({ name: 'repoedit', params: { path: m[1] } }) },
+  { pattern: /^documents$/, build: () => ({ name: 'documents', params: {} }) },
+  { pattern: /^new$/, build: () => ({ name: 'new', params: {} }) },
+  { pattern: /^edit\/([^/]+)\/(.+)$/, build: (m) => ({ name: 'edit', params: { id: m[1], filename: m[2] } }) },
+  { pattern: /^gist\/([^/]+)\/(.+)$/, build: (m) => ({ name: 'gist', params: { id: m[1], filename: m[2] } }) },
+  { pattern: /^edit\/([^/]+)$/, build: (m) => ({ name: 'edit', params: { id: m[1] } }) },
+  { pattern: /^gist\/([^/]+)$/, build: (m) => ({ name: 'gist', params: { id: m[1] } }) },
+  { pattern: /^([a-f0-9]+)$/i, build: (m) => ({ name: 'gist', params: { id: m[1] } }) },
 ];
 
 export const routePath = {
@@ -57,15 +53,9 @@ export function getPathSegment(): string {
 }
 
 export function matchRoute(path: string): Route {
-  for (const { pattern, name, paramNames } of ROUTE_TABLE) {
+  for (const { pattern, build } of ROUTE_TABLE) {
     const m = path.match(pattern);
-    if (m) {
-      const params: Record<string, string> = {};
-      paramNames?.forEach((key, i) => {
-        params[key] = m[i + 1];
-      });
-      return { name, params };
-    }
+    if (m) return build(m);
   }
   return { name: 'home', params: {} };
 }
