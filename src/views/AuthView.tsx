@@ -69,9 +69,9 @@ export function AuthView({ onUserChange, navigate }: AuthViewProps) {
 
       <hr />
 
-      <h2>Connect to Github Gists</h2>
+      <h2>Connect to GitHub Gists</h2>
       {phase.status !== 'pending' && (
-        <p class="hint">Use Github OAuth to save notes as individual gists.</p>
+        <p class="hint">Use GitHub OAuth to save notes as individual gists.</p>
       )}
 
       {/* Device Flow */}

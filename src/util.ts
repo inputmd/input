@@ -1,3 +1,10 @@
+export function isExternalHttpHref(href: string): boolean {
+  const protocolMatch = href.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+  if (!protocolMatch) return false;
+  const protocol = protocolMatch[1].toLowerCase();
+  return protocol === 'http' || protocol === 'https';
+}
+
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

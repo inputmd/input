@@ -1,10 +1,13 @@
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
+import { isExternalHttpHref } from './util';
 
 marked.setOptions({
   gfm: true,
   breaks: true,
 });
+
+const WEB_TLDS = new Set(['com', 'org', 'net', 'app', 'dev', 'xyz']);
 
 function wikiSlug(raw: string): string {
   return raw
@@ -12,13 +15,6 @@ function wikiSlug(raw: string): string {
     .toLowerCase()
     .replace(/[/\\]/g, '-')
     .replace(/\s+/g, '-');
-}
-
-function isExternalHttpHref(href: string): boolean {
-  const protocolMatch = href.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
-  if (!protocolMatch) return false;
-  const protocol = protocolMatch[1].toLowerCase();
-  return protocol === 'http' || protocol === 'https';
 }
 
 marked.use({
@@ -73,7 +69,7 @@ function sanitizeMarkdownHref(href: string): string | null {
   const singleLabelWithExtension = /^([a-zA-Z0-9-]+)\.([a-zA-Z0-9-]+)(?:[/?#]|$)/.exec(normalized);
   if (singleLabelWithExtension) {
     const extension = singleLabelWithExtension[2].toLowerCase();
-    const webTlds = new Set(['com', 'org', 'net', 'app', 'dev', 'xyz']);
+    const webTlds = WEB_TLDS;
     if (!webTlds.has(extension)) return normalized;
   }
 

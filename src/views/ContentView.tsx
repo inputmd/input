@@ -1,14 +1,9 @@
+import { isExternalHttpHref } from '../util';
+
 interface ContentViewProps {
   html: string;
   markdown: boolean;
   onInternalLinkNavigate?: (route: string) => void;
-}
-
-function isExternalHttpHref(href: string): boolean {
-  const protocolMatch = href.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
-  if (!protocolMatch) return false;
-  const protocol = protocolMatch[1].toLowerCase();
-  return protocol === 'http' || protocol === 'https';
 }
 
 export function ContentView({ html, markdown, onInternalLinkNavigate }: ContentViewProps) {

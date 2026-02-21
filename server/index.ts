@@ -19,6 +19,17 @@ if (!process.env.SESSION_SECRET) {
   console.warn('WARNING: SESSION_SECRET not set — using random ephemeral secret. Sessions will not survive server restarts.');
 }
 
+// --- Error types ---
+
+class ClientError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = 'ClientError';
+    this.statusCode = statusCode;
+  }
+}
+
 // --- Types ---
 
 interface Session {
@@ -106,7 +117,7 @@ async function readJson(req: http.IncomingMessage): Promise<Record<string, unkno
   let totalBytes = 0;
   for await (const chunk of req) {
     totalBytes += (chunk as Buffer).length;
-    if (totalBytes > MAX_BODY_BYTES) throw new Error('Request body too large');
+    if (totalBytes > MAX_BODY_BYTES) throw new ClientError('Request body too large');
     chunks.push(chunk as Buffer);
   }
   const raw = Buffer.concat(chunks).toString('utf8');
@@ -114,7 +125,7 @@ async function readJson(req: http.IncomingMessage): Promise<Record<string, unkno
   try {
     return JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    throw new Error('Invalid JSON body');
+    throw new ClientError('Invalid JSON body');
   }
 }
 
@@ -126,7 +137,7 @@ function requireEnv(name: string): string {
 
 function requireString(body: Record<string, unknown> | null, key: string): string {
   const v = body?.[key];
-  if (typeof v !== 'string' || !v.trim()) throw new Error(`${key} is required`);
+  if (typeof v !== 'string' || !v.trim()) throw new ClientError(`${key} is required`);
   return v;
 }
 
@@ -286,7 +297,7 @@ async function getInstallationToken(installationId: string, repositoryIds?: numb
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.error(`Failed to mint installation token: ${res.status} ${res.statusText}`, body);
-    throw new Error(`GitHub API error: ${res.status}`);
+    throw new ClientError(`GitHub API error: ${res.status}`, 502);
   }
   const data = (await res.json()) as { token: string; expires_at: string };
   const expiresAtMs = Date.parse(data.expires_at);
@@ -315,7 +326,7 @@ async function githubFetchWithInstallationToken(installationId: string, path: st
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.error(`GitHub API error on ${path}: ${res.status} ${res.statusText}`, body);
-    throw new Error(`GitHub API error: ${res.status}`);
+    throw new ClientError(`GitHub API error: ${res.status}`, 502);
   }
   return res;
 }
@@ -631,12 +642,11 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
 
     return json(res, 404, { error: 'Not found' });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : '';
-    const safe = /^(Request body too large|Invalid JSON body|GitHub API error: \d+|\w+ is required)$/.test(msg);
-    if (!safe) {
-      console.error('Unhandled server error:', err);
+    if (err instanceof ClientError) {
+      return json(res, err.statusCode, { error: err.message });
     }
-    return json(res, safe ? 400 : 500, { error: safe ? msg : 'Internal server error' });
+    console.error('Unhandled server error:', err);
+    return json(res, 500, { error: 'Internal server error' });
   }
 });
 
