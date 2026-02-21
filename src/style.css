@@ -147,7 +147,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
+  font-family: inherit;
   font-size: 14px;
   user-select: none;
   -webkit-user-select: none;
@@ -184,6 +184,13 @@ body {
 
 .document-menu-item-danger {
   color: var(--error-color);
+}
+
+.document-menu-label {
+  padding: 0 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  user-select: none;
 }
 
 /* User menu */

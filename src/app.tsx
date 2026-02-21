@@ -69,6 +69,7 @@ export function App() {
   const [gistFiles, setGistFiles] = useState<Record<string, GistFile> | null>(null);
   const [repoFiles, setRepoFiles] = useState<Array<{ name: string; path: string; sha: string }>>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
 
   // Track initialization
   const initialized = useRef(false);
@@ -582,17 +583,42 @@ export function App() {
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
   const onDelete = useCallback(async () => {
-    if (!currentGistId) return;
     if (!confirm('Delete this document?')) return;
     try {
-      await deleteGist(currentGistId);
-      markGistRecentlyDeleted(user?.login ?? null, currentGistId);
-      setCurrentGistId(null);
-      navigate('documents');
+      if (currentGistId) {
+        await deleteGist(currentGistId);
+        markGistRecentlyDeleted(user?.login ?? null, currentGistId);
+        setCurrentGistId(null);
+        navigate('documents');
+        return;
+      }
+
+      if (!currentRepoDocPath || !currentFileName) return;
+      const instId = getInstallationId();
+      const repoName = getSelectedRepo()?.full_name;
+      if (!instId || !repoName) return;
+
+      let sha = currentRepoDocSha;
+      if (!sha) {
+        const contents = await getRepoContents(instId, repoName, currentRepoDocPath);
+        if (!isRepoFile(contents)) return;
+        sha = contents.sha;
+      }
+
+      await deleteRepoFile(instId, repoName, currentRepoDocPath, `Delete ${currentFileName}`, sha);
+      const remaining = repoFilesRef.current.filter(f => f.path !== currentRepoDocPath);
+      setRepoFiles(remaining);
+      repoFilesRef.current = remaining;
+      if (remaining.length > 0) {
+        navigate(`repofile/${encodeURIComponent(remaining[0].path)}`);
+      } else {
+        navigate('repodocuments');
+      }
     } catch (err) {
+      if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       alert(err instanceof Error ? err.message : 'Failed to delete');
     }
-  }, [currentGistId, navigate, user]);
+  }, [currentGistId, currentRepoDocPath, currentRepoDocSha, currentFileName, navigate, user, handleSessionExpired]);
 
   // --- Sidebar actions ---
   const handleSelectFile = useCallback((filename: string) => {
@@ -786,7 +812,16 @@ export function App() {
     return [];
   }, [gistFiles, currentFileName, repoFiles, currentRepoDocPath]);
 
-  const showSidebar = (activeView === 'content' || activeView === 'edit') && sidebarFiles.length > 1;
+  const sidebarEligible = activeView === 'content' || activeView === 'edit';
+  const defaultShowSidebar = sidebarEligible && sidebarFiles.length > 1;
+  const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar) && sidebarFiles.length > 0;
+  const canToggleSidebar = sidebarEligible && sidebarFiles.length > 0 && currentFileName !== null;
+  const onToggleSidebar = useCallback(() => {
+    setSidebarVisibilityOverride(prev => {
+      const current = prev ?? defaultShowSidebar;
+      return !current;
+    });
+  }, [defaultShowSidebar]);
   const isHomeDraft = activeView === 'edit' && currentGistId === null && currentRepoDocPath === null;
   const showHeaderSave = activeView === 'edit' && !(isHomeDraft && !user);
 
@@ -797,16 +832,20 @@ export function App() {
         user={user}
         installationId={installationId}
         selectedRepo={selectedRepo}
+        draftMode={draftMode}
         currentGistId={currentGistId}
         currentRepoDocPath={currentRepoDocPath}
         currentFileName={currentFileName}
         saving={saving}
         canSave={hasUnsavedChanges}
+        canToggleSidebar={canToggleSidebar}
+        sidebarVisible={showSidebar}
         showSave={showHeaderSave}
         navigate={navigate}
         onSignOut={signOut}
         onToggleTheme={toggleTheme}
         onSave={onSave}
+        onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
         onCancel={onCancel}
         onDelete={onDelete}
