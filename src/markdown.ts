@@ -66,26 +66,29 @@ function sanitizeMarkdownHref(href: string): string | null {
 
 export function parseMarkdownToHtml(text: string): string {
   const raw = marked.parse(text) as string;
-  return DOMPurify.sanitize(raw, {
-    ADD_ATTR: ['target', 'rel'],
-    transformTags: {
-      a: (tagName, attrs) => {
-        const href = sanitizeMarkdownHref((attrs.href || '').toString());
-        const attribs = { ...attrs };
-        if (href == null) {
-          delete attribs.href;
-          return { tagName, attribs };
-        }
-        if (!isExternalHttpHref(href)) {
-          delete attribs.target;
-          delete attribs.rel;
-          return { tagName, attribs: { ...attribs, href } };
-        }
-        return {
-          tagName,
-          attribs: { ...attribs, href, target: '_blank', rel: 'noopener noreferrer' },
-        };
-      },
-    },
+  const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel'] });
+  const template = document.createElement('template');
+  template.innerHTML = sanitized;
+
+  template.content.querySelectorAll('a').forEach((anchor: HTMLAnchorElement) => {
+    const href = sanitizeMarkdownHref(anchor.getAttribute('href') ?? '');
+    if (href == null) {
+      anchor.removeAttribute('href');
+      anchor.removeAttribute('target');
+      anchor.removeAttribute('rel');
+      return;
+    }
+
+    anchor.setAttribute('href', href);
+    if (isExternalHttpHref(href)) {
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+      return;
+    }
+
+    anchor.removeAttribute('target');
+    anchor.removeAttribute('rel');
   });
+
+  return template.innerHTML;
 }
