@@ -134,7 +134,8 @@ export async function githubFetchWithInstallationToken(
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.error(`GitHub API error on ${ghPath}: ${res.status} ${res.statusText}`, body);
-    throw new ClientError(`GitHub API error: ${res.status}`, 502);
+    const statusCode = res.status >= 400 && res.status < 500 ? res.status : 502;
+    throw new ClientError(`GitHub API error: ${res.status}`, statusCode);
   }
 
   return res;
