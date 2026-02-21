@@ -61,6 +61,29 @@ function sanitizeTitleToFileName(title: string): string {
   return trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`;
 }
 
+function viewFromRoute(route: Route): ActiveView {
+  switch (route.name) {
+    case 'auth':
+      return 'auth';
+    case 'documents':
+      return 'documents';
+    case 'githubapp':
+      return 'githubapp';
+    case 'repodocuments':
+      return 'repodocuments';
+    case 'repofile':
+    case 'gist':
+      return 'content';
+    case 'repoedit':
+    case 'reponew':
+    case 'edit':
+    case 'new':
+    case 'home':
+    default:
+      return 'edit';
+  }
+}
+
 export function App() {
   const { route, navigate } = useRoute();
   const { showAlert, showConfirm } = useDialogs();
@@ -72,7 +95,7 @@ export function App() {
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
 
   // --- View state ---
-  const [activeView, setActiveView] = useState<ActiveView>('loading');
+  const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
   const [renderedHtml, setRenderedHtml] = useState('');
   const [renderMode, setRenderMode] = useState<'ansi' | 'markdown'>('ansi');
   const [errorMessage, setErrorMessage] = useState('');
@@ -101,8 +124,7 @@ export function App() {
   currentGistIdRef.current = currentGistId;
   const repoFilesRef = useRef<RepoDocFile[]>([]);
   repoFilesRef.current = repoFiles;
-  const activeViewRef = useRef<ActiveView>('loading');
-  activeViewRef.current = activeView;
+  const activeView = viewPhase ?? viewFromRoute(route);
 
   // --- Helpers ---
   const syncRepoState = useCallback(() => {
@@ -121,7 +143,7 @@ export function App() {
 
   const showError = useCallback((msg: string) => {
     setErrorMessage(msg);
-    setActiveView('error');
+    setViewPhase('error');
   }, []);
 
   const focusEditorSoon = useCallback(() => {
@@ -217,12 +239,12 @@ export function App() {
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
         setRepoFiles([]);
-        setActiveView('content');
+        setViewPhase(null);
         return;
       }
     }
 
-    setActiveView('loading');
+    setViewPhase('loading');
     try {
       if (anonymous) {
         let res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
@@ -257,7 +279,7 @@ export function App() {
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
         setRepoFiles([]);
-        setActiveView('content');
+        setViewPhase(null);
         return;
       }
 
@@ -275,7 +297,7 @@ export function App() {
       setCurrentRepoDocSha(null);
       setRepoFiles([]);
       renderDocumentContent(file.content ?? '', file.filename);
-      setActiveView('content');
+      setViewPhase(null);
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Unknown error');
     }
@@ -285,7 +307,7 @@ export function App() {
     const instId = getInstallationId();
     const repoName = getSelectedRepo()?.full_name ?? null;
     if (!instId || !repoName) { navigate(routePath.githubApp()); return; }
-    setActiveView('loading');
+    setViewPhase('loading');
     try {
       const contents = await getRepoContents(instId, repoName, path);
       if (!isRepoFile(contents)) throw new Error('Expected a file');
@@ -303,7 +325,7 @@ export function App() {
         renderDocumentContent(decoded, contents.name);
       }
       await fetchRepoSidebarFiles(instId, repoName);
-      setActiveView(forEdit ? 'edit' : 'content');
+      setViewPhase(null);
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       showError(err instanceof Error ? err.message : 'Failed to load file');
@@ -314,18 +336,18 @@ export function App() {
   const handleRoute = useCallback(async (r: Route) => {
     switch (r.name) {
       case 'auth':
-        setActiveView('auth');
+        setViewPhase(null);
         return;
       case 'githubapp':
         syncRepoState();
-        setActiveView('githubapp');
+        setViewPhase(null);
         return;
       case 'repodocuments': {
         syncRepoState();
         const instId = getInstallationId();
         const repoName = getSelectedRepo()?.full_name ?? null;
         if (!instId || !repoName) { navigate(routePath.githubApp()); return; }
-        setActiveView('repodocuments');
+        setViewPhase(null);
         return;
       }
       case 'repofile':
@@ -347,7 +369,7 @@ export function App() {
         setRepoFiles([]);
         setEditTitle(DEFAULT_NEW_FILENAME);
         setEditContent('');
-        setActiveView('edit');
+        setViewPhase(null);
         return;
       }
       case 'repoedit':
@@ -360,16 +382,16 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(null);
         setRepoFiles([]);
-        setActiveView('documents');
+        setViewPhase(null);
         return;
       case 'new':
-        if (activeViewRef.current === 'edit') {
+        if (activeView === 'edit') {
           localStorage.removeItem(DRAFT_TITLE_KEY);
           localStorage.removeItem(DRAFT_CONTENT_KEY);
           setHasUnsavedChanges(false);
         }
         navigate(routePath.home(), { replace: true });
-        if (activeViewRef.current === 'edit') {
+        if (activeView === 'edit') {
           focusEditorSoon();
         }
         return;
@@ -394,11 +416,11 @@ export function App() {
             setEditTitle(cacheFile.filename.replace(/\.md$/i, ''));
             setEditContent(cacheFile.content ?? '');
             setHasUnsavedChanges(false);
-            setActiveView('edit');
+            setViewPhase(null);
             return;
           }
         }
-        setActiveView('loading');
+        setViewPhase('loading');
         try {
           const gist = await getGist(r.params.id);
           setGistFiles(gist.files);
@@ -418,7 +440,7 @@ export function App() {
           setRepoFiles([]);
           setEditTitle(file.filename.replace(/\.md$/i, ''));
           setEditContent(file.content ?? '');
-          setActiveView('edit');
+          setViewPhase(null);
         } catch (err) {
           showError(err instanceof Error ? err.message : 'Failed to load gist');
         }
@@ -444,13 +466,13 @@ export function App() {
         setRepoFiles([]);
         setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
         setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
-        setActiveView('edit');
+        setViewPhase(null);
         return;
       default:
         setDraftMode(false);
-        setActiveView('edit');
+        setViewPhase(null);
     }
-  }, [navigate, syncRepoState, loadRepoFile, loadGist, showError, focusEditorSoon]);
+  }, [navigate, syncRepoState, loadRepoFile, loadGist, showError, focusEditorSoon, activeView]);
 
   // --- Init ---
   useEffect(() => {
