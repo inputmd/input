@@ -108,7 +108,7 @@ export function Sidebar({
         {files.map(f => (
           <div
             key={f.name}
-            class={`sidebar-file${f.active ? ' active' : ''}`}
+            class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.name ? ' renaming' : ''}`}
             onClick={() => !f.active && onSelectFile(f.name)}
             onDblClick={() => startRename(f.name)}
             onContextMenu={e => {
