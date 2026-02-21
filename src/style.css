@@ -16,6 +16,8 @@
   --danger-border: #f85149;
   --sidebar-renaming-row-bg: #10151b;
   --reader-editor-font-size: 15.5px;
+  --selection-bg: #123f88;
+  --selection-color: #eef5ff;
 
   --ansi-black: #555555;
   --ansi-red: #f44747;
@@ -52,6 +54,8 @@
   --danger-border: #cf222e;
   --sidebar-renaming-row-bg: #e2e5eb;
   --reader-editor-font-size: 15.5px;
+  --selection-bg: #2a70ff;
+  --selection-color: #ffffff;
 
   --ansi-black: #1e1e1e;
   --ansi-red: #cd3131;
@@ -75,6 +79,11 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-color);
 }
 
 html, body {
