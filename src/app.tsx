@@ -28,6 +28,7 @@ import { EditView } from './views/EditView';
 import { LoadingView } from './views/LoadingView';
 import { ErrorView } from './views/ErrorView';
 import { useDialogs } from './components/DialogProvider';
+import { useToast } from './components/ToastProvider';
 
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
@@ -55,6 +56,7 @@ function sanitizeTitleToFileName(title: string): string {
 export function App() {
   const { route, navigate } = useRoute();
   const { showAlert, showConfirm } = useDialogs();
+  const { showToast } = useToast();
 
   // --- Shared state ---
   const [user, setUser] = useState<GitHubUser | null>(null);
@@ -586,6 +588,7 @@ export function App() {
         renderDocumentContent(content, filename);
         navigate(`gist/${gist.id}/${encodeURIComponent(filename)}`);
       }
+      showToast('Saved');
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       void showAlert(err instanceof Error ? err.message : 'Failed to save');
@@ -593,7 +596,7 @@ export function App() {
       setSaving(false);
       setHasUnsavedChanges(false);
     }
-  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, currentFileName, draftMode, navigate, handleSessionExpired, user, showAlert]);
+  }, [editTitle, editContent, editingBackend, currentRepoDocPath, currentRepoDocSha, currentGistId, currentFileName, draftMode, navigate, handleSessionExpired, user, showAlert, showToast]);
 
   const onCancel = useCallback(() => {
     if (currentRepoDocPath) navigate(`repofile/${encodeURIComponent(currentRepoDocPath)}`);
