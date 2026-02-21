@@ -1,5 +1,5 @@
+import './env';
 import http from 'node:http';
-import { config } from 'dotenv';
 import { PORT, SESSION_SECRET } from './config';
 import { applyCors } from './cors';
 import { ClientError } from './errors';
@@ -10,8 +10,6 @@ import { startRateLimitCleanup } from './rate_limit';
 import { handleApiRequest } from './routes';
 import { applySecurityHeaders } from './security_headers';
 import { serveStatic } from './static_files';
-
-config({ path: new URL('../.env', import.meta.url) });
 
 if (!process.env.SESSION_SECRET) {
   console.warn('WARNING: SESSION_SECRET not set — using random ephemeral secret. Sessions will not survive server restarts.');
