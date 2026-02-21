@@ -24,13 +24,13 @@
   padding: 0 14px;
 }
 
-.preview-toggle-btn {
+.editor-top-actions .preview-toggle-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 35px;
   width: 35px;
-  padding: 0;
+  padding: 0 2px;
 }
 
 .preview-toggle-btn-off {
