@@ -1,14 +1,11 @@
 import { useEffect, useRef } from 'preact/hooks';
 
 interface EditViewProps {
-  title: string;
   content: string;
-  showTitle: boolean;
-  onTitleChange: (title: string) => void;
   onContentChange: (content: string) => void;
 }
 
-export function EditView({ title, content, showTitle, onTitleChange, onContentChange }: EditViewProps) {
+export function EditView({ content, onContentChange }: EditViewProps) {
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -17,15 +14,6 @@ export function EditView({ title, content, showTitle, onTitleChange, onContentCh
 
   return (
     <div class="edit-view">
-      {showTitle && (
-        <input
-          type="text"
-          class="edit-title"
-          placeholder="Filename (e.g. meeting-notes)"
-          value={title}
-          onInput={e => onTitleChange((e.target as HTMLInputElement).value)}
-        />
-      )}
       <textarea
         class="doc-editor"
         ref={editorRef}

@@ -28,6 +28,7 @@ import { ErrorView } from './views/ErrorView';
 
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
+const DEFAULT_NEW_FILENAME = 'index.md';
 
 function safeDecodeURIComponent(s: string): string {
   try {
@@ -38,13 +39,9 @@ function safeDecodeURIComponent(s: string): string {
 }
 
 function sanitizeTitleToFileName(title: string): string {
-  const base = title
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
-  return (base || 'untitled') + '.md';
+  const trimmed = title.trim().replace(/[/\\]/g, '').replace(/\.{2,}/g, '.');
+  if (!trimmed) return DEFAULT_NEW_FILENAME;
+  return trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`;
 }
 
 export function App() {
@@ -350,7 +347,7 @@ export function App() {
         setCurrentFileName(null);
         setGistFiles(null);
         setRepoFiles([]);
-        setEditTitle('');
+        setEditTitle(DEFAULT_NEW_FILENAME);
         setEditContent('');
         setActiveView('edit');
         return;
@@ -440,7 +437,7 @@ export function App() {
         setCurrentFileName(null);
         setGistFiles(null);
         setRepoFiles([]);
-        setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) ?? '');
+        setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
         setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
         setActiveView('edit');
         return;
@@ -506,7 +503,7 @@ export function App() {
   }, [currentRepoDocPath, currentGistId, currentFileName, navigate]);
 
   const onSave = useCallback(async () => {
-    const title = editTitle.trim() || 'Untitled';
+    const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
     const content = editContent;
     setSaving(true);
 
@@ -743,10 +740,7 @@ export function App() {
       case 'edit':
         return (
           <EditView
-            title={editTitle}
             content={editContent}
-            showTitle={draftMode || !currentFileName}
-            onTitleChange={(t: string) => { setEditTitle(t); setHasUnsavedChanges(true); }}
             onContentChange={(c: string) => { setEditContent(c); setHasUnsavedChanges(true); }}
           />
         );

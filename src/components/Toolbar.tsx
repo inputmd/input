@@ -77,7 +77,7 @@ export function Toolbar({
             <button type="button" class="delete-btn" onClick={onDelete}>Delete</button>
           )}
           {showSignInToSave && (
-            <button type="button" onClick={() => navigate('auth')}>Sign in to save</button>
+            <button type="button" onClick={() => navigate('auth')}>Sign in</button>
           )}
         </div>
         {view === 'content' && currentGistId && (
