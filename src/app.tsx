@@ -89,6 +89,8 @@ export function App() {
   currentGistIdRef.current = currentGistId;
   const repoFilesRef = useRef<Array<{ name: string; path: string; sha: string }>>([]);
   repoFilesRef.current = repoFiles;
+  const activeViewRef = useRef<ActiveView>('loading');
+  activeViewRef.current = activeView;
 
   // --- Helpers ---
   const syncRepoState = useCallback(() => {
@@ -391,13 +393,13 @@ export function App() {
         setActiveView('documents');
         return;
       case 'new':
-        if (activeView === 'edit') {
+        if (activeViewRef.current === 'edit') {
           localStorage.removeItem(DRAFT_TITLE_KEY);
           localStorage.removeItem(DRAFT_CONTENT_KEY);
           setHasUnsavedChanges(false);
         }
         navigate('', { replace: true });
-        if (activeView === 'edit') {
+        if (activeViewRef.current === 'edit') {
           focusEditorSoon();
         }
         return;
@@ -479,7 +481,7 @@ export function App() {
         setDraftMode(false);
         setActiveView('edit');
     }
-  }, [activeView, navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError, focusEditorSoon]);
+  }, [navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError, focusEditorSoon]);
 
   // --- Init ---
   useEffect(() => {
