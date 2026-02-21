@@ -802,6 +802,8 @@ export function App() {
         return (
           <EditView
             content={editContent}
+            previewHtml={editPreviewHtml}
+            previewEnabled={editPreviewEnabled}
             onContentChange={(c: string) => { setEditContent(c); setHasUnsavedChanges(true); }}
             showCancel={!(activeView === 'edit' && draftMode)}
             showSave={!(activeView === 'edit' && draftMode && !user)}
@@ -841,6 +843,12 @@ export function App() {
   const defaultShowSidebar = sidebarEligible && !!user && sidebarFiles.length > 0;
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar) && sidebarFiles.length > 0;
   const canToggleSidebar = sidebarEligible && sidebarFiles.length > 0 && currentFileName !== null;
+  const editingFileName = currentFileName ?? editTitle;
+  const editPreviewEnabled = isMarkdownFileName(editingFileName);
+  const editPreviewHtml = useMemo(
+    () => (editPreviewEnabled ? parseMarkdownToHtml(editContent) : ''),
+    [editPreviewEnabled, editContent],
+  );
   const onToggleSidebar = useCallback(() => {
     setSidebarVisibilityOverride(prev => {
       const current = prev ?? defaultShowSidebar;
