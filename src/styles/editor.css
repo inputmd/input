@@ -1,0 +1,125 @@
+.edit-view {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+}
+
+.editor-top-actions {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+}
+
+.editor-top-actions button {
+  min-height: 35px;
+  min-width: auto;
+  padding: 0 14px;
+}
+
+.preview-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 35px;
+  width: 35px;
+  padding: 0;
+}
+
+.preview-toggle-btn-off {
+  color: var(--text-secondary);
+}
+
+.editor-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.edit-title {
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  outline: none;
+}
+
+.edit-title:focus {
+  border-color: var(--border);
+}
+
+.doc-editor {
+  font-family: var(--font-mono);
+  font-size: var(--reader-editor-font-size);
+  line-height: var(--reader-editor-line-height);
+  flex: 1;
+  min-height: calc(100vh - 128px);
+  padding: 24px 27px;
+  border: 0px solid var(--border);
+  border-radius: 0;
+  background: var(--input-bg);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.doc-editor:focus {
+  border-color: var(--border);
+}
+
+.editor-splitter,
+.editor-preview-pane {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .editor-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .doc-editor {
+    min-height: 0;
+    height: 100%;
+    resize: none;
+  }
+
+  .editor-splitter {
+    display: block;
+    width: 8px;
+    cursor: col-resize;
+    background: var(--toolbar-bg);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+
+  .editor-splitter:hover {
+    background: var(--btn-hover);
+  }
+
+  .editor-preview-pane {
+    display: block;
+    min-width: 0;
+    overflow: auto;
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+  }
+
+  .editor-preview-pane .rendered-markdown {
+    padding: 24px 27px;
+    min-height: 100%;
+  }
+}

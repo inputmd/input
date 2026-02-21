@@ -1,0 +1,201 @@
+:root {
+  --font-mono: "Source Code Pro", "SF Mono", Monaco, Menlo, Consolas, "Courier New", monospace;
+  --bg: #0d1117;
+  --text: #e6edf3;
+  --text-secondary: #8b949e;
+  --toolbar-bg: #161b22;
+  --border: #30363d;
+  --input-bg: #0d1117;
+  --btn-bg: #21262d;
+  --btn-text: #c9d1d9;
+  --btn-hover: #30363d;
+  --focus-border: #58a6ff;
+  --focus-shadow: rgba(88, 166, 255, 0.4);
+  --error-color: #f85149;
+  --danger-bg: #490202;
+  --danger-border: #f85149;
+  --sidebar-renaming-row-bg: #10151b;
+  --reader-editor-font-size: 15.5px;
+  --reader-editor-line-height: 1.6;
+  --selection-bg: #123f88;
+  --selection-color: #eef5ff;
+
+  --ansi-black: #555555;
+  --ansi-red: #f44747;
+  --ansi-green: #0dbc79;
+  --ansi-yellow: #e5e510;
+  --ansi-blue: #2472c8;
+  --ansi-magenta: #bc3fbc;
+  --ansi-cyan: #11a8cd;
+  --ansi-white: #e5e5e5;
+  --ansi-bright-black: #666666;
+  --ansi-bright-red: #f14c4c;
+  --ansi-bright-green: #23d18b;
+  --ansi-bright-yellow: #f5f543;
+  --ansi-bright-blue: #3b8eea;
+  --ansi-bright-magenta: #d670d6;
+  --ansi-bright-cyan: #29b8db;
+  --ansi-bright-white: #ffffff;
+}
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --text: #1f2328;
+  --text-secondary: #656d76;
+  --toolbar-bg: #f6f8fa;
+  --border: #d0d7de;
+  --input-bg: #f6f8fa;
+  --btn-bg: #f6f8fa;
+  --btn-text: #1f2328;
+  --btn-hover: #eaeef2;
+  --focus-border: #0969da;
+  --focus-shadow: rgba(9, 105, 218, 0.3);
+  --error-color: #cf222e;
+  --danger-bg: #ffebe9;
+  --danger-border: #cf222e;
+  --sidebar-renaming-row-bg: #e2e5eb;
+  --reader-editor-font-size: 15.5px;
+  --selection-bg: #2a70ff;
+  --selection-color: #ffffff;
+
+  --ansi-black: #1e1e1e;
+  --ansi-red: #cd3131;
+  --ansi-green: #00bc00;
+  --ansi-yellow: #949800;
+  --ansi-blue: #0451a5;
+  --ansi-magenta: #bc05bc;
+  --ansi-cyan: #0598bc;
+  --ansi-white: #555555;
+  --ansi-bright-black: #666666;
+  --ansi-bright-red: #cd3131;
+  --ansi-bright-green: #14ce14;
+  --ansi-bright-yellow: #b5ba00;
+  --ansi-bright-blue: #0451a5;
+  --ansi-bright-magenta: #bc05bc;
+  --ansi-bright-cyan: #0598bc;
+  --ansi-bright-white: #a5a5a5;
+}
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-color);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.app-body main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+button {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  transition: background 0.15s;
+}
+
+button:hover {
+  background: var(--btn-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.doc-delete-btn {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--error-color);
+}
+
+.hint {
+  font-size: 13px;
+  text-align: center;
+}
+
+.hint a {
+  color: var(--focus-border);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 48px 16px;
+  color: var(--text-secondary);
+  text-align: center;
+  gap: 4px;
+}
+
+.empty-state button {
+  margin-top: 16px;
+}
+
+.loading-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.error-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 16px;
+}
+
+.error-message {
+  color: var(--error-color);
+}
+
+.error-actions {
+  display: flex;
+  gap: 8px;
+}

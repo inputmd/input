@@ -1,0 +1,158 @@
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar button {
+  min-height: 35px;
+  min-width: 40px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.document-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.document-menu-trigger:focus,
+.document-menu-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.document-menu-label {
+  padding: 0 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 35px;
+  min-width: 40px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.user-menu-trigger:hover {
+  background: var(--btn-hover);
+}
+
+.user-menu-trigger:focus,
+.user-menu-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.user-menu-content {
+  min-width: 140px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 20;
+}
+
+.user-menu-label {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.user-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.user-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  user-select: none;
+  font-size: 15px;
+}
+
+.user-menu-item[data-highlighted] {
+  background: var(--btn-hover);
+  outline: none;
+  box-shadow: none;
+}
+
+.user-menu-item:focus,
+.user-menu-item:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.toolbar-tooltip {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--toolbar-bg);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+}
+
+.toolbar-tooltip-arrow {
+  fill: var(--toolbar-bg);
+}
+
+.user-menu-content button {
+  width: 100%;
+}
+
+.user-avatar {
+  border-radius: 50%;
+}
+
+.user-name {
+  font-size: 14px;
+  color: var(--text-secondary);
+}

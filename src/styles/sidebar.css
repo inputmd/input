@@ -1,0 +1,131 @@
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--toolbar-bg);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  font-size: 15px;
+}
+
+.sidebar-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-header h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin: 0;
+  margin-left: 2px;
+}
+
+.sidebar-add-btn {
+  min-height: 24px;
+  min-width: 28px;
+  padding: 0 6px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.sidebar-files {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 15px;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+
+.sidebar-file:hover {
+  background: var(--btn-hover);
+}
+
+.sidebar-file:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: -2px;
+}
+
+.sidebar-file.active {
+  background: var(--btn-bg);
+  border-left-color: var(--focus-border);
+  font-weight: 500;
+}
+
+.sidebar-file.renaming {
+  background: var(--sidebar-renaming-row-bg);
+}
+
+.sidebar-file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.sidebar-context-menu {
+  position: fixed;
+  min-width: 80px;
+  max-width: 160px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 30;
+}
+
+.sidebar-context-menu-item {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+
+.sidebar-context-menu-item:hover,
+.sidebar-context-menu-item[data-highlighted] {
+  background: var(--btn-hover);
+}
+
+.sidebar-context-menu-item-danger {
+  color: var(--error-color);
+}
+
+.sidebar-rename-input {
+  width: 100%;
+  padding: 1.5px 0;
+  font-size: 14px;
+  font-family: var(--font-mono);
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+}
