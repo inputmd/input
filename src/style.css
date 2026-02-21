@@ -742,9 +742,9 @@ button:disabled {
   line-height: 1.6;
   flex: 1;
   min-height: calc(100vh - 160px);
-  padding: 16px;
+  padding: 2px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 1px;
   background: var(--input-bg);
   color: var(--text);
   outline: none;
