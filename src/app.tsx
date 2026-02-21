@@ -834,7 +834,7 @@ export function App() {
             content={editContent}
             previewHtml={editPreviewHtml}
             previewEnabled={editPreviewEnabled}
-            onContentChange={(c: string) => { setEditContent(c); setHasUnsavedChanges(true); }}
+            onContentChange={onEditContentChange}
             showCancel={!(activeView === 'edit' && draftMode)}
             showSave={!(activeView === 'edit' && draftMode && !user)}
             saving={saving}
@@ -885,6 +885,10 @@ export function App() {
       return !current;
     });
   }, [defaultShowSidebar]);
+  const onEditContentChange = useCallback((content: string) => {
+    setEditContent(content);
+    setHasUnsavedChanges(true);
+  }, []);
   const showHeaderEdit = activeView === 'content' && (currentRepoDocPath !== null || currentGistId !== null);
 
   return (
