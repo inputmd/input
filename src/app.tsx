@@ -55,6 +55,11 @@ import { RepoDocumentsView } from './views/RepoDocumentsView';
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
+const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
+
+function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
+  return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
+}
 
 function isMarkdownFileName(name: string | null | undefined): boolean {
   if (!name) return false;
@@ -397,8 +402,8 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
-          setEditTitle(DEFAULT_NEW_FILENAME);
-          setEditContent('');
+          setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, 'title')) || DEFAULT_NEW_FILENAME);
+          setEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, 'content')) ?? '');
           setViewPhase(null);
           return;
         }
@@ -553,6 +558,16 @@ export function App() {
     localStorage.setItem(DRAFT_CONTENT_KEY, editContent);
   }, [draftMode, editTitle, editContent]);
 
+  useEffect(() => {
+    if (route.name !== 'reponew') return;
+    if (editingBackend !== 'repo' || currentRepoDocPath) return;
+    const instId = installationId ?? getInstallationId();
+    const repoName = selectedRepo ?? getSelectedRepo()?.full_name ?? null;
+    if (!instId || !repoName) return;
+    localStorage.setItem(repoNewDraftKey(instId, repoName, 'title'), editTitle);
+    localStorage.setItem(repoNewDraftKey(instId, repoName, 'content'), editContent);
+  }, [route.name, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle, editContent]);
+
   // --- Theme toggle ---
   const toggleTheme = useCallback(() => {
     const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
@@ -604,6 +619,8 @@ export function App() {
         const path = `${REPO_DOCS_DIR}/${filename}`;
         const contentB64 = encodeUtf8ToBase64(content);
         await putRepoFile(instId, repoName, path, `Create ${filename}`, contentB64);
+        localStorage.removeItem(repoNewDraftKey(instId, repoName, 'title'));
+        localStorage.removeItem(repoNewDraftKey(instId, repoName, 'content'));
         setCurrentRepoDocPath(path);
         setCurrentRepoDocSha(null);
 
