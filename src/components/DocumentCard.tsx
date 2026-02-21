@@ -17,7 +17,7 @@ export function DocumentCard({ title, meta, onOpen, onRename, onDelete, pending 
         <span class="doc-meta">{meta}</span>
       </div>
       <div class="doc-actions">
-        <button type="button" onClick={onOpen}>Open Wiki</button>
+        <button type="button" onClick={onOpen}>Open</button>
         {onRename && <button type="button" onClick={onRename}>Rename</button>}
         <button type="button" class="doc-delete-btn" onClick={onDelete}>Delete</button>
       </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
+import { parseMarkdownToHtml } from './markdown';
 import {
   isAuthenticated, clearToken, getUser,
   getGist, updateGist, createGist,
@@ -31,6 +32,11 @@ const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
 
+function isMarkdownFileName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return /\.md(?:own|wn)?$/i.test(name) || /\.markdown$/i.test(name);
+}
+
 function safeDecodeURIComponent(s: string): string {
   try {
     return decodeURIComponent(s);
@@ -56,6 +62,7 @@ export function App() {
   // --- View state ---
   const [activeView, setActiveView] = useState<ActiveView>('loading');
   const [renderedHtml, setRenderedHtml] = useState('');
+  const [renderMode, setRenderMode] = useState<'ansi' | 'markdown'>('ansi');
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -109,6 +116,16 @@ export function App() {
         document.querySelector<HTMLTextAreaElement>('.doc-editor')?.focus();
       });
     });
+  }, []);
+
+  const renderDocumentContent = useCallback((content: string, fileName: string | null | undefined) => {
+    if (isMarkdownFileName(fileName)) {
+      setRenderedHtml(parseMarkdownToHtml(content));
+      setRenderMode('markdown');
+      return;
+    }
+    setRenderedHtml(parseAnsiToHtml(content));
+    setRenderMode('ansi');
   }, []);
 
   // --- Auth ---
@@ -181,7 +198,7 @@ export function App() {
       const cacheFile = cacheName ? cached[cacheName] : null;
       if (cacheFile && cacheFile.content != null) {
         setCurrentFileName(cacheFile.filename);
-        setRenderedHtml(parseAnsiToHtml(cacheFile.content));
+        renderDocumentContent(cacheFile.content, cacheFile.filename);
         setCurrentGistId(id);
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
@@ -221,7 +238,7 @@ export function App() {
       }
 
       setCurrentFileName(file.filename);
-      setRenderedHtml(parseAnsiToHtml(content ?? ''));
+      renderDocumentContent(content ?? '', file.filename);
       setCurrentGistId(id);
       setCurrentRepoDocPath(null);
       setCurrentRepoDocSha(null);
@@ -245,7 +262,7 @@ export function App() {
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
         setRepoFiles([]);
-        setRenderedHtml(parseAnsiToHtml(cacheFile.content ?? ''));
+        renderDocumentContent(cacheFile.content ?? '', cacheFile.filename);
         setActiveView('content');
         return;
       }
@@ -266,7 +283,7 @@ export function App() {
       setCurrentRepoDocPath(null);
       setCurrentRepoDocSha(null);
       setRepoFiles([]);
-      setRenderedHtml(parseAnsiToHtml(file.content ?? ''));
+      renderDocumentContent(file.content ?? '', file.filename);
       setActiveView('content');
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Unknown error');
@@ -287,7 +304,7 @@ export function App() {
       setCurrentGistId(null);
       setGistFiles(null);
       setCurrentFileName(contents.name);
-      setRenderedHtml(parseAnsiToHtml(decoded));
+      renderDocumentContent(decoded, contents.name);
       await fetchRepoSidebarFiles(instId, repoName);
       setActiveView('content');
     } catch (err) {
@@ -529,7 +546,7 @@ export function App() {
         const contentB64 = encodeUtf8ToBase64(content);
         await putRepoFile(instId, repoName, currentRepoDocPath, `Update ${currentRepoDocPath}`, contentB64, currentRepoDocSha ?? undefined);
   
-        setRenderedHtml(parseAnsiToHtml(content));
+        renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null);
         navigate(`repofile/${encodeURIComponent(currentRepoDocPath)}`);
       } else if (editingBackend === 'repo' && repoName && instId) {
         const filename = sanitizeTitleToFileName(title);
@@ -539,7 +556,7 @@ export function App() {
         setCurrentRepoDocPath(path);
         setCurrentRepoDocSha(null);
   
-        setRenderedHtml(parseAnsiToHtml(content));
+        renderDocumentContent(content, filename);
         navigate(`repofile/${encodeURIComponent(path)}`);
       } else {
         let gist: GistDetail;
@@ -561,7 +578,7 @@ export function App() {
           setDraftMode(false);
         }
 
-        setRenderedHtml(parseAnsiToHtml(content));
+        renderDocumentContent(content, filename);
         navigate(`gist/${gist.id}/${encodeURIComponent(filename)}`);
       }
     } catch (err) {
@@ -774,7 +791,7 @@ export function App() {
           />
         ) : null;
       case 'content':
-        return <ContentView html={renderedHtml} />;
+        return <ContentView html={renderedHtml} markdown={renderMode === 'markdown'} />;
       case 'edit':
         return (
           <EditView
