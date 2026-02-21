@@ -992,16 +992,19 @@ export function App() {
       />
       <div class={showSidebar ? 'app-body' : 'app-body app-body--no-sidebar'}>
         {showSidebar && (
-          <Sidebar
-            files={sidebarFiles}
-            onSelectFile={handleSelectFile}
-            onEditFile={handleEditFile}
-            onViewOnGitHub={handleViewOnGitHub}
-            canViewOnGitHub={currentGistId !== null}
-            onCreateFile={handleCreateFile}
-            onDeleteFile={handleDeleteFile}
-            onRenameFile={handleRenameFile}
-          />
+          <>
+            <div class="sidebar-backdrop" onClick={onToggleSidebar} />
+            <Sidebar
+              files={sidebarFiles}
+              onSelectFile={handleSelectFile}
+              onEditFile={handleEditFile}
+              onViewOnGitHub={handleViewOnGitHub}
+              canViewOnGitHub={currentGistId !== null}
+              onCreateFile={handleCreateFile}
+              onDeleteFile={handleDeleteFile}
+              onRenameFile={handleRenameFile}
+            />
+          </>
         )}
         <ErrorBoundary
           fallbackMessage="This screen crashed while rendering."
