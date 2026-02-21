@@ -26,6 +26,7 @@ import { useRoute } from './hooks/useRoute';
 import { routePath, type Route } from './routing';
 import { Toolbar, type ActiveView } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthView } from './views/AuthView';
 import { DocumentsView } from './views/DocumentsView';
 import { GitHubAppView } from './views/GitHubAppView';
@@ -845,7 +846,7 @@ export function App() {
       case 'loading':
         return <LoadingView />;
       case 'error':
-        return <ErrorView message={errorMessage} onRetry={() => handleRoute(route)} />;
+        return <ErrorView message={errorMessage} onRetry={() => { void handleRoute(route); }} />;
       default:
         return null;
     }
@@ -916,7 +917,13 @@ export function App() {
             onRenameFile={handleRenameFile}
           />
         )}
-        <main>{renderView()}</main>
+        <ErrorBoundary
+          fallbackMessage="This screen crashed while rendering."
+          resetKey={`${route.name}:${JSON.stringify(route.params)}`}
+          onReset={() => { void handleRoute(route); }}
+        >
+          <main>{renderView()}</main>
+        </ErrorBoundary>
       </div>
     </>
   );
