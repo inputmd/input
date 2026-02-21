@@ -797,6 +797,12 @@ export function App() {
           <EditView
             content={editContent}
             onContentChange={(c: string) => { setEditContent(c); setHasUnsavedChanges(true); }}
+            showCancel={!(activeView === 'edit' && draftMode)}
+            showSave={!(activeView === 'edit' && draftMode && !user)}
+            saving={saving}
+            canSave={hasUnsavedChanges}
+            onSave={onSave}
+            onCancel={onCancel}
           />
         );
       case 'loading':
@@ -835,9 +841,7 @@ export function App() {
       return !current;
     });
   }, [defaultShowSidebar]);
-  const isHomeDraft = activeView === 'edit' && currentGistId === null && currentRepoDocPath === null;
   const showHeaderEdit = activeView === 'content' && (currentRepoDocPath !== null || currentGistId !== null);
-  const showHeaderSave = activeView === 'edit' && !(isHomeDraft && !user);
 
   return (
     <>
@@ -847,19 +851,14 @@ export function App() {
         installationId={installationId}
         selectedRepo={selectedRepo}
         draftMode={draftMode}
-        saving={saving}
-        canSave={hasUnsavedChanges}
         canToggleSidebar={canToggleSidebar}
         sidebarVisible={showSidebar}
         showEdit={showHeaderEdit}
-        showSave={showHeaderSave}
         navigate={navigate}
         onSignOut={signOut}
         onToggleTheme={toggleTheme}
-        onSave={onSave}
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
-        onCancel={onCancel}
       />
       <div class={showSidebar ? 'app-body' : 'app-body app-body--no-sidebar'}>
         {showSidebar && (

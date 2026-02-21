@@ -11,29 +11,23 @@ interface ToolbarProps {
   installationId: string | null;
   selectedRepo: string | null;
   draftMode: boolean;
-  saving: boolean;
-  canSave: boolean;
   canToggleSidebar: boolean;
   sidebarVisible: boolean;
   showEdit: boolean;
-  showSave: boolean;
   navigate: (route: string) => void;
   onSignOut: () => void;
   onToggleTheme: () => void;
-  onSave: () => void;
   onToggleSidebar: () => void;
   onEdit: () => void;
-  onCancel: () => void;
 }
 
 export function Toolbar({
   view, user, installationId, selectedRepo, draftMode,
-  saving, canSave, canToggleSidebar, sidebarVisible, showEdit, showSave,
+  canToggleSidebar, sidebarVisible, showEdit,
   navigate, onSignOut, onToggleTheme,
-  onSave, onToggleSidebar, onEdit, onCancel,
+  onToggleSidebar, onEdit,
 }: ToolbarProps) {
   const isHomeDraft = view === 'edit' && draftMode;
-  const showCancel = view === 'edit' && !isHomeDraft;
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!installationId;
   const showRepoDocs = !!selectedRepo;
@@ -66,20 +60,10 @@ export function Toolbar({
           {showEdit && (
             <button type="button" onClick={onEdit}>Edit</button>
           )}
-          {showCancel && (
-            <button type="button" onClick={onCancel}>Cancel</button>
-          )}
           {showSignInToSave && (
             <button type="button" onClick={() => navigate('auth')}>Sign in</button>
           )}
         </div>
-        {showSave && (
-          <div class="header-save-actions">
-            <button type="button" onClick={onSave} disabled={saving || !canSave}>
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        )}
         {user ? (
           <Tooltip.Provider delayDuration={250}>
             <DropdownMenu.Root>

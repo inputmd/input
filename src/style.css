@@ -137,12 +137,6 @@ body {
   gap: 8px;
 }
 
-.header-save-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 /* Document menu */
 
 .document-menu-trigger {
@@ -703,7 +697,7 @@ button:disabled {
 
 .rendered-content {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -887,6 +881,21 @@ button:disabled {
   position: relative;
 }
 
+.editor-top-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+}
+
+.editor-top-actions button {
+  min-height: 35px;
+  min-width: auto;
+  padding: 0 14px;
+}
+
 .edit-title {
   padding: 10px 16px;
   border: 1px solid var(--border);
@@ -905,7 +914,7 @@ button:disabled {
 
 .doc-editor {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.6;
   flex: 1;
   min-height: calc(100vh - 160px);
