@@ -30,14 +30,16 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
 
   const loadPage = async (p: number, reset: boolean) => {
     setLoading(true);
+    if (reset) {
+      setAllLoaded(false);
+      setPage(1);
+    }
     try {
       const result = await listGists(p);
       setGists(prev => reset ? result : [...prev, ...result]);
-      if (result.length < 30) {
-        setAllLoaded(true);
-      } else {
-        setPage(p + 1);
-      }
+      const reachedEnd = result.length < 30;
+      setAllLoaded(reachedEnd);
+      setPage(reachedEnd ? p : p + 1);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load documents');
