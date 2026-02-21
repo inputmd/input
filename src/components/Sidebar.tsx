@@ -119,8 +119,21 @@ export function Sidebar({
           <div
             key={f.name}
             class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.name ? ' renaming' : ''}`}
+            tabIndex={0}
+            role="button"
+            aria-current={f.active ? 'true' : undefined}
             onClick={() => !f.active && onSelectFile(f.name)}
             onDblClick={() => startRename(f.name)}
+            onKeyDown={e => {
+              if (renamingFile === f.name) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (!f.active) onSelectFile(f.name);
+              } else if (e.key === 'F2') {
+                e.preventDefault();
+                startRename(f.name);
+              }
+            }}
             onContextMenu={e => {
               if (renamingFile) return;
               e.preventDefault();
