@@ -1,11 +1,24 @@
+export type RouteName =
+  | 'home'
+  | 'auth'
+  | 'githubapp'
+  | 'repodocuments'
+  | 'repofile'
+  | 'reponew'
+  | 'repoedit'
+  | 'documents'
+  | 'new'
+  | 'edit'
+  | 'gist';
+
 export interface Route {
-  name: string;
+  name: RouteName;
   params: Record<string, string>;
 }
 
 interface RouteDef {
   pattern: RegExp;
-  name: string;
+  name: Exclude<RouteName, 'home'>;
   paramNames?: string[];
 }
 
