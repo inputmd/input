@@ -182,10 +182,6 @@ body {
   z-index: 20;
 }
 
-.document-menu-item-danger {
-  color: var(--error-color);
-}
-
 .document-menu-label {
   padding: 0 10px;
   font-size: 14px;
@@ -260,10 +256,6 @@ body {
   cursor: pointer;
   user-select: none;
   font-size: 15px;
-}
-
-.user-menu-item-with-icon {
-  gap: 6px;
 }
 
 .user-menu-item[data-highlighted] {
@@ -854,31 +846,42 @@ button:disabled {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  width: 100%;
   min-width: 0;
   font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
   font-size: 12px;
 }
 
-.sidebar-file-actions {
-  flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 0.15s;
+.sidebar-context-menu {
+  position: fixed;
+  min-width: 170px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 30;
 }
 
-.sidebar-file:hover .sidebar-file-actions {
-  opacity: 1;
-}
-
-.sidebar-delete-btn {
-  min-height: 20px !important;
-  min-width: 20px !important;
-  padding: 0 4px !important;
+.sidebar-context-menu-item {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
   font-size: 14px;
-  line-height: 1;
-  color: var(--text-secondary);
+  font-family: inherit;
+  cursor: pointer;
 }
 
-.sidebar-delete-btn:hover {
+.sidebar-context-menu-item:hover {
+  background: var(--btn-hover);
+}
+
+.sidebar-context-menu-item-danger {
   color: var(--error-color);
 }
 

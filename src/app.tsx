@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'preact/hooks'
 import { parseAnsiToHtml } from './ansi';
 import {
   isAuthenticated, clearToken, getUser,
-  getGist, updateGist, createGist, deleteGist,
+  getGist, updateGist, createGist,
   addFileToGist, deleteFileFromGist, renameFileInGist,
   type GitHubUser, type GistDetail, type GistFile,
 } from './github';
@@ -13,7 +13,7 @@ import {
   getRepoContents, putRepoFile, deleteRepoFile, isRepoFile,
 } from './github_app';
 import { encodeUtf8ToBase64, decodeBase64ToUtf8 } from './util';
-import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
+import { markGistRecentlyCreated } from './gist_consistency';
 import { REPO_DOCS_DIR } from './constants';
 import { useRoute, type Route } from './hooks/useRoute';
 import { Toolbar, type ActiveView } from './components/Toolbar';
@@ -510,13 +510,6 @@ export function App() {
     navigate('');
   }, [navigate]);
 
-  // --- Edit actions ---
-  const onEdit = useCallback(() => {
-    if (currentRepoDocPath) navigate(`repoedit/${encodeURIComponent(currentRepoDocPath)}`);
-    else if (currentGistId && currentFileName) navigate(`edit/${currentGistId}/${encodeURIComponent(currentFileName)}`);
-    else if (currentGistId) navigate(`edit/${currentGistId}`);
-  }, [currentRepoDocPath, currentGistId, currentFileName, navigate]);
-
   const onSave = useCallback(async () => {
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
     const content = editContent;
@@ -582,44 +575,6 @@ export function App() {
     else navigate('documents');
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
-  const onDelete = useCallback(async () => {
-    if (!confirm('Delete this document?')) return;
-    try {
-      if (currentGistId) {
-        await deleteGist(currentGistId);
-        markGistRecentlyDeleted(user?.login ?? null, currentGistId);
-        setCurrentGistId(null);
-        navigate('documents');
-        return;
-      }
-
-      if (!currentRepoDocPath || !currentFileName) return;
-      const instId = getInstallationId();
-      const repoName = getSelectedRepo()?.full_name;
-      if (!instId || !repoName) return;
-
-      let sha = currentRepoDocSha;
-      if (!sha) {
-        const contents = await getRepoContents(instId, repoName, currentRepoDocPath);
-        if (!isRepoFile(contents)) return;
-        sha = contents.sha;
-      }
-
-      await deleteRepoFile(instId, repoName, currentRepoDocPath, `Delete ${currentFileName}`, sha);
-      const remaining = repoFilesRef.current.filter(f => f.path !== currentRepoDocPath);
-      setRepoFiles(remaining);
-      repoFilesRef.current = remaining;
-      if (remaining.length > 0) {
-        navigate(`repofile/${encodeURIComponent(remaining[0].path)}`);
-      } else {
-        navigate('repodocuments');
-      }
-    } catch (err) {
-      if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
-      alert(err instanceof Error ? err.message : 'Failed to delete');
-    }
-  }, [currentGistId, currentRepoDocPath, currentRepoDocSha, currentFileName, navigate, user, handleSessionExpired]);
-
   // --- Sidebar actions ---
   const handleSelectFile = useCallback((filename: string) => {
     const doNavigate = () => {
@@ -637,7 +592,7 @@ export function App() {
       return;
     }
     doNavigate();
-  }, [currentGistId, selectedRepo, activeView, hasUnsavedChanges, currentFileName, navigate]);
+  }, [currentGistId, selectedRepo, activeView, hasUnsavedChanges, navigate]);
 
   const handleCreateFile = useCallback(async (filename: string) => {
     try {
@@ -665,6 +620,35 @@ export function App() {
     }
   }, [currentGistId, selectedRepo, navigate]);
 
+  const handleEditFile = useCallback(async (filename: string) => {
+    if (activeView === 'edit' && currentFileName === filename) return;
+
+    const target = currentGistId
+      ? `edit/${currentGistId}/${encodeURIComponent(filename)}`
+      : selectedRepo
+        ? `repoedit/${encodeURIComponent(REPO_DOCS_DIR + '/' + filename)}`
+        : null;
+    if (!target) return;
+
+    if (activeView === 'edit' && hasUnsavedChanges) {
+      const saveFirst = confirm('You have unsaved changes. Save before editing another file?');
+      if (saveFirst) {
+        await onSave();
+      } else {
+        const discard = confirm('Discard unsaved changes and continue editing another file?');
+        if (!discard) return;
+        setHasUnsavedChanges(false);
+      }
+    }
+
+    navigate(target);
+  }, [currentGistId, selectedRepo, activeView, currentFileName, hasUnsavedChanges, onSave, navigate]);
+
+  const handleViewOnGitHub = useCallback(() => {
+    if (!currentGistId) return;
+    window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer');
+  }, [currentGistId]);
+
   const handleDeleteFile = useCallback(async (filename: string) => {
     if (!confirm(`Delete "${filename}"?`)) return;
     try {
@@ -672,11 +656,14 @@ export function App() {
         const gist = await deleteFileFromGist(currentGistId, filename);
         setGistFiles(gist.files);
         gistFilesRef.current = gist.files;
-        const remaining = Object.keys(gist.files);
-        if (remaining.length > 0) {
-          navigate(`gist/${currentGistId}/${encodeURIComponent(remaining[0])}`);
-        } else {
-          navigate('documents');
+        const deletedCurrent = currentFileName === filename;
+        if (deletedCurrent) {
+          const remaining = Object.keys(gist.files);
+          if (remaining.length > 0) {
+            navigate(`gist/${currentGistId}/${encodeURIComponent(remaining[0])}`);
+          } else {
+            navigate('documents');
+          }
         }
       } else if (selectedRepo) {
         const instId = getInstallationId();
@@ -688,17 +675,20 @@ export function App() {
         const remaining = repoFiles.filter(f => f.name !== filename);
         setRepoFiles(remaining);
         repoFilesRef.current = remaining;
-        if (remaining.length > 0) {
-          navigate(`repofile/${encodeURIComponent(remaining[0].path)}`);
-        } else {
-          navigate('repodocuments');
+        const deletedCurrent = currentRepoDocPath === repoFile.path;
+        if (deletedCurrent) {
+          if (remaining.length > 0) {
+            navigate(`repofile/${encodeURIComponent(remaining[0].path)}`);
+          } else {
+            navigate('repodocuments');
+          }
         }
       }
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       alert(err instanceof Error ? err.message : 'Failed to delete file');
     }
-  }, [currentGistId, selectedRepo, repoFiles, navigate, handleSessionExpired]);
+  }, [currentGistId, currentFileName, selectedRepo, repoFiles, currentRepoDocPath, navigate, handleSessionExpired]);
 
   const handleRenameFile = useCallback(async (oldName: string, newName: string) => {
     try {
@@ -833,8 +823,6 @@ export function App() {
         installationId={installationId}
         selectedRepo={selectedRepo}
         draftMode={draftMode}
-        currentGistId={currentGistId}
-        currentRepoDocPath={currentRepoDocPath}
         currentFileName={currentFileName}
         saving={saving}
         canSave={hasUnsavedChanges}
@@ -846,15 +834,16 @@ export function App() {
         onToggleTheme={toggleTheme}
         onSave={onSave}
         onToggleSidebar={onToggleSidebar}
-        onEdit={onEdit}
         onCancel={onCancel}
-        onDelete={onDelete}
       />
       <div class={showSidebar ? 'app-body' : 'app-body app-body--no-sidebar'}>
         {showSidebar && (
           <Sidebar
             files={sidebarFiles}
             onSelectFile={handleSelectFile}
+            onEditFile={handleEditFile}
+            onViewOnGitHub={handleViewOnGitHub}
+            canViewOnGitHub={currentGistId !== null}
             onCreateFile={handleCreateFile}
             onDeleteFile={handleDeleteFile}
             onRenameFile={handleRenameFile}

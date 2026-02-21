@@ -1,7 +1,7 @@
 import type { GitHubUser } from '../github';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { ExternalLink, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
 
 export type ActiveView = 'auth' | 'documents' | 'githubapp' | 'repodocuments' | 'loading' | 'error' | 'content' | 'edit';
 
@@ -11,8 +11,6 @@ interface ToolbarProps {
   installationId: string | null;
   selectedRepo: string | null;
   draftMode: boolean;
-  currentGistId: string | null;
-  currentRepoDocPath: string | null;
   currentFileName: string | null;
   saving: boolean;
   canSave: boolean;
@@ -24,32 +22,21 @@ interface ToolbarProps {
   onToggleTheme: () => void;
   onSave: () => void;
   onToggleSidebar: () => void;
-  onEdit: () => void;
   onCancel: () => void;
-  onDelete: () => void;
 }
 
 export function Toolbar({
   view, user, installationId, selectedRepo, draftMode,
-  currentGistId, currentRepoDocPath, currentFileName, saving, canSave, canToggleSidebar, sidebarVisible, showSave,
+  currentFileName, saving, canSave, canToggleSidebar, sidebarVisible, showSave,
   navigate, onSignOut, onToggleTheme,
-  onSave, onToggleSidebar, onEdit, onCancel, onDelete,
+  onSave, onToggleSidebar, onCancel,
 }: ToolbarProps) {
-  const isRepoFile = view === 'content' && currentRepoDocPath !== null;
-  const isOwnedGist = view === 'content' && user !== null && currentGistId !== null;
-  const isEditingExistingGist = view === 'edit' && currentGistId !== null && currentFileName !== null;
-  const isEditingExistingRepoFile = view === 'edit' && currentRepoDocPath !== null && currentFileName !== null;
-  const showViewOriginal = view === 'content' && currentGistId !== null;
-
   const isHomeDraft = view === 'edit' && draftMode;
-  const showEdit = isRepoFile || isOwnedGist;
-  const showDelete = isOwnedGist || isEditingExistingGist || isEditingExistingRepoFile;
-  const showDiscardChanges = view === 'edit' && !isHomeDraft && currentFileName !== null;
   const showCancel = view === 'edit' && !isHomeDraft;
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!installationId;
   const showRepoDocs = !!selectedRepo;
-  const showDocumentActions = !!currentFileName && (canToggleSidebar || showEdit || showDiscardChanges || showDelete || showViewOriginal);
+  const showDocumentActions = canToggleSidebar;
 
   return (
     <header class="toolbar">
@@ -70,7 +57,7 @@ export function Toolbar({
                 class={`document-menu-trigger${showDocumentActions ? '' : ' document-menu-trigger-caret'}`}
                 aria-label="Document menu"
               >
-                {showDocumentActions ? currentFileName : <Menu size={16} aria-hidden="true" />}
+                {showDocumentActions && currentFileName ? currentFileName : <Menu size={16} aria-hidden="true" />}
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
@@ -79,38 +66,6 @@ export function Toolbar({
                   <DropdownMenu.Item class="user-menu-item" onSelect={onToggleSidebar}>
                     {sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
                   </DropdownMenu.Item>
-                )}
-                {canToggleSidebar && (showEdit || showViewOriginal) && <DropdownMenu.Separator class="user-menu-separator" />}
-                {showEdit && (
-                  <DropdownMenu.Item class="user-menu-item" onSelect={onEdit}>
-                    Edit
-                  </DropdownMenu.Item>
-                )}
-                {showViewOriginal && showEdit && <DropdownMenu.Separator class="user-menu-separator" />}
-                {showViewOriginal && (
-                  <DropdownMenu.Item
-                    class="user-menu-item user-menu-item-with-icon"
-                    onSelect={() => window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer')}
-                  >
-                    View on GitHub
-                    <ExternalLink size={14} aria-hidden="true" />
-                  </DropdownMenu.Item>
-                )}
-                {showDiscardChanges && (canToggleSidebar || showEdit || showViewOriginal) && (
-                  <DropdownMenu.Separator class="user-menu-separator" />
-                )}
-                {showDiscardChanges && (
-                  <DropdownMenu.Item class="user-menu-item" onSelect={onCancel}>
-                    Discard changes
-                  </DropdownMenu.Item>
-                )}
-                {showDelete && (
-                  <>
-                    {(showViewOriginal || showEdit || showDiscardChanges) && <DropdownMenu.Separator class="user-menu-separator" />}
-                    <DropdownMenu.Item class="user-menu-item document-menu-item-danger" onSelect={onDelete}>
-                      Delete
-                    </DropdownMenu.Item>
-                  </>
                 )}
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
