@@ -31,9 +31,20 @@ function cacheKey(installationId: string, repositoryIds?: number[]): string {
 async function getAppPrivateKeyPem(): Promise<string> {
   const keyInline = process.env.GITHUB_APP_PRIVATE_KEY;
   const keyPath = process.env.GITHUB_APP_PRIVATE_KEY_PATH;
-  if (keyInline?.trim()) return keyInline;
+  if (keyInline?.trim()) {
+    return normalizeInlinePem(keyInline);
+  }
   if (keyPath?.trim()) return readFile(keyPath, 'utf8');
   throw new Error('Missing GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_PATH');
+}
+
+function normalizeInlinePem(rawValue: string): string {
+  const trimmed = rawValue.trim();
+  const withoutWrappingQuotes =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+      ? trimmed.slice(1, -1)
+      : trimmed;
+  return withoutWrappingQuotes.replace(/\\n/g, '\n');
 }
 
 export async function createAppJwt(): Promise<string> {
