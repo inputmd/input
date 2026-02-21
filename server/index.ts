@@ -640,13 +640,13 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   const configured = Boolean(
     process.env.GITHUB_APP_ID &&
     (process.env.GITHUB_APP_PRIVATE_KEY || process.env.GITHUB_APP_PRIVATE_KEY_PATH) &&
     process.env.GITHUB_APP_SLUG,
   );
-  console.log(`GitHub App auth server listening on http://localhost:${PORT} (configured=${configured})`);
+  console.log(`GitHub App auth server listening on http://0.0.0.0:${PORT} (configured=${configured})`);
 });
 
 function gracefulShutdown(signal: string): void {
