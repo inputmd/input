@@ -31,6 +31,10 @@ export function EditView({
 }: EditViewProps) {
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
+  const [isDesktopWidth, setIsDesktopWidth] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem(EDITOR_PREVIEW_VISIBLE_KEY);
@@ -53,6 +57,14 @@ export function EditView({
     }
   }, [previewVisible]);
 
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)');
+    const onChange = (event: MediaQueryListEvent) => setIsDesktopWidth(event.matches);
+    setIsDesktopWidth(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
   const onSplitPointerDown = (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
     if (!previewVisible || !previewEnabled) return;
     const container = splitRef.current;
@@ -74,14 +86,15 @@ export function EditView({
     event.preventDefault();
   };
 
-  const layoutStyle = previewVisible && previewEnabled
+  const canRenderPreview = previewEnabled && isDesktopWidth;
+  const layoutStyle = previewVisible && canRenderPreview
     ? { gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` }
     : undefined;
 
   return (
     <div class="edit-view">
       <div class="editor-top-actions">
-        {previewEnabled && (
+        {canRenderPreview && (
           <button
             type="button"
             class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
@@ -111,7 +124,7 @@ export function EditView({
           value={content}
           onInput={e => onContentChange((e.target as HTMLTextAreaElement).value)}
         />
-        {previewVisible && previewEnabled && (
+        {previewVisible && canRenderPreview && (
           <>
             <div
               class="editor-splitter"

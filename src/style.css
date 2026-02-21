@@ -16,6 +16,7 @@
   --danger-border: #f85149;
   --sidebar-renaming-row-bg: #10151b;
   --reader-editor-font-size: 15.5px;
+  --reader-editor-line-height: 1.6;
   --selection-bg: #123f88;
   --selection-color: #eef5ff;
 
@@ -709,7 +710,7 @@ button:disabled {
 .rendered-content {
   font-family: var(--font-mono);
   font-size: var(--reader-editor-font-size);
-  line-height: 1.6;
+  line-height: var(--reader-editor-line-height);
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -718,7 +719,7 @@ button:disabled {
 .rendered-markdown {
   font-family: var(--font-mono);
   font-size: var(--reader-editor-font-size);
-  line-height: 1.65;
+  line-height: var(--reader-editor-line-height);
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
@@ -894,8 +895,8 @@ button:disabled {
 
 .editor-top-actions {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 12px;
   display: flex;
   gap: 8px;
   z-index: 2;
@@ -946,7 +947,7 @@ button:disabled {
 .doc-editor {
   font-family: var(--font-mono);
   font-size: var(--reader-editor-font-size);
-  line-height: 1.6;
+  line-height: var(--reader-editor-line-height);
   flex: 1;
   min-height: calc(100vh - 128px);
   padding: 24px 27px;
@@ -1035,6 +1036,7 @@ button:disabled {
   letter-spacing: 0.5px;
   color: var(--text-secondary);
   margin: 0;
+  margin-left: 2px;
 }
 
 .sidebar-add-btn {
@@ -1129,25 +1131,4 @@ button:disabled {
   background: transparent;
   color: var(--text);
   outline: none;
-}
-
-.sidebar-new {
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
-}
-
-.sidebar-new-input {
-  width: 100%;
-  padding: 4px 8px;
-  font-size: 14px;
-  font-family: var(--font-mono);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--input-bg);
-  color: var(--text);
-  outline: none;
-}
-
-.sidebar-new-input:focus {
-  border-color: var(--focus-border);
 }

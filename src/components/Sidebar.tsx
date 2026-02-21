@@ -147,6 +147,28 @@ export function Sidebar({
             )}
           </div>
         ))}
+        {creatingNew && (
+          <div class="sidebar-file renaming">
+            <input
+              ref={newInputRef}
+              class="sidebar-rename-input"
+              type="text"
+              placeholder="file.md"
+              value={newFileName}
+              disabled={creatingFile}
+              onInput={e => setNewFileName((e.target as HTMLInputElement).value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void handleCreateSubmit();
+                }
+                if (e.key === 'Escape') { setCreatingNew(false); setNewFileName(''); }
+              }}
+              onBlur={() => { if (newFileName.trim()) void handleCreateSubmit(); else setCreatingNew(false); }}
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+        )}
       </div>
       {contextFile && contextPos && (
         <div
@@ -201,27 +223,6 @@ export function Sidebar({
           >
             Delete
           </button>
-        </div>
-      )}
-      {creatingNew && (
-        <div class="sidebar-new">
-          <input
-            ref={newInputRef}
-            class="sidebar-new-input"
-            type="text"
-            placeholder="filename"
-            value={newFileName}
-            disabled={creatingFile}
-            onInput={e => setNewFileName((e.target as HTMLInputElement).value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void handleCreateSubmit();
-              }
-              if (e.key === 'Escape') { setCreatingNew(false); setNewFileName(''); }
-            }}
-            onBlur={() => { if (newFileName.trim()) void handleCreateSubmit(); else setCreatingNew(false); }}
-          />
         </div>
       )}
     </aside>
