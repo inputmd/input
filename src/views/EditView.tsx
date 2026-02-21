@@ -97,6 +97,51 @@ export function EditView({
     event.preventDefault();
   };
 
+  const handleEditorKeyDown = (e: JSX.TargetedKeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const ta = e.currentTarget;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const value = content;
+
+    if (!e.shiftKey) {
+      // Tab: insert \t or indent selected lines
+      if (start === end) {
+        const next = value.slice(0, start) + '\t' + value.slice(end);
+        onContentChange(next);
+        requestAnimationFrame(() => {
+          ta.selectionStart = ta.selectionEnd = start + 1;
+        });
+      } else {
+        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+        const block = value.slice(lineStart, end);
+        const indented = block.replace(/^/gm, '\t');
+        const next = value.slice(0, lineStart) + indented + value.slice(end);
+        const addedChars = indented.length - block.length;
+        onContentChange(next);
+        requestAnimationFrame(() => {
+          ta.selectionStart = start + 1;
+          ta.selectionEnd = end + addedChars;
+        });
+      }
+    } else {
+      // Shift+Tab: un-indent selected lines
+      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+      const block = value.slice(lineStart, end);
+      const dedented = block.replace(/^\t/gm, '');
+      const removedChars = block.length - dedented.length;
+      if (removedChars === 0) return;
+      const next = value.slice(0, lineStart) + dedented + value.slice(end);
+      const firstLineHadTab = block.startsWith('\t');
+      onContentChange(next);
+      requestAnimationFrame(() => {
+        ta.selectionStart = firstLineHadTab ? start - 1 : start;
+        ta.selectionEnd = end - removedChars;
+      });
+    }
+  };
+
   const canRenderPreview = previewEnabled && isDesktopWidth;
   const layoutStyle = previewVisible && canRenderPreview
     ? { gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` }
@@ -134,6 +179,7 @@ export function EditView({
           placeholder="Write your markdown here..."
           value={content}
           onInput={e => onContentChange((e.target as HTMLTextAreaElement).value)}
+          onKeyDown={handleEditorKeyDown}
         />
         {previewVisible && canRenderPreview && (
           <>
