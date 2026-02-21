@@ -11,7 +11,7 @@ interface SidebarProps {
   onEditFile: (filename: string) => void;
   onViewOnGitHub: () => void;
   canViewOnGitHub: boolean;
-  onCreateFile: (filename: string) => void;
+  onCreateFile: (filename: string) => void | Promise<void>;
   onDeleteFile: (filename: string) => void;
   onRenameFile: (oldName: string, newName: string) => void;
 }
@@ -26,6 +26,7 @@ export function Sidebar({
   files, onSelectFile, onEditFile, onViewOnGitHub, canViewOnGitHub, onCreateFile, onDeleteFile, onRenameFile,
 }: SidebarProps) {
   const [creatingNew, setCreatingNew] = useState(false);
+  const [creatingFile, setCreatingFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [renamingFile, setRenamingFile] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -34,6 +35,7 @@ export function Sidebar({
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const createInFlightRef = useRef(false);
 
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
@@ -69,12 +71,20 @@ export function Sidebar({
     };
   }, [contextFile]);
 
-  const handleCreateSubmit = () => {
+  const handleCreateSubmit = async () => {
+    if (createInFlightRef.current) return;
     const filename = sanitizeFileName(newFileName);
-    if (filename) {
-      onCreateFile(filename);
+    if (!filename) return;
+
+    createInFlightRef.current = true;
+    setCreatingFile(true);
+    try {
+      await onCreateFile(filename);
       setNewFileName('');
       setCreatingNew(false);
+    } finally {
+      createInFlightRef.current = false;
+      setCreatingFile(false);
     }
   };
 
@@ -201,12 +211,16 @@ export function Sidebar({
             type="text"
             placeholder="filename"
             value={newFileName}
+            disabled={creatingFile}
             onInput={e => setNewFileName((e.target as HTMLInputElement).value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') handleCreateSubmit();
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void handleCreateSubmit();
+              }
               if (e.key === 'Escape') { setCreatingNew(false); setNewFileName(''); }
             }}
-            onBlur={() => { if (newFileName.trim()) handleCreateSubmit(); else setCreatingNew(false); }}
+            onBlur={() => { if (newFileName.trim()) void handleCreateSubmit(); else setCreatingNew(false); }}
           />
         </div>
       )}
