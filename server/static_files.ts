@@ -1,6 +1,6 @@
-import http from 'node:http';
-import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
+import type http from 'node:http';
+import path from 'node:path';
 
 const DIST_DIR = path.resolve(new URL('../dist', import.meta.url).pathname);
 

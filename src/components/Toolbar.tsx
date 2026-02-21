@@ -1,10 +1,18 @@
-import type { GitHubUser } from '../github';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import type { GitHubUser } from '../github';
 import { routePath } from '../routing';
 
-export type ActiveView = 'auth' | 'documents' | 'githubapp' | 'repodocuments' | 'loading' | 'error' | 'content' | 'edit';
+export type ActiveView =
+  | 'auth'
+  | 'documents'
+  | 'githubapp'
+  | 'repodocuments'
+  | 'loading'
+  | 'error'
+  | 'content'
+  | 'edit';
 
 interface ToolbarProps {
   view: ActiveView;
@@ -23,10 +31,19 @@ interface ToolbarProps {
 }
 
 export function Toolbar({
-  view, user, installationId, selectedRepo, draftMode,
-  canToggleSidebar, sidebarVisible, showEdit,
-  navigate, onSignOut, onToggleTheme,
-  onToggleSidebar, onEdit,
+  view,
+  user,
+  installationId,
+  selectedRepo,
+  draftMode,
+  canToggleSidebar,
+  sidebarVisible,
+  showEdit,
+  navigate,
+  onSignOut,
+  onToggleTheme,
+  onToggleSidebar,
+  onEdit,
 }: ToolbarProps) {
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
@@ -37,10 +54,14 @@ export function Toolbar({
     <header class="toolbar">
       <div class="toolbar-left">
         {showGitHubApp && (
-          <button type="button" onClick={() => navigate(routePath.githubApp())}>GitHub App</button>
+          <button type="button" onClick={() => navigate(routePath.githubApp())}>
+            GitHub App
+          </button>
         )}
         {showRepoDocs && (
-          <button type="button" onClick={() => navigate(routePath.repoDocuments())}>Repo Docs</button>
+          <button type="button" onClick={() => navigate(routePath.repoDocuments())}>
+            Repo Docs
+          </button>
         )}
         {isHomeDraft ? (
           <span class="document-menu-label">New Wiki</span>
@@ -52,17 +73,25 @@ export function Toolbar({
             aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
             title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
           >
-            {sidebarVisible ? <PanelLeftClose size={20} aria-hidden="true" /> : <PanelLeftOpen size={20} aria-hidden="true" />}
+            {sidebarVisible ? (
+              <PanelLeftClose size={20} aria-hidden="true" />
+            ) : (
+              <PanelLeftOpen size={20} aria-hidden="true" />
+            )}
           </button>
         ) : null}
       </div>
       <div class="toolbar-right">
         <div class="action-buttons">
           {showEdit && (
-            <button type="button" onClick={onEdit}>Edit</button>
+            <button type="button" onClick={onEdit}>
+              Edit
+            </button>
           )}
           {showSignInToSave && (
-            <button type="button" onClick={() => navigate(routePath.auth())}>Sign in</button>
+            <button type="button" onClick={() => navigate(routePath.auth())}>
+              Sign in
+            </button>
           )}
         </div>
         {user ? (
@@ -104,7 +133,9 @@ export function Toolbar({
             </DropdownMenu.Root>
           </Tooltip.Provider>
         ) : !showSignInToSave && view !== 'auth' ? (
-          <button type="button" onClick={() => navigate(routePath.auth())}>Sign In</button>
+          <button type="button" onClick={() => navigate(routePath.auth())}>
+            Sign In
+          </button>
         ) : null}
       </div>
     </header>

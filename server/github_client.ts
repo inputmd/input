@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
 import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { GITHUB_FETCH_TIMEOUT_MS } from './config';
 import { ClientError } from './errors';
 import { base64url, requireEnv } from './http_helpers';
@@ -9,17 +9,23 @@ const installationTokenCache = new Map<string, TokenCacheRecord>();
 const MAX_TOKEN_CACHE_SIZE = 1000;
 
 export function startInstallationTokenCacheCleanup(): void {
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, record] of installationTokenCache) {
-      if (record.expiresAtMs <= now) installationTokenCache.delete(key);
-    }
-  }, 5 * 60 * 1000).unref();
+  setInterval(
+    () => {
+      const now = Date.now();
+      for (const [key, record] of installationTokenCache) {
+        if (record.expiresAtMs <= now) installationTokenCache.delete(key);
+      }
+    },
+    5 * 60 * 1000,
+  ).unref();
 }
 
 function cacheKey(installationId: string, repositoryIds?: number[]): string {
   if (!repositoryIds?.length) return `${installationId}:all`;
-  return `${installationId}:${repositoryIds.map((n) => String(n)).sort().join(',')}`;
+  return `${installationId}:${repositoryIds
+    .map((n) => String(n))
+    .sort()
+    .join(',')}`;
 }
 
 async function getAppPrivateKeyPem(): Promise<string> {
@@ -36,11 +42,13 @@ export async function createAppJwt(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
 
   const encodedHeader = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const encodedPayload = base64url(JSON.stringify({
-    iat: now - 60,
-    exp: now + 9 * 60,
-    iss: appId,
-  }));
+  const encodedPayload = base64url(
+    JSON.stringify({
+      iat: now - 60,
+      exp: now + 9 * 60,
+      iss: appId,
+    }),
+  );
   const signingInput = `${encodedHeader}.${encodedPayload}`;
 
   const signer = crypto.createSign('RSA-SHA256');
@@ -57,18 +65,21 @@ async function getInstallationToken(installationId: string, repositoryIds?: numb
   if (cached && cached.expiresAtMs - Date.now() > 60_000) return cached;
 
   const jwt = await createAppJwt();
-  const res = await fetch(`https://api.github.com/app/installations/${encodeURIComponent(String(installationId))}/access_tokens`, {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': `Bearer ${jwt}`,
-      'User-Agent': 'input-github-app-auth-server',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json',
+  const res = await fetch(
+    `https://api.github.com/app/installations/${encodeURIComponent(String(installationId))}/access_tokens`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${jwt}`,
+        'User-Agent': 'input-github-app-auth-server',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(repositoryIds?.length ? { repository_ids: repositoryIds } : {}),
+      signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
     },
-    body: JSON.stringify(repositoryIds?.length ? { repository_ids: repositoryIds } : {}),
-    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
-  });
+  );
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -91,16 +102,20 @@ async function getInstallationToken(installationId: string, repositoryIds?: numb
   return record;
 }
 
-export async function githubFetchWithInstallationToken(installationId: string, ghPath: string, init: RequestInit = {}): Promise<Response> {
+export async function githubFetchWithInstallationToken(
+  installationId: string,
+  ghPath: string,
+  init: RequestInit = {},
+): Promise<Response> {
   const tokenRec = await getInstallationToken(installationId);
   const res = await fetch(`https://api.github.com${ghPath}`, {
     ...init,
     headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': `Bearer ${tokenRec.token}`,
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${tokenRec.token}`,
       'User-Agent': 'input-github-app-auth-server',
       'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.headers as Record<string, string> ?? {}),
+      ...((init.headers as Record<string, string>) ?? {}),
     },
     signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });

@@ -1,4 +1,4 @@
-import http from 'node:http';
+import type http from 'node:http';
 import { MAX_BODY_BYTES } from './config';
 import { ClientError } from './errors';
 
@@ -41,9 +41,5 @@ export function requireString(body: Record<string, unknown> | null, key: string)
 
 export function base64url(input: string | Buffer): string {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
-  return buf
-    .toString('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
+  return buf.toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }

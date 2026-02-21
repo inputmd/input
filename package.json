@@ -8,9 +8,12 @@
     "dev": "vite",
     "build": "tsc && tsc -p tsconfig.server.json && vite build",
     "preview": "vite preview",
-    "deploy": "fly deploy"
+    "deploy": "fly deploy",
+    "lint": "biome check .",
+    "lint:fix": "biome check --fix ."
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.4",
     "@types/node": "^25.2.3",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",

@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'preact/hooks';
 import * as ContextMenu from '@radix-ui/react-context-menu';
+import { useEffect, useRef, useState } from 'preact/hooks';
 
 export interface SidebarFile {
   name: string;
@@ -18,13 +18,23 @@ interface SidebarProps {
 }
 
 function sanitizeFileName(name: string): string {
-  const trimmed = name.trim().replace(/[/\\]/g, '').replace(/\.{2,}/g, '.');
+  const trimmed = name
+    .trim()
+    .replace(/[/\\]/g, '')
+    .replace(/\.{2,}/g, '.');
   if (!trimmed) return '';
   return trimmed;
 }
 
 export function Sidebar({
-  files, onSelectFile, onEditFile, onViewOnGitHub, canViewOnGitHub, onCreateFile, onDeleteFile, onRenameFile,
+  files,
+  onSelectFile,
+  onEditFile,
+  onViewOnGitHub,
+  canViewOnGitHub,
+  onCreateFile,
+  onDeleteFile,
+  onRenameFile,
 }: SidebarProps) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [creatingFile, setCreatingFile] = useState(false);
@@ -83,11 +93,16 @@ export function Sidebar({
           type="button"
           class="sidebar-add-btn"
           title="New file"
-          onClick={() => { setCreatingNew(true); setNewFileName(''); }}
-        >+</button>
+          onClick={() => {
+            setCreatingNew(true);
+            setNewFileName('');
+          }}
+        >
+          +
+        </button>
       </div>
       <div class="sidebar-files">
-        {files.map(f => {
+        {files.map((f) => {
           const fileRow = (
             <div
               class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.name ? ' renaming' : ''}`}
@@ -96,7 +111,7 @@ export function Sidebar({
               aria-current={f.active ? 'true' : undefined}
               onClick={() => !f.active && onSelectFile(f.name)}
               onDblClick={() => startRename(f.name)}
-              onKeyDown={e => {
+              onKeyDown={(e) => {
                 if (renamingFile === f.name) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -113,13 +128,16 @@ export function Sidebar({
                   class="sidebar-rename-input"
                   type="text"
                   value={renameValue}
-                  onInput={e => setRenameValue((e.target as HTMLInputElement).value)}
-                  onKeyDown={e => {
+                  onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
+                  onKeyDown={(e) => {
                     if (e.key === 'Enter') handleRenameSubmit();
-                    if (e.key === 'Escape') { setRenamingFile(null); setRenameValue(''); }
+                    if (e.key === 'Escape') {
+                      setRenamingFile(null);
+                      setRenameValue('');
+                    }
                   }}
                   onBlur={handleRenameSubmit}
-                  onClick={e => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                 />
               ) : (
                 <span class="sidebar-file-name">{f.name}</span>
@@ -147,7 +165,10 @@ export function Sidebar({
                       View on GitHub
                     </ContextMenu.Item>
                   )}
-                  <ContextMenu.Item class="sidebar-context-menu-item sidebar-context-menu-item-danger" onSelect={() => onDeleteFile(f.name)}>
+                  <ContextMenu.Item
+                    class="sidebar-context-menu-item sidebar-context-menu-item-danger"
+                    onSelect={() => onDeleteFile(f.name)}
+                  >
                     Delete
                   </ContextMenu.Item>
                 </ContextMenu.Content>
@@ -164,16 +185,22 @@ export function Sidebar({
               placeholder="file.md"
               value={newFileName}
               disabled={creatingFile}
-              onInput={e => setNewFileName((e.target as HTMLInputElement).value)}
-              onKeyDown={e => {
+              onInput={(e) => setNewFileName((e.target as HTMLInputElement).value)}
+              onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
                   void handleCreateSubmit();
                 }
-                if (e.key === 'Escape') { setCreatingNew(false); setNewFileName(''); }
+                if (e.key === 'Escape') {
+                  setCreatingNew(false);
+                  setNewFileName('');
+                }
               }}
-              onBlur={() => { if (newFileName.trim()) void handleCreateSubmit(); else setCreatingNew(false); }}
-              onClick={e => e.stopPropagation()}
+              onBlur={() => {
+                if (newFileName.trim()) void handleCreateSubmit();
+                else setCreatingNew(false);
+              }}
+              onClick={(e) => e.stopPropagation()}
             />
           </div>
         )}

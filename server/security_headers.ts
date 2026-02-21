@@ -1,4 +1,4 @@
-import http from 'node:http';
+import type http from 'node:http';
 import { CONTENT_SECURITY_POLICY } from './config';
 
 export function applySecurityHeaders(res: http.ServerResponse): void {

@@ -64,7 +64,7 @@ export class SessionExpiredError extends Error {
 
 function authHeaders(): Record<string, string> {
   const token = getSessionToken();
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function authFetch(url: string, init?: RequestInit): Promise<Response> {
@@ -77,7 +77,7 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
     throw new SessionExpiredError();
   }
   if (!res.ok) {
-    const body = await res.json().catch(() => null) as { error?: string } | null;
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
   }
   return res;
@@ -92,23 +92,25 @@ export async function createSession(installationId: string): Promise<string> {
     body: JSON.stringify({ installationId }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => null) as { error?: string } | null;
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
   }
-  const data = await res.json() as { token: string; installationId: string };
+  const data = (await res.json()) as { token: string; installationId: string };
   setSessionToken(data.token);
   return data.token;
 }
 
 export function createInstallState(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 export async function getInstallUrl(state: string): Promise<string> {
   const res = await fetch(`/api/github-app/install-url?state=${encodeURIComponent(state)}`);
   if (!res.ok) throw new Error(`Failed to get install URL: ${res.status} ${res.statusText}`);
-  const data = await res.json() as { url: string };
+  const data = (await res.json()) as { url: string };
   return data.url;
 }
 
@@ -142,15 +144,15 @@ export function isRepoFile(contents: RepoContents): contents is RepoFile {
 export type RepoContents =
   | RepoFile
   | Array<{
-    type: 'file' | 'dir' | 'symlink' | 'submodule';
-    name: string;
-    path: string;
-    sha: string;
-    size: number;
-    url: string;
-    html_url: string;
-    download_url: string | null;
-  }>;
+      type: 'file' | 'dir' | 'symlink' | 'submodule';
+      name: string;
+      path: string;
+      sha: string;
+      size: number;
+      url: string;
+      html_url: string;
+      download_url: string | null;
+    }>;
 
 export interface PutFileResult {
   content: { path: string; sha: string };
@@ -175,7 +177,12 @@ export async function listInstallationRepos(installationId: string): Promise<Ins
   return res.json();
 }
 
-export async function getRepoContents(installationId: string, repoFullName: string, path: string, ref?: string): Promise<RepoContents> {
+export async function getRepoContents(
+  installationId: string,
+  repoFullName: string,
+  path: string,
+  ref?: string,
+): Promise<RepoContents> {
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams({ path });
   if (ref) qs.set('ref', ref);

@@ -1,7 +1,7 @@
-import { createContext } from 'preact';
-import { useState, useCallback, useContext } from 'preact/hooks';
-import type { ComponentChildren } from 'preact';
 import * as ToastPrimitive from '@radix-ui/react-toast';
+import type { ComponentChildren } from 'preact';
+import { createContext } from 'preact';
+import { useCallback, useContext, useState } from 'preact/hooks';
 
 interface ToastContextValue {
   showToast: (message: string) => void;
@@ -27,22 +27,24 @@ export function ToastProvider({ children }: { children: ComponentChildren }) {
 
   const showToast = useCallback((message: string) => {
     const id = nextId++;
-    setToasts(prev => [...prev, { id, message }]);
+    setToasts((prev) => [...prev, { id, message }]);
   }, []);
 
   const removeToast = useCallback((id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       <ToastPrimitive.Provider duration={3000}>
         {children}
-        {toasts.map(t => (
+        {toasts.map((t) => (
           <ToastPrimitive.Root
             key={t.id}
             class="toast-root"
-            onOpenChange={(open: boolean) => { if (!open) removeToast(t.id); }}
+            onOpenChange={(open: boolean) => {
+              if (!open) removeToast(t.id);
+            }}
           >
             <ToastPrimitive.Description>{t.message}</ToastPrimitive.Description>
           </ToastPrimitive.Root>

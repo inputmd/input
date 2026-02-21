@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'github_pat';           // sessionStorage (manual PAT)
+const STORAGE_KEY = 'github_pat'; // sessionStorage (manual PAT)
 const OAUTH_TOKEN_KEY = 'github_oauth_token'; // localStorage (Device Flow)
 const API_BASE = 'https://api.github.com';
 
@@ -64,11 +64,11 @@ export function isAuthenticated(): boolean {
 async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const token = getToken();
   const headers: Record<string, string> = {
-    'Accept': 'application/vnd.github+json',
-    ...options.headers as Record<string, string>,
+    Accept: 'application/vnd.github+json',
+    ...(options.headers as Record<string, string>),
   };
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!res.ok) {
@@ -109,7 +109,12 @@ export async function createGist(content: string, filename = 'untitled.md', desc
   return res.json();
 }
 
-export async function updateGist(id: string, content: string, filename: string, description?: string): Promise<GistDetail> {
+export async function updateGist(
+  id: string,
+  content: string,
+  filename: string,
+  description?: string,
+): Promise<GistDetail> {
   const body: Record<string, unknown> = {
     files: { [filename]: { content } },
   };
@@ -133,7 +138,11 @@ export async function updateGistDescription(id: string, description: string): Pr
 
 type GistFileUpdate = { content: string } | { filename: string } | null;
 
-export async function updateGistFiles(id: string, files: Record<string, GistFileUpdate>, description?: string): Promise<GistDetail> {
+export async function updateGistFiles(
+  id: string,
+  files: Record<string, GistFileUpdate>,
+  description?: string,
+): Promise<GistDetail> {
   const body: Record<string, unknown> = { files };
   if (description !== undefined) body.description = description;
   const res = await apiFetch(`/gists/${encodeURIComponent(id)}`, {

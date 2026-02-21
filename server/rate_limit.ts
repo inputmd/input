@@ -1,4 +1,4 @@
-import http from 'node:http';
+import type http from 'node:http';
 import { json } from './http_helpers';
 import type { RateLimitEntry } from './types';
 
@@ -9,12 +9,15 @@ const MAX_RATE_LIMIT_ENTRIES = 10_000;
 const rateLimitWindows = new Map<string, RateLimitEntry>();
 
 export function startRateLimitCleanup(): void {
-  setInterval(() => {
-    const now = Date.now();
-    for (const [ip, entry] of rateLimitWindows) {
-      if (now >= entry.resetAtMs) rateLimitWindows.delete(ip);
-    }
-  }, 2 * 60 * 1000).unref();
+  setInterval(
+    () => {
+      const now = Date.now();
+      for (const [ip, entry] of rateLimitWindows) {
+        if (now >= entry.resetAtMs) rateLimitWindows.delete(ip);
+      }
+    },
+    2 * 60 * 1000,
+  ).unref();
 }
 
 function getClientIp(req: http.IncomingMessage): string {

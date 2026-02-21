@@ -1,5 +1,5 @@
-import { Component } from 'preact';
 import type { ComponentChildren, ErrorInfo } from 'preact';
+import { Component } from 'preact';
 
 interface ErrorBoundaryProps {
   children: ComponentChildren;
@@ -45,8 +45,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <p class="error-message">{message}</p>
         {details ? <p class="hint">{details}</p> : null}
         <div class="error-actions">
-          <button type="button" onClick={this.handleReset}>Try Again</button>
-          <button type="button" onClick={() => window.location.reload()}>Reload</button>
+          <button type="button" onClick={this.handleReset}>
+            Try Again
+          </button>
+          <button type="button" onClick={() => window.location.reload()}>
+            Reload
+          </button>
         </div>
       </div>
     );

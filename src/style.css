@@ -1,5 +1,5 @@
 :root {
-  --font-mono: 'Source Code Pro', 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
+  --font-mono: "Source Code Pro", "SF Mono", Monaco, Menlo, Consolas, "Courier New", monospace;
   --bg: #0d1117;
   --text: #e6edf3;
   --text-secondary: #8b949e;
@@ -76,7 +76,9 @@
   --ansi-bright-white: #a5a5a5;
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -87,14 +89,15 @@
   color: var(--selection-color);
 }
 
-html, body {
+html,
+body {
   height: 100%;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.5;
 }
@@ -930,9 +933,9 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 35px !important;
+  min-width: 35px;
   width: 35px;
-  padding: 0 !important;
+  padding: 0;
 }
 
 .preview-toggle-btn-off {
@@ -1058,9 +1061,9 @@ button:disabled {
 }
 
 .sidebar-add-btn {
-  min-height: 24px !important;
-  min-width: 28px !important;
-  padding: 0 6px !important;
+  min-height: 24px;
+  min-width: 28px;
+  padding: 0 6px;
   font-size: 16px;
   line-height: 1;
 }

@@ -10,11 +10,7 @@ marked.setOptions({
 const WEB_TLDS = new Set(['com', 'org', 'net', 'app', 'dev', 'xyz']);
 
 function wikiSlug(raw: string): string {
-  return raw
-    .trim()
-    .toLowerCase()
-    .replace(/[/\\]/g, '-')
-    .replace(/\s+/g, '-');
+  return raw.trim().toLowerCase().replace(/[/\\]/g, '-').replace(/\s+/g, '-');
 }
 
 marked.use({
@@ -26,7 +22,7 @@ marked.use({
         return src.indexOf('[[');
       },
       tokenizer(src: string) {
-        const match = /^\[\[([^[\]\|]+)(?:\|([^[\]\|]+))?\]\]/.exec(src);
+        const match = /^\[\[([^[\]|]+)(?:\|([^[\]|]+))?\]\]/.exec(src);
         if (!match) return undefined;
         const target = match[1].trim();
         if (!target) return undefined;

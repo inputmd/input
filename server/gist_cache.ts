@@ -8,15 +8,18 @@ const gistCache = new Map<string, GistCacheEntry>();
 let gistCacheTotalBytes = 0;
 
 export function startGistCacheCleanup(): void {
-  setInterval(() => {
-    const cutoff = Date.now() - GIST_CACHE_TTL_MS * 10;
-    for (const [key, entry] of gistCache) {
-      if (entry.cachedAt < cutoff) {
-        gistCacheTotalBytes -= entry.size;
-        gistCache.delete(key);
+  setInterval(
+    () => {
+      const cutoff = Date.now() - GIST_CACHE_TTL_MS * 10;
+      for (const [key, entry] of gistCache) {
+        if (entry.cachedAt < cutoff) {
+          gistCacheTotalBytes -= entry.size;
+          gistCache.delete(key);
+        }
       }
-    }
-  }, 10 * 60 * 1000).unref();
+    },
+    10 * 60 * 1000,
+  ).unref();
 }
 
 function gistCacheSet(id: string, entry: GistCacheEntry): void {

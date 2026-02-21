@@ -33,11 +33,7 @@ export function ContentView({ html, markdown, onInternalLinkNavigate }: ContentV
   return (
     <div class="content-view">
       {markdown ? (
-        <div
-          class="rendered-markdown"
-          onClick={onRenderedMarkdownClick}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <div class="rendered-markdown" onClick={onRenderedMarkdownClick} dangerouslySetInnerHTML={{ __html: html }} />
       ) : (
         <pre class="rendered-content" dangerouslySetInnerHTML={{ __html: html }} />
       )}

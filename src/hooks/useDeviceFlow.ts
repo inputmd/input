@@ -1,17 +1,27 @@
-import { useState, useRef, useCallback, useEffect } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 
 // --- Types ---
 
-interface DeviceFlowIdle { status: 'idle' }
-interface DeviceFlowRequesting { status: 'requesting' }
+interface DeviceFlowIdle {
+  status: 'idle';
+}
+interface DeviceFlowRequesting {
+  status: 'requesting';
+}
 interface DeviceFlowPending {
   status: 'pending';
   userCode: string;
   verificationUri: string;
   expiresAt: number;
 }
-interface DeviceFlowSuccess { status: 'success'; token: string }
-interface DeviceFlowError { status: 'error'; message: string }
+interface DeviceFlowSuccess {
+  status: 'success';
+  token: string;
+}
+interface DeviceFlowError {
+  status: 'error';
+  message: string;
+}
 
 export type DeviceFlowPhase =
   | DeviceFlowIdle
@@ -43,21 +53,25 @@ export function useDeviceFlow() {
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const clearTimer = () => {
+  const clearTimerRef = useCallback(() => {
     if (timerRef.current !== null) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-  };
-
-  // Clean up on unmount
-  useEffect(() => () => {
-    clearTimer();
-    abortRef.current?.abort();
   }, []);
 
-  const poll = (deviceCode: string, intervalMs: number, signal: AbortSignal) => {
-    clearTimer();
+  // Clean up on unmount
+  useEffect(
+    () => () => {
+      clearTimerRef();
+      abortRef.current?.abort();
+    },
+    [clearTimerRef],
+  );
+
+  const pollRef = useRef<(deviceCode: string, intervalMs: number, signal: AbortSignal) => void>();
+  pollRef.current = (deviceCode: string, intervalMs: number, signal: AbortSignal) => {
+    clearTimerRef();
     timerRef.current = setTimeout(async () => {
       if (signal.aborted) return;
       try {
@@ -83,10 +97,10 @@ export function useDeviceFlow() {
 
         switch (data.error) {
           case 'authorization_pending':
-            poll(deviceCode, intervalMs, signal);
+            pollRef.current!(deviceCode, intervalMs, signal);
             break;
           case 'slow_down':
-            poll(deviceCode, intervalMs + 5000, signal);
+            pollRef.current!(deviceCode, intervalMs + 5000, signal);
             break;
           case 'expired_token':
             setPhase({ status: 'error', message: 'Authorization expired. Please try again.' });
@@ -100,13 +114,20 @@ export function useDeviceFlow() {
       } catch (err) {
         if (signal.aborted) return;
         const isNetwork = err instanceof TypeError && /fetch|network/i.test(err.message);
-        setPhase({ status: 'error', message: isNetwork ? 'Cannot reach the API server — is it running?' : (err instanceof Error ? err.message : 'Network error.') });
+        setPhase({
+          status: 'error',
+          message: isNetwork
+            ? 'Cannot reach the API server — is it running?'
+            : err instanceof Error
+              ? err.message
+              : 'Network error.',
+        });
       }
     }, intervalMs);
   };
 
   const start = useCallback(async () => {
-    clearTimer();
+    clearTimerRef();
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -140,19 +161,26 @@ export function useDeviceFlow() {
         expiresAt: Date.now() + data.expires_in * 1000,
       });
 
-      poll(data.device_code, data.interval * 1000, controller.signal);
+      pollRef.current!(data.device_code, data.interval * 1000, controller.signal);
     } catch (err) {
       if (controller.signal.aborted) return;
       const isNetwork = err instanceof TypeError && /fetch|network/i.test(err.message);
-      setPhase({ status: 'error', message: isNetwork ? 'Cannot reach the API server — is it running?' : (err instanceof Error ? err.message : 'Failed to start sign-in.') });
+      setPhase({
+        status: 'error',
+        message: isNetwork
+          ? 'Cannot reach the API server — is it running?'
+          : err instanceof Error
+            ? err.message
+            : 'Failed to start sign-in.',
+      });
     }
-  }, []);
+  }, [clearTimerRef]);
 
   const cancel = useCallback(() => {
-    clearTimer();
+    clearTimerRef();
     abortRef.current?.abort();
     setPhase({ status: 'idle' });
-  }, []);
+  }, [clearTimerRef]);
 
   return { phase, start, cancel };
 }

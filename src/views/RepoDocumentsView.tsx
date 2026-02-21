@@ -1,10 +1,8 @@
-import { useState, useEffect } from 'preact/hooks';
-import {
-  getRepoContents, deleteRepoFile, SessionExpiredError,
-} from '../github_app';
-import { DocumentCard } from '../components/DocumentCard';
+import { useEffect, useState } from 'preact/hooks';
 import { useDialogs } from '../components/DialogProvider';
+import { DocumentCard } from '../components/DocumentCard';
 import { REPO_DOCS_DIR } from '../constants';
+import { deleteRepoFile, getRepoContents, SessionExpiredError } from '../github_app';
 import { routePath } from '../routing';
 
 interface RepoDocumentsViewProps {
@@ -21,16 +19,17 @@ interface RepoFile {
   size: number;
 }
 
-export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSessionExpired }: RepoDocumentsViewProps) {
+export function RepoDocumentsView({
+  installationId,
+  selectedRepo,
+  navigate,
+  onSessionExpired,
+}: RepoDocumentsViewProps) {
   const { showAlert, showConfirm } = useDialogs();
   const [files, setFiles] = useState<RepoFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [metaText, setMetaText] = useState(`${selectedRepo}:${REPO_DOCS_DIR}`);
-
-  useEffect(() => {
-    loadDocuments();
-  }, [installationId, selectedRepo]);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -39,7 +38,7 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
       const contents = await getRepoContents(installationId, selectedRepo, REPO_DOCS_DIR);
       if (Array.isArray(contents)) {
         const mdFiles = contents
-          .filter(c => c.type === 'file' && c.name.toLowerCase().endsWith('.md'))
+          .filter((c) => c.type === 'file' && c.name.toLowerCase().endsWith('.md'))
           .sort((a, b) => a.name.localeCompare(b.name));
         setFiles(mdFiles);
         setMetaText(`${selectedRepo}:${REPO_DOCS_DIR}`);
@@ -47,7 +46,10 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
         setError(`${REPO_DOCS_DIR} is a file; expected a directory.`);
       }
     } catch (err) {
-      if (err instanceof SessionExpiredError) { onSessionExpired(); return; }
+      if (err instanceof SessionExpiredError) {
+        onSessionExpired();
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Failed to load repo documents';
       if (String(msg).includes('404')) {
         setFiles([]);
@@ -60,13 +62,21 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
     }
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload when installation or repo changes
+  useEffect(() => {
+    loadDocuments();
+  }, [installationId, selectedRepo]);
+
   const onDelete = async (file: RepoFile) => {
-    if (!await showConfirm(`Delete "${file.name}" from ${selectedRepo}?`)) return;
+    if (!(await showConfirm(`Delete "${file.name}" from ${selectedRepo}?`))) return;
     try {
       await deleteRepoFile(installationId, selectedRepo, file.path, `Delete ${file.name}`, file.sha);
-      setFiles(prev => prev.filter(f => f.path !== file.path));
+      setFiles((prev) => prev.filter((f) => f.path !== file.path));
     } catch (err) {
-      if (err instanceof SessionExpiredError) { onSessionExpired(); return; }
+      if (err instanceof SessionExpiredError) {
+        onSessionExpired();
+        return;
+      }
       void showAlert(err instanceof Error ? err.message : 'Failed to delete');
     }
   };
@@ -75,13 +85,19 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
     return (
       <div class="error-view">
         <p class="error-message">{error}</p>
-        <button type="button" onClick={loadDocuments}>Try Again</button>
+        <button type="button" onClick={loadDocuments}>
+          Try Again
+        </button>
       </div>
     );
   }
 
   if (loading) {
-    return <div class="loading-view"><p>Loading...</p></div>;
+    return (
+      <div class="loading-view">
+        <p>Loading...</p>
+      </div>
+    );
   }
 
   if (files.length === 0) {
@@ -94,7 +110,9 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
         <div class="empty-state">
           <p>No documents yet.</p>
           <p>Create your first document to get started.</p>
-          <button type="button" onClick={() => navigate(routePath.repoNew())}>New Document</button>
+          <button type="button" onClick={() => navigate(routePath.repoNew())}>
+            New Document
+          </button>
         </div>
       </div>
     );
@@ -105,10 +123,12 @@ export function RepoDocumentsView({ installationId, selectedRepo, navigate, onSe
       <div class="repodocuments-header">
         <h1>Repo Documents</h1>
         <div class="repodocuments-meta hint">{metaText}</div>
-        <button type="button" onClick={() => navigate(routePath.repoNew())}>New Document</button>
+        <button type="button" onClick={() => navigate(routePath.repoNew())}>
+          New Document
+        </button>
       </div>
       <div class="repodocuments-list">
-        {files.map(file => (
+        {files.map((file) => (
           <DocumentCard
             key={file.path}
             title={file.name}

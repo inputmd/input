@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks';
+import { useCallback, useEffect, useState } from 'preact/hooks';
 import { getPathSegment, matchRoute, type Route } from '../routing';
 
 export function useRoute() {
@@ -11,7 +11,7 @@ export function useRoute() {
   }, []);
 
   const navigate = useCallback((r: string, options?: { replace?: boolean }) => {
-    const path = '/' + r;
+    const path = `/${r}`;
     if (options?.replace) {
       window.history.replaceState(null, '', path);
     } else {

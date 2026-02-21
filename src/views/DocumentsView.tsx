@@ -1,13 +1,13 @@
-import { useState, useEffect, useMemo } from 'preact/hooks';
-import { listGists, deleteGist, updateGistDescription, type GistSummary } from '../github';
+import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useDialogs } from '../components/DialogProvider';
+import { DocumentCard } from '../components/DocumentCard';
 import {
   getRecentlyCreatedGists,
   getRecentlyDeletedGistIds,
   markGistRecentlyDeleted,
   reconcileRecentGists,
 } from '../gist_consistency';
-import { DocumentCard } from '../components/DocumentCard';
-import { useDialogs } from '../components/DialogProvider';
+import { deleteGist, type GistSummary, listGists, updateGistDescription } from '../github';
 import { routePath } from '../routing';
 
 interface DocumentsViewProps {
@@ -36,7 +36,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
     }
     try {
       const result = await listGists(p);
-      setGists(prev => reset ? result : [...prev, ...result]);
+      setGists((prev) => (reset ? result : [...prev, ...result]));
       const reachedEnd = result.length < 30;
       setAllLoaded(reachedEnd);
       setPage(reachedEnd ? p : p + 1);
@@ -48,6 +48,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
     }
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: initial load only
   useEffect(() => {
     loadPage(1, true);
   }, []);
@@ -59,26 +60,24 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
   const visibleGists = useMemo(() => {
     const deleted = new Set(getRecentlyDeletedGistIds(userLogin));
     const created = getRecentlyCreatedGists(userLogin);
-    const apiIds = new Set(gists.map(g => g.id));
+    const apiIds = new Set(gists.map((g) => g.id));
 
     const pendingCreated = created
-      .filter(g => !apiIds.has(g.id) && !deleted.has(g.id))
-      .map(g => ({ gist: g, pending: true }));
+      .filter((g) => !apiIds.has(g.id) && !deleted.has(g.id))
+      .map((g) => ({ gist: g, pending: true }));
 
-    const apiVisible = gists
-      .filter(g => !deleted.has(g.id))
-      .map(g => ({ gist: g, pending: false }));
+    const apiVisible = gists.filter((g) => !deleted.has(g.id)).map((g) => ({ gist: g, pending: false }));
 
     return [...pendingCreated, ...apiVisible];
   }, [gists, userLogin]);
 
   const onDelete = async (gist: GistSummary) => {
     const title = gist.description || 'Untitled';
-    if (!await showConfirm(`Delete "${title}"?`)) return;
+    if (!(await showConfirm(`Delete "${title}"?`))) return;
     try {
       await deleteGist(gist.id);
       markGistRecentlyDeleted(userLogin, gist.id);
-      setGists(prev => prev.filter(g => g.id !== gist.id));
+      setGists((prev) => prev.filter((g) => g.id !== gist.id));
     } catch (err) {
       void showAlert(err instanceof Error ? err.message : 'Failed to delete');
     }
@@ -92,11 +91,11 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
     if (nextTitle === currentTitle) return;
     try {
       const updated = await updateGistDescription(gist.id, nextTitle);
-      setGists(prev => prev.map(g => (
-        g.id === gist.id
-          ? { ...g, description: updated.description, updated_at: updated.updated_at }
-          : g
-      )));
+      setGists((prev) =>
+        prev.map((g) =>
+          g.id === gist.id ? { ...g, description: updated.description, updated_at: updated.updated_at } : g,
+        ),
+      );
     } catch (err) {
       void showAlert(err instanceof Error ? err.message : 'Failed to rename');
     }
@@ -106,7 +105,9 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
     return (
       <div class="error-view">
         <p class="error-message">{error}</p>
-        <button type="button" onClick={() => loadPage(1, true)}>Try Again</button>
+        <button type="button" onClick={() => loadPage(1, true)}>
+          Try Again
+        </button>
       </div>
     );
   }
@@ -118,45 +119,49 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
           <h1>My Wikis</h1>
           <p class="hint documents-subtitle">Wikis are stored as multi-file Gists on GitHub.</p>
         </div>
-        <button type="button" onClick={() => navigate(routePath.home())}>New Wiki</button>
+        <button type="button" onClick={() => navigate(routePath.home())}>
+          New Wiki
+        </button>
       </div>
       {!loading && visibleGists.length === 0 ? (
         <div class="empty-state">
           <p>No wikis yet.</p>
           <p>Create your first wiki to get started.</p>
-          <button type="button" onClick={() => navigate(routePath.home())}>New Wiki</button>
+          <button type="button" onClick={() => navigate(routePath.home())}>
+            New Wiki
+          </button>
         </div>
       ) : (
-      <div class="documents-list">
-        {visibleGists.map(({ gist, pending }) => {
-          const title = gist.description || 'Untitled';
-          const fileCount = Object.keys(gist.files).length;
-          const updated = formatDate(gist.updated_at);
-          return (
-            <DocumentCard
-              key={gist.id}
-              title={title}
-              pending={pending}
-              meta={(
-                <>
-                  {fileCount} file{fileCount !== 1 ? 's' : ''} {'\u00b7'} Updated {updated} {'\u00b7'}{' '}
-                  <a
-                    href={`https://gist.github.com/${gist.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="doc-meta-link"
-                  >
-                    {gist.id.slice(0, 8)}
-                  </a>
-                </>
-              )}
-              onOpen={() => navigate(routePath.gistView(gist.id))}
-              onRename={() => onRename(gist)}
-              onDelete={() => onDelete(gist)}
-            />
-          );
-        })}
-      </div>
+        <div class="documents-list">
+          {visibleGists.map(({ gist, pending }) => {
+            const title = gist.description || 'Untitled';
+            const fileCount = Object.keys(gist.files).length;
+            const updated = formatDate(gist.updated_at);
+            return (
+              <DocumentCard
+                key={gist.id}
+                title={title}
+                pending={pending}
+                meta={
+                  <>
+                    {fileCount} file{fileCount !== 1 ? 's' : ''} {'\u00b7'} Updated {updated} {'\u00b7'}{' '}
+                    <a
+                      href={`https://gist.github.com/${gist.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="doc-meta-link"
+                    >
+                      {gist.id.slice(0, 8)}
+                    </a>
+                  </>
+                }
+                onOpen={() => navigate(routePath.gistView(gist.id))}
+                onRename={() => onRename(gist)}
+                onDelete={() => onDelete(gist)}
+              />
+            );
+          })}
+        </div>
       )}
       {loading && <p class="loading-hint">Loading...</p>}
       {!allLoaded && !loading && (

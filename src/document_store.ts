@@ -1,16 +1,5 @@
-import {
-  addFileToGist,
-  deleteFileFromGist,
-  renameFileInGist,
-  type GistDetail,
-} from './github';
-import {
-  deleteRepoFile,
-  getRepoContents,
-  isRepoFile,
-  putRepoFile,
-  type PutFileResult,
-} from './github_app';
+import { addFileToGist, deleteFileFromGist, type GistDetail, renameFileInGist } from './github';
+import { deleteRepoFile, getRepoContents, isRepoFile, type PutFileResult, putRepoFile } from './github_app';
 import { encodeUtf8ToBase64 } from './util';
 
 export interface RepoDocFile {

@@ -1,9 +1,12 @@
 import { useState } from 'preact/hooks';
 import {
-  listInstallationRepos,
-  clearInstallationId, clearSelectedRepo, clearSessionToken,
-  setSelectedRepo, SessionExpiredError,
+  clearInstallationId,
+  clearSelectedRepo,
+  clearSessionToken,
   type InstallationRepoList,
+  listInstallationRepos,
+  SessionExpiredError,
+  setSelectedRepo,
 } from '../github_app';
 import { routePath } from '../routing';
 
@@ -15,7 +18,13 @@ interface GitHubAppViewProps {
   navigate: (route: string) => void;
 }
 
-export function GitHubAppView({ installationId, selectedRepo, onSelectRepo, onDisconnect, navigate }: GitHubAppViewProps) {
+export function GitHubAppView({
+  installationId,
+  selectedRepo,
+  onSelectRepo,
+  onDisconnect,
+  navigate,
+}: GitHubAppViewProps) {
   const [repoList, setRepoList] = useState<InstallationRepoList | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +69,9 @@ export function GitHubAppView({ installationId, selectedRepo, onSelectRepo, onDi
         <button type="button" onClick={loadRepos}>
           {loading ? 'Loading...' : 'Load Accessible Repos'}
         </button>
-        <button type="button" onClick={handleDisconnect}>Disconnect</button>
+        <button type="button" onClick={handleDisconnect}>
+          Disconnect
+        </button>
       </div>
       {error && <p class="error-message">{error}</p>}
       {repoList && (
@@ -69,7 +80,7 @@ export function GitHubAppView({ installationId, selectedRepo, onSelectRepo, onDi
             {repoList.total_count} repo{repoList.total_count === 1 ? '' : 's'} accessible via this installation:
           </div>
           <ul>
-            {repoList.repositories.map(repo => (
+            {repoList.repositories.map((repo) => (
               <li key={repo.id}>
                 <button
                   type="button"
@@ -80,7 +91,8 @@ export function GitHubAppView({ installationId, selectedRepo, onSelectRepo, onDi
                   {selectedRepo === repo.full_name ? 'Selected' : 'Select'}
                 </button>
                 <a href={repo.html_url} target="_blank" rel="noopener noreferrer">
-                  {repo.full_name}{repo.private ? ' (private)' : ''}
+                  {repo.full_name}
+                  {repo.private ? ' (private)' : ''}
                 </a>
               </li>
             ))}

@@ -1,8 +1,8 @@
-import { createContext } from 'preact';
-import { useState, useCallback, useContext, useRef } from 'preact/hooks';
-import type { ComponentChildren } from 'preact';
 import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
+import type { ComponentChildren } from 'preact';
+import { createContext } from 'preact';
+import { useCallback, useContext, useRef, useState } from 'preact/hooks';
 
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;
@@ -31,19 +31,19 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
   const close = useCallback(() => setDialog(null), []);
 
   const showAlert = useCallback((message: string): Promise<void> => {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       setDialog({ type: 'alert', message, resolve });
     });
   }, []);
 
   const showConfirm = useCallback((message: string): Promise<boolean> => {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       setDialog({ type: 'confirm', message, resolve });
     });
   }, []);
 
   const showPrompt = useCallback((message: string, defaultValue = ''): Promise<string | null> => {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       setPromptValue(defaultValue);
       setDialog({ type: 'prompt', message, defaultValue, resolve });
     });
@@ -58,7 +58,10 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
         <AlertDialogPrimitive.Root
           open
           onOpenChange={(open: boolean) => {
-            if (!open) { dialog.resolve(); close(); }
+            if (!open) {
+              dialog.resolve();
+              close();
+            }
           }}
         >
           <AlertDialogPrimitive.Portal>
@@ -69,7 +72,13 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
               </AlertDialogPrimitive.Description>
               <div class="dialog-actions">
                 <AlertDialogPrimitive.Action asChild>
-                  <button type="button" onClick={() => { dialog.resolve(); close(); }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      dialog.resolve();
+                      close();
+                    }}
+                  >
                     OK
                   </button>
                 </AlertDialogPrimitive.Action>
@@ -84,7 +93,10 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
         <AlertDialogPrimitive.Root
           open
           onOpenChange={(open: boolean) => {
-            if (!open) { dialog.resolve(false); close(); }
+            if (!open) {
+              dialog.resolve(false);
+              close();
+            }
           }}
         >
           <AlertDialogPrimitive.Portal>
@@ -95,12 +107,24 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
               </AlertDialogPrimitive.Description>
               <div class="dialog-actions">
                 <AlertDialogPrimitive.Cancel asChild>
-                  <button type="button" onClick={() => { dialog.resolve(false); close(); }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      dialog.resolve(false);
+                      close();
+                    }}
+                  >
                     Cancel
                   </button>
                 </AlertDialogPrimitive.Cancel>
                 <AlertDialogPrimitive.Action asChild>
-                  <button type="button" onClick={() => { dialog.resolve(true); close(); }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      dialog.resolve(true);
+                      close();
+                    }}
+                  >
                     OK
                   </button>
                 </AlertDialogPrimitive.Action>
@@ -115,7 +139,10 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
         <DialogPrimitive.Root
           open
           onOpenChange={(open: boolean) => {
-            if (!open) { dialog.resolve(null); close(); }
+            if (!open) {
+              dialog.resolve(null);
+              close();
+            }
           }}
         >
           <DialogPrimitive.Portal>
@@ -127,24 +154,37 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                 setTimeout(() => promptInputRef.current?.focus(), 0);
               }}
             >
-              <DialogPrimitive.Description class="dialog-message">
-                {dialog.message}
-              </DialogPrimitive.Description>
+              <DialogPrimitive.Description class="dialog-message">{dialog.message}</DialogPrimitive.Description>
               <input
                 ref={promptInputRef}
                 class="dialog-input"
                 type="text"
                 value={promptValue}
-                onInput={e => setPromptValue((e.target as HTMLInputElement).value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') { dialog.resolve(promptValue); close(); }
+                onInput={(e) => setPromptValue((e.target as HTMLInputElement).value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    dialog.resolve(promptValue);
+                    close();
+                  }
                 }}
               />
               <div class="dialog-actions">
-                <button type="button" onClick={() => { dialog.resolve(null); close(); }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dialog.resolve(null);
+                    close();
+                  }}
+                >
                   Cancel
                 </button>
-                <button type="button" onClick={() => { dialog.resolve(promptValue); close(); }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dialog.resolve(promptValue);
+                    close();
+                  }}
+                >
                   OK
                 </button>
               </div>

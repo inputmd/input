@@ -1,4 +1,4 @@
-import http from 'node:http';
+import type http from 'node:http';
 import { ALLOWED_ORIGINS } from './config';
 
 export function applyCors(req: http.IncomingMessage, res: http.ServerResponse): void {

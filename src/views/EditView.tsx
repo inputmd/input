@@ -1,5 +1,5 @@
-import type { JSX } from 'preact';
 import { Eye } from 'lucide-react';
+import type { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
@@ -108,7 +108,7 @@ export function EditView({
     if (!e.shiftKey) {
       // Tab: insert \t or indent selected lines
       if (start === end) {
-        const next = value.slice(0, start) + '\t' + value.slice(end);
+        const next = `${value.slice(0, start)}\t${value.slice(end)}`;
         onContentChange(next);
         requestAnimationFrame(() => {
           ta.selectionStart = ta.selectionEnd = start + 1;
@@ -143,9 +143,8 @@ export function EditView({
   };
 
   const canRenderPreview = previewEnabled && isDesktopWidth;
-  const layoutStyle = previewVisible && canRenderPreview
-    ? { gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` }
-    : undefined;
+  const layoutStyle =
+    previewVisible && canRenderPreview ? { gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` } : undefined;
 
   return (
     <div class="edit-view">
@@ -156,7 +155,7 @@ export function EditView({
             class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
             title={previewVisible ? 'Hide preview' : 'Show preview'}
             aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
-            onClick={() => setPreviewVisible(v => !v)}
+            onClick={() => setPreviewVisible((v) => !v)}
           >
             <Eye size={16} />
           </button>
@@ -178,7 +177,7 @@ export function EditView({
           ref={editorRef}
           placeholder="Write your markdown here..."
           value={content}
-          onInput={e => onContentChange((e.target as HTMLTextAreaElement).value)}
+          onInput={(e) => onContentChange((e.target as HTMLTextAreaElement).value)}
           onKeyDown={handleEditorKeyDown}
         />
         {previewVisible && canRenderPreview && (

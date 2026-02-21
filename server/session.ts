@@ -1,5 +1,5 @@
-import http from 'node:http';
 import crypto from 'node:crypto';
+import type http from 'node:http';
 import { SESSION_SECRET, SESSION_TTL_SECONDS } from './config';
 import type { Session } from './types';
 

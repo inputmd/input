@@ -12,7 +12,9 @@ import { applySecurityHeaders } from './security_headers';
 import { serveStatic } from './static_files';
 
 if (!process.env.SESSION_SECRET) {
-  console.warn('WARNING: SESSION_SECRET not set — using random ephemeral secret. Sessions will not survive server restarts.');
+  console.warn(
+    'WARNING: SESSION_SECRET not set — using random ephemeral secret. Sessions will not survive server restarts.',
+  );
 }
 
 startInstallationTokenCacheCleanup();
@@ -55,9 +57,9 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
 server.listen(PORT, '0.0.0.0', () => {
   const configured = Boolean(
     process.env.GITHUB_APP_ID &&
-    (process.env.GITHUB_APP_PRIVATE_KEY || process.env.GITHUB_APP_PRIVATE_KEY_PATH) &&
-    process.env.GITHUB_APP_SLUG &&
-    SESSION_SECRET,
+      (process.env.GITHUB_APP_PRIVATE_KEY || process.env.GITHUB_APP_PRIVATE_KEY_PATH) &&
+      process.env.GITHUB_APP_SLUG &&
+      SESSION_SECRET,
   );
   console.log(`GitHub App auth server listening on http://0.0.0.0:${PORT} (configured=${configured})`);
 });

@@ -1,11 +1,11 @@
-import http from 'node:http';
+import type http from 'node:http';
 import { GITHUB_CLIENT_ID, GITHUB_FETCH_TIMEOUT_MS, GITHUB_TOKEN } from './config';
+import { ClientError } from './errors';
+import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
+import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
+import { json, readJson, requireEnv, requireString } from './http_helpers';
 import { checkRateLimit } from './rate_limit';
 import { createSessionToken, requireSession } from './session';
-import { ClientError } from './errors';
-import { json, readJson, requireEnv, requireString } from './http_helpers';
-import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
-import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
 import type { Session } from './types';
 
 // --- Types ---
@@ -69,8 +69,8 @@ async function handleCreateSession(ctx: RouteContext): Promise<void> {
   const jwt = await createAppJwt();
   const ghRes = await fetch(`https://api.github.com/app/installations/${encodeURIComponent(installationId)}`, {
     headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': `Bearer ${jwt}`,
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${jwt}`,
       'User-Agent': 'input-github-app-auth-server',
       'X-GitHub-Api-Version': '2022-11-28',
     },
@@ -179,11 +179,11 @@ async function handleGetGist(ctx: RouteContext): Promise<void> {
   }
 
   const ghHeaders: Record<string, string> = {
-    'Accept': 'application/vnd.github+json',
+    Accept: 'application/vnd.github+json',
     'User-Agent': 'input-github-app-auth-server',
     'X-GitHub-Api-Version': '2022-11-28',
   };
-  if (GITHUB_TOKEN) ghHeaders['Authorization'] = `Bearer ${GITHUB_TOKEN}`;
+  if (GITHUB_TOKEN) ghHeaders.Authorization = `Bearer ${GITHUB_TOKEN}`;
   if (cached?.etag) ghHeaders['If-None-Match'] = cached.etag;
 
   try {
@@ -236,7 +236,7 @@ async function handleDeviceFlowCode(ctx: RouteContext): Promise<void> {
 
   const ghRes = await fetch('https://github.com/login/device/code', {
     method: 'POST',
-    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: 'gist' }),
     signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });
@@ -261,7 +261,7 @@ async function handleDeviceFlowToken(ctx: RouteContext): Promise<void> {
 
   const ghRes = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
-    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({
       client_id: GITHUB_CLIENT_ID,
       device_code: deviceCode,
@@ -283,16 +283,16 @@ async function handleDeviceFlowToken(ctx: RouteContext): Promise<void> {
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
 
 const routes: RouteDef[] = [
-  { method: 'GET',    pattern: /^\/api\/github-app\/health$/,                                          handler: handleHealth },
-  { method: 'GET',    pattern: /^\/api\/github-app\/install-url$/,                                     handler: handleInstallUrl },
-  { method: 'POST',   pattern: /^\/api\/github-app\/sessions$/,                                        handler: handleCreateSession },
-  { method: 'GET',    pattern: /^\/api\/github-app\/installations\/([^/]+)\/repositories$/,             handler: handleListRepos },
-  { method: 'GET',    pattern: CONTENTS_PATTERN,                                                       handler: handleGetContents },
-  { method: 'PUT',    pattern: CONTENTS_PATTERN,                                                       handler: handlePutContents },
-  { method: 'DELETE', pattern: CONTENTS_PATTERN,                                                       handler: handleDeleteContents },
-  { method: 'GET',    pattern: /^\/api\/gists\/([a-f0-9]+)$/i,                                         handler: handleGetGist },
-  { method: 'POST',   pattern: /^\/api\/device-flow\/code$/,                                           handler: handleDeviceFlowCode },
-  { method: 'POST',   pattern: /^\/api\/device-flow\/token$/,                                          handler: handleDeviceFlowToken },
+  { method: 'GET', pattern: /^\/api\/github-app\/health$/, handler: handleHealth },
+  { method: 'GET', pattern: /^\/api\/github-app\/install-url$/, handler: handleInstallUrl },
+  { method: 'POST', pattern: /^\/api\/github-app\/sessions$/, handler: handleCreateSession },
+  { method: 'GET', pattern: /^\/api\/github-app\/installations\/([^/]+)\/repositories$/, handler: handleListRepos },
+  { method: 'GET', pattern: CONTENTS_PATTERN, handler: handleGetContents },
+  { method: 'PUT', pattern: CONTENTS_PATTERN, handler: handlePutContents },
+  { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
+  { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetGist },
+  { method: 'POST', pattern: /^\/api\/device-flow\/code$/, handler: handleDeviceFlowCode },
+  { method: 'POST', pattern: /^\/api\/device-flow\/token$/, handler: handleDeviceFlowToken },
 ];
 
 // --- Dispatcher ---
@@ -310,9 +310,7 @@ export async function handleApiRequest(
     if (req.method !== route.method) {
       // Pattern matched but method didn't — check if any other route matches
       // the same pattern with the right method before returning 405.
-      const hasMethodMatch = routes.some(
-        r => r.method === req.method && pathname.match(r.pattern),
-      );
+      const hasMethodMatch = routes.some((r) => r.method === req.method && pathname.match(r.pattern));
       if (!hasMethodMatch) {
         json(res, 405, { error: 'Method not allowed' });
         return true;

@@ -44,8 +44,8 @@ export const routePath = {
   repoEdit: (path: string) => `repoedit/${encodeURIComponent(path)}`,
   documents: () => 'documents',
   freshDraft: () => 'new',
-  gistEdit: (id: string, filename?: string) => filename ? `edit/${id}/${encodeURIComponent(filename)}` : `edit/${id}`,
-  gistView: (id: string, filename?: string) => filename ? `gist/${id}/${encodeURIComponent(filename)}` : `gist/${id}`,
+  gistEdit: (id: string, filename?: string) => (filename ? `edit/${id}/${encodeURIComponent(filename)}` : `edit/${id}`),
+  gistView: (id: string, filename?: string) => (filename ? `gist/${id}/${encodeURIComponent(filename)}` : `gist/${id}`),
 } as const;
 
 export function getPathSegment(): string {
