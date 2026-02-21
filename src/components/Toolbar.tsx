@@ -101,9 +101,6 @@ export function Toolbar({
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate('documents')}>
                     My Wikis
                   </DropdownMenu.Item>
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate('new')}>
-                    New Wiki
-                  </DropdownMenu.Item>
                   <DropdownMenu.Separator class="user-menu-separator" />
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                     Toggle Theme

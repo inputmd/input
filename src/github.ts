@@ -122,6 +122,15 @@ export async function updateGist(id: string, content: string, filename: string, 
   return res.json();
 }
 
+export async function updateGistDescription(id: string, description: string): Promise<GistDetail> {
+  const res = await apiFetch(`/gists/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description }),
+  });
+  return res.json();
+}
+
 type GistFileUpdate = { content: string } | { filename: string } | null;
 
 export async function updateGistFiles(id: string, files: Record<string, GistFileUpdate>, description?: string): Promise<GistDetail> {

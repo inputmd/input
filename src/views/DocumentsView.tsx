@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
-import { listGists, deleteGist, type GistSummary } from '../github';
+import { listGists, deleteGist, updateGistDescription, type GistSummary } from '../github';
 import {
   getRecentlyCreatedGists,
   getRecentlyDeletedGistIds,
@@ -79,6 +79,24 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
     }
   };
 
+  const onRename = async (gist: GistSummary) => {
+    const currentTitle = gist.description ?? '';
+    const input = prompt('New wiki name:', currentTitle);
+    if (input === null) return;
+    const nextTitle = input.trim();
+    if (nextTitle === currentTitle) return;
+    try {
+      const updated = await updateGistDescription(gist.id, nextTitle);
+      setGists(prev => prev.map(g => (
+        g.id === gist.id
+          ? { ...g, description: updated.description, updated_at: updated.updated_at }
+          : g
+      )));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to rename');
+    }
+  };
+
   if (error) {
     return (
       <div class="error-view">
@@ -121,6 +139,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
                 </>
               )}
               onOpen={() => navigate(`gist/${gist.id}`)}
+              onRename={() => onRename(gist)}
               onDelete={() => onDelete(gist)}
             />
           );
