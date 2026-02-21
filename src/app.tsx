@@ -51,7 +51,6 @@ export function App() {
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [installationId, setInstId] = useState<string | null>(getInstallationId());
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   // --- View state ---
   const [activeView, setActiveView] = useState<ActiveView>('loading');
@@ -480,11 +479,9 @@ export function App() {
 
   // --- Theme toggle ---
   const toggleTheme = useCallback(() => {
-    setTheme(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      return next;
-    });
+    const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
   }, []);
 
   // --- Sign out ---
@@ -753,8 +750,6 @@ export function App() {
     }
   };
 
-  const showSidebar = activeView === 'content' || activeView === 'edit';
-
   const sidebarFiles = useMemo(() => {
     if (gistFiles) {
       return Object.keys(gistFiles).map(name => ({
@@ -772,6 +767,13 @@ export function App() {
     return [];
   }, [gistFiles, currentFileName, repoFiles, currentRepoDocPath]);
 
+  const showSidebar = (activeView === 'content' || activeView === 'edit') && sidebarFiles.length > 1;
+  const isHomeDraft = activeView === 'edit' && currentGistId === null && currentRepoDocPath === null;
+  const showHeaderSave = activeView === 'edit' && !(isHomeDraft && !user);
+  const draftFilename = sanitizeTitleToFileName(editTitle.trim() || DEFAULT_NEW_FILENAME);
+  const unsavedName = currentFileName ?? draftFilename;
+  const unsavedLabel = hasUnsavedChanges ? `${unsavedName} (unsaved)` : null;
+
   return (
     <>
       <Toolbar
@@ -782,13 +784,14 @@ export function App() {
         currentGistId={currentGistId}
         currentRepoDocPath={currentRepoDocPath}
         currentFileName={currentFileName}
-        theme={theme}
         saving={saving}
+        showSave={showHeaderSave}
+        unsavedLabel={unsavedLabel}
         navigate={navigate}
         onSignOut={signOut}
         onToggleTheme={toggleTheme}
-        onEdit={onEdit}
         onSave={onSave}
+        onEdit={onEdit}
         onCancel={onCancel}
         onDelete={onDelete}
       />
