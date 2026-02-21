@@ -19,7 +19,7 @@ interface SidebarProps {
 function sanitizeFileName(name: string): string {
   const trimmed = name.trim().replace(/[/\\]/g, '').replace(/\.{2,}/g, '.');
   if (!trimmed) return '';
-  return trimmed.toLowerCase().endsWith('.md') ? trimmed : trimmed + '.md';
+  return trimmed;
 }
 
 export function Sidebar({
@@ -90,7 +90,7 @@ export function Sidebar({
 
   const startRename = (filename: string) => {
     setRenamingFile(filename);
-    setRenameValue(filename.replace(/\.md$/i, ''));
+    setRenameValue(filename);
   };
 
   return (
@@ -155,6 +155,17 @@ export function Sidebar({
             }}
           >
             Edit
+          </button>
+          <button
+            type="button"
+            class="sidebar-context-menu-item"
+            onClick={() => {
+              startRename(contextFile);
+              setContextFile(null);
+              setContextPos(null);
+            }}
+          >
+            Rename
           </button>
           {canViewOnGitHub && (
             <button

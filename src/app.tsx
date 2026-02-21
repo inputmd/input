@@ -826,7 +826,7 @@ export function App() {
   }, [gistFiles, currentFileName, repoFiles, currentRepoDocPath]);
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
-  const defaultShowSidebar = sidebarEligible && sidebarFiles.length > 1;
+  const defaultShowSidebar = sidebarEligible && !!user && sidebarFiles.length > 0;
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar) && sidebarFiles.length > 0;
   const canToggleSidebar = sidebarEligible && sidebarFiles.length > 0 && currentFileName !== null;
   const onToggleSidebar = useCallback(() => {

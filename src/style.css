@@ -931,6 +931,7 @@ button:disabled {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  font-size: 15px;
 }
 
 .sidebar-header {
@@ -969,7 +970,7 @@ button:disabled {
   justify-content: space-between;
   padding: 6px 12px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 15px;
   border-left: 3px solid transparent;
   transition: background 0.1s;
 }
@@ -991,7 +992,7 @@ button:disabled {
   width: 100%;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .sidebar-context-menu {
@@ -1031,7 +1032,7 @@ button:disabled {
 .sidebar-rename-input {
   width: 100%;
   padding: 2px 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-family: var(--font-mono);
   border: 1px solid var(--focus-border);
   border-radius: 3px;
@@ -1048,7 +1049,7 @@ button:disabled {
 .sidebar-new-input {
   width: 100%;
   padding: 4px 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--font-mono);
   border: 1px solid var(--border);
   border-radius: 4px;
