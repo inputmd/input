@@ -101,6 +101,14 @@ export function App() {
     setActiveView('error');
   }, []);
 
+  const focusEditorSoon = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLTextAreaElement>('.doc-editor')?.focus();
+      });
+    });
+  }, []);
+
   // --- Auth ---
   const tryRestoreAuth = useCallback(async () => {
     if (!isAuthenticated()) return;
@@ -364,7 +372,15 @@ export function App() {
         setActiveView('documents');
         return;
       case 'new':
+        if (activeView === 'edit') {
+          localStorage.removeItem(DRAFT_TITLE_KEY);
+          localStorage.removeItem(DRAFT_CONTENT_KEY);
+          setHasUnsavedChanges(false);
+        }
         navigate('');
+        if (activeView === 'edit') {
+          focusEditorSoon();
+        }
         return;
       case 'edit': {
         if (!userRef.current) { navigate('auth'); return; }
@@ -444,7 +460,7 @@ export function App() {
         setDraftMode(false);
         setActiveView('edit');
     }
-  }, [navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError]);
+  }, [activeView, navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError, focusEditorSoon]);
 
   // --- Init ---
   useEffect(() => {
@@ -770,9 +786,6 @@ export function App() {
   const showSidebar = (activeView === 'content' || activeView === 'edit') && sidebarFiles.length > 1;
   const isHomeDraft = activeView === 'edit' && currentGistId === null && currentRepoDocPath === null;
   const showHeaderSave = activeView === 'edit' && !(isHomeDraft && !user);
-  const draftFilename = sanitizeTitleToFileName(editTitle.trim() || DEFAULT_NEW_FILENAME);
-  const unsavedName = currentFileName ?? draftFilename;
-  const unsavedLabel = hasUnsavedChanges ? `${unsavedName} (unsaved)` : null;
 
   return (
     <>
@@ -785,8 +798,8 @@ export function App() {
         currentRepoDocPath={currentRepoDocPath}
         currentFileName={currentFileName}
         saving={saving}
+        canSave={hasUnsavedChanges}
         showSave={showHeaderSave}
-        unsavedLabel={unsavedLabel}
         navigate={navigate}
         onSignOut={signOut}
         onToggleTheme={toggleTheme}

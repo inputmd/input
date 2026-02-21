@@ -162,6 +162,10 @@ body {
   line-height: 1;
 }
 
+.document-menu-trigger-caret svg {
+  transform: translateY(1px);
+}
+
 .document-menu-trigger:focus,
 .document-menu-trigger:focus-visible {
   outline: none;
@@ -742,12 +746,6 @@ button:disabled {
 
 .doc-editor:focus {
   border-color: var(--border);
-}
-
-.edit-unsaved-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-family: 'SF Mono', Monaco, Menlo, Consolas, 'Courier New', monospace;
 }
 
 /* Sidebar */

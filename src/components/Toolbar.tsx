@@ -14,8 +14,8 @@ interface ToolbarProps {
   currentRepoDocPath: string | null;
   currentFileName: string | null;
   saving: boolean;
+  canSave: boolean;
   showSave: boolean;
-  unsavedLabel: string | null;
   navigate: (route: string) => void;
   onSignOut: () => void;
   onToggleTheme: () => void;
@@ -27,7 +27,7 @@ interface ToolbarProps {
 
 export function Toolbar({
   view, user, installationId, selectedRepo,
-  currentGistId, currentRepoDocPath, currentFileName, saving, showSave, unsavedLabel,
+  currentGistId, currentRepoDocPath, currentFileName, saving, canSave, showSave,
   navigate, onSignOut, onToggleTheme,
   onSave, onEdit, onCancel, onDelete,
 }: ToolbarProps) {
@@ -106,8 +106,7 @@ export function Toolbar({
         </div>
         {showSave && (
           <div class="header-save-actions">
-            {unsavedLabel && <span class="edit-unsaved-label">{unsavedLabel}</span>}
-            <button type="button" onClick={onSave} disabled={saving}>
+            <button type="button" onClick={onSave} disabled={saving || !canSave}>
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
