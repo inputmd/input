@@ -681,6 +681,11 @@ button:disabled {
   color: var(--error-color);
 }
 
+.error-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* Content view */
 
 .content-view {
