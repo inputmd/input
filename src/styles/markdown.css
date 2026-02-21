@@ -139,6 +139,20 @@
   text-decoration: underline;
 }
 
+.rendered-markdown .hash-link-indicator {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--text-secondary);
+  line-height: 0;
+  vertical-align: baseline;
+  transform: translateY(2px);
+}
+
+.rendered-markdown .hash-link-indicator svg {
+  width: 0.78em;
+  height: 0.78em;
+}
+
 .rendered-markdown strong {
   font-weight: 700;
 }
