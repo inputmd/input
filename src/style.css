@@ -135,12 +135,113 @@ body {
   gap: 8px;
 }
 
-/* User info */
+/* User menu */
 
-.user-info {
+.user-menu {
+  position: relative;
+}
+
+.user-menu-trigger {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 35px;
+  min-width: 40px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.user-menu-trigger:hover {
+  background: var(--btn-hover);
+}
+
+.user-menu-content {
+  min-width: 140px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 20;
+}
+
+.user-menu-label {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.user-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.user-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.user-menu-item[data-highlighted] {
+  background: var(--btn-hover);
+}
+
+.user-popover-content {
+  width: 220px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.user-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-popover-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.user-popover-meta div:last-child {
+  color: var(--text-secondary);
+}
+
+.toolbar-tooltip {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--toolbar-bg);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+}
+
+.toolbar-tooltip-arrow,
+.user-popover-arrow {
+  fill: var(--toolbar-bg);
+}
+
+.user-menu-content button {
+  width: 100%;
 }
 
 .user-avatar {
