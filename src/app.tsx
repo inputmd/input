@@ -402,7 +402,7 @@ export function App() {
         }
         return;
       case 'edit': {
-        if (!userRef.current) { navigate('auth'); return; }
+        if (!userRef.current) { navigate('auth', { replace: true }); return; }
         setDraftMode(false);
         // Serve from cache if we already have this gist's files
         const cachedFiles = currentGistIdRef.current === r.params.id ? gistFilesRef.current : null;
