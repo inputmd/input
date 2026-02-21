@@ -203,80 +203,20 @@ export function App() {
   }, []);
 
   // --- Data loaders ---
-  const loadGistAnonymous = useCallback(async (id: string, filename?: string) => {
-    // Serve from cache if available (skip for truncated files with null content)
+  const loadGist = useCallback(async (id: string, filename: string | undefined, anonymous: boolean) => {
+    // Serve from cache if available. Anonymous mode skips truncated files with null content.
     const cached = currentGistIdRef.current === id ? gistFilesRef.current : null;
     if (cached) {
       const cacheKeys = Object.keys(cached);
       const cacheName = filename ? safeDecodeURIComponent(filename) : cacheKeys[0];
       const cacheFile = cacheName ? cached[cacheName] : null;
-      if (cacheFile && cacheFile.content != null) {
+      if (cacheFile && (!anonymous || cacheFile.content != null)) {
         setCurrentFileName(cacheFile.filename);
-        renderDocumentContent(cacheFile.content, cacheFile.filename);
-        setCurrentGistId(id);
-        setCurrentRepoDocPath(null);
-        setCurrentRepoDocSha(null);
-        setRepoFiles([]);
-        setActiveView('content');
-        return;
-      }
-    }
-
-    setActiveView('loading');
-    try {
-      let res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
-      if (!res.ok) {
-        console.warn(`GitHub API failed (${res.status}), falling back to gist proxy`);
-        res = await fetch(`/api/gists/${encodeURIComponent(id)}`);
-      }
-      if (!res.ok) throw new Error(`Failed to fetch gist: ${res.status} ${res.statusText}`);
-      const data = await res.json();
-      const files = data.files as Record<string, GistFile>;
-      setGistFiles(files);
-
-      const fileKeys = Object.keys(files);
-      const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
-      const file = targetName ? files[targetName] : null;
-      if (!file) { showError('File not found in gist'); return; }
-
-      let content = file.content;
-      if (content == null && file.raw_url && new URL(file.raw_url).hostname === 'gist.githubusercontent.com') {
-        const raw = await fetch(file.raw_url, { redirect: 'error' });
-        if (raw.ok) content = await raw.text();
-        // Store fetched content in cache for subsequent file switches
-        if (content != null) {
-          const updated = { ...files, [file.filename]: { ...file, content } };
-          gistFilesRef.current = updated;
-          setGistFiles(updated);
-        }
-      }
-
-      setCurrentFileName(file.filename);
-      renderDocumentContent(content ?? '', file.filename);
-      setCurrentGistId(id);
-      setCurrentRepoDocPath(null);
-      setCurrentRepoDocSha(null);
-      setRepoFiles([]);
-      setActiveView('content');
-    } catch (err) {
-      showError(err instanceof Error ? err.message : 'Unknown error');
-    }
-  }, [showError]);
-
-  const loadGistAuthenticated = useCallback(async (id: string, filename?: string) => {
-    // Serve from cache if we already have this gist's files
-    const cached = currentGistIdRef.current === id ? gistFilesRef.current : null;
-    if (cached) {
-      const cacheKeys = Object.keys(cached);
-      const cacheName = filename ? safeDecodeURIComponent(filename) : cacheKeys[0];
-      const cacheFile = cacheName ? cached[cacheName] : null;
-      if (cacheFile) {
-        setCurrentFileName(cacheFile.filename);
-        setCurrentGistId(id);
-        setCurrentRepoDocPath(null);
-        setCurrentRepoDocSha(null);
-        setRepoFiles([]);
         renderDocumentContent(cacheFile.content ?? '', cacheFile.filename);
+        setCurrentGistId(id);
+        setCurrentRepoDocPath(null);
+        setCurrentRepoDocSha(null);
+        setRepoFiles([]);
         setActiveView('content');
         return;
       }
@@ -284,6 +224,43 @@ export function App() {
 
     setActiveView('loading');
     try {
+      if (anonymous) {
+        let res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
+        if (!res.ok) {
+          console.warn(`GitHub API failed (${res.status}), falling back to gist proxy`);
+          res = await fetch(`/api/gists/${encodeURIComponent(id)}`);
+        }
+        if (!res.ok) throw new Error(`Failed to fetch gist: ${res.status} ${res.statusText}`);
+        const data = await res.json();
+        const files = data.files as Record<string, GistFile>;
+        setGistFiles(files);
+
+        const fileKeys = Object.keys(files);
+        const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
+        const file = targetName ? files[targetName] : null;
+        if (!file) { showError('File not found in gist'); return; }
+
+        let content = file.content;
+        if (content == null && file.raw_url && new URL(file.raw_url).hostname === 'gist.githubusercontent.com') {
+          const raw = await fetch(file.raw_url, { redirect: 'error' });
+          if (raw.ok) content = await raw.text();
+          if (content != null) {
+            const updated = { ...files, [file.filename]: { ...file, content } };
+            gistFilesRef.current = updated;
+            setGistFiles(updated);
+          }
+        }
+
+        setCurrentFileName(file.filename);
+        renderDocumentContent(content ?? '', file.filename);
+        setCurrentGistId(id);
+        setCurrentRepoDocPath(null);
+        setCurrentRepoDocSha(null);
+        setRepoFiles([]);
+        setActiveView('content');
+        return;
+      }
+
       const gist = await getGist(id);
       setGistFiles(gist.files);
 
@@ -304,7 +281,7 @@ export function App() {
     }
   }, [showError]);
 
-  const loadRepoFile = useCallback(async (path: string) => {
+  const loadRepoFile = useCallback(async (path: string, forEdit: boolean) => {
     const instId = getInstallationId();
     const repoName = getSelectedRepo()?.full_name ?? null;
     if (!instId || !repoName) { navigate(routePath.githubApp()); return; }
@@ -318,34 +295,15 @@ export function App() {
       setCurrentGistId(null);
       setGistFiles(null);
       setCurrentFileName(contents.name);
-      renderDocumentContent(decoded, contents.name);
+      if (forEdit) {
+        setEditingBackend('repo');
+        setEditTitle(contents.name.replace(/\.md$/i, ''));
+        setEditContent(decoded);
+      } else {
+        renderDocumentContent(decoded, contents.name);
+      }
       await fetchRepoSidebarFiles(instId, repoName);
-      setActiveView('content');
-    } catch (err) {
-      if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
-      showError(err instanceof Error ? err.message : 'Failed to load file');
-    }
-  }, [navigate, handleSessionExpired, showError, fetchRepoSidebarFiles]);
-
-  const loadRepoFileForEdit = useCallback(async (path: string) => {
-    const instId = getInstallationId();
-    const repoName = getSelectedRepo()?.full_name ?? null;
-    if (!instId || !repoName) { navigate(routePath.githubApp()); return; }
-    setActiveView('loading');
-    try {
-      const contents = await getRepoContents(instId, repoName, path);
-      if (!isRepoFile(contents)) throw new Error('Expected a file');
-      const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
-      setEditingBackend('repo');
-      setCurrentRepoDocPath(contents.path);
-      setCurrentRepoDocSha(contents.sha);
-      setCurrentGistId(null);
-      setGistFiles(null);
-      setCurrentFileName(contents.name);
-      setEditTitle(contents.name.replace(/\.md$/i, ''));
-      setEditContent(decoded);
-      await fetchRepoSidebarFiles(instId, repoName);
-      setActiveView('edit');
+      setActiveView(forEdit ? 'edit' : 'content');
     } catch (err) {
       if (err instanceof SessionExpiredError) { handleSessionExpired(); return; }
       showError(err instanceof Error ? err.message : 'Failed to load file');
@@ -372,7 +330,7 @@ export function App() {
       }
       case 'repofile':
         syncRepoState();
-        await loadRepoFile(safeDecodeURIComponent(r.params.path));
+        await loadRepoFile(safeDecodeURIComponent(r.params.path), false);
         return;
       case 'reponew': {
         syncRepoState();
@@ -395,7 +353,7 @@ export function App() {
       case 'repoedit':
         setDraftMode(false);
         syncRepoState();
-        await loadRepoFileForEdit(safeDecodeURIComponent(r.params.path));
+        await loadRepoFile(safeDecodeURIComponent(r.params.path), true);
         return;
       case 'documents':
         if (!userRef.current) { navigate(routePath.auth()); return; }
@@ -469,8 +427,7 @@ export function App() {
       case 'gist': {
         const id = r.params.id;
         const filename = r.params.filename;
-        if (userRef.current) await loadGistAuthenticated(id, filename);
-        else await loadGistAnonymous(id, filename);
+        await loadGist(id, filename, !userRef.current);
         return;
       }
       case 'home':
@@ -493,7 +450,7 @@ export function App() {
         setDraftMode(false);
         setActiveView('edit');
     }
-  }, [navigate, syncRepoState, loadRepoFile, loadRepoFileForEdit, loadGistAuthenticated, loadGistAnonymous, showError, focusEditorSoon]);
+  }, [navigate, syncRepoState, loadRepoFile, loadGist, showError, focusEditorSoon]);
 
   // --- Init ---
   useEffect(() => {
