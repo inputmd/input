@@ -402,6 +402,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   try {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'sha256-wBdtWdXsHnAU2DdByySW4LlXFAScrBvmBgkXtydwJdg='; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; font-src 'self'");
     corsify(req, res);
     if (req.method === 'OPTIONS') return res.end();
 
