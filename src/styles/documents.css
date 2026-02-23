@@ -97,37 +97,6 @@
   margin-top: 16px;
 }
 
-.repodocuments-view {
-  max-width: 800px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 24px 16px;
-}
-
-.repodocuments-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.repodocuments-header h1 {
-  font-size: 24px;
-  font-weight: 600;
-}
-
-.repodocuments-meta {
-  flex: 1;
-  min-width: 0;
-}
-
-.repodocuments-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
 .githubapp-view {
   max-width: 800px;
   width: 100%;

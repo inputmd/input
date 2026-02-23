@@ -55,7 +55,7 @@ import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { GitHubAppView } from './views/GitHubAppView';
 import { LoadingView } from './views/LoadingView';
-import { RepoDocumentsView } from './views/RepoDocumentsView';
+
 
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
@@ -96,8 +96,6 @@ function viewFromRoute(route: Route): ActiveView {
       return 'documents';
     case 'githubapp':
       return 'githubapp';
-    case 'repodocuments':
-      return 'repodocuments';
     case 'repofile':
     case 'gist':
       return 'content';
@@ -442,7 +440,34 @@ export function App() {
             navigate(routePath.githubApp());
             return;
           }
-          setViewPhase(null);
+          setViewPhase('loading');
+          try {
+            const dirContents = await getRepoContents(instId, repoName, REPO_DOCS_DIR);
+            if (Array.isArray(dirContents)) {
+              const mdFiles = dirContents
+                .filter((c: { type: string; name: string }) => c.type === 'file' && c.name.toLowerCase().endsWith('.md'))
+                .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
+              if (mdFiles.length > 0) {
+                setRepoFiles(mdFiles);
+                const indexFile = mdFiles.find((f: { name: string }) => f.name.toLowerCase() === 'index.md');
+                const target = indexFile ?? mdFiles[0];
+                navigate(routePath.repoFile(target.path));
+                return;
+              }
+            }
+          } catch (err) {
+            if (err instanceof SessionExpiredError) {
+              handleSessionExpired();
+              return;
+            }
+            // 404 means directory doesn't exist yet — fall through to repoNew
+            const msg = err instanceof Error ? err.message : '';
+            if (!msg.includes('404')) {
+              showError(msg || 'Failed to load repo documents');
+              return;
+            }
+          }
+          navigate(routePath.repoNew());
           return;
         }
         case 'repofile':
@@ -1012,15 +1037,6 @@ export function App() {
         ) : (
           <AuthView />
         );
-      case 'repodocuments':
-        return installationId && selectedRepo ? (
-          <RepoDocumentsView
-            installationId={installationId}
-            selectedRepo={selectedRepo}
-            navigate={navigate}
-            onSessionExpired={handleSessionExpired}
-          />
-        ) : null;
       case 'content':
         return (
           <ContentView html={renderedHtml} markdown={renderMode === 'markdown'} onInternalLinkNavigate={navigate} />

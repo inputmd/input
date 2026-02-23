@@ -9,7 +9,6 @@ export type ActiveView =
   | 'auth'
   | 'documents'
   | 'githubapp'
-  | 'repodocuments'
   | 'loading'
   | 'error'
   | 'content'
@@ -61,7 +60,6 @@ export function Toolbar({
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!installationId;
-  const showRepoDocs = !!selectedRepo;
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
 
   return (
@@ -101,7 +99,6 @@ export function Toolbar({
                       <DropdownMenu.Item
                         key={repo.id}
                         class="repo-menu-item"
-                        disabled={isSelected}
                         onSelect={() => {
                           onSelectRepo(repo.full_name, repo.id, repo.private);
                           navigate(routePath.repoDocuments());
@@ -119,11 +116,6 @@ export function Toolbar({
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
-        )}
-        {showRepoDocs && (
-          <button type="button" onClick={() => navigate(routePath.repoDocuments())}>
-            Repo Docs
-          </button>
         )}
         {isHomeDraft ? (
           <span class="document-menu-label">New Wiki</span>
