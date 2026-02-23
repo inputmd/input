@@ -130,7 +130,7 @@ export function Toolbar({
           </DropdownMenu.Root>
         )}
         {isHomeDraft ? (
-          <span class="document-menu-label">New Wiki</span>
+          <span class="document-menu-label">New Document</span>
         ) : canToggleSidebar ? (
           <>
             <button
@@ -194,7 +194,7 @@ export function Toolbar({
                   {view !== 'documents' ? (
                     <>
                       <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.documents())}>
-                        My Wikis
+                        My Gists
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator class="user-menu-separator" />
                     </>

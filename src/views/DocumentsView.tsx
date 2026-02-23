@@ -85,7 +85,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
 
   const onRename = async (gist: GistSummary) => {
     const currentTitle = gist.description ?? '';
-    const input = await showPrompt('New wiki name:', currentTitle);
+    const input = await showPrompt('New name:', currentTitle);
     if (input === null) return;
     const nextTitle = input.trim();
     if (nextTitle === currentTitle) return;
@@ -116,19 +116,19 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
     <div class="documents-view">
       <div class="documents-header">
         <div class="documents-header-copy">
-          <h1>My Wikis</h1>
-          <p class="hint documents-subtitle">Wikis are stored as multi-file Gists on GitHub.</p>
+          <h1>My Gists</h1>
+          <p class="hint documents-subtitle">Each collection is stored as a multi-file Gist on GitHub.</p>
         </div>
         <button type="button" onClick={() => navigate(routePath.home())}>
-          New Wiki
+          New
         </button>
       </div>
       {!loading && visibleGists.length === 0 ? (
         <div class="empty-state">
-          <p>No wikis yet.</p>
-          <p>Create your first wiki to get started.</p>
+          <p>No gists yet.</p>
+          <p>Create your first gist to get started.</p>
           <button type="button" onClick={() => navigate(routePath.home())}>
-            New Wiki
+            New
           </button>
         </div>
       ) : (
