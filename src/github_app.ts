@@ -189,6 +189,8 @@ export interface InstallationRepoList {
   }>;
 }
 
+export type InstallationRepo = InstallationRepoList['repositories'][number];
+
 export interface RepoFile {
   type: 'file';
   name: string;

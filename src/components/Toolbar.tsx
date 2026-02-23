@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Globe, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Check, ChevronDown, Globe, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import type { InstallationRepo } from '../github_app';
 import type { GitHubUser } from '../github';
 import { routePath } from '../routing';
 
@@ -20,12 +21,16 @@ interface ToolbarProps {
   installationId: string | null;
   selectedRepo: string | null;
   selectedRepoPrivate: boolean | null;
+  availableRepos: InstallationRepo[];
+  repoListLoading: boolean;
   showRepoStatus: boolean;
   draftMode: boolean;
   canToggleSidebar: boolean;
   sidebarVisible: boolean;
   showEdit: boolean;
   navigate: (route: string) => void;
+  onOpenRepoMenu: () => void;
+  onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void;
   onSignOut: () => void;
   onToggleTheme: () => void;
   onToggleSidebar: () => void;
@@ -38,12 +43,16 @@ export function Toolbar({
   installationId,
   selectedRepo,
   selectedRepoPrivate,
+  availableRepos,
+  repoListLoading,
   showRepoStatus,
   draftMode,
   canToggleSidebar,
   sidebarVisible,
   showEdit,
   navigate,
+  onOpenRepoMenu,
+  onSelectRepo,
   onSignOut,
   onToggleTheme,
   onToggleSidebar,
@@ -59,9 +68,57 @@ export function Toolbar({
     <header class="toolbar">
       <div class="toolbar-left">
         {showGitHubApp && (
-          <button type="button" onClick={() => navigate(routePath.githubApp())}>
-            GitHub App
-          </button>
+          <DropdownMenu.Root
+            onOpenChange={(open: boolean) => {
+              if (open) onOpenRepoMenu();
+            }}
+          >
+            <DropdownMenu.Trigger asChild>
+              <button type="button" class="repo-menu-trigger" aria-label="GitHub App menu">
+                GitHub App
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content class="repo-menu-content" sideOffset={6} align="start">
+                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.documents())}>
+                  My Gists
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator class="user-menu-separator" />
+                {repoListLoading ? (
+                  <DropdownMenu.Item class="repo-menu-item" disabled>
+                    Loading repos...
+                  </DropdownMenu.Item>
+                ) : availableRepos.length === 0 ? (
+                  <DropdownMenu.Item class="repo-menu-item" disabled>
+                    No repos available
+                  </DropdownMenu.Item>
+                ) : (
+                  availableRepos.map((repo) => {
+                    const PrivacyIcon = repo.private ? Lock : Globe;
+                    const isSelected = selectedRepo === repo.full_name;
+                    return (
+                      <DropdownMenu.Item
+                        key={repo.id}
+                        class="repo-menu-item"
+                        disabled={isSelected}
+                        onSelect={() => {
+                          onSelectRepo(repo.full_name, repo.id, repo.private);
+                          navigate(routePath.repoDocuments());
+                        }}
+                      >
+                        <span class="repo-menu-item-main">
+                          <PrivacyIcon size={14} aria-hidden="true" />
+                          <span>{repo.full_name}</span>
+                        </span>
+                        {isSelected ? <Check size={14} aria-hidden="true" /> : null}
+                      </DropdownMenu.Item>
+                    );
+                  })
+                )}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         )}
         {showRepoDocs && (
           <button type="button" onClick={() => navigate(routePath.repoDocuments())}>

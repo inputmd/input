@@ -30,9 +30,12 @@ import {
   clearSelectedRepo,
   consumeInstallState,
   createSession,
+  disconnectInstallation,
   getInstallationId,
   getPendingInstallationId,
   getRepoContents,
+  type InstallationRepo,
+  listInstallationRepos,
   getSelectedRepo,
   isRepoFile,
   putRepoFile,
@@ -113,6 +116,9 @@ export function App() {
   const [installationId, setInstId] = useState<string | null>(getInstallationId());
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
   const [selectedRepoPrivate, setSelectedRepoPrivate] = useState<boolean | null>(getSelectedRepo()?.private ?? null);
+  const [installationRepos, setInstallationRepos] = useState<InstallationRepo[]>([]);
+  const [installationReposLoading, setInstallationReposLoading] = useState(false);
+  const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
 
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
@@ -621,6 +627,12 @@ export function App() {
     localStorage.setItem(repoNewDraftKey(instId, repoName, 'content'), editContent);
   }, [route.name, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle, editContent]);
 
+  useEffect(() => {
+    setInstallationRepos([]);
+    setInstallationReposLoading(false);
+    setLoadedReposInstallationId(null);
+  }, [installationId, user?.login]);
+
   // --- Theme toggle ---
   const toggleTheme = useCallback(() => {
     const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
@@ -941,11 +953,41 @@ export function App() {
     storeSelectedRepo({ full_name: fullName, id, private: isPrivate });
   }, []);
 
-  const onDisconnect = useCallback(() => {
-    setInstId(null);
-    setSelectedRepo(null);
-    setSelectedRepoPrivate(null);
-    navigate(routePath.auth());
+  const onOpenRepoMenu = useCallback(() => {
+    if (!user || !installationId || installationReposLoading) return;
+    if (loadedReposInstallationId === installationId) return;
+
+    setInstallationReposLoading(true);
+    void (async () => {
+      try {
+        const repos = await listInstallationRepos(installationId);
+        setInstallationRepos(repos.repositories);
+        setLoadedReposInstallationId(installationId);
+      } catch (err) {
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+          return;
+        }
+        setInstallationRepos([]);
+      } finally {
+        setInstallationReposLoading(false);
+      }
+    })();
+  }, [user, installationId, installationReposLoading, loadedReposInstallationId, handleSessionExpired]);
+
+  const onDisconnect = useCallback(async () => {
+    try {
+      await disconnectInstallation();
+    } catch {
+      /* still clear local state below */
+    } finally {
+      clearInstallationId();
+      clearSelectedRepo();
+      setInstId(null);
+      setSelectedRepo(null);
+      setSelectedRepoPrivate(null);
+      navigate(routePath.auth());
+    }
   }, [navigate]);
 
   // --- Render active view ---
@@ -960,7 +1002,10 @@ export function App() {
           <GitHubAppView
             installationId={installationId}
             selectedRepo={selectedRepo}
+            availableRepos={installationRepos}
+            repoListLoading={installationReposLoading}
             onSelectRepo={onSelectRepo}
+            onLoadRepos={onOpenRepoMenu}
             onDisconnect={onDisconnect}
             navigate={navigate}
           />
@@ -1059,12 +1104,16 @@ export function App() {
         installationId={installationId}
         selectedRepo={selectedRepo}
         selectedRepoPrivate={selectedRepoPrivate}
+        availableRepos={installationRepos}
+        repoListLoading={installationReposLoading}
         showRepoStatus={showHeaderRepoStatus}
         draftMode={draftMode}
         canToggleSidebar={canToggleSidebar}
         sidebarVisible={showSidebar}
         showEdit={showHeaderEdit}
         navigate={navigate}
+        onOpenRepoMenu={onOpenRepoMenu}
+        onSelectRepo={onSelectRepo}
         onSignOut={signOut}
         onToggleTheme={toggleTheme}
         onToggleSidebar={onToggleSidebar}
