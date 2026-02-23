@@ -174,8 +174,8 @@ export function App() {
   }, []);
 
   // --- Auth ---
-  // Returns true if it navigated away from the current route.
-  const tryRestoreAuth = useCallback(async (): Promise<boolean> => {
+  // Returns whether auth is present and whether it navigated away from the current route.
+  const tryRestoreAuth = useCallback(async (): Promise<{ authenticated: boolean; navigated: boolean }> => {
     try {
       const session = await getAuthSession();
       if (!session.authenticated || !session.user) {
@@ -184,7 +184,7 @@ export function App() {
         clearSelectedRepo();
         setInstId(null);
         setSelectedRepo(null);
-        return false;
+        return { authenticated: false, navigated: false };
       }
       setUser(session.user);
       const pendingInstallationId = getPendingInstallationId();
@@ -196,7 +196,7 @@ export function App() {
           clearPendingInstallationId();
           if (route.name === 'auth') {
             navigate(routePath.githubApp());
-            return true;
+            return { authenticated: true, navigated: true };
           }
         } catch (err) {
           if (!(err instanceof Error && err.message === 'Unauthorized')) {
@@ -214,12 +214,12 @@ export function App() {
       // Navigate away from auth page after successful session restore.
       if (route.name === 'auth') {
         navigate(session.installationId ? routePath.githubApp() : routePath.documents());
-        return true;
+        return { authenticated: true, navigated: true };
       }
-      return false;
+      return { authenticated: true, navigated: false };
     } catch {
       setUser(null);
-      return false;
+      return { authenticated: false, navigated: false };
     }
   }, [navigate, route.name]);
 
@@ -413,7 +413,8 @@ export function App() {
 
   // --- Route handler ---
   const handleRoute = useCallback(
-    async (r: Route) => {
+    async (r: Route, authenticatedOverride?: boolean) => {
+      const isAuthenticated = authenticatedOverride ?? Boolean(user);
       switch (r.name) {
         case 'auth':
           setViewPhase(null);
@@ -464,7 +465,7 @@ export function App() {
           await loadRepoFile(safeDecodeURIComponent(r.params.path), true);
           return;
         case 'documents':
-          if (!user) {
+          if (!isAuthenticated) {
             navigate(routePath.auth());
             return;
           }
@@ -485,7 +486,7 @@ export function App() {
           }
           return;
         case 'edit': {
-          if (!user) {
+          if (!isAuthenticated) {
             navigate(routePath.auth(), { replace: true });
             return;
           }
@@ -540,7 +541,7 @@ export function App() {
         case 'gist': {
           const id = r.params.id;
           const filename = r.params.filename;
-          await loadGist(id, filename, !user);
+          await loadGist(id, filename, !isAuthenticated);
           return;
         }
         case 'home':
@@ -585,9 +586,9 @@ export function App() {
 
     (async () => {
       const handledSetup = await tryHandleGitHubAppSetupRedirect();
-      const authNavigated = await tryRestoreAuth();
-      if (!handledSetup && !authNavigated) {
-        await handleRoute(route);
+      const auth = await tryRestoreAuth();
+      if (!handledSetup && !auth.navigated) {
+        await handleRoute(route, auth.authenticated);
       }
       document.getElementById('app')!.classList.add('ready');
     })();
