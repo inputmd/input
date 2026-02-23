@@ -11,6 +11,7 @@ import {
   createRepoDocumentStore,
   findRepoDocFile,
   type RepoDocFile,
+  repoDocRelativePath,
   toRepoDocPath,
 } from './document_store';
 import { markGistRecentlyCreated } from './gist_consistency';
@@ -86,6 +87,11 @@ function sanitizeTitleToFileName(title: string): string {
     .replace(/\.{2,}/g, '.');
   if (!trimmed) return DEFAULT_NEW_FILENAME;
   return trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`;
+}
+
+function fileNameFromPath(path: string): string {
+  const lastSlash = path.lastIndexOf('/');
+  return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
 }
 
 function viewFromRoute(route: Route): ActiveView {
@@ -288,22 +294,47 @@ export function App() {
   }, [navigate, showError]);
 
   // --- Helpers ---
+  const loadRepoMarkdownFiles = useCallback(async (instId: string, repoName: string): Promise<RepoDocFile[]> => {
+    const queue = [REPO_DOCS_DIR];
+    const files: RepoDocFile[] = [];
+
+    while (queue.length > 0) {
+      const dirPath = queue.shift();
+      if (!dirPath) break;
+      const contents = await getRepoContents(instId, repoName, dirPath);
+      if (!Array.isArray(contents)) continue;
+
+      for (const item of contents) {
+        if (item.type === 'dir') {
+          queue.push(item.path);
+          continue;
+        }
+        if (item.type !== 'file' || !item.name.toLowerCase().endsWith('.md')) continue;
+        const relativePath = repoDocRelativePath(REPO_DOCS_DIR, item.path);
+        if (!relativePath) continue;
+        files.push({
+          name: item.name,
+          relativePath,
+          path: item.path,
+          sha: item.sha,
+        });
+      }
+    }
+
+    files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    return files;
+  }, []);
+
   const fetchRepoSidebarFiles = useCallback(
     async (instId: string, repoName: string) => {
       if (repoFiles.length > 0) return;
       try {
-        const dirContents = await getRepoContents(instId, repoName, REPO_DOCS_DIR);
-        if (Array.isArray(dirContents)) {
-          const mdFiles = dirContents
-            .filter((c: { type: string; name: string }) => c.type === 'file' && c.name.toLowerCase().endsWith('.md'))
-            .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
-          setRepoFiles(mdFiles);
-        }
+        setRepoFiles(await loadRepoMarkdownFiles(instId, repoName));
       } catch {
         /* directory listing is optional for sidebar */
       }
     },
-    [repoFiles.length],
+    [repoFiles.length, loadRepoMarkdownFiles],
   );
 
   // --- Data loaders ---
@@ -412,11 +443,12 @@ export function App() {
         const contents = await getRepoContents(instId, repoName, path);
         if (!isRepoFile(contents)) throw new Error('Expected a file');
         const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
+        const relativePath = repoDocRelativePath(REPO_DOCS_DIR, contents.path) ?? contents.name;
         setCurrentRepoDocPath(contents.path);
         setCurrentRepoDocSha(contents.sha);
         setCurrentGistId(null);
         setGistFiles(null);
-        setCurrentFileName(contents.name);
+        setCurrentFileName(relativePath);
         if (forEdit) {
           setEditingBackend('repo');
           setEditTitle(contents.name.replace(/\.md$/i, ''));
@@ -467,20 +499,13 @@ export function App() {
           }
           setViewPhase('loading');
           try {
-            const dirContents = await getRepoContents(instId, repoName, REPO_DOCS_DIR);
-            if (Array.isArray(dirContents)) {
-              const mdFiles = dirContents
-                .filter(
-                  (c: { type: string; name: string }) => c.type === 'file' && c.name.toLowerCase().endsWith('.md'),
-                )
-                .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
-              if (mdFiles.length > 0) {
-                setRepoFiles(mdFiles);
-                const indexFile = mdFiles.find((f: { name: string }) => f.name.toLowerCase() === 'index.md');
-                const target = indexFile ?? mdFiles[0];
-                navigate(routePath.repoFile(target.path));
-                return;
-              }
+            const mdFiles = await loadRepoMarkdownFiles(instId, repoName);
+            if (mdFiles.length > 0) {
+              setRepoFiles(mdFiles);
+              const indexFile = mdFiles.find((f) => f.relativePath.toLowerCase() === 'index.md');
+              const target = indexFile ?? mdFiles[0];
+              navigate(routePath.repoFile(target.path));
+              return;
             }
           } catch (err) {
             if (err instanceof SessionExpiredError) {
@@ -628,6 +653,7 @@ export function App() {
       navigate,
       syncRepoState,
       loadRepoFile,
+      loadRepoMarkdownFiles,
       loadGist,
       showError,
       focusEditorSoon,
@@ -844,13 +870,13 @@ export function App() {
 
   // --- Sidebar actions ---
   const handleSelectFile = useCallback(
-    async (filename: string) => {
+    async (filePath: string) => {
       const doNavigate = () => {
         setHasUnsavedChanges(false);
         if (currentGistId) {
-          navigate(routePath.gistView(currentGistId, filename));
+          navigate(routePath.gistView(currentGistId, filePath));
         } else if (selectedRepo) {
-          navigate(routePath.repoFile(toRepoDocPath(REPO_DOCS_DIR, filename)));
+          navigate(routePath.repoFile(toRepoDocPath(REPO_DOCS_DIR, filePath)));
         }
       };
 
@@ -865,22 +891,24 @@ export function App() {
   );
 
   const handleCreateFile = useCallback(
-    async (filename: string) => {
+    async (filePath: string) => {
       try {
         const store = getActiveDocumentStore();
         if (!store) return;
 
         if (store.kind === 'gist') {
           if (!currentGistId) return;
-          const gist = await store.createFile(filename);
+          const gist = await store.createFile(filePath);
           setGistFiles(gist.files);
           setHasUnsavedChanges(false);
-          navigate(routePath.gistEdit(currentGistId, filename));
+          navigate(routePath.gistEdit(currentGistId, filePath));
         } else {
-          const result = await store.createFile(filename);
-          const path = toRepoDocPath(REPO_DOCS_DIR, filename);
+          const result = await store.createFile(filePath);
+          const path = toRepoDocPath(REPO_DOCS_DIR, filePath);
           setRepoFiles((prev) =>
-            [...prev, { name: filename, path, sha: result.content.sha }].sort((a, b) => a.name.localeCompare(b.name)),
+            [...prev, { name: fileNameFromPath(filePath), relativePath: filePath, path, sha: result.content.sha }].sort(
+              (a, b) => a.relativePath.localeCompare(b.relativePath),
+            ),
           );
           setHasUnsavedChanges(false);
           navigate(routePath.repoEdit(path));
@@ -893,13 +921,13 @@ export function App() {
   );
 
   const handleEditFile = useCallback(
-    async (filename: string) => {
-      if (activeView === 'edit' && currentFileName === filename) return;
+    async (filePath: string) => {
+      if (activeView === 'edit' && currentFileName === filePath) return;
 
       const target = currentGistId
-        ? routePath.gistEdit(currentGistId, filename)
+        ? routePath.gistEdit(currentGistId, filePath)
         : selectedRepo
-          ? routePath.repoEdit(toRepoDocPath(REPO_DOCS_DIR, filename))
+          ? routePath.repoEdit(toRepoDocPath(REPO_DOCS_DIR, filePath))
           : null;
       if (!target) return;
 
@@ -925,17 +953,17 @@ export function App() {
   }, [currentGistId]);
 
   const handleDeleteFile = useCallback(
-    async (filename: string) => {
-      if (!(await showConfirm(`Delete "${filename}"?`))) return;
+    async (filePath: string) => {
+      if (!(await showConfirm(`Delete "${filePath}"?`))) return;
       try {
         const store = getActiveDocumentStore();
         if (!store) return;
 
         if (store.kind === 'gist') {
           if (!currentGistId) return;
-          const gist = await store.deleteFile({ name: filename });
+          const gist = await store.deleteFile({ name: filePath });
           setGistFiles(gist.files);
-          const deletedCurrent = currentFileName === filename;
+          const deletedCurrent = currentFileName === filePath;
           if (deletedCurrent) {
             const remaining = Object.keys(gist.files);
             if (remaining.length > 0) {
@@ -945,10 +973,10 @@ export function App() {
             }
           }
         } else {
-          const repoFile = findRepoDocFile(repoFiles, filename);
+          const repoFile = findRepoDocFile(repoFiles, filePath);
           if (!repoFile) return;
           await store.deleteFile(repoFile);
-          const remaining = repoFiles.filter((f) => f.name !== filename);
+          const remaining = repoFiles.filter((f) => f.relativePath !== filePath);
           setRepoFiles(remaining);
           const deletedCurrent = currentRepoDocPath === repoFile.path;
           if (deletedCurrent) {
@@ -981,32 +1009,39 @@ export function App() {
   );
 
   const handleRenameFile = useCallback(
-    async (oldName: string, newName: string) => {
+    async (oldPath: string, newPath: string) => {
       try {
         const store = getActiveDocumentStore();
         if (!store) return;
 
         if (store.kind === 'gist') {
           if (!currentGistId) return;
-          const gist = await store.renameFile({ name: oldName }, newName);
+          const gist = await store.renameFile({ name: oldPath }, newPath);
           setGistFiles(gist.files);
-          if (currentFileName === oldName) {
-            setCurrentFileName(newName);
-            navigate(routePath.gistView(currentGistId, newName));
+          if (currentFileName === oldPath) {
+            setCurrentFileName(newPath);
+            navigate(routePath.gistView(currentGistId, newPath));
           }
         } else {
-          const oldFile = findRepoDocFile(repoFiles, oldName);
+          const oldFile = findRepoDocFile(repoFiles, oldPath);
           if (!oldFile) return;
-          const created = await store.renameFile(oldFile, newName);
-          const newPath = toRepoDocPath(REPO_DOCS_DIR, newName);
+          const created = await store.renameFile(oldFile, newPath);
+          const repoPath = toRepoDocPath(REPO_DOCS_DIR, newPath);
           const updatedFiles = repoFiles
             .map((f) =>
-              f.name === oldName ? { name: newName, path: created.content.path, sha: created.content.sha } : f,
+              f.relativePath === oldPath
+                ? {
+                    name: fileNameFromPath(newPath),
+                    relativePath: newPath,
+                    path: created.content.path,
+                    sha: created.content.sha,
+                  }
+                : f,
             )
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
           setRepoFiles(updatedFiles);
-          if (currentFileName === oldName) {
-            navigate(routePath.repoFile(newPath));
+          if (currentFileName === oldPath) {
+            navigate(routePath.repoFile(repoPath));
           }
         }
       } catch (err) {
@@ -1122,16 +1157,16 @@ export function App() {
 
   const sidebarFiles = useMemo(() => {
     if (gistFiles) {
-      return Object.keys(gistFiles).map((name) => ({
-        name,
-        active: name === currentFileName,
+      return Object.keys(gistFiles).map((path) => ({
+        path,
+        active: path === currentFileName,
       }));
     }
     if (repoFiles.length > 0 && currentRepoDocPath) {
-      const currentName = currentRepoDocPath.split('/').pop() ?? '';
+      const currentPath = repoDocRelativePath(REPO_DOCS_DIR, currentRepoDocPath) ?? '';
       return repoFiles.map((f) => ({
-        name: f.name,
-        active: f.name === currentName,
+        path: f.relativePath,
+        active: f.relativePath === currentPath,
       }));
     }
     return [];

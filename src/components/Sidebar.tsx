@@ -2,28 +2,31 @@ import * as ContextMenu from '@radix-ui/react-context-menu';
 import { useEffect, useRef, useState } from 'preact/hooks';
 
 export interface SidebarFile {
-  name: string;
+  path: string;
   active: boolean;
 }
 
 interface SidebarProps {
   files: SidebarFile[];
-  onSelectFile: (filename: string) => void;
-  onEditFile: (filename: string) => void;
+  onSelectFile: (path: string) => void;
+  onEditFile: (path: string) => void;
   onViewOnGitHub: () => void;
   canViewOnGitHub: boolean;
-  onCreateFile: (filename: string) => void | Promise<void>;
-  onDeleteFile: (filename: string) => void;
-  onRenameFile: (oldName: string, newName: string) => void;
+  onCreateFile: (path: string) => void | Promise<void>;
+  onDeleteFile: (path: string) => void;
+  onRenameFile: (oldPath: string, newPath: string) => void;
 }
 
-function sanitizeFileName(name: string): string {
-  const trimmed = name
+function sanitizePathInput(input: string): string {
+  const normalized = input
     .trim()
-    .replace(/[/\\]/g, '')
-    .replace(/\.{2,}/g, '.');
-  if (!trimmed) return '';
-  return trimmed;
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^\/+|\/+$/g, '');
+  if (!normalized) return '';
+  const parts = normalized.split('/');
+  if (parts.some((part) => part === '' || part === '.' || part === '..')) return '';
+  return normalized;
 }
 
 export function Sidebar({
@@ -55,13 +58,13 @@ export function Sidebar({
 
   const handleCreateSubmit = async () => {
     if (createInFlightRef.current) return;
-    const filename = sanitizeFileName(newFileName);
-    if (!filename) return;
+    const path = sanitizePathInput(newFileName);
+    if (!path) return;
 
     createInFlightRef.current = true;
     setCreatingFile(true);
     try {
-      await onCreateFile(filename);
+      await onCreateFile(path);
       setNewFileName('');
       setCreatingNew(false);
     } finally {
@@ -72,17 +75,17 @@ export function Sidebar({
 
   const handleRenameSubmit = () => {
     if (!renamingFile) return;
-    const newName = sanitizeFileName(renameValue);
-    if (newName && newName !== renamingFile) {
-      onRenameFile(renamingFile, newName);
+    const newPath = sanitizePathInput(renameValue);
+    if (newPath && newPath !== renamingFile) {
+      onRenameFile(renamingFile, newPath);
     }
     setRenamingFile(null);
     setRenameValue('');
   };
 
-  const startRename = (filename: string) => {
-    setRenamingFile(filename);
-    setRenameValue(filename);
+  const startRename = (path: string) => {
+    setRenamingFile(path);
+    setRenameValue(path);
   };
 
   return (
@@ -105,24 +108,24 @@ export function Sidebar({
         {files.map((f) => {
           const fileRow = (
             <div
-              class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.name ? ' renaming' : ''}`}
+              class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.path ? ' renaming' : ''}`}
               tabIndex={0}
               role="button"
               aria-current={f.active ? 'true' : undefined}
-              onClick={() => !f.active && onSelectFile(f.name)}
-              onDblClick={() => startRename(f.name)}
+              onClick={() => !f.active && onSelectFile(f.path)}
+              onDblClick={() => startRename(f.path)}
               onKeyDown={(e) => {
-                if (renamingFile === f.name) return;
+                if (renamingFile === f.path) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  if (!f.active) onSelectFile(f.name);
+                  if (!f.active) onSelectFile(f.path);
                 } else if (e.key === 'F2') {
                   e.preventDefault();
-                  startRename(f.name);
+                  startRename(f.path);
                 }
               }}
             >
-              {renamingFile === f.name ? (
+              {renamingFile === f.path ? (
                 <input
                   ref={renameInputRef}
                   class="sidebar-rename-input"
@@ -140,24 +143,24 @@ export function Sidebar({
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
-                <span class="sidebar-file-name">{f.name}</span>
+                <span class="sidebar-file-name">{f.path}</span>
               )}
             </div>
           );
 
-          if (renamingFile === f.name) {
-            return <div key={f.name}>{fileRow}</div>;
+          if (renamingFile === f.path) {
+            return <div key={f.path}>{fileRow}</div>;
           }
 
           return (
-            <ContextMenu.Root key={f.name}>
+            <ContextMenu.Root key={f.path}>
               <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
               <ContextMenu.Portal>
                 <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
-                  <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onEditFile(f.name)}>
+                  <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onEditFile(f.path)}>
                     Edit
                   </ContextMenu.Item>
-                  <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => startRename(f.name)}>
+                  <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => startRename(f.path)}>
                     Rename
                   </ContextMenu.Item>
                   {canViewOnGitHub && (
@@ -167,7 +170,7 @@ export function Sidebar({
                   )}
                   <ContextMenu.Item
                     class="sidebar-context-menu-item sidebar-context-menu-item-danger"
-                    onSelect={() => onDeleteFile(f.name)}
+                    onSelect={() => onDeleteFile(f.path)}
                   >
                     Delete
                   </ContextMenu.Item>
@@ -182,7 +185,7 @@ export function Sidebar({
               ref={newInputRef}
               class="sidebar-rename-input"
               type="text"
-              placeholder="file.md"
+              placeholder="notes/file.md"
               value={newFileName}
               disabled={creatingFile}
               onInput={(e) => setNewFileName((e.target as HTMLInputElement).value)}
