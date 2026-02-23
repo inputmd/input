@@ -60,20 +60,19 @@
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
-  z-index: 24;
+  z-index: 14;
 }
 
 .mobile-preview-pane {
   position: fixed;
-  top: 0;
+  top: var(--toolbar-height);
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 25;
+  z-index: 15;
   background: var(--bg);
   overflow-y: auto;
-  padding: var(--toolbar-height) 16px 24px;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+  padding: 0 16px 24px;
 }
 
 .mobile-preview-pane .rendered-markdown {
