@@ -117,10 +117,14 @@ export function Toolbar({
                 <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
                   <DropdownMenu.Label class="user-menu-label">{user.login}</DropdownMenu.Label>
                   <DropdownMenu.Separator class="user-menu-separator" />
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.documents())}>
-                    My Wikis
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Separator class="user-menu-separator" />
+                  {view !== 'documents' ? (
+                    <>
+                      <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.documents())}>
+                        My Wikis
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Separator class="user-menu-separator" />
+                    </>
+                  ) : null}
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                     Toggle Theme
                   </DropdownMenu.Item>
