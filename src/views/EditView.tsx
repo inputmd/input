@@ -6,6 +6,7 @@ interface EditViewProps {
   previewHtml: string;
   previewVisible: boolean;
   canRenderPreview: boolean;
+  onTogglePreview: () => void;
   onContentChange: (content: string) => void;
   saving: boolean;
   canSave: boolean;
@@ -17,6 +18,7 @@ export function EditView({
   previewHtml,
   previewVisible,
   canRenderPreview,
+  onTogglePreview,
   onContentChange,
   saving,
   canSave,
@@ -165,6 +167,14 @@ export function EditView({
           </>
         )}
       </div>
+      {previewVisible && !canRenderPreview && previewHtml && (
+        <>
+          <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
+          <div class="mobile-preview-pane">
+            <div class="rendered-markdown" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

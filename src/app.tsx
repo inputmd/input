@@ -1079,6 +1079,7 @@ export function App() {
             previewHtml={editPreviewHtml}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
+            onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
             saving={saving}
             canSave={hasUnsavedChanges}
@@ -1168,7 +1169,7 @@ export function App() {
         onToggleTheme={toggleTheme}
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
-        showPreviewToggle={activeView === 'edit' && canRenderPreview}
+        showPreviewToggle={activeView === 'edit' && editPreviewEnabled}
         previewVisible={previewVisible}
         onTogglePreview={onTogglePreview}
         showCancel={showEditorCancel}
