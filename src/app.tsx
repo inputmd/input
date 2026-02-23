@@ -480,10 +480,18 @@ export function App() {
             localStorage.removeItem(DRAFT_CONTENT_KEY);
             setHasUnsavedChanges(false);
           }
-          navigate(routePath.home(), { replace: true });
-          if (activeView === 'edit') {
-            focusEditorSoon();
-          }
+          setDraftMode(true);
+          setEditingBackend('gist');
+          setCurrentGistId(null);
+          setCurrentRepoDocPath(null);
+          setCurrentRepoDocSha(null);
+          setCurrentFileName(null);
+          setGistFiles(null);
+          setRepoFiles([]);
+          setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
+          setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
+          setViewPhase(null);
+          if (activeView === 'edit') focusEditorSoon();
           return;
         case 'edit': {
           if (!isAuthenticated) {
@@ -545,20 +553,8 @@ export function App() {
           return;
         }
         case 'home':
-          if (window.location.pathname !== '/') {
-            window.history.replaceState(null, '', '/');
-          }
-          setDraftMode(true);
-          setEditingBackend('gist');
-          setCurrentGistId(null);
-          setCurrentRepoDocPath(null);
-          setCurrentRepoDocSha(null);
-          setCurrentFileName(null);
-          setGistFiles(null);
-          setRepoFiles([]);
-          setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
-          setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
-          setViewPhase(null);
+          if (isAuthenticated) navigate(routePath.documents(), { replace: true });
+          else navigate(routePath.freshDraft(), { replace: true });
           return;
         default:
           setDraftMode(false);
