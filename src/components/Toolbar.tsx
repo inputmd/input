@@ -20,6 +20,7 @@ interface ToolbarProps {
   installationId: string | null;
   selectedRepo: string | null;
   selectedRepoPrivate: boolean | null;
+  inRepoContext: boolean;
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
   showRepoStatus: boolean;
@@ -42,6 +43,7 @@ export function Toolbar({
   installationId,
   selectedRepo,
   selectedRepoPrivate,
+  inRepoContext,
   availableRepos,
   repoListLoading,
   showRepoStatus,
@@ -72,15 +74,25 @@ export function Toolbar({
             }}
           >
             <DropdownMenu.Trigger asChild>
-              <button type="button" class="repo-menu-trigger" aria-label="GitHub App menu">
-                GitHub App
+              <button type="button" class="repo-menu-trigger" aria-label="Navigation menu">
+                {inRepoContext && selectedRepo ? (
+                  <>
+                    <RepoPrivacyIcon size={14} aria-hidden="true" />
+                    {selectedRepo}
+                  </>
+                ) : (
+                  'My Gists'
+                )}
                 <ChevronDown size={14} aria-hidden="true" />
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="repo-menu-content" sideOffset={6} align="start">
                 <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.documents())}>
-                  My Gists
+                  <span class="repo-menu-item-main">
+                    <span>My Gists</span>
+                  </span>
+                  {view === 'documents' ? <Check size={14} aria-hidden="true" /> : null}
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator class="user-menu-separator" />
                 {repoListLoading ? (
@@ -108,7 +120,7 @@ export function Toolbar({
                           <PrivacyIcon size={14} aria-hidden="true" />
                           <span>{repo.full_name}</span>
                         </span>
-                        {isSelected ? <Check size={14} aria-hidden="true" /> : null}
+                        {isSelected && inRepoContext ? <Check size={14} aria-hidden="true" /> : null}
                       </DropdownMenu.Item>
                     );
                   })

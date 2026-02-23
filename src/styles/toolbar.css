@@ -31,6 +31,12 @@
   gap: 6px;
 }
 
+.repo-menu-trigger:focus,
+.repo-menu-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .repo-menu-content {
   min-width: 240px;
   max-height: min(65vh, 520px);

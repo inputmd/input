@@ -1111,6 +1111,9 @@ export function App() {
   }, []);
   const showHeaderEdit = activeView === 'content' && (currentRepoDocPath !== null || currentGistId !== null);
   const showHeaderRepoStatus = activeView === 'edit' && editingBackend === 'repo' && selectedRepo !== null;
+  const inRepoContext =
+    (activeView === 'content' || activeView === 'edit') &&
+    (currentRepoDocPath !== null || (editingBackend === 'repo' && selectedRepo !== null));
 
   return (
     <>
@@ -1120,6 +1123,7 @@ export function App() {
         installationId={installationId}
         selectedRepo={selectedRepo}
         selectedRepoPrivate={selectedRepoPrivate}
+        inRepoContext={inRepoContext}
         availableRepos={installationRepos}
         repoListLoading={installationReposLoading}
         showRepoStatus={showHeaderRepoStatus}
