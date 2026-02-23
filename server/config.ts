@@ -1,4 +1,6 @@
 export const PORT = Number.parseInt(process.env.PORT ?? '8787', 10);
+const appUrlRaw = process.env.APP_URL?.trim() ?? '';
+export const APP_URL = appUrlRaw ? appUrlRaw.replace(/\/+$/, '') : '';
 
 export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? '';
 export const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET ?? '';

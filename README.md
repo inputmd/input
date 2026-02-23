@@ -28,6 +28,9 @@ npm install
 cp .env.example .env
 ```
 
+Set `APP_URL` in `.env` to your API server URL (local default:
+`http://localhost:8787`). OAuth redirect URIs are generated from this value.
+
 Create a fine-grained personal access token with no permissions via
 https://github.com/settings/personal-access-tokens. This is optional
 and only used to raise server-side rate limits for public gist proxy
@@ -35,9 +38,12 @@ fallbacks. Copy it into `.env` as `GITHUB_TOKEN`.
 
 Create an OAuth app via https://github.com/settings/developers:
 
-- Set **Homepage URL** to your app URL (e.g. `http://localhost:5173/`).
+- Set **Homepage URL** to the same origin as `APP_URL`
+  (local: `http://localhost:8787/`).
 - Set **Authorization callback URL** to
   `http://localhost:8787/api/auth/github/callback`.
+
+Use the same hostname and port for both fields locally.
 
 Copy the **Client ID** and **Client secret** into `.env` as
 `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.

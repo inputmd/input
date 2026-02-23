@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_FETCH_TIMEOUT_MS, GITHUB_TOKEN } from './config';
+import { APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_FETCH_TIMEOUT_MS, GITHUB_TOKEN } from './config';
 import { ClientError } from './errors';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
 import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
@@ -56,6 +56,10 @@ function requestBaseUrl(req: http.IncomingMessage): string {
   const scheme = typeof proto === 'string' ? proto.split(',')[0].trim() : 'http';
   const host = req.headers.host ?? 'localhost';
   return `${scheme}://${host}`;
+}
+
+function oauthBaseUrl(req: http.IncomingMessage): string {
+  return APP_URL || requestBaseUrl(req);
 }
 
 function normalizeReturnTo(raw: string | null): string {
@@ -125,7 +129,7 @@ async function handleAuthStart(ctx: RouteContext): Promise<void> {
 
   const returnTo = normalizeReturnTo(ctx.url.searchParams.get('return_to'));
   const state = createOAuthState(returnTo);
-  const redirectUri = `${requestBaseUrl(ctx.req)}/api/auth/github/callback`;
+  const redirectUri = `${oauthBaseUrl(ctx.req)}/api/auth/github/callback`;
   console.log(`[auth] OAuth start: redirect_uri=${redirectUri}, return_to=${returnTo}`);
   const authUrl = new URL('https://github.com/login/oauth/authorize');
   authUrl.searchParams.set('client_id', GITHUB_CLIENT_ID);
@@ -155,7 +159,7 @@ async function handleAuthCallback(ctx: RouteContext): Promise<void> {
     return;
   }
 
-  const redirectUri = `${requestBaseUrl(ctx.req)}/api/auth/github/callback`;
+  const redirectUri = `${oauthBaseUrl(ctx.req)}/api/auth/github/callback`;
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
