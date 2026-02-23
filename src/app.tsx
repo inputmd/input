@@ -1142,7 +1142,6 @@ export function App() {
     setHasUnsavedChanges(true);
   }, []);
   const showHeaderEdit = activeView === 'content' && (currentRepoDocPath !== null || currentGistId !== null);
-  const showHeaderRepoStatus = activeView === 'edit' && editingBackend === 'repo' && selectedRepo !== null;
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
     (currentRepoDocPath !== null || (editingBackend === 'repo' && selectedRepo !== null));
@@ -1158,7 +1157,6 @@ export function App() {
         inRepoContext={inRepoContext}
         availableRepos={installationRepos}
         repoListLoading={installationReposLoading}
-        showRepoStatus={showHeaderRepoStatus}
         draftMode={draftMode}
         canToggleSidebar={canToggleSidebar}
         sidebarVisible={showSidebar}

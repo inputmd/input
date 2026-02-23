@@ -130,15 +130,6 @@
   user-select: none;
 }
 
-.repo-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  user-select: none;
-}
-
 .user-menu {
   position: relative;
 }
@@ -149,6 +140,7 @@
   gap: 8px;
   min-height: 35px;
   min-width: 40px;
+  max-width: 200px;
   padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -243,4 +235,7 @@
 .user-name {
   font-size: 14px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

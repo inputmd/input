@@ -23,7 +23,6 @@ interface ToolbarProps {
   inRepoContext: boolean;
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
-  showRepoStatus: boolean;
   draftMode: boolean;
   canToggleSidebar: boolean;
   sidebarVisible: boolean;
@@ -55,7 +54,6 @@ export function Toolbar({
   inRepoContext,
   availableRepos,
   repoListLoading,
-  showRepoStatus,
   draftMode,
   canToggleSidebar,
   sidebarVisible,
@@ -164,12 +162,6 @@ export function Toolbar({
                 <PanelLeftOpen size={20} aria-hidden="true" />
               )}
             </button>
-            {showRepoStatus && selectedRepo ? (
-              <span class="repo-status" title={`${selectedRepo} (${selectedRepoPrivate ? 'private' : 'public'})`}>
-                <RepoPrivacyIcon size={14} aria-hidden="true" />
-                <span>{selectedRepo}</span>
-              </span>
-            ) : null}
           </>
         ) : null}
       </div>
