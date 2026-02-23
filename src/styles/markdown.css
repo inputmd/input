@@ -104,6 +104,14 @@
   border-left: 4px solid var(--border);
 }
 
+.rendered-markdown blockquote p:first-child {
+  margin-top: 0;
+}
+
+.rendered-markdown blockquote p:last-child {
+  margin-bottom: 0;
+}
+
 .rendered-markdown hr {
   border: 0;
   border-top: 1px solid var(--border);

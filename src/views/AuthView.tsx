@@ -6,7 +6,7 @@ export function AuthView() {
   const [error, setError] = useState<string | null>(null);
 
   const onSignIn = () => {
-    window.location.assign(`/api/auth/github/start?return_to=${encodeURIComponent('/' + routePath.documents())}`);
+    window.location.assign(`/api/auth/github/start?return_to=${encodeURIComponent(`/${routePath.documents()}`)}`);
   };
 
   const onConnectApp = async () => {

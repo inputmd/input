@@ -1,18 +1,11 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Check, ChevronDown, Eye, Globe, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import type { InstallationRepo } from '../github_app';
 import type { GitHubUser } from '../github';
+import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
 
-export type ActiveView =
-  | 'auth'
-  | 'documents'
-  | 'githubapp'
-  | 'loading'
-  | 'error'
-  | 'content'
-  | 'edit';
+export type ActiveView = 'auth' | 'documents' | 'githubapp' | 'loading' | 'error' | 'content' | 'edit';
 
 interface ToolbarProps {
   view: ActiveView;
@@ -148,21 +141,19 @@ export function Toolbar({
         {isHomeDraft ? (
           <span class="document-menu-label">New Document</span>
         ) : canToggleSidebar ? (
-          <>
-            <button
-              type="button"
-              class="document-menu-trigger"
-              onClick={onToggleSidebar}
-              aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-              title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-            >
-              {sidebarVisible ? (
-                <PanelLeftClose size={20} aria-hidden="true" />
-              ) : (
-                <PanelLeftOpen size={20} aria-hidden="true" />
-              )}
-            </button>
-          </>
+          <button
+            type="button"
+            class="document-menu-trigger"
+            onClick={onToggleSidebar}
+            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+          >
+            {sidebarVisible ? (
+              <PanelLeftClose size={20} aria-hidden="true" />
+            ) : (
+              <PanelLeftOpen size={20} aria-hidden="true" />
+            )}
+          </button>
         ) : null}
       </div>
       <div class="toolbar-right">

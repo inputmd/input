@@ -240,14 +240,19 @@ export function getSession(req: http.IncomingMessage): Session | null {
 }
 
 export function refreshSession(session: Session, res: http.ServerResponse): Session {
-  return upsertSession(res, session.id, {
-    githubUserId: session.githubUserId,
-    githubAccessToken: session.githubAccessToken,
-    githubLogin: session.githubLogin,
-    githubAvatarUrl: session.githubAvatarUrl,
-    githubName: session.githubName,
-    installationId: session.installationId,
-  }, session.createdAtMs);
+  return upsertSession(
+    res,
+    session.id,
+    {
+      githubUserId: session.githubUserId,
+      githubAccessToken: session.githubAccessToken,
+      githubLogin: session.githubLogin,
+      githubAvatarUrl: session.githubAvatarUrl,
+      githubName: session.githubName,
+      installationId: session.installationId,
+    },
+    session.createdAtMs,
+  );
 }
 
 export function rememberInstallationForUser(githubUserId: number, installationId: string): void {

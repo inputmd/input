@@ -34,10 +34,10 @@ import {
   getInstallationId,
   getPendingInstallationId,
   getRepoContents,
-  type InstallationRepo,
-  listInstallationRepos,
   getSelectedRepo,
+  type InstallationRepo,
   isRepoFile,
+  listInstallationRepos,
   putRepoFile,
   SessionExpiredError,
   setInstallationId,
@@ -55,7 +55,6 @@ import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { GitHubAppView } from './views/GitHubAppView';
 import { LoadingView } from './views/LoadingView';
-
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const DRAFT_TITLE_KEY = 'draft_title';
@@ -328,7 +327,10 @@ export function App() {
         }
       }
 
-      setViewPhase('loading');
+      const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
+      if (shouldShowLoading) {
+        setViewPhase('loading');
+      }
       try {
         if (anonymous) {
           let res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
@@ -391,7 +393,7 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Unknown error');
       }
     },
-    [showError, currentGistId, gistFiles, renderDocumentContent],
+    [showError, currentGistId, gistFiles, renderDocumentContent, activeView, currentFileName],
   );
 
   const loadRepoFile = useCallback(
@@ -402,7 +404,10 @@ export function App() {
         navigate(routePath.githubApp());
         return;
       }
-      setViewPhase('loading');
+      const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
+      if (shouldShowLoading) {
+        setViewPhase('loading');
+      }
       try {
         const contents = await getRepoContents(instId, repoName, path);
         if (!isRepoFile(contents)) throw new Error('Expected a file');
@@ -429,7 +434,15 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Failed to load file');
       }
     },
-    [navigate, handleSessionExpired, showError, fetchRepoSidebarFiles, renderDocumentContent],
+    [
+      navigate,
+      handleSessionExpired,
+      showError,
+      fetchRepoSidebarFiles,
+      renderDocumentContent,
+      activeView,
+      currentFileName,
+    ],
   );
 
   // --- Route handler ---
@@ -457,7 +470,9 @@ export function App() {
             const dirContents = await getRepoContents(instId, repoName, REPO_DOCS_DIR);
             if (Array.isArray(dirContents)) {
               const mdFiles = dirContents
-                .filter((c: { type: string; name: string }) => c.type === 'file' && c.name.toLowerCase().endsWith('.md'))
+                .filter(
+                  (c: { type: string; name: string }) => c.type === 'file' && c.name.toLowerCase().endsWith('.md'),
+                )
                 .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
               if (mdFiles.length > 0) {
                 setRepoFiles(mdFiles);
@@ -620,6 +635,7 @@ export function App() {
       user,
       currentGistId,
       gistFiles,
+      handleSessionExpired,
     ],
   );
 
@@ -665,6 +681,8 @@ export function App() {
   }, [route.name, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle, editContent]);
 
   useEffect(() => {
+    void installationId;
+    void user?.login;
     setInstallationRepos([]);
     setInstallationReposLoading(false);
     setLoadedReposInstallationId(null);
@@ -1126,7 +1144,7 @@ export function App() {
   const editingFileName = currentFileName ?? editTitle;
   const editPreviewEnabled = isMarkdownFileName(editingFileName);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
-  const showEditorCancel = activeView === 'edit' && !(draftMode);
+  const showEditorCancel = activeView === 'edit' && !draftMode;
   const showEditorSave = activeView === 'edit' && !(draftMode && !user);
   const editPreviewHtml = useMemo(
     () => (editPreviewEnabled ? parseMarkdownToHtml(editContent) : ''),
@@ -1197,7 +1215,7 @@ export function App() {
         )}
         <ErrorBoundary
           fallbackMessage="This screen crashed while rendering."
-          resetKey={`${route.name}:${JSON.stringify(route.params)}`}
+          resetKey={route.name}
           onReset={() => {
             void handleRoute(route);
           }}
