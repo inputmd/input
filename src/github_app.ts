@@ -32,6 +32,7 @@ export function clearPendingInstallationId(): void {
 export interface SelectedRepo {
   full_name: string; // owner/name
   id?: number;
+  private?: boolean;
 }
 
 export function getSelectedRepo(): SelectedRepo | null {

@@ -13,7 +13,7 @@ import { routePath } from '../routing';
 interface GitHubAppViewProps {
   installationId: string;
   selectedRepo: string | null;
-  onSelectRepo: (fullName: string, id: number) => void;
+  onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void;
   onDisconnect: () => void;
   navigate: (route: string) => void;
 }
@@ -60,9 +60,9 @@ export function GitHubAppView({
     }
   };
 
-  const handleSelect = (repo: { full_name: string; id: number }) => {
-    onSelectRepo(repo.full_name, repo.id);
-    setSelectedRepo({ full_name: repo.full_name, id: repo.id });
+  const handleSelect = (repo: { full_name: string; id: number; private: boolean }) => {
+    onSelectRepo(repo.full_name, repo.id, repo.private);
+    setSelectedRepo({ full_name: repo.full_name, id: repo.id, private: repo.private });
     navigate(routePath.repoDocuments());
   };
 

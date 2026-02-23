@@ -51,6 +51,15 @@
   user-select: none;
 }
 
+.repo-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  user-select: none;
+}
+
 .user-menu {
   position: relative;
 }

@@ -112,6 +112,7 @@ export function App() {
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [installationId, setInstId] = useState<string | null>(getInstallationId());
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
+  const [selectedRepoPrivate, setSelectedRepoPrivate] = useState<boolean | null>(getSelectedRepo()?.private ?? null);
 
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
@@ -138,8 +139,10 @@ export function App() {
 
   // --- Helpers ---
   const syncRepoState = useCallback(() => {
+    const storedRepo = getSelectedRepo();
     setInstId(getInstallationId());
-    setSelectedRepo(getSelectedRepo()?.full_name ?? null);
+    setSelectedRepo(storedRepo?.full_name ?? null);
+    setSelectedRepoPrivate(storedRepo?.private ?? null);
   }, []);
 
   const handleSessionExpired = useCallback(() => {
@@ -147,6 +150,7 @@ export function App() {
     clearSelectedRepo();
     setInstId(null);
     setSelectedRepo(null);
+    setSelectedRepoPrivate(null);
     navigate(routePath.auth());
   }, [navigate]);
 
@@ -184,6 +188,7 @@ export function App() {
         clearSelectedRepo();
         setInstId(null);
         setSelectedRepo(null);
+        setSelectedRepoPrivate(null);
         return { authenticated: false, navigated: false };
       }
       setUser(session.user);
@@ -634,6 +639,7 @@ export function App() {
     setUser(null);
     setInstId(null);
     setSelectedRepo(null);
+    setSelectedRepoPrivate(null);
     setCurrentGistId(null);
     navigate(routePath.home());
   }, [navigate]);
@@ -929,14 +935,16 @@ export function App() {
   );
 
   // --- GitHub App callbacks ---
-  const onSelectRepo = useCallback((fullName: string, id: number) => {
+  const onSelectRepo = useCallback((fullName: string, id: number, isPrivate: boolean) => {
     setSelectedRepo(fullName);
-    storeSelectedRepo({ full_name: fullName, id });
+    setSelectedRepoPrivate(isPrivate);
+    storeSelectedRepo({ full_name: fullName, id, private: isPrivate });
   }, []);
 
   const onDisconnect = useCallback(() => {
     setInstId(null);
     setSelectedRepo(null);
+    setSelectedRepoPrivate(null);
     navigate(routePath.auth());
   }, [navigate]);
 
@@ -1041,6 +1049,7 @@ export function App() {
     setHasUnsavedChanges(true);
   }, []);
   const showHeaderEdit = activeView === 'content' && (currentRepoDocPath !== null || currentGistId !== null);
+  const showHeaderRepoStatus = activeView === 'edit' && editingBackend === 'repo' && selectedRepo !== null;
 
   return (
     <>
@@ -1049,6 +1058,8 @@ export function App() {
         user={user}
         installationId={installationId}
         selectedRepo={selectedRepo}
+        selectedRepoPrivate={selectedRepoPrivate}
+        showRepoStatus={showHeaderRepoStatus}
         draftMode={draftMode}
         canToggleSidebar={canToggleSidebar}
         sidebarVisible={showSidebar}

@@ -1,6 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Globe, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { GitHubUser } from '../github';
 import { routePath } from '../routing';
 
@@ -19,6 +19,8 @@ interface ToolbarProps {
   user: GitHubUser | null;
   installationId: string | null;
   selectedRepo: string | null;
+  selectedRepoPrivate: boolean | null;
+  showRepoStatus: boolean;
   draftMode: boolean;
   canToggleSidebar: boolean;
   sidebarVisible: boolean;
@@ -35,6 +37,8 @@ export function Toolbar({
   user,
   installationId,
   selectedRepo,
+  selectedRepoPrivate,
+  showRepoStatus,
   draftMode,
   canToggleSidebar,
   sidebarVisible,
@@ -49,6 +53,7 @@ export function Toolbar({
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!installationId;
   const showRepoDocs = !!selectedRepo;
+  const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
 
   return (
     <header class="toolbar">
@@ -66,19 +71,27 @@ export function Toolbar({
         {isHomeDraft ? (
           <span class="document-menu-label">New Wiki</span>
         ) : canToggleSidebar ? (
-          <button
-            type="button"
-            class="document-menu-trigger"
-            onClick={onToggleSidebar}
-            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-          >
-            {sidebarVisible ? (
-              <PanelLeftClose size={20} aria-hidden="true" />
-            ) : (
-              <PanelLeftOpen size={20} aria-hidden="true" />
-            )}
-          </button>
+          <>
+            <button
+              type="button"
+              class="document-menu-trigger"
+              onClick={onToggleSidebar}
+              aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+              title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+            >
+              {sidebarVisible ? (
+                <PanelLeftClose size={20} aria-hidden="true" />
+              ) : (
+                <PanelLeftOpen size={20} aria-hidden="true" />
+              )}
+            </button>
+            {showRepoStatus && selectedRepo ? (
+              <span class="repo-status" title={`${selectedRepo} (${selectedRepoPrivate ? 'private' : 'public'})`}>
+                <RepoPrivacyIcon size={14} aria-hidden="true" />
+                <span>{selectedRepo}</span>
+              </span>
+            ) : null}
+          </>
         ) : null}
       </div>
       <div class="toolbar-right">
