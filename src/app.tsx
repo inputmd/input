@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -57,6 +57,7 @@ import { GitHubAppView } from './views/GitHubAppView';
 import { LoadingView } from './views/LoadingView';
 
 
+const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
@@ -136,6 +137,17 @@ export function App() {
   const [repoFiles, setRepoFiles] = useState<RepoDocFile[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
+  const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(EDITOR_PREVIEW_VISIBLE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isDesktopWidth, setIsDesktopWidth] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
 
   // Track initialization
   const initialized = useRef(false);
@@ -668,6 +680,25 @@ export function App() {
     } catch {}
   }, []);
 
+  // --- Preview state ---
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)');
+    const onChange = (event: MediaQueryListEvent) => setIsDesktopWidth(event.matches);
+    setIsDesktopWidth(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
+  useLayoutEffect(() => {
+    try {
+      localStorage.setItem(EDITOR_PREVIEW_VISIBLE_KEY, previewVisible ? 'true' : 'false');
+    } catch {}
+  }, [previewVisible]);
+
+  const onTogglePreview = useCallback(() => {
+    setPreviewVisible((v) => !v);
+  }, []);
+
   // --- Sign out ---
   const signOut = useCallback(() => {
     void logout().catch(() => {});
@@ -1046,14 +1077,12 @@ export function App() {
           <EditView
             content={editContent}
             previewHtml={editPreviewHtml}
-            previewEnabled={editPreviewEnabled}
+            previewVisible={previewVisible}
+            canRenderPreview={canRenderPreview}
             onContentChange={onEditContentChange}
-            showCancel={!(activeView === 'edit' && draftMode)}
-            showSave={!(activeView === 'edit' && draftMode && !user)}
             saving={saving}
             canSave={hasUnsavedChanges}
             onSave={onSave}
-            onCancel={onCancel}
           />
         );
       case 'loading':
@@ -1095,6 +1124,9 @@ export function App() {
   const canToggleSidebar = sidebarEligible && sidebarFiles.length > 0 && currentFileName !== null;
   const editingFileName = currentFileName ?? editTitle;
   const editPreviewEnabled = isMarkdownFileName(editingFileName);
+  const canRenderPreview = editPreviewEnabled && isDesktopWidth;
+  const showEditorCancel = activeView === 'edit' && !(draftMode);
+  const showEditorSave = activeView === 'edit' && !(draftMode && !user);
   const editPreviewHtml = useMemo(
     () => (editPreviewEnabled ? parseMarkdownToHtml(editContent) : ''),
     [editPreviewEnabled, editContent],
@@ -1138,6 +1170,15 @@ export function App() {
         onToggleTheme={toggleTheme}
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
+        showPreviewToggle={activeView === 'edit' && canRenderPreview}
+        previewVisible={previewVisible}
+        onTogglePreview={onTogglePreview}
+        showCancel={showEditorCancel}
+        onCancel={onCancel}
+        showSave={showEditorSave}
+        saving={saving}
+        canSave={hasUnsavedChanges}
+        onSave={onSave}
       />
       <div class={showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}>
         {showSidebar && (

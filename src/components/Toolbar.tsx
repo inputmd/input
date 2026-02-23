@@ -1,6 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Check, ChevronDown, Globe, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Check, ChevronDown, Eye, Globe, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { InstallationRepo } from '../github_app';
 import type { GitHubUser } from '../github';
 import { routePath } from '../routing';
@@ -28,6 +28,15 @@ interface ToolbarProps {
   canToggleSidebar: boolean;
   sidebarVisible: boolean;
   showEdit: boolean;
+  showPreviewToggle: boolean;
+  previewVisible: boolean;
+  onTogglePreview: () => void;
+  showCancel: boolean;
+  onCancel: () => void;
+  showSave: boolean;
+  saving: boolean;
+  canSave: boolean;
+  onSave: () => void;
   navigate: (route: string) => void;
   onOpenRepoMenu: () => void;
   onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void;
@@ -51,6 +60,15 @@ export function Toolbar({
   canToggleSidebar,
   sidebarVisible,
   showEdit,
+  showPreviewToggle,
+  previewVisible,
+  onTogglePreview,
+  showCancel,
+  onCancel,
+  showSave,
+  saving,
+  canSave,
+  onSave,
   navigate,
   onOpenRepoMenu,
   onSelectRepo,
@@ -160,6 +178,27 @@ export function Toolbar({
           {showEdit && (
             <button type="button" onClick={onEdit}>
               Edit
+            </button>
+          )}
+          {showPreviewToggle && (
+            <button
+              type="button"
+              class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
+              title={previewVisible ? 'Hide preview' : 'Show preview'}
+              aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
+              onClick={onTogglePreview}
+            >
+              <Eye size={16} />
+            </button>
+          )}
+          {showCancel && (
+            <button type="button" onClick={onCancel}>
+              Cancel
+            </button>
+          )}
+          {showSave && (
+            <button type="button" onClick={onSave} disabled={saving || !canSave}>
+              {saving ? 'Saving...' : 'Save'}
             </button>
           )}
           {showSignInToSave && (

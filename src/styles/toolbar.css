@@ -93,6 +93,19 @@
   gap: 8px;
 }
 
+.action-buttons .preview-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 35px;
+  width: 35px;
+  padding: 0 2px;
+}
+
+.preview-toggle-btn-off {
+  color: var(--text-secondary);
+}
+
 .document-menu-trigger {
   display: inline-flex;
   align-items: center;
