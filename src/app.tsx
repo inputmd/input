@@ -15,28 +15,30 @@ import {
 } from './document_store';
 import { markGistRecentlyCreated } from './gist_consistency';
 import {
-  clearToken,
   createGist,
   type GistDetail,
   type GistFile,
   type GitHubUser,
+  getAuthSession,
   getGist,
-  getUser,
-  isAuthenticated,
+  logout,
   updateGist,
 } from './github';
 import {
   clearInstallationId,
+  clearPendingInstallationId,
   clearSelectedRepo,
-  clearSessionToken,
+  consumeInstallState,
   createSession,
   getInstallationId,
+  getPendingInstallationId,
   getRepoContents,
   getSelectedRepo,
   isRepoFile,
   putRepoFile,
   SessionExpiredError,
   setInstallationId,
+  setPendingInstallationId,
   setSelectedRepo as storeSelectedRepo,
 } from './github_app';
 import { useRoute } from './hooks/useRoute';
@@ -143,7 +145,6 @@ export function App() {
   const handleSessionExpired = useCallback(() => {
     clearInstallationId();
     clearSelectedRepo();
-    clearSessionToken();
     setInstId(null);
     setSelectedRepo(null);
     navigate(routePath.auth());
@@ -173,16 +174,54 @@ export function App() {
   }, []);
 
   // --- Auth ---
-  const tryRestoreAuth = useCallback(async () => {
-    if (!isAuthenticated()) return;
+  // Returns true if it navigated away from the current route.
+  const tryRestoreAuth = useCallback(async (): Promise<boolean> => {
     try {
-      const u = await getUser();
-      setUser(u);
+      const session = await getAuthSession();
+      if (!session.authenticated || !session.user) {
+        setUser(null);
+        clearInstallationId();
+        clearSelectedRepo();
+        setInstId(null);
+        setSelectedRepo(null);
+        return false;
+      }
+      setUser(session.user);
+      const pendingInstallationId = getPendingInstallationId();
+      if (pendingInstallationId) {
+        try {
+          await createSession(pendingInstallationId);
+          setInstallationId(pendingInstallationId);
+          setInstId(pendingInstallationId);
+          clearPendingInstallationId();
+          if (route.name === 'auth') {
+            navigate(routePath.githubApp());
+            return true;
+          }
+        } catch (err) {
+          if (!(err instanceof Error && err.message === 'Unauthorized')) {
+            clearPendingInstallationId();
+          }
+        }
+      }
+      if (session.installationId) {
+        setInstallationId(session.installationId);
+        setInstId(session.installationId);
+      } else {
+        clearInstallationId();
+        setInstId(null);
+      }
+      // Navigate away from auth page after successful session restore.
+      if (route.name === 'auth') {
+        navigate(session.installationId ? routePath.githubApp() : routePath.documents());
+        return true;
+      }
+      return false;
     } catch {
-      clearToken();
       setUser(null);
+      return false;
     }
-  }, []);
+  }, [navigate, route.name]);
 
   // --- GitHub App redirect ---
   const tryHandleGitHubAppSetupRedirect = useCallback(async (): Promise<boolean> => {
@@ -190,18 +229,30 @@ export function App() {
     const id = params.get('installation_id');
     if (!id) return false;
 
-    const expectedState = sessionStorage.getItem('github_app_install_state');
     const actualState = params.get('state');
-    sessionStorage.removeItem('github_app_install_state');
-
-    if (!expectedState || !actualState || expectedState !== actualState) {
+    if (!consumeInstallState(actualState)) {
       showError('GitHub App install state mismatch. Please try again.');
       return true;
     }
 
     try {
+      const session = await getAuthSession();
+      if (!session.authenticated) {
+        setPendingInstallationId(id);
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, '', cleanUrl);
+        navigate(routePath.auth());
+        return true;
+      }
       await createSession(id);
     } catch (err) {
+      if (err instanceof Error && err.message === 'Unauthorized') {
+        setPendingInstallationId(id);
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, '', cleanUrl);
+        navigate(routePath.auth());
+        return true;
+      }
       showError(err instanceof Error ? err.message : 'Failed to create session');
       return true;
     }
@@ -534,8 +585,8 @@ export function App() {
 
     (async () => {
       const handledSetup = await tryHandleGitHubAppSetupRedirect();
-      await tryRestoreAuth();
-      if (!handledSetup) {
+      const authNavigated = await tryRestoreAuth();
+      if (!handledSetup && !authNavigated) {
         await handleRoute(route);
       }
       document.getElementById('app')!.classList.add('ready');
@@ -580,8 +631,12 @@ export function App() {
 
   // --- Sign out ---
   const signOut = useCallback(() => {
-    clearToken();
+    void logout().catch(() => {});
+    clearInstallationId();
+    clearSelectedRepo();
     setUser(null);
+    setInstId(null);
+    setSelectedRepo(null);
     setCurrentGistId(null);
     navigate(routePath.home());
   }, [navigate]);
@@ -892,7 +947,7 @@ export function App() {
   const renderView = () => {
     switch (activeView) {
       case 'auth':
-        return <AuthView onUserChange={setUser} navigate={navigate} />;
+        return <AuthView />;
       case 'documents':
         return <DocumentsView navigate={navigate} userLogin={user?.login ?? null} />;
       case 'githubapp':
@@ -905,7 +960,7 @@ export function App() {
             navigate={navigate}
           />
         ) : (
-          <AuthView onUserChange={setUser} navigate={navigate} />
+          <AuthView />
         );
       case 'repodocuments':
         return installationId && selectedRepo ? (

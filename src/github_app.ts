@@ -1,6 +1,9 @@
 const INSTALLATION_ID_KEY = 'github_app_installation_id';
 const SELECTED_REPO_KEY = 'github_app_selected_repo';
-const SESSION_TOKEN_KEY = 'github_app_session_token';
+const PENDING_INSTALLATION_ID_KEY = 'github_app_pending_installation_id';
+const INSTALL_STATE_KEY = 'github_app_install_state';
+const INSTALL_STATES_FALLBACK_KEY = 'github_app_install_states';
+const INSTALL_STATE_TTL_MS = 15 * 60 * 1000;
 
 export function getInstallationId(): string | null {
   return localStorage.getItem(INSTALLATION_ID_KEY);
@@ -12,6 +15,18 @@ export function setInstallationId(id: string): void {
 
 export function clearInstallationId(): void {
   localStorage.removeItem(INSTALLATION_ID_KEY);
+}
+
+export function getPendingInstallationId(): string | null {
+  return localStorage.getItem(PENDING_INSTALLATION_ID_KEY);
+}
+
+export function setPendingInstallationId(id: string): void {
+  localStorage.setItem(PENDING_INSTALLATION_ID_KEY, id);
+}
+
+export function clearPendingInstallationId(): void {
+  localStorage.removeItem(PENDING_INSTALLATION_ID_KEY);
 }
 
 export interface SelectedRepo {
@@ -39,18 +54,6 @@ export function clearSelectedRepo(): void {
   localStorage.removeItem(SELECTED_REPO_KEY);
 }
 
-export function getSessionToken(): string | null {
-  return sessionStorage.getItem(SESSION_TOKEN_KEY);
-}
-
-export function setSessionToken(token: string): void {
-  sessionStorage.setItem(SESSION_TOKEN_KEY, token);
-}
-
-export function clearSessionToken(): void {
-  sessionStorage.removeItem(SESSION_TOKEN_KEY);
-}
-
 // --- Error types ---
 
 export class SessionExpiredError extends Error {
@@ -62,18 +65,12 @@ export class SessionExpiredError extends Error {
 
 // --- Fetch helpers ---
 
-function authHeaders(): Record<string, string> {
-  const token = getSessionToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function authFetch(url: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(url, {
     ...init,
-    headers: { ...authHeaders(), ...(init?.headers as Record<string, string>) },
+    credentials: 'same-origin',
   });
   if (res.status === 401) {
-    clearSessionToken();
     throw new SessionExpiredError();
   }
   if (!res.ok) {
@@ -85,19 +82,29 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
 
 // --- Public endpoints (no auth) ---
 
-export async function createSession(installationId: string): Promise<string> {
+export async function createSession(installationId: string): Promise<void> {
   const res = await fetch('/api/github-app/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     body: JSON.stringify({ installationId }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
   }
-  const data = (await res.json()) as { token: string; installationId: string };
-  setSessionToken(data.token);
-  return data.token;
+  await res.json();
+}
+
+export async function disconnectInstallation(): Promise<void> {
+  const res = await fetch('/api/github-app/disconnect', {
+    method: 'POST',
+    credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
+  }
 }
 
 export function createInstallState(): string {
@@ -105,6 +112,60 @@ export function createInstallState(): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+type StoredInstallStates = Record<string, number>;
+
+function readStoredInstallStates(): StoredInstallStates {
+  const raw = localStorage.getItem(INSTALL_STATES_FALLBACK_KEY);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as StoredInstallStates;
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredInstallStates(states: StoredInstallStates): void {
+  localStorage.setItem(INSTALL_STATES_FALLBACK_KEY, JSON.stringify(states));
+}
+
+function pruneExpiredInstallStates(states: StoredInstallStates): StoredInstallStates {
+  const now = Date.now();
+  const next: StoredInstallStates = {};
+  for (const [state, expiresAt] of Object.entries(states)) {
+    if (expiresAt > now) next[state] = expiresAt;
+  }
+  return next;
+}
+
+export function rememberInstallState(state: string): void {
+  sessionStorage.setItem(INSTALL_STATE_KEY, state);
+  const next = pruneExpiredInstallStates(readStoredInstallStates());
+  next[state] = Date.now() + INSTALL_STATE_TTL_MS;
+  writeStoredInstallStates(next);
+}
+
+export function consumeInstallState(actualState: string | null): boolean {
+  const expectedState = sessionStorage.getItem(INSTALL_STATE_KEY);
+  sessionStorage.removeItem(INSTALL_STATE_KEY);
+  if (!actualState) return false;
+  if (expectedState && expectedState === actualState) {
+    const next = pruneExpiredInstallStates(readStoredInstallStates());
+    delete next[actualState];
+    writeStoredInstallStates(next);
+    return true;
+  }
+
+  const next = pruneExpiredInstallStates(readStoredInstallStates());
+  const matched = typeof next[actualState] === 'number';
+  if (matched) {
+    delete next[actualState];
+    writeStoredInstallStates(next);
+    return true;
+  }
+  writeStoredInstallStates(next);
+  return false;
 }
 
 export async function getInstallUrl(state: string): Promise<string> {

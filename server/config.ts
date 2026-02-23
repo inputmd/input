@@ -1,11 +1,11 @@
-import crypto from 'node:crypto';
-
 export const PORT = Number.parseInt(process.env.PORT ?? '8787', 10);
 
 export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? '';
+export const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET ?? '';
 export const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
-export const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 export const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
+export const SESSION_MAX_LIFETIME_SECONDS = 14 * 24 * 60 * 60; // 2 weeks
+export const DATABASE_PATH = process.env.DATABASE_PATH ?? './.data/input.db';
 
 export const GITHUB_FETCH_TIMEOUT_MS = 15_000;
 export const MAX_BODY_BYTES = 1024 * 1024; // 1 MB

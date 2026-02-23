@@ -1,5 +1,13 @@
 export interface Session {
-  installationId: string;
+  id: string;
+  githubUserId: number;
+  githubAccessToken: string;
+  githubLogin: string;
+  githubAvatarUrl: string;
+  githubName: string | null;
+  installationId: string | null;
+  createdAtMs: number;
+  expiresAtMs: number;
 }
 
 export interface TokenCacheRecord {

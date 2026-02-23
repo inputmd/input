@@ -5,22 +5,31 @@
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/github-app/health` | Health check |
+| `GET` | `/api/auth/github/start?return_to=...` | Starts GitHub OAuth and redirects to GitHub |
+| `GET` | `/api/auth/github/callback` | OAuth callback endpoint (redirects back to app) |
+| `GET` | `/api/auth/session` | Returns current auth session (`authenticated`, `user`, `installationId`) |
+| `POST` | `/api/auth/logout` | Clears the server-side auth session |
 | `GET` | `/api/github-app/install-url?state=...` | Returns the GitHub App installation URL |
-| `POST` | `/api/github-app/sessions` | Exchanges an `installationId` for a signed session token |
+| `POST` | `/api/github-app/sessions` | Associates an `installationId` with the current auth session |
+| `POST` | `/api/github-app/disconnect` | Clears the saved GitHub App installation from the current user session |
 | `GET` | `/api/gists/:id` | Cached proxy for public gist reads (see [Gist proxy](#gist-proxy)) |
-| `POST` | `/api/device-flow/code` | Initiates GitHub Device Flow for gist OAuth |
-| `POST` | `/api/device-flow/token` | Polls for a Device Flow access token (requires `device_code` in body) |
 
-### Authenticated (requires `Authorization: Bearer <session-token>`)
+### Authenticated (requires `input_session_id` cookie)
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/api/github/user` | Returns the authenticated GitHub user profile |
+| `GET` | `/api/github/gists?per_page=...&page=...` | Lists authenticated user's gists |
+| `POST` | `/api/github/gists` | Creates a gist |
+| `GET` | `/api/github/gists/:id` | Reads an authenticated gist |
+| `PATCH` | `/api/github/gists/:id` | Updates gist metadata/files |
+| `DELETE` | `/api/github/gists/:id` | Deletes a gist |
 | `GET` | `/api/github-app/installations/:id/repositories` | Lists repos accessible to the installation |
 | `GET` | `/api/github-app/installations/:id/repos/:owner/:repo/contents?path=...` | Reads a file or directory listing |
 | `PUT` | `/api/github-app/installations/:id/repos/:owner/:repo/contents` | Creates or updates a file (base64 content) |
 | `DELETE` | `/api/github-app/installations/:id/repos/:owner/:repo/contents` | Deletes a file |
 
-Session tokens are HMAC-SHA256 signed, scoped to a single installation, and expire after 8 hours. The `installationId` in the token must match the `:id` in the URL.
+Sessions are stored server-side in SQLite (`DATABASE_PATH`) and keyed by an `HttpOnly` cookie. `installationId` is linked to the signed-in GitHub user and enforced on repo API routes.
 
 ## Gist proxy
 
@@ -57,8 +66,8 @@ Set `GITHUB_TOKEN` in `.env` to a fine-grained PAT with zero permissions to rais
 - CORS restricted to `https://input.md`, `localhost:5173`, and `localhost:5174`
 - Per-IP rate limiting (30 requests/minute) on all API endpoints
 - 1 MB request body limit with safe JSON parsing
-- CSRF state validation on GitHub App install redirect
-- Manual PAT and GitHub App session token stored in `sessionStorage` (cleared when the tab closes); OAuth Device Flow token stored in `localStorage` (persists across sessions)
+- CSRF state validation on OAuth and GitHub App install redirects
+- Server-side sessions with `HttpOnly` cookies (`SameSite=Lax`)
 - ANSI RGB values sanitized to prevent CSS injection
 - Error messages sanitized — internal details logged server-side only
 - 15-second timeout on all outbound GitHub API calls

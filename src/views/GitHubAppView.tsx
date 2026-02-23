@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import {
   clearInstallationId,
   clearSelectedRepo,
-  clearSessionToken,
+  disconnectInstallation,
   type InstallationRepoList,
   listInstallationRepos,
   SessionExpiredError,
@@ -48,11 +48,16 @@ export function GitHubAppView({
     }
   };
 
-  const handleDisconnect = () => {
-    clearInstallationId();
-    clearSelectedRepo();
-    clearSessionToken();
-    onDisconnect();
+  const handleDisconnect = async () => {
+    try {
+      await disconnectInstallation();
+    } catch {
+      /* still clear local state below */
+    } finally {
+      clearInstallationId();
+      clearSelectedRepo();
+      onDisconnect();
+    }
   };
 
   const handleSelect = (repo: { full_name: string; id: number }) => {
@@ -69,7 +74,7 @@ export function GitHubAppView({
         <button type="button" onClick={loadRepos}>
           {loading ? 'Loading...' : 'Load Accessible Repos'}
         </button>
-        <button type="button" onClick={handleDisconnect}>
+        <button type="button" onClick={() => void handleDisconnect()}>
           Disconnect
         </button>
       </div>

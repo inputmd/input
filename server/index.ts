@@ -1,6 +1,6 @@
 import './env';
 import http from 'node:http';
-import { PORT, SESSION_SECRET } from './config';
+import { PORT } from './config';
 import { applyCors } from './cors';
 import { ClientError } from './errors';
 import { startGistCacheCleanup } from './gist_cache';
@@ -9,17 +9,13 @@ import { json } from './http_helpers';
 import { startRateLimitCleanup } from './rate_limit';
 import { handleApiRequest } from './routes';
 import { applySecurityHeaders } from './security_headers';
+import { startSessionCleanup } from './session';
 import { serveStatic } from './static_files';
-
-if (!process.env.SESSION_SECRET) {
-  console.warn(
-    'WARNING: SESSION_SECRET not set — using random ephemeral secret. Sessions will not survive server restarts.',
-  );
-}
 
 startInstallationTokenCacheCleanup();
 startGistCacheCleanup();
 startRateLimitCleanup();
+startSessionCleanup();
 
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   try {
@@ -59,7 +55,8 @@ server.listen(PORT, '0.0.0.0', () => {
     process.env.GITHUB_APP_ID &&
       (process.env.GITHUB_APP_PRIVATE_KEY || process.env.GITHUB_APP_PRIVATE_KEY_PATH) &&
       process.env.GITHUB_APP_SLUG &&
-      SESSION_SECRET,
+      process.env.GITHUB_CLIENT_ID &&
+      process.env.GITHUB_CLIENT_SECRET,
   );
   console.log(`GitHub App auth server listening on http://0.0.0.0:${PORT} (configured=${configured})`);
 });

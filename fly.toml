@@ -5,6 +5,7 @@ primary_region = 'ewr'
 
 [env]
   PORT = '8787'
+  DATABASE_PATH = '/data/input.db'
 
 [http_service]
   internal_port = 8787
@@ -17,3 +18,7 @@ primary_region = 'ewr'
   memory = '256mb'
   cpus = 1
   memory_mb = 256
+
+[[mounts]]
+  source = 'data'
+  destination = '/data'

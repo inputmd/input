@@ -1,8 +1,4 @@
-const STORAGE_KEY = 'github_pat'; // sessionStorage (manual PAT)
-const OAUTH_TOKEN_KEY = 'github_oauth_token'; // localStorage (Device Flow)
-const API_BASE = 'https://api.github.com';
-
-// --- Types ---
+const API_BASE = '/api/github';
 
 export interface GistFile {
   filename: string;
@@ -36,54 +32,37 @@ export interface GitHubUser {
   name: string | null;
 }
 
-// --- Token management ---
-
-export function getToken(): string | null {
-  return sessionStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(OAUTH_TOKEN_KEY);
+interface AuthSessionResponse {
+  authenticated: boolean;
+  user?: GitHubUser;
+  installationId?: string | null;
 }
-
-export function setToken(token: string): void {
-  sessionStorage.setItem(STORAGE_KEY, token);
-}
-
-export function setOAuthToken(token: string): void {
-  localStorage.setItem(OAUTH_TOKEN_KEY, token);
-}
-
-export function clearToken(): void {
-  sessionStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(OAUTH_TOKEN_KEY);
-}
-
-export function isAuthenticated(): boolean {
-  return getToken() !== null;
-}
-
-// --- API helpers ---
 
 async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const token = getToken();
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
     ...(options.headers as Record<string, string>),
   };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: 'same-origin' });
+  if (res.status === 401) {
+    throw new Error('Unauthorized');
   }
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const msg = body?.message ?? `${res.status} ${res.statusText}`;
-    throw new Error(msg);
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
   }
   return res;
 }
 
-// --- API calls ---
-
-export async function getUser(): Promise<GitHubUser> {
-  const res = await apiFetch('/user');
+export async function getAuthSession(): Promise<AuthSessionResponse> {
+  const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
+  if (!res.ok) throw new Error(`Failed to fetch auth session: ${res.status} ${res.statusText}`);
   return res.json();
+}
+
+export async function logout(): Promise<void> {
+  const res = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  if (!res.ok) throw new Error(`Failed to logout: ${res.status} ${res.statusText}`);
 }
 
 export async function listGists(page = 1, perPage = 30): Promise<GistSummary[]> {
