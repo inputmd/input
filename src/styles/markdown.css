@@ -15,7 +15,7 @@
 }
 
 .rendered-markdown {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--reader-editor-font-size);
   line-height: var(--reader-editor-line-height);
   word-wrap: break-word;
