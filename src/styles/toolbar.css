@@ -1,7 +1,10 @@
 .toolbar {
-  position: sticky;
+  position: fixed;
   top: 0;
-  z-index: 10;
+  left: 0;
+  right: 0;
+  min-height: var(--toolbar-height);
+  z-index: 20;
   display: flex;
   justify-content: space-between;
   align-items: center;

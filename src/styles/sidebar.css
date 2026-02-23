@@ -1,4 +1,9 @@
 .sidebar {
+  position: fixed;
+  top: var(--toolbar-height);
+  left: 0;
+  bottom: 0;
+  z-index: 5;
   width: 220px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);

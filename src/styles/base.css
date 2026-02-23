@@ -19,6 +19,7 @@
   --reader-editor-line-height: 1.6;
   --selection-bg: #123f88;
   --selection-color: #eef5ff;
+  --toolbar-height: 52px;
 
   --ansi-black: #555555;
   --ansi-red: #f44747;
@@ -112,6 +113,7 @@ body {
   display: flex;
   flex: 1;
   min-height: 0;
+  padding-top: var(--toolbar-height);
 }
 
 .app-body main {
@@ -119,6 +121,16 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.app-body--with-sidebar main {
+  margin-left: 220px;
+}
+
+@media (max-width: 768px) {
+  .app-body--with-sidebar main {
+    margin-left: 0;
+  }
 }
 
 button {

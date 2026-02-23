@@ -1070,7 +1070,7 @@ export function App() {
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
       />
-      <div class={showSidebar ? 'app-body' : 'app-body app-body--no-sidebar'}>
+      <div class={showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}>
         {showSidebar && (
           <>
             <div class="sidebar-backdrop" onClick={onToggleSidebar} />
