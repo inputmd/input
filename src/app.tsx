@@ -62,6 +62,13 @@ const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
 const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
+const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = [
+  '### Input',
+  '',
+  'Write Markdown and preview it live.',
+  '',
+  'Sign in to save documents to GitHub Gists, or connect a repo to manage multi-file docs under `.input/documents/`.',
+].join('\n');
 
 function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
@@ -1190,11 +1197,18 @@ export function App() {
   const editingFileName = currentFileName ?? editTitle;
   const editPreviewEnabled = isMarkdownFileName(editingFileName);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
+  const showLoggedOutNewDocPreviewDescription =
+    route.name === 'new' && activeView === 'edit' && !user && editContent.trim().length === 0;
   const showEditorCancel = activeView === 'edit' && !draftMode;
   const showEditorSave = activeView === 'edit' && !(draftMode && !user);
   const editPreviewHtml = useMemo(
-    () => (editPreviewEnabled ? parseMarkdownToHtml(editContent) : ''),
-    [editPreviewEnabled, editContent],
+    () =>
+      editPreviewEnabled
+        ? parseMarkdownToHtml(
+            showLoggedOutNewDocPreviewDescription ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION : editContent,
+          )
+        : '',
+    [editPreviewEnabled, editContent, showLoggedOutNewDocPreviewDescription],
   );
   const onToggleSidebar = useCallback(() => {
     setSidebarVisibilityOverride((prev) => {
