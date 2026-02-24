@@ -4,6 +4,12 @@ const PENDING_INSTALLATION_ID_KEY = 'github_app_pending_installation_id';
 const INSTALL_STATE_KEY = 'github_app_install_state';
 const INSTALL_STATES_FALLBACK_KEY = 'github_app_install_states';
 const INSTALL_STATE_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_REPO_CONTENTS_CACHE_TTL_MS = 300_000;
+
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
 
 export function getInstallationId(): string | null {
   return localStorage.getItem(INSTALLATION_ID_KEY);
@@ -223,6 +229,59 @@ export interface PutFileResult {
   commit: { sha: string; html_url: string };
 }
 
+const repoContentsCache = new Map<string, CacheEntry<RepoContents>>();
+let repoContentsCacheTtlMs = readCacheTtlMs('VITE_REPO_CONTENTS_CACHE_TTL_MS', DEFAULT_REPO_CONTENTS_CACHE_TTL_MS);
+
+function readCacheTtlMs(envVar: string, fallback: number): number {
+  const raw = import.meta.env[envVar];
+  if (raw == null || raw === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function repoContentsCacheKey(installationId: string, repoFullName: string, path: string, ref?: string): string {
+  return `${installationId}|${repoFullName}|${ref ?? ''}|${path}`;
+}
+
+function cloneRepoContents(contents: RepoContents): RepoContents {
+  if (Array.isArray(contents)) {
+    return contents.map((item) => ({ ...item }));
+  }
+  return { ...contents };
+}
+
+function getCachedRepoContents(key: string): RepoContents | null {
+  const cached = repoContentsCache.get(key);
+  if (!cached) return null;
+  if (Date.now() > cached.expiresAt) {
+    repoContentsCache.delete(key);
+    return null;
+  }
+  return cloneRepoContents(cached.value);
+}
+
+function setCachedRepoContents(key: string, value: RepoContents): void {
+  repoContentsCache.set(key, {
+    value: cloneRepoContents(value),
+    expiresAt: Date.now() + repoContentsCacheTtlMs,
+  });
+}
+
+function clearRepoContentsCacheForRepo(installationId: string, repoFullName: string): void {
+  const keyPrefix = `${installationId}|${repoFullName}|`;
+  for (const key of repoContentsCache.keys()) {
+    if (key.startsWith(keyPrefix)) repoContentsCache.delete(key);
+  }
+}
+
+export function setRepoContentsCacheTtlMs(ttlMs: number): void {
+  if (!Number.isFinite(ttlMs) || ttlMs < 0) {
+    throw new Error('Repo contents cache TTL must be a non-negative number');
+  }
+  repoContentsCacheTtlMs = Math.floor(ttlMs);
+}
+
 // --- Authenticated API functions ---
 
 function splitFullName(fullName: string): { owner: string; repo: string } {
@@ -247,11 +306,17 @@ export async function getRepoContents(
   path: string,
   ref?: string,
 ): Promise<RepoContents> {
+  const cacheKey = repoContentsCacheKey(installationId, repoFullName, path, ref);
+  const cached = getCachedRepoContents(cacheKey);
+  if (cached) return cached;
+
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams({ path });
   if (ref) qs.set('ref', ref);
   const res = await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/contents?${qs.toString()}`);
-  return res.json();
+  const data = (await res.json()) as RepoContents;
+  setCachedRepoContents(cacheKey, data);
+  return data;
 }
 
 export async function putRepoFile(
@@ -268,7 +333,9 @@ export async function putRepoFile(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, message, content: contentBase64, sha }),
   });
-  return res.json();
+  const data = (await res.json()) as PutFileResult;
+  clearRepoContentsCacheForRepo(installationId, repoFullName);
+  return data;
 }
 
 export async function deleteRepoFile(
@@ -284,4 +351,5 @@ export async function deleteRepoFile(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, message, sha }),
   });
+  clearRepoContentsCacheForRepo(installationId, repoFullName);
 }

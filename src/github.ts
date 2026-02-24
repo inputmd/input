@@ -1,4 +1,54 @@
 const API_BASE = '/api/github';
+const DEFAULT_GISTS_CACHE_TTL_MS = 300_000;
+
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const gistListCache = new Map<string, CacheEntry<GistSummary[]>>();
+
+let gistsCacheTtlMs = readCacheTtlMs('VITE_GISTS_CACHE_TTL_MS', DEFAULT_GISTS_CACHE_TTL_MS);
+
+function readCacheTtlMs(envVar: string, fallback: number): number {
+  const raw = import.meta.env[envVar];
+  if (raw == null || raw === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function gistListCacheKey(page: number, perPage: number): string {
+  return `${page}:${perPage}`;
+}
+
+function getCachedGistList(key: string): GistSummary[] | null {
+  const cached = gistListCache.get(key);
+  if (!cached) return null;
+  if (Date.now() > cached.expiresAt) {
+    gistListCache.delete(key);
+    return null;
+  }
+  return cached.value.map((gist) => ({ ...gist, files: { ...gist.files } }));
+}
+
+function setCachedGistList(key: string, value: GistSummary[]): void {
+  gistListCache.set(key, {
+    value: value.map((gist) => ({ ...gist, files: { ...gist.files } })),
+    expiresAt: Date.now() + gistsCacheTtlMs,
+  });
+}
+
+function clearGistListCache(): void {
+  gistListCache.clear();
+}
+
+export function setGistsCacheTtlMs(ttlMs: number): void {
+  if (!Number.isFinite(ttlMs) || ttlMs < 0) {
+    throw new Error('Gists cache TTL must be a non-negative number');
+  }
+  gistsCacheTtlMs = Math.floor(ttlMs);
+}
 
 export interface GistFile {
   filename: string;
@@ -66,8 +116,14 @@ export async function logout(): Promise<void> {
 }
 
 export async function listGists(page = 1, perPage = 30): Promise<GistSummary[]> {
+  const cacheKey = gistListCacheKey(page, perPage);
+  const cached = getCachedGistList(cacheKey);
+  if (cached) return cached;
+
   const res = await apiFetch(`/gists?per_page=${perPage}&page=${page}`);
-  return res.json();
+  const data = (await res.json()) as GistSummary[];
+  setCachedGistList(cacheKey, data);
+  return data;
 }
 
 export async function getGist(id: string): Promise<GistDetail> {
@@ -85,7 +141,9 @@ export async function createGist(content: string, filename = 'untitled.md', desc
       files: { [filename]: { content } },
     }),
   });
-  return res.json();
+  const data = (await res.json()) as GistDetail;
+  clearGistListCache();
+  return data;
 }
 
 export async function updateGist(
@@ -103,7 +161,9 @@ export async function updateGist(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return res.json();
+  const data = (await res.json()) as GistDetail;
+  clearGistListCache();
+  return data;
 }
 
 export async function updateGistDescription(id: string, description: string): Promise<GistDetail> {
@@ -112,7 +172,9 @@ export async function updateGistDescription(id: string, description: string): Pr
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ description }),
   });
-  return res.json();
+  const data = (await res.json()) as GistDetail;
+  clearGistListCache();
+  return data;
 }
 
 type GistFileUpdate = { content: string } | { filename: string } | null;
@@ -129,7 +191,9 @@ export async function updateGistFiles(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return res.json();
+  const data = (await res.json()) as GistDetail;
+  clearGistListCache();
+  return data;
 }
 
 export async function addFileToGist(id: string, filename: string, content: string): Promise<GistDetail> {
@@ -146,4 +210,5 @@ export async function renameFileInGist(id: string, oldName: string, newName: str
 
 export async function deleteGist(id: string): Promise<void> {
   await apiFetch(`/gists/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  clearGistListCache();
 }
