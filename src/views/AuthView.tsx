@@ -26,18 +26,18 @@ export function AuthView({ isAuthenticated }: AuthViewProps) {
 
   return (
     <div class="auth-view">
-      <h2>Sign in</h2>
-      <p class="hint">Use your GitHub account to continue.</p>
-      <button type="button" class="github-signin-btn" onClick={onSignIn}>
-        Sign in with GitHub
-      </button>
-
-      {isAuthenticated && (
+      {!isAuthenticated ? (
         <>
-          <hr />
-
+          <h2>Sign in</h2>
+          <p class="hint">Use your GitHub account to continue.</p>
+          <button type="button" class="github-signin-btn" onClick={onSignIn}>
+            Sign in with GitHub
+          </button>
+        </>
+      ) : (
+        <>
           <h2>Connect to a repo</h2>
-          <p class="hint">Install the application once to enable repo access.</p>
+          <p class="hint">Install on a GitHub repo to store your notes there.</p>
           <button type="button" class="github-signin-btn" onClick={() => void onConnectApp()}>
             Install GitHub App
           </button>
