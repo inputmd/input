@@ -87,8 +87,8 @@
 
 .sidebar-context-menu {
   position: fixed;
-  min-width: 80px;
-  max-width: 160px;
+  min-width: 158px;
+  max-width: 317px;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -114,9 +114,20 @@
   user-select: none;
 }
 
+.sidebar-context-menu-item-icon {
+  margin-left: 6px;
+  flex: none;
+}
+
 .sidebar-context-menu-item:hover,
 .sidebar-context-menu-item[data-highlighted] {
   background: var(--btn-hover);
+}
+
+.sidebar-context-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
 }
 
 .sidebar-context-menu-item-danger {

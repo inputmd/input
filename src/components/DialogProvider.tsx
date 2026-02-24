@@ -67,6 +67,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
           <AlertDialogPrimitive.Portal>
             <AlertDialogPrimitive.Overlay class="dialog-overlay" />
             <AlertDialogPrimitive.Content class="dialog-content">
+              <AlertDialogPrimitive.Title class="dialog-title">Alert</AlertDialogPrimitive.Title>
               <AlertDialogPrimitive.Description class="dialog-message">
                 {dialog.message}
               </AlertDialogPrimitive.Description>
@@ -102,6 +103,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
           <AlertDialogPrimitive.Portal>
             <AlertDialogPrimitive.Overlay class="dialog-overlay" />
             <AlertDialogPrimitive.Content class="dialog-content">
+              <AlertDialogPrimitive.Title class="dialog-title">Confirm</AlertDialogPrimitive.Title>
               <AlertDialogPrimitive.Description class="dialog-message">
                 {dialog.message}
               </AlertDialogPrimitive.Description>

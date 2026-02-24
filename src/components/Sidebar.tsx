@@ -1,4 +1,5 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
+import { ExternalLink } from 'lucide-react';
 import { useEffect, useRef, useState } from 'preact/hooks';
 
 export interface SidebarFile {
@@ -166,8 +167,10 @@ export function Sidebar({
                   {canViewOnGitHub && (
                     <ContextMenu.Item class="sidebar-context-menu-item" onSelect={onViewOnGitHub}>
                       View on GitHub
+                      <ExternalLink size={14} className="sidebar-context-menu-item-icon" aria-hidden="true" />
                     </ContextMenu.Item>
                   )}
+                  <ContextMenu.Separator class="sidebar-context-menu-separator" />
                   <ContextMenu.Item
                     class="sidebar-context-menu-item sidebar-context-menu-item-danger"
                     onSelect={() => onDeleteFile(f.path)}
