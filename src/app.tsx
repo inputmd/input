@@ -549,6 +549,7 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
+          setPreviewVisible(true);
           setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, 'title')) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, 'content')) ?? '');
           setViewPhase(null);
@@ -583,6 +584,7 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
+          setPreviewVisible(true);
           setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
           setViewPhase(null);
