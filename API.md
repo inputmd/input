@@ -63,7 +63,7 @@ Set `GITHUB_TOKEN` in `.env` to a fine-grained PAT with zero permissions to rais
 
 ## Security
 
-- CORS restricted to `https://input.md`, `localhost:5173`, and `localhost:5174`
+- CORS restricted to `https://input.md` and `http://localhost:<CLIENT_PORT>` (default `5173`)
 - Per-IP rate limiting (30 requests/minute) on all API endpoints
 - 1 MB request body limit with safe JSON parsing
 - CSRF state validation on OAuth and GitHub App install redirects
