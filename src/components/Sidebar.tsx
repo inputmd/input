@@ -11,11 +11,11 @@ interface SidebarProps {
   files: SidebarFile[];
   onSelectFile: (path: string) => void;
   onEditFile: (path: string) => void;
-  onViewOnGitHub: () => void;
+  onViewOnGitHub: (path: string) => void;
   canViewOnGitHub: boolean;
   onCreateFile: (path: string) => void | Promise<void>;
   onDeleteFile: (path: string) => void;
-  onRenameFile: (oldPath: string, newPath: string) => void;
+  onRenameFile: (oldPath: string, newPath: string) => void | Promise<void>;
 }
 
 function sanitizePathInput(input: string): string {
@@ -48,6 +48,7 @@ export function Sidebar({
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const createInFlightRef = useRef(false);
+  const renameInFlightRef = useRef(false);
 
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
@@ -74,14 +75,20 @@ export function Sidebar({
     }
   };
 
-  const handleRenameSubmit = () => {
-    if (!renamingFile) return;
+  const handleRenameSubmit = async () => {
+    if (!renamingFile || renameInFlightRef.current) return;
+    renameInFlightRef.current = true;
+    const oldPath = renamingFile;
     const newPath = sanitizePathInput(renameValue);
-    if (newPath && newPath !== renamingFile) {
-      onRenameFile(renamingFile, newPath);
-    }
     setRenamingFile(null);
     setRenameValue('');
+    try {
+      if (newPath && newPath !== oldPath) {
+        await onRenameFile(oldPath, newPath);
+      }
+    } finally {
+      renameInFlightRef.current = false;
+    }
   };
 
   const startRename = (path: string) => {
@@ -134,13 +141,13 @@ export function Sidebar({
                   value={renameValue}
                   onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRenameSubmit();
+                    if (e.key === 'Enter') void handleRenameSubmit();
                     if (e.key === 'Escape') {
                       setRenamingFile(null);
                       setRenameValue('');
                     }
                   }}
-                  onBlur={handleRenameSubmit}
+                  onBlur={() => void handleRenameSubmit()}
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
@@ -165,7 +172,7 @@ export function Sidebar({
                     Rename
                   </ContextMenu.Item>
                   {canViewOnGitHub && (
-                    <ContextMenu.Item class="sidebar-context-menu-item" onSelect={onViewOnGitHub}>
+                    <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onViewOnGitHub(f.path)}>
                       View on GitHub
                       <ExternalLink size={14} className="sidebar-context-menu-item-icon" aria-hidden="true" />
                     </ContextMenu.Item>

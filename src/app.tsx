@@ -947,10 +947,21 @@ export function App() {
     [currentGistId, selectedRepo, activeView, currentFileName, hasUnsavedChanges, onSave, navigate, showConfirm],
   );
 
-  const handleViewOnGitHub = useCallback(() => {
-    if (!currentGistId) return;
-    window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer');
-  }, [currentGistId]);
+  const handleViewOnGitHub = useCallback(
+    (filePath: string) => {
+      if (currentGistId) {
+        window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      if (!selectedRepo) return;
+      const repoPath = toRepoDocPath(REPO_DOCS_DIR, filePath)
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
+      window.open(`https://github.com/${selectedRepo}/blob/HEAD/${repoPath}`, '_blank', 'noopener,noreferrer');
+    },
+    [currentGistId, selectedRepo],
+  );
 
   const handleDeleteFile = useCallback(
     async (filePath: string) => {
@@ -1241,7 +1252,7 @@ export function App() {
               onSelectFile={handleSelectFile}
               onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}
-              canViewOnGitHub={currentGistId !== null}
+              canViewOnGitHub={currentGistId !== null || selectedRepo !== null}
               onCreateFile={handleCreateFile}
               onDeleteFile={handleDeleteFile}
               onRenameFile={handleRenameFile}
