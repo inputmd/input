@@ -110,7 +110,7 @@ export function Toolbar({
                   </DropdownMenu.Item>
                 ) : availableRepos.length === 0 ? (
                   <DropdownMenu.Item class="repo-menu-item" disabled>
-                    No repos available
+                    No connected repos
                   </DropdownMenu.Item>
                 ) : (
                   availableRepos.map((repo) => {
@@ -134,6 +134,10 @@ export function Toolbar({
                     );
                   })
                 )}
+                <DropdownMenu.Separator class="user-menu-separator" />
+                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.auth())}>
+                  Connect a repo
+                </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>

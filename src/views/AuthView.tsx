@@ -2,7 +2,11 @@ import { useState } from 'preact/hooks';
 import { createInstallState, getInstallUrl, rememberInstallState } from '../github_app';
 import { routePath } from '../routing';
 
-export function AuthView() {
+type AuthViewProps = {
+  isAuthenticated: boolean;
+};
+
+export function AuthView({ isAuthenticated }: AuthViewProps) {
   const [error, setError] = useState<string | null>(null);
 
   const onSignIn = () => {
@@ -28,14 +32,18 @@ export function AuthView() {
         Sign in with GitHub
       </button>
 
-      <hr />
+      {isAuthenticated && (
+        <>
+          <hr />
 
-      <h2>Connect to a repo</h2>
-      <p class="hint">Install the application once to enable repo access.</p>
-      <button type="button" class="github-signin-btn" onClick={() => void onConnectApp()}>
-        Install GitHub App
-      </button>
-      {error && <p class="hint">{error}</p>}
+          <h2>Connect to a repo</h2>
+          <p class="hint">Install the application once to enable repo access.</p>
+          <button type="button" class="github-signin-btn" onClick={() => void onConnectApp()}>
+            Install GitHub App
+          </button>
+          {error && <p class="hint">{error}</p>}
+        </>
+      )}
     </div>
   );
 }

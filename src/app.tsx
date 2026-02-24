@@ -1103,7 +1103,7 @@ export function App() {
   const renderView = () => {
     switch (activeView) {
       case 'auth':
-        return <AuthView />;
+        return <AuthView isAuthenticated={Boolean(user)} />;
       case 'documents':
         return <DocumentsView navigate={navigate} userLogin={user?.login ?? null} />;
       case 'githubapp':
@@ -1119,7 +1119,7 @@ export function App() {
             navigate={navigate}
           />
         ) : (
-          <AuthView />
+          <AuthView isAuthenticated={Boolean(user)} />
         );
       case 'content':
         return (
