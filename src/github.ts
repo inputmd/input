@@ -1,5 +1,9 @@
 const API_BASE = '/api/github';
-const DEFAULT_GISTS_CACHE_TTL_MS = 300_000;
+const DEFAULT_GISTS_CACHE_TTL_MS = 120_000;
+const DEFAULT_GIST_DETAIL_CACHE_TTL_MS = 120_000;
+const GISTS_CACHE_KEY_PREFIX = 'input_cache_v1:gists:';
+const GIST_DETAIL_CACHE_KEY_PREFIX = 'input_cache_v1:gist:';
+const GISTS_CACHE_CHANNEL = 'input_cache_sync_v1';
 
 interface CacheEntry<T> {
   value: T;
@@ -7,8 +11,11 @@ interface CacheEntry<T> {
 }
 
 const gistListCache = new Map<string, CacheEntry<GistSummary[]>>();
+const gistDetailCache = new Map<string, CacheEntry<GistDetail>>();
+let gistsCacheChannel: BroadcastChannel | null = null;
 
 let gistsCacheTtlMs = readCacheTtlMs('VITE_GISTS_CACHE_TTL_MS', DEFAULT_GISTS_CACHE_TTL_MS);
+let gistDetailCacheTtlMs = readCacheTtlMs('VITE_GIST_DETAIL_CACHE_TTL_MS', DEFAULT_GIST_DETAIL_CACHE_TTL_MS);
 
 function readCacheTtlMs(envVar: string, fallback: number): number {
   const raw = import.meta.env[envVar];
@@ -22,25 +29,220 @@ function gistListCacheKey(page: number, perPage: number): string {
   return `${page}:${perPage}`;
 }
 
-function getCachedGistList(key: string): GistSummary[] | null {
-  const cached = gistListCache.get(key);
-  if (!cached) return null;
-  if (Date.now() > cached.expiresAt) {
-    gistListCache.delete(key);
+function gistStorageKey(cacheKey: string): string {
+  return `${GISTS_CACHE_KEY_PREFIX}${cacheKey}`;
+}
+
+function gistDetailStorageKey(cacheKey: string): string {
+  return `${GIST_DETAIL_CACHE_KEY_PREFIX}${cacheKey}`;
+}
+
+function readStoredGistList(cacheKey: string): CacheEntry<GistSummary[]> | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem(gistStorageKey(cacheKey));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as CacheEntry<GistSummary[]>;
+    if (!Array.isArray(parsed.value) || !Number.isFinite(parsed.expiresAt)) return null;
+    if (Date.now() > parsed.expiresAt) {
+      localStorage.removeItem(gistStorageKey(cacheKey));
+      return null;
+    }
+    return parsed;
+  } catch {
     return null;
   }
-  return cached.value.map((gist) => ({ ...gist, files: { ...gist.files } }));
+}
+
+function writeStoredGistList(cacheKey: string, entry: CacheEntry<GistSummary[]>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(gistStorageKey(cacheKey), JSON.stringify(entry));
+  } catch {
+    // Ignore storage quota and serialization failures.
+  }
+}
+
+function readStoredGistDetail(cacheKey: string): CacheEntry<GistDetail> | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem(gistDetailStorageKey(cacheKey));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as CacheEntry<GistDetail>;
+    if (!parsed.value || !Number.isFinite(parsed.expiresAt)) return null;
+    if (Date.now() > parsed.expiresAt) {
+      localStorage.removeItem(gistDetailStorageKey(cacheKey));
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredGistDetail(cacheKey: string, entry: CacheEntry<GistDetail>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(gistDetailStorageKey(cacheKey), JSON.stringify(entry));
+  } catch {
+    // Ignore storage quota and serialization failures.
+  }
+}
+
+function removeStoredGistLists(): void {
+  if (typeof window === 'undefined') return;
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(GISTS_CACHE_KEY_PREFIX)) keysToRemove.push(key);
+  }
+  for (const key of keysToRemove) localStorage.removeItem(key);
+}
+
+function removeStoredGistDetail(cacheKey: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(gistDetailStorageKey(cacheKey));
+}
+
+function cloneGistList(value: GistSummary[]): GistSummary[] {
+  return value.map((gist) => ({ ...gist, files: { ...gist.files } }));
+}
+
+function cloneGistDetail(value: GistDetail): GistDetail {
+  const files: Record<string, GistFile> = {};
+  for (const [name, file] of Object.entries(value.files)) {
+    files[name] = { ...file };
+  }
+  return { ...value, files };
+}
+
+function gistDetailCacheKey(id: string): string {
+  return id;
+}
+
+function getCachedGistList(key: string): GistSummary[] | null {
+  const cached = gistListCache.get(key);
+  if (cached) {
+    if (Date.now() > cached.expiresAt) {
+      gistListCache.delete(key);
+    } else {
+      return cloneGistList(cached.value);
+    }
+  }
+  const stored = readStoredGistList(key);
+  if (!stored) return null;
+  gistListCache.set(key, { value: cloneGistList(stored.value), expiresAt: stored.expiresAt });
+  return cloneGistList(stored.value);
 }
 
 function setCachedGistList(key: string, value: GistSummary[]): void {
-  gistListCache.set(key, {
-    value: value.map((gist) => ({ ...gist, files: { ...gist.files } })),
+  const entry = {
+    value: cloneGistList(value),
     expiresAt: Date.now() + gistsCacheTtlMs,
-  });
+  };
+  gistListCache.set(key, entry);
+  writeStoredGistList(key, entry);
+  gistsCacheChannel?.postMessage({ type: 'gists-key-updated', cacheKey: key });
+}
+
+function getCachedGistDetail(key: string): GistDetail | null {
+  const cached = gistDetailCache.get(key);
+  if (cached) {
+    if (Date.now() > cached.expiresAt) {
+      gistDetailCache.delete(key);
+    } else {
+      return cloneGistDetail(cached.value);
+    }
+  }
+  const stored = readStoredGistDetail(key);
+  if (!stored) return null;
+  gistDetailCache.set(key, { value: cloneGistDetail(stored.value), expiresAt: stored.expiresAt });
+  return cloneGistDetail(stored.value);
+}
+
+function setCachedGistDetail(key: string, value: GistDetail): void {
+  const entry = {
+    value: cloneGistDetail(value),
+    expiresAt: Date.now() + gistDetailCacheTtlMs,
+  };
+  gistDetailCache.set(key, entry);
+  writeStoredGistDetail(key, entry);
+  gistsCacheChannel?.postMessage({ type: 'gist-detail-key-updated', cacheKey: key });
 }
 
 function clearGistListCache(): void {
   gistListCache.clear();
+  removeStoredGistLists();
+  gistsCacheChannel?.postMessage({ type: 'gists-cleared' });
+}
+
+function clearGistDetailCacheById(id: string): void {
+  const key = gistDetailCacheKey(id);
+  gistDetailCache.delete(key);
+  removeStoredGistDetail(key);
+  gistsCacheChannel?.postMessage({ type: 'gist-detail-key-cleared', cacheKey: key });
+}
+
+function setupGistsCacheSync(): void {
+  if (typeof window === 'undefined') return;
+
+  window.addEventListener('storage', (event) => {
+    if (!event.key) return;
+    if (event.key.startsWith(GISTS_CACHE_KEY_PREFIX)) {
+      const cacheKey = event.key.slice(GISTS_CACHE_KEY_PREFIX.length);
+      if (!cacheKey) return;
+      const stored = readStoredGistList(cacheKey);
+      if (!stored) {
+        gistListCache.delete(cacheKey);
+        return;
+      }
+      gistListCache.set(cacheKey, { value: cloneGistList(stored.value), expiresAt: stored.expiresAt });
+      return;
+    }
+    if (event.key.startsWith(GIST_DETAIL_CACHE_KEY_PREFIX)) {
+      const cacheKey = event.key.slice(GIST_DETAIL_CACHE_KEY_PREFIX.length);
+      if (!cacheKey) return;
+      const stored = readStoredGistDetail(cacheKey);
+      if (!stored) {
+        gistDetailCache.delete(cacheKey);
+        return;
+      }
+      gistDetailCache.set(cacheKey, { value: cloneGistDetail(stored.value), expiresAt: stored.expiresAt });
+    }
+  });
+
+  if ('BroadcastChannel' in window) {
+    gistsCacheChannel = new BroadcastChannel(GISTS_CACHE_CHANNEL);
+    gistsCacheChannel.addEventListener('message', (event: MessageEvent<unknown>) => {
+      const msg = event.data as { type?: string; cacheKey?: string } | null;
+      if (!msg) return;
+      if (msg.type === 'gists-cleared') {
+        gistListCache.clear();
+        return;
+      }
+      if (msg.type === 'gists-key-updated' && msg.cacheKey) {
+        const stored = readStoredGistList(msg.cacheKey);
+        if (!stored) {
+          gistListCache.delete(msg.cacheKey);
+          return;
+        }
+        gistListCache.set(msg.cacheKey, { value: cloneGistList(stored.value), expiresAt: stored.expiresAt });
+        return;
+      }
+      if (msg.type === 'gist-detail-key-updated' && msg.cacheKey) {
+        const stored = readStoredGistDetail(msg.cacheKey);
+        if (!stored) {
+          gistDetailCache.delete(msg.cacheKey);
+          return;
+        }
+        gistDetailCache.set(msg.cacheKey, { value: cloneGistDetail(stored.value), expiresAt: stored.expiresAt });
+        return;
+      }
+      if (msg.type === 'gist-detail-key-cleared' && msg.cacheKey) {
+        gistDetailCache.delete(msg.cacheKey);
+      }
+    });
+  }
 }
 
 export function setGistsCacheTtlMs(ttlMs: number): void {
@@ -49,6 +251,15 @@ export function setGistsCacheTtlMs(ttlMs: number): void {
   }
   gistsCacheTtlMs = Math.floor(ttlMs);
 }
+
+export function setGistDetailCacheTtlMs(ttlMs: number): void {
+  if (!Number.isFinite(ttlMs) || ttlMs < 0) {
+    throw new Error('Gist detail cache TTL must be a non-negative number');
+  }
+  gistDetailCacheTtlMs = Math.floor(ttlMs);
+}
+
+setupGistsCacheSync();
 
 export interface GistFile {
   filename: string;
@@ -127,8 +338,14 @@ export async function listGists(page = 1, perPage = 30): Promise<GistSummary[]> 
 }
 
 export async function getGist(id: string): Promise<GistDetail> {
+  const cacheKey = gistDetailCacheKey(id);
+  const cached = getCachedGistDetail(cacheKey);
+  if (cached) return cached;
+
   const res = await apiFetch(`/gists/${encodeURIComponent(id)}`);
-  return res.json();
+  const data = (await res.json()) as GistDetail;
+  setCachedGistDetail(cacheKey, data);
+  return data;
 }
 
 export async function createGist(content: string, filename = 'untitled.md', description?: string): Promise<GistDetail> {
@@ -143,6 +360,7 @@ export async function createGist(content: string, filename = 'untitled.md', desc
   });
   const data = (await res.json()) as GistDetail;
   clearGistListCache();
+  setCachedGistDetail(gistDetailCacheKey(data.id), data);
   return data;
 }
 
@@ -163,6 +381,7 @@ export async function updateGist(
   });
   const data = (await res.json()) as GistDetail;
   clearGistListCache();
+  setCachedGistDetail(gistDetailCacheKey(id), data);
   return data;
 }
 
@@ -174,6 +393,7 @@ export async function updateGistDescription(id: string, description: string): Pr
   });
   const data = (await res.json()) as GistDetail;
   clearGistListCache();
+  setCachedGistDetail(gistDetailCacheKey(id), data);
   return data;
 }
 
@@ -193,6 +413,7 @@ export async function updateGistFiles(
   });
   const data = (await res.json()) as GistDetail;
   clearGistListCache();
+  setCachedGistDetail(gistDetailCacheKey(id), data);
   return data;
 }
 
@@ -211,4 +432,5 @@ export async function renameFileInGist(id: string, oldName: string, newName: str
 export async function deleteGist(id: string): Promise<void> {
   await apiFetch(`/gists/${encodeURIComponent(id)}`, { method: 'DELETE' });
   clearGistListCache();
+  clearGistDetailCacheById(id);
 }

@@ -74,6 +74,8 @@ Optional frontend cache tuning:
 
 - `VITE_GISTS_CACHE_TTL_MS` controls client-side cache TTL for
   `GET /api/github/gists`.
+- `VITE_GIST_DETAIL_CACHE_TTL_MS` controls client-side cache TTL for
+  `GET /api/github/gists/:id`.
 - `VITE_REPO_CONTENTS_CACHE_TTL_MS` controls client-side cache TTL for
   `GET /api/github-app/installations/:id/repos/:owner/:repo/contents`.
 

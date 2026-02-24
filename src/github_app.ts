@@ -4,7 +4,9 @@ const PENDING_INSTALLATION_ID_KEY = 'github_app_pending_installation_id';
 const INSTALL_STATE_KEY = 'github_app_install_state';
 const INSTALL_STATES_FALLBACK_KEY = 'github_app_install_states';
 const INSTALL_STATE_TTL_MS = 15 * 60 * 1000;
-const DEFAULT_REPO_CONTENTS_CACHE_TTL_MS = 300_000;
+const DEFAULT_REPO_CONTENTS_CACHE_TTL_MS = 120_000;
+const REPO_CONTENTS_CACHE_KEY_PREFIX = 'input_cache_v1:repo_contents:';
+const REPO_CONTENTS_CACHE_CHANNEL = 'input_cache_sync_v1';
 
 interface CacheEntry<T> {
   value: T;
@@ -230,6 +232,7 @@ export interface PutFileResult {
 }
 
 const repoContentsCache = new Map<string, CacheEntry<RepoContents>>();
+let repoContentsCacheChannel: BroadcastChannel | null = null;
 let repoContentsCacheTtlMs = readCacheTtlMs('VITE_REPO_CONTENTS_CACHE_TTL_MS', DEFAULT_REPO_CONTENTS_CACHE_TTL_MS);
 
 function readCacheTtlMs(envVar: string, fallback: number): number {
@@ -244,6 +247,47 @@ function repoContentsCacheKey(installationId: string, repoFullName: string, path
   return `${installationId}|${repoFullName}|${ref ?? ''}|${path}`;
 }
 
+function repoContentsStorageKey(cacheKey: string): string {
+  return `${REPO_CONTENTS_CACHE_KEY_PREFIX}${cacheKey}`;
+}
+
+function readStoredRepoContents(cacheKey: string): CacheEntry<RepoContents> | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem(repoContentsStorageKey(cacheKey));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as CacheEntry<RepoContents>;
+    if (!Number.isFinite(parsed.expiresAt)) return null;
+    if (Date.now() > parsed.expiresAt) {
+      localStorage.removeItem(repoContentsStorageKey(cacheKey));
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredRepoContents(cacheKey: string, entry: CacheEntry<RepoContents>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(repoContentsStorageKey(cacheKey), JSON.stringify(entry));
+  } catch {
+    // Ignore storage quota and serialization failures.
+  }
+}
+
+function removeStoredRepoContentsByPrefix(cacheKeyPrefix: string): void {
+  if (typeof window === 'undefined') return;
+  const storagePrefix = `${REPO_CONTENTS_CACHE_KEY_PREFIX}${cacheKeyPrefix}`;
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(storagePrefix)) keysToRemove.push(key);
+  }
+  for (const key of keysToRemove) localStorage.removeItem(key);
+}
+
 function cloneRepoContents(contents: RepoContents): RepoContents {
   if (Array.isArray(contents)) {
     return contents.map((item) => ({ ...item }));
@@ -253,19 +297,27 @@ function cloneRepoContents(contents: RepoContents): RepoContents {
 
 function getCachedRepoContents(key: string): RepoContents | null {
   const cached = repoContentsCache.get(key);
-  if (!cached) return null;
-  if (Date.now() > cached.expiresAt) {
-    repoContentsCache.delete(key);
-    return null;
+  if (cached) {
+    if (Date.now() > cached.expiresAt) {
+      repoContentsCache.delete(key);
+    } else {
+      return cloneRepoContents(cached.value);
+    }
   }
-  return cloneRepoContents(cached.value);
+  const stored = readStoredRepoContents(key);
+  if (!stored) return null;
+  repoContentsCache.set(key, { value: cloneRepoContents(stored.value), expiresAt: stored.expiresAt });
+  return cloneRepoContents(stored.value);
 }
 
 function setCachedRepoContents(key: string, value: RepoContents): void {
-  repoContentsCache.set(key, {
+  const entry = {
     value: cloneRepoContents(value),
     expiresAt: Date.now() + repoContentsCacheTtlMs,
-  });
+  };
+  repoContentsCache.set(key, entry);
+  writeStoredRepoContents(key, entry);
+  repoContentsCacheChannel?.postMessage({ type: 'repo-key-updated', cacheKey: key });
 }
 
 function clearRepoContentsCacheForRepo(installationId: string, repoFullName: string): void {
@@ -273,6 +325,8 @@ function clearRepoContentsCacheForRepo(installationId: string, repoFullName: str
   for (const key of repoContentsCache.keys()) {
     if (key.startsWith(keyPrefix)) repoContentsCache.delete(key);
   }
+  removeStoredRepoContentsByPrefix(keyPrefix);
+  repoContentsCacheChannel?.postMessage({ type: 'repo-prefix-cleared', cacheKeyPrefix: keyPrefix });
 }
 
 export function setRepoContentsCacheTtlMs(ttlMs: number): void {
@@ -281,6 +335,46 @@ export function setRepoContentsCacheTtlMs(ttlMs: number): void {
   }
   repoContentsCacheTtlMs = Math.floor(ttlMs);
 }
+
+function setupRepoContentsCacheSync(): void {
+  if (typeof window === 'undefined') return;
+
+  window.addEventListener('storage', (event) => {
+    if (!event.key || !event.key.startsWith(REPO_CONTENTS_CACHE_KEY_PREFIX)) return;
+    const cacheKey = event.key.slice(REPO_CONTENTS_CACHE_KEY_PREFIX.length);
+    if (!cacheKey) return;
+    const stored = readStoredRepoContents(cacheKey);
+    if (!stored) {
+      repoContentsCache.delete(cacheKey);
+      return;
+    }
+    repoContentsCache.set(cacheKey, { value: cloneRepoContents(stored.value), expiresAt: stored.expiresAt });
+  });
+
+  if ('BroadcastChannel' in window) {
+    repoContentsCacheChannel = new BroadcastChannel(REPO_CONTENTS_CACHE_CHANNEL);
+    repoContentsCacheChannel.addEventListener('message', (event: MessageEvent<unknown>) => {
+      const msg = event.data as { type?: string; cacheKey?: string; cacheKeyPrefix?: string } | null;
+      if (!msg) return;
+      if (msg.type === 'repo-prefix-cleared' && msg.cacheKeyPrefix) {
+        for (const key of repoContentsCache.keys()) {
+          if (key.startsWith(msg.cacheKeyPrefix)) repoContentsCache.delete(key);
+        }
+        return;
+      }
+      if (msg.type === 'repo-key-updated' && msg.cacheKey) {
+        const stored = readStoredRepoContents(msg.cacheKey);
+        if (!stored) {
+          repoContentsCache.delete(msg.cacheKey);
+          return;
+        }
+        repoContentsCache.set(msg.cacheKey, { value: cloneRepoContents(stored.value), expiresAt: stored.expiresAt });
+      }
+    });
+  }
+}
+
+setupRepoContentsCacheSync();
 
 // --- Authenticated API functions ---
 
