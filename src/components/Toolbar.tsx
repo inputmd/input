@@ -10,7 +10,6 @@ export type ActiveView = 'auth' | 'documents' | 'githubapp' | 'loading' | 'error
 interface ToolbarProps {
   view: ActiveView;
   user: GitHubUser | null;
-  installationId: string | null;
   selectedRepo: string | null;
   selectedRepoPrivate: boolean | null;
   inRepoContext: boolean;
@@ -41,7 +40,6 @@ interface ToolbarProps {
 export function Toolbar({
   view,
   user,
-  installationId,
   selectedRepo,
   selectedRepoPrivate,
   inRepoContext,
@@ -70,7 +68,7 @@ export function Toolbar({
 }: ToolbarProps) {
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
-  const showGitHubApp = !!installationId;
+  const showGitHubApp = !!user;
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
 
   return (

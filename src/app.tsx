@@ -1232,7 +1232,6 @@ export function App() {
       <Toolbar
         view={activeView}
         user={user}
-        installationId={installationId}
         selectedRepo={selectedRepo}
         selectedRepoPrivate={selectedRepoPrivate}
         inRepoContext={inRepoContext}
