@@ -13,6 +13,9 @@
   --focus-border: #58a6ff;
   --focus-shadow: rgba(88, 166, 255, 0.4);
   --error-color: #f85149;
+  --success-color: #3fb950;
+  --success-bg: rgba(63, 185, 80, 0.18);
+  --success-border: #3fb950;
   --danger-bg: #490202;
   --danger-border: #f85149;
   --sidebar-renaming-row-bg: #10151b;
@@ -53,6 +56,9 @@
   --focus-border: #0969da;
   --focus-shadow: rgba(9, 105, 218, 0.3);
   --error-color: #cf222e;
+  --success-color: #1a7f37;
+  --success-bg: #dafbe1;
+  --success-border: #1a7f37;
   --danger-bg: #ffebe9;
   --danger-border: #cf222e;
   --sidebar-renaming-row-bg: #e2e5eb;
