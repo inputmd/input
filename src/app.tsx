@@ -1143,7 +1143,44 @@ export function App() {
         );
       case 'content':
         return (
-          <ContentView html={renderedHtml} markdown={renderMode === 'markdown'} onInternalLinkNavigate={navigate} />
+          <ContentView
+            html={renderedHtml}
+            markdown={renderMode === 'markdown'}
+            onInternalLinkNavigate={(rawRoute) => {
+              const routePathname = rawRoute.replace(/^\/+/, '');
+
+              // Detect repo context from repo routes; selectedRepo is a safety check
+              // to avoid rewriting links when not actively connected to a repo.
+              if (!selectedRepo || (route.name !== 'repofile' && route.name !== 'repoedit')) {
+                navigate(routePathname);
+                return;
+              }
+
+              const match = /^(repofile|repoedit)\/(.+)$/.exec(routePathname);
+              if (!match) {
+                navigate(routePathname);
+                return;
+              }
+
+              const routeName = match[1];
+              const decodedPath = safeDecodeURIComponent(match[2]).replace(/^\/+/, '');
+              if (!decodedPath) {
+                navigate(routePathname);
+                return;
+              }
+              if (decodedPath === REPO_DOCS_DIR || decodedPath.startsWith(`${REPO_DOCS_DIR}/`)) {
+                navigate(routePathname);
+                return;
+              }
+
+              try {
+                const prefixed = toRepoDocPath(REPO_DOCS_DIR, decodedPath);
+                navigate(`${routeName}/${encodeURIComponent(prefixed)}`);
+              } catch {
+                navigate(routePathname);
+              }
+            }}
+          />
         );
       case 'edit':
         return (
