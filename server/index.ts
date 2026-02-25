@@ -1,4 +1,4 @@
-import { type Env, serveStatic, TunnelServer } from '@teekit/kettle/worker';
+import { type Env,  TunnelServer } from '@teekit/kettle/worker';
 import { Hono } from 'hono';
 import { corsMiddleware } from './cors';
 import { ClientError } from './errors';
@@ -26,8 +26,6 @@ app.use('/api/*', rateLimitMiddleware);
 TunnelServer.initialize(app);
 
 registerApiRoutes(app);
-
-app.get('*', serveStatic());
 
 export async function onInit(env: Env) {
   initSessionDb(env.DO_STORAGE!.sql!);
