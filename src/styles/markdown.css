@@ -147,7 +147,8 @@
   text-decoration: underline;
 }
 
-.rendered-markdown .hash-link-indicator {
+.rendered-markdown .hash-link-indicator,
+.rendered-markdown .missing-wikilink-indicator {
   display: inline-block;
   margin-left: 2px;
   color: var(--text-secondary);
@@ -156,7 +157,8 @@
   transform: translateY(2px);
 }
 
-.rendered-markdown .hash-link-indicator svg {
+.rendered-markdown .hash-link-indicator svg,
+.rendered-markdown .missing-wikilink-indicator svg {
   width: 0.78em;
   height: 0.78em;
 }

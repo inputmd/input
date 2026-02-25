@@ -13,6 +13,10 @@ function wikiSlug(raw: string): string {
   return raw.trim().toLowerCase().replace(/[/\\]/g, '-').replace(/\s+/g, '-');
 }
 
+function escapeHtmlAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 marked.use({
   extensions: [
     {
@@ -30,12 +34,17 @@ marked.use({
         const slug = wikiSlug(target);
         const href = `${encodeURIComponent(slug)}.md`;
         return {
-          type: 'link',
+          type: 'wikilink',
           raw: match[0],
           href,
+          wikiTargetPath: `${slug}.md`,
           text: label,
           tokens: this.lexer.inlineTokens(label),
         };
+      },
+      renderer(token) {
+        const labelHtml = this.parser.parseInline(token.tokens ?? []);
+        return `<a href="${escapeHtmlAttr(token.href)}" data-wikilink="true" data-wiki-target-path="${escapeHtmlAttr(token.wikiTargetPath)}">${labelHtml}</a>`;
       },
     },
   ],
@@ -93,9 +102,9 @@ function sanitizeMarkdownHref(href: string): string | null {
   return normalized;
 }
 
-function createHashLinkIndicator(): HTMLSpanElement {
+function createQuestionLinkIndicator(className: string): HTMLSpanElement {
   const span = document.createElement('span');
-  span.className = 'hash-link-indicator';
+  span.className = className;
   span.setAttribute('aria-hidden', 'true');
 
   const svgNs = 'http://www.w3.org/2000/svg';
@@ -125,11 +134,12 @@ function createHashLinkIndicator(): HTMLSpanElement {
 
 interface ParseMarkdownOptions {
   resolveImageSrc?: (src: string) => string | null;
+  resolveWikiLinkMeta?: (targetPath: string) => { exists: boolean; resolvedHref?: string | null } | null;
 }
 
 export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
   const raw = marked.parse(text) as string;
-  const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel'] });
+  const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
 
@@ -144,8 +154,26 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
 
     anchor.setAttribute('href', href);
     if (href.startsWith('#')) {
-      anchor.insertAdjacentElement('afterend', createHashLinkIndicator());
+      anchor.insertAdjacentElement('afterend', createQuestionLinkIndicator('hash-link-indicator'));
     }
+
+    const isWikiLink = anchor.getAttribute('data-wikilink') === 'true';
+    if (isWikiLink && options?.resolveWikiLinkMeta) {
+      const wikiTargetPath = (anchor.getAttribute('data-wiki-target-path') ?? '').trim();
+      if (wikiTargetPath) {
+        const wikiMeta = options.resolveWikiLinkMeta(wikiTargetPath);
+        if (wikiMeta?.resolvedHref) {
+          const resolvedWikiHref = sanitizeMarkdownHref(wikiMeta.resolvedHref);
+          if (resolvedWikiHref != null) {
+            anchor.setAttribute('href', resolvedWikiHref);
+          }
+        }
+        if (wikiMeta && !wikiMeta.exists) {
+          anchor.insertAdjacentElement('afterend', createQuestionLinkIndicator('missing-wikilink-indicator'));
+        }
+      }
+    }
+
     if (isExternalHttpHref(href)) {
       anchor.setAttribute('target', '_blank');
       anchor.setAttribute('rel', 'noopener noreferrer');

@@ -34,17 +34,17 @@ import {
   consumeInstallState,
   createSession,
   disconnectInstallation,
-  getPublicRepoContents,
   getInstallationId,
   getPendingInstallationId,
+  getPublicRepoContents,
   getRepoContents,
-  repoRawFileUrl,
-  publicRepoRawFileUrl,
   getSelectedRepo,
   type InstallationRepo,
   isRepoFile,
   listInstallationRepos,
+  publicRepoRawFileUrl,
   putRepoFile,
+  repoRawFileUrl,
   SessionExpiredError,
   setInstallationId,
   setPendingInstallationId,
@@ -118,7 +118,13 @@ function splitPathSuffix(path: string): { pathWithoutSuffix: string; suffix: str
   const queryIdx = path.indexOf('?');
   const hashIdx = path.indexOf('#');
   const splitIdx =
-    queryIdx >= 0 && hashIdx >= 0 ? Math.min(queryIdx, hashIdx) : queryIdx >= 0 ? queryIdx : hashIdx >= 0 ? hashIdx : -1;
+    queryIdx >= 0 && hashIdx >= 0
+      ? Math.min(queryIdx, hashIdx)
+      : queryIdx >= 0
+        ? queryIdx
+        : hashIdx >= 0
+          ? hashIdx
+          : -1;
   if (splitIdx < 0) return { pathWithoutSuffix: path, suffix: '' };
   return { pathWithoutSuffix: path.slice(0, splitIdx), suffix: path.slice(splitIdx) };
 }
@@ -147,6 +153,53 @@ function resolveRepoAssetPath(currentDocPath: string, src: string): string | nul
   const normalized = normalizeRepoPath(pathWithBase);
   if (!normalized) return null;
   return `${normalized}${suffix}`;
+}
+
+function resolveRelativeDocPath(currentDocPath: string, targetPath: string): string | null {
+  const { pathWithoutSuffix } = splitPathSuffix(safeDecodeURIComponent(targetPath).trim());
+  if (!pathWithoutSuffix) return null;
+  const pathWithBase = pathWithoutSuffix.startsWith('/')
+    ? pathWithoutSuffix.slice(1)
+    : `${dirName(currentDocPath)}/${pathWithoutSuffix}`;
+  return normalizeRepoPath(pathWithBase);
+}
+
+function encodePathForHref(path: string): string {
+  return path
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+}
+
+interface WikiLinkResolver {
+  exists: boolean;
+  resolvedHref?: string;
+}
+
+function createWikiLinkResolver(
+  currentDocPath: string,
+  knownPaths: string[],
+): (targetPath: string) => WikiLinkResolver {
+  const exactPaths = new Set<string>();
+  const canonicalByLowerPath = new Map<string, string>();
+
+  for (const knownPath of knownPaths) {
+    const normalized = normalizeRepoPath(safeDecodeURIComponent(knownPath).trim());
+    if (!normalized) continue;
+    exactPaths.add(normalized);
+    const lower = normalized.toLowerCase();
+    if (!canonicalByLowerPath.has(lower)) canonicalByLowerPath.set(lower, normalized);
+  }
+
+  return (targetPath: string) => {
+    const resolvedTarget = resolveRelativeDocPath(currentDocPath, targetPath);
+    if (!resolvedTarget) return { exists: false };
+    if (exactPaths.has(resolvedTarget)) return { exists: true, resolvedHref: encodePathForHref(resolvedTarget) };
+
+    const canonical = canonicalByLowerPath.get(resolvedTarget.toLowerCase());
+    if (!canonical) return { exists: false };
+    return { exists: true, resolvedHref: encodePathForHref(canonical) };
+  };
 }
 
 interface PublicRepoRef {
@@ -183,9 +236,7 @@ async function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality
   });
 }
 
-async function maybeResizePastedImage(
-  file: File,
-): Promise<{ bytes: Uint8Array; extension: string; resized: boolean }> {
+async function maybeResizePastedImage(file: File): Promise<{ bytes: Uint8Array; extension: string; resized: boolean }> {
   const originalBytes = new Uint8Array(await file.arrayBuffer());
   const originalExtension = extensionFromMimeType(file.type);
 
@@ -364,11 +415,18 @@ export function App() {
       fileName: string | null | undefined,
       repoDocPath: string | null = null,
       repoSource?: MarkdownRepoSourceContext,
+      wikiLinkContext?: { currentDocPath: string; knownMarkdownPaths: string[] },
     ) => {
       if (isMarkdownFileName(fileName)) {
+        const wikiLinkResolver =
+          wikiLinkContext && wikiLinkContext.knownMarkdownPaths.length > 0
+            ? createWikiLinkResolver(wikiLinkContext.currentDocPath, wikiLinkContext.knownMarkdownPaths)
+            : undefined;
+
         setRenderedHtml(
           parseMarkdownToHtml(content, {
             resolveImageSrc: (src) => resolveMarkdownImageSrc(src, repoDocPath, repoSource),
+            resolveWikiLinkMeta: wikiLinkResolver,
           }),
         );
         setRenderMode('markdown');
@@ -598,18 +656,6 @@ export function App() {
     return files;
   }, []);
 
-  const fetchRepoSidebarFiles = useCallback(
-    async (instId: string, repoName: string) => {
-      if (repoFiles.length > 0) return;
-      try {
-        setRepoFiles(await loadRepoMarkdownFiles(instId, repoName));
-      } catch {
-        /* directory listing is optional for sidebar */
-      }
-    },
-    [repoFiles.length, loadRepoMarkdownFiles],
-  );
-
   // --- Data loaders ---
   const loadGist = useCallback(
     async (id: string, filename: string | undefined, anonymous: boolean) => {
@@ -621,7 +667,10 @@ export function App() {
         const cacheFile = cacheName ? cached[cacheName] : null;
         if (cacheFile && (!anonymous || cacheFile.content != null)) {
           setCurrentFileName(cacheFile.filename);
-          renderDocumentContent(cacheFile.content ?? '', cacheFile.filename);
+          renderDocumentContent(cacheFile.content ?? '', cacheFile.filename, null, undefined, {
+            currentDocPath: cacheFile.filename,
+            knownMarkdownPaths: cacheKeys,
+          });
           setCurrentGistId(id);
           setRepoAccessMode(null);
           setPublicRepoRef(null);
@@ -668,7 +717,10 @@ export function App() {
           }
 
           setCurrentFileName(file.filename);
-          renderDocumentContent(content ?? '', file.filename);
+          renderDocumentContent(content ?? '', file.filename, null, undefined, {
+            currentDocPath: file.filename,
+            knownMarkdownPaths: fileKeys,
+          });
           setCurrentGistId(id);
           setRepoAccessMode(null);
           setPublicRepoRef(null);
@@ -697,7 +749,10 @@ export function App() {
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
         setRepoFiles([]);
-        renderDocumentContent(file.content ?? '', file.filename);
+        renderDocumentContent(file.content ?? '', file.filename, null, undefined, {
+          currentDocPath: file.filename,
+          knownMarkdownPaths: fileKeys,
+        });
         setViewPhase(null);
       } catch (err) {
         showError(err instanceof Error ? err.message : 'Unknown error');
@@ -730,18 +785,39 @@ export function App() {
         setCurrentGistId(null);
         setGistFiles(null);
         setCurrentFileName(relativePath);
+        let knownMarkdownPaths = repoFiles.map((file) => file.relativePath);
+        if (knownMarkdownPaths.length === 0) {
+          try {
+            const mdFiles = await loadRepoMarkdownFiles(instId, repoName);
+            setRepoFiles(mdFiles);
+            knownMarkdownPaths = mdFiles.map((file) => file.relativePath);
+          } catch {
+            /* sidebar index is best-effort */
+          }
+        }
         if (forEdit) {
           setEditingBackend('repo');
           setEditTitle(contents.name.replace(/\.md$/i, ''));
           setEditContent(decoded);
         } else {
-          renderDocumentContent(decoded, contents.name, contents.path, {
-            mode: 'installed',
-            installationId: instId,
-            selectedRepo: repoName,
-          });
+          const wikiPaths = knownMarkdownPaths.includes(relativePath)
+            ? knownMarkdownPaths
+            : [...knownMarkdownPaths, relativePath];
+          renderDocumentContent(
+            decoded,
+            contents.name,
+            contents.path,
+            {
+              mode: 'installed',
+              installationId: instId,
+              selectedRepo: repoName,
+            },
+            {
+              currentDocPath: relativePath,
+              knownMarkdownPaths: wikiPaths,
+            },
+          );
         }
-        await fetchRepoSidebarFiles(instId, repoName);
         setViewPhase(null);
       } catch (err) {
         if (err instanceof SessionExpiredError) {
@@ -755,7 +831,8 @@ export function App() {
       navigate,
       handleSessionExpired,
       showError,
-      fetchRepoSidebarFiles,
+      repoFiles,
+      loadRepoMarkdownFiles,
       renderDocumentContent,
       activeView,
       currentFileName,
@@ -773,6 +850,9 @@ export function App() {
         if (!isRepoFile(contents)) throw new Error('Expected a file');
         const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
         const relativePath = repoDocRelativePath(REPO_DOCS_DIR, contents.path) ?? contents.name;
+        const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
+        const knownMarkdownPaths = mdFiles.map((file) => file.relativePath);
+        setRepoFiles(mdFiles);
         setRepoAccessMode('public');
         setPublicRepoRef({ owner, repo });
         setCurrentRepoDocPath(contents.path);
@@ -781,12 +861,21 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(relativePath);
         setEditingBackend(null);
-        renderDocumentContent(decoded, contents.name, contents.path, {
-          mode: 'public',
-          publicRepoRef: { owner, repo },
-        });
-        const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
-        setRepoFiles(mdFiles);
+        renderDocumentContent(
+          decoded,
+          contents.name,
+          contents.path,
+          {
+            mode: 'public',
+            publicRepoRef: { owner, repo },
+          },
+          {
+            currentDocPath: relativePath,
+            knownMarkdownPaths: knownMarkdownPaths.includes(relativePath)
+              ? knownMarkdownPaths
+              : [...knownMarkdownPaths, relativePath],
+          },
+        );
         setViewPhase(null);
       } catch (err) {
         showError(err instanceof Error ? err.message : 'Failed to load file');
@@ -1171,9 +1260,17 @@ export function App() {
       }
       showSuccessToast('Copied public read-only link');
     } catch {
-        showFailureToast('Failed to copy public link');
-      }
-  }, [repoAccessMode, route.name, selectedRepoPrivate, selectedRepo, currentRepoDocPath, showFailureToast, showSuccessToast]);
+      showFailureToast('Failed to copy public link');
+    }
+  }, [
+    repoAccessMode,
+    route.name,
+    selectedRepoPrivate,
+    selectedRepo,
+    currentRepoDocPath,
+    showFailureToast,
+    showSuccessToast,
+  ]);
 
   const onSave = useCallback(async () => {
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
@@ -1195,7 +1292,15 @@ export function App() {
           currentRepoDocSha ?? undefined,
         );
 
-        renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath);
+        const relativePath =
+          repoDocRelativePath(REPO_DOCS_DIR, currentRepoDocPath) ?? currentRepoDocPath.split('/').pop() ?? '';
+        const knownMarkdownPaths = repoFiles.map((file) => file.relativePath);
+        renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath, undefined, {
+          currentDocPath: relativePath,
+          knownMarkdownPaths: knownMarkdownPaths.includes(relativePath)
+            ? knownMarkdownPaths
+            : [...knownMarkdownPaths, relativePath],
+        });
         navigate(routePath.repoFile(currentRepoDocPath));
       } else if (editingBackend === 'repo' && repoName && instId) {
         const filename = sanitizeTitleToFileName(title);
@@ -1207,7 +1312,13 @@ export function App() {
         setCurrentRepoDocPath(path);
         setCurrentRepoDocSha(null);
 
-        renderDocumentContent(content, filename, path);
+        const knownMarkdownPaths = repoFiles.map((file) => file.relativePath);
+        renderDocumentContent(content, filename, path, undefined, {
+          currentDocPath: filename,
+          knownMarkdownPaths: knownMarkdownPaths.includes(filename)
+            ? knownMarkdownPaths
+            : [...knownMarkdownPaths, filename],
+        });
         navigate(routePath.repoFile(path));
       } else {
         let gist: GistDetail;
@@ -1227,7 +1338,10 @@ export function App() {
           setDraftMode(false);
         }
 
-        renderDocumentContent(content, filename);
+        renderDocumentContent(content, filename, null, undefined, {
+          currentDocPath: filename,
+          knownMarkdownPaths: Object.keys(gist.files),
+        });
         navigate(routePath.gistView(gist.id, filename));
       }
       showSuccessToast('Saved');
@@ -1256,6 +1370,7 @@ export function App() {
     showAlert,
     showSuccessToast,
     renderDocumentContent,
+    repoFiles,
   ]);
 
   const onCancel = useCallback(() => {
@@ -1291,7 +1406,9 @@ export function App() {
         } else if (repoAccessMode === 'installed' && selectedRepo) {
           navigate(routePath.repoFile(toRepoDocPath(REPO_DOCS_DIR, filePath)));
         } else if (repoAccessMode === 'public' && publicRepoRef) {
-          navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, toRepoDocPath(REPO_DOCS_DIR, filePath)));
+          navigate(
+            routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, toRepoDocPath(REPO_DOCS_DIR, filePath)),
+          );
         }
       };
 
@@ -1359,7 +1476,17 @@ export function App() {
 
       navigate(target);
     },
-    [currentGistId, repoAccessMode, selectedRepo, activeView, currentFileName, hasUnsavedChanges, onSave, navigate, showConfirm],
+    [
+      currentGistId,
+      repoAccessMode,
+      selectedRepo,
+      activeView,
+      currentFileName,
+      hasUnsavedChanges,
+      onSave,
+      navigate,
+      showConfirm,
+    ],
   );
 
   const handleViewOnGitHub = useCallback(
@@ -1562,7 +1689,11 @@ export function App() {
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');
 
-              if (repoAccessMode === 'installed' && selectedRepo && (route.name === 'repofile' || route.name === 'repoedit')) {
+              if (
+                repoAccessMode === 'installed' &&
+                selectedRepo &&
+                (route.name === 'repofile' || route.name === 'repoedit')
+              ) {
                 const match = /^(repofile|repoedit)\/(.+)$/.exec(routePathname);
                 if (!match) {
                   navigate(routePathname);
@@ -1714,7 +1845,8 @@ export function App() {
     setHasUnsavedChanges(true);
   }, []);
   const showHeaderEdit =
-    activeView === 'content' && (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
+    activeView === 'content' &&
+    (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showHeaderShare =
     activeView === 'edit' &&
     route.name === 'repoedit' &&
