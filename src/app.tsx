@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { parseAnsiToHtml } from './ansi';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ImageLightbox } from './components/ImageLightbox';
 import { Sidebar } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
@@ -257,6 +258,7 @@ export function App() {
   const [installationRepos, setInstallationRepos] = useState<InstallationRepo[]>([]);
   const [installationReposLoading, setInstallationReposLoading] = useState(false);
   const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
 
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
@@ -1548,6 +1550,7 @@ export function App() {
           <ContentView
             html={renderedHtml}
             markdown={renderMode === 'markdown'}
+            onImageClick={onOpenLightbox}
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');
 
@@ -1613,6 +1616,7 @@ export function App() {
             canRenderPreview={canRenderPreview}
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
+            onPreviewImageClick={onOpenLightbox}
             onEditorPaste={handleEditorPaste}
             saving={saving}
             canSave={hasUnsavedChanges}
@@ -1689,6 +1693,12 @@ export function App() {
       return !current;
     });
   }, [defaultShowSidebar]);
+  const onOpenLightbox = useCallback((src: string, alt: string) => {
+    setLightboxImage({ src, alt });
+  }, []);
+  const onCloseLightbox = useCallback(() => {
+    setLightboxImage(null);
+  }, []);
   const onEditContentChange = useCallback((content: string) => {
     setEditContent(content);
     setHasUnsavedChanges(true);
@@ -1769,6 +1779,7 @@ export function App() {
           <main>{renderView()}</main>
         </ErrorBoundary>
       </div>
+      {lightboxImage && <ImageLightbox src={lightboxImage.src} alt={lightboxImage.alt} onClose={onCloseLightbox} />}
     </>
   );
 }

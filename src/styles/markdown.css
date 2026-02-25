@@ -194,8 +194,44 @@
 .rendered-markdown img {
   max-width: 100%;
   height: auto;
+  cursor: zoom-in;
 }
 
 .rendered-markdown input[type="checkbox"] {
   margin-right: 0.45em;
+}
+
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.84);
+}
+
+.image-lightbox-image {
+  max-width: min(1200px, 100%);
+  max-height: calc(100vh - 96px);
+  object-fit: contain;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.image-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border-radius: 6px;
+  font: inherit;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.image-lightbox-close:hover {
+  background: rgba(0, 0, 0, 0.75);
 }

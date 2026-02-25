@@ -8,6 +8,7 @@ interface EditViewProps {
   canRenderPreview: boolean;
   onTogglePreview: () => void;
   onContentChange: (content: string) => void;
+  onPreviewImageClick?: (src: string, alt: string) => void;
   onEditorPaste?: (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => void;
   saving: boolean;
   canSave: boolean;
@@ -21,6 +22,7 @@ export function EditView({
   canRenderPreview,
   onTogglePreview,
   onContentChange,
+  onPreviewImageClick,
   onEditorPaste,
   saving,
   canSave,
@@ -144,6 +146,17 @@ export function EditView({
   const layoutStyle =
     previewVisible && canRenderPreview ? { gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` } : undefined;
 
+  const onPreviewClick = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    const image = target?.closest('img');
+    if (!image || !onPreviewImageClick) return;
+    const imageSrc = image.getAttribute('src')?.trim();
+    if (!imageSrc) return;
+
+    event.preventDefault();
+    onPreviewImageClick(imageSrc, image.getAttribute('alt') ?? '');
+  };
+
   return (
     <div class="edit-view">
       <div class="editor-workspace" ref={splitRef} style={layoutStyle}>
@@ -165,7 +178,11 @@ export function EditView({
               onPointerDown={onSplitPointerDown}
             />
             <div class="editor-preview-pane">
-              <div class="rendered-markdown" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+              <div
+                class="rendered-markdown"
+                onClick={onPreviewClick}
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
             </div>
           </>
         )}
@@ -174,7 +191,11 @@ export function EditView({
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane">
-            <div class="rendered-markdown" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+            <div
+              class="rendered-markdown"
+              onClick={onPreviewClick}
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
           </div>
         </>
       )}

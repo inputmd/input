@@ -4,16 +4,26 @@ interface ContentViewProps {
   html: string;
   markdown: boolean;
   onInternalLinkNavigate?: (route: string) => void;
+  onImageClick?: (src: string, alt: string) => void;
 }
 
-export function ContentView({ html, markdown, onInternalLinkNavigate }: ContentViewProps) {
+export function ContentView({ html, markdown, onInternalLinkNavigate, onImageClick }: ContentViewProps) {
   const onRenderedMarkdownClick = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    const image = target?.closest('img');
+    if (image && onImageClick) {
+      const imageSrc = image.getAttribute('src')?.trim();
+      if (!imageSrc) return;
+      event.preventDefault();
+      onImageClick(imageSrc, image.getAttribute('alt') ?? '');
+      return;
+    }
+
     if (!onInternalLinkNavigate) return;
     if (event.defaultPrevented) return;
     if (event.button !== 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 
-    const target = event.target as HTMLElement | null;
     const anchor = target?.closest('a');
     if (!anchor) return;
     if (anchor.hasAttribute('download')) return;
