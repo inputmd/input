@@ -413,6 +413,12 @@ export async function getRepoContents(
   return data;
 }
 
+export function repoRawFileUrl(installationId: string, repoFullName: string, path: string): string {
+  const { owner, repo } = splitFullName(repoFullName);
+  const qs = new URLSearchParams({ path });
+  return `${installationUrl(installationId, 'repos', owner, repo)}/raw?${qs.toString()}`;
+}
+
 export async function putRepoFile(
   installationId: string,
   repoFullName: string,

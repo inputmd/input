@@ -441,6 +441,27 @@ async function handleDeleteContents(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, await ghRes.json());
 }
 
+async function handleGetRawContent(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  const session = requireAuthSession(ctx);
+  const installationId = requireMatchedInstallation(ctx, session, 1);
+  const owner = ctx.match[2];
+  const repo = ctx.match[3];
+  const pathParam = ctx.url.searchParams.get('path');
+  if (!pathParam) throw new ClientError('path is required');
+
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
+    headers: { Accept: 'application/vnd.github.raw' },
+  });
+
+  ctx.res.statusCode = 200;
+  ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
+  ctx.res.setHeader('Cache-Control', 'private, max-age=300');
+  const body = Buffer.from(await ghRes.arrayBuffer());
+  ctx.res.end(body);
+}
+
 async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
   if (!checkRateLimit(ctx.req, ctx.res)) return;
   const gistId = ctx.match[1];
@@ -503,6 +524,7 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
 }
 
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
+const RAW_CONTENT_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/raw$/;
 
 const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/github-app\/health$/, handler: handleHealth },
@@ -523,6 +545,7 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: CONTENTS_PATTERN, handler: handleGetContents },
   { method: 'PUT', pattern: CONTENTS_PATTERN, handler: handlePutContents },
   { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
+  { method: 'GET', pattern: RAW_CONTENT_PATTERN, handler: handleGetRawContent },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
 ];
 

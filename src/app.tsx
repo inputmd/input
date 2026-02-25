@@ -1,3 +1,4 @@
+import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { useDialogs } from './components/DialogProvider';
@@ -35,6 +36,7 @@ import {
   getInstallationId,
   getPendingInstallationId,
   getRepoContents,
+  repoRawFileUrl,
   getSelectedRepo,
   type InstallationRepo,
   isRepoFile,
@@ -48,7 +50,7 @@ import {
 import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import { type Route, routePath } from './routing';
-import { decodeBase64ToUtf8, encodeUtf8ToBase64 } from './util';
+import { decodeBase64ToUtf8, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
 import { AuthView } from './views/AuthView';
 import { ContentView } from './views/ContentView';
 import { DocumentsView } from './views/DocumentsView';
@@ -99,6 +101,46 @@ function sanitizeTitleToFileName(title: string): string {
 function fileNameFromPath(path: string): string {
   const lastSlash = path.lastIndexOf('/');
   return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
+}
+
+function dirName(path: string): string {
+  const lastSlash = path.lastIndexOf('/');
+  return lastSlash >= 0 ? path.slice(0, lastSlash) : '';
+}
+
+function splitPathSuffix(path: string): { pathWithoutSuffix: string; suffix: string } {
+  const queryIdx = path.indexOf('?');
+  const hashIdx = path.indexOf('#');
+  const splitIdx =
+    queryIdx >= 0 && hashIdx >= 0 ? Math.min(queryIdx, hashIdx) : queryIdx >= 0 ? queryIdx : hashIdx >= 0 ? hashIdx : -1;
+  if (splitIdx < 0) return { pathWithoutSuffix: path, suffix: '' };
+  return { pathWithoutSuffix: path.slice(0, splitIdx), suffix: path.slice(splitIdx) };
+}
+
+function normalizeRepoPath(path: string): string | null {
+  const normalized = path.replace(/\\/g, '/');
+  const parts: string[] = [];
+  for (const part of normalized.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      if (parts.length === 0) return null;
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return parts.join('/');
+}
+
+function resolveRepoAssetPath(currentDocPath: string, src: string): string | null {
+  const { pathWithoutSuffix, suffix } = splitPathSuffix(src.trim());
+  if (!pathWithoutSuffix) return null;
+  const pathWithBase = pathWithoutSuffix.startsWith('/')
+    ? pathWithoutSuffix.slice(1)
+    : `${dirName(currentDocPath)}/${pathWithoutSuffix}`;
+  const normalized = normalizeRepoPath(pathWithBase);
+  if (!normalized) return null;
+  return `${normalized}${suffix}`;
 }
 
 function viewFromRoute(route: Route): ActiveView {
@@ -195,15 +237,96 @@ export function App() {
     });
   }, []);
 
-  const renderDocumentContent = useCallback((content: string, fileName: string | null | undefined) => {
-    if (isMarkdownFileName(fileName)) {
-      setRenderedHtml(parseMarkdownToHtml(content));
-      setRenderMode('markdown');
-      return;
-    }
-    setRenderedHtml(parseAnsiToHtml(content));
-    setRenderMode('ansi');
-  }, []);
+  const resolveMarkdownImageSrc = useCallback(
+    (src: string, repoDocPath: string | null): string | null => {
+      const normalizedSrc = src.trim();
+      if (!normalizedSrc) return null;
+      if (!repoDocPath || !selectedRepo || !installationId) return normalizedSrc;
+      if (normalizedSrc.startsWith('#') || normalizedSrc.startsWith('?')) return normalizedSrc;
+
+      const protocolMatch = normalizedSrc.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+      if (protocolMatch) return normalizedSrc;
+
+      const resolvedPath = resolveRepoAssetPath(repoDocPath, normalizedSrc);
+      if (!resolvedPath) return normalizedSrc;
+      return repoRawFileUrl(installationId, selectedRepo, resolvedPath);
+    },
+    [installationId, selectedRepo],
+  );
+
+  const renderDocumentContent = useCallback(
+    (content: string, fileName: string | null | undefined, repoDocPath: string | null = null) => {
+      if (isMarkdownFileName(fileName)) {
+        setRenderedHtml(
+          parseMarkdownToHtml(content, {
+            resolveImageSrc: (src) => resolveMarkdownImageSrc(src, repoDocPath),
+          }),
+        );
+        setRenderMode('markdown');
+        return;
+      }
+      setRenderedHtml(parseAnsiToHtml(content));
+      setRenderMode('ansi');
+    },
+    [resolveMarkdownImageSrc],
+  );
+
+  const handleEditorPaste = useCallback(
+    async (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => {
+      const editor = event.currentTarget;
+      const clipboardItems = Array.from(event.clipboardData?.items ?? []);
+      const imageItem = clipboardItems.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
+      if (!imageItem) return;
+
+      event.preventDefault();
+
+      if (editingBackend !== 'repo' || !currentRepoDocPath || !selectedRepo || !installationId) {
+        showToast('Paste image upload is only available after creating a repo document.');
+        return;
+      }
+
+      const file = imageItem.getAsFile();
+      if (!file) {
+        showToast('Failed to read pasted image.');
+        return;
+      }
+
+      try {
+        const mimeExt: Record<string, string> = {
+          'image/png': 'png',
+          'image/jpeg': 'jpg',
+          'image/jpg': 'jpg',
+          'image/gif': 'gif',
+          'image/webp': 'webp',
+          'image/svg+xml': 'svg',
+        };
+        const ext = mimeExt[file.type] ?? 'png';
+        const now = new Date();
+        const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+        const imageName = `pasted-${stamp}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const docDir = dirName(currentRepoDocPath);
+        const assetDir = docDir ? `${docDir}/.assets` : '.assets';
+        const imageRepoPath = `${assetDir}/${imageName}`;
+
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const contentB64 = encodeBytesToBase64(bytes);
+        await putRepoFile(installationId, selectedRepo, imageRepoPath, `Add image ${imageName}`, contentB64);
+
+        const currentValue = editor.value;
+        const start = editor.selectionStart;
+        const end = editor.selectionEnd;
+        const insertion = `![${imageName}](./.assets/${imageName})`;
+        const next = `${currentValue.slice(0, start)}${insertion}${currentValue.slice(end)}`;
+        setEditContent(next);
+        setHasUnsavedChanges(true);
+        showToast('Image uploaded');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        showToast(`Image upload failed: ${message}`);
+      }
+    },
+    [currentRepoDocPath, editingBackend, installationId, selectedRepo, showToast],
+  );
 
   // --- Auth ---
   // Returns whether auth is present and whether it navigated away from the current route.
@@ -461,7 +584,7 @@ export function App() {
           setEditTitle(contents.name.replace(/\.md$/i, ''));
           setEditContent(decoded);
         } else {
-          renderDocumentContent(decoded, contents.name);
+          renderDocumentContent(decoded, contents.name, contents.path);
         }
         await fetchRepoSidebarFiles(instId, repoName);
         setViewPhase(null);
@@ -791,7 +914,7 @@ export function App() {
           currentRepoDocSha ?? undefined,
         );
 
-        renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null);
+        renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath);
         navigate(routePath.repoFile(currentRepoDocPath));
       } else if (editingBackend === 'repo' && repoName && instId) {
         const filename = sanitizeTitleToFileName(title);
@@ -803,7 +926,7 @@ export function App() {
         setCurrentRepoDocPath(path);
         setCurrentRepoDocSha(null);
 
-        renderDocumentContent(content, filename);
+        renderDocumentContent(content, filename, path);
         navigate(routePath.repoFile(path));
       } else {
         let gist: GistDetail;
@@ -1191,6 +1314,7 @@ export function App() {
             canRenderPreview={canRenderPreview}
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
+            onEditorPaste={handleEditorPaste}
             saving={saving}
             canSave={hasUnsavedChanges}
             onSave={onSave}
@@ -1245,9 +1369,20 @@ export function App() {
       editPreviewEnabled
         ? parseMarkdownToHtml(
             showLoggedOutNewDocPreviewDescription ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION : editContent,
+            {
+              resolveImageSrc: (src) =>
+                resolveMarkdownImageSrc(src, editingBackend === 'repo' ? currentRepoDocPath : null),
+            },
           )
         : '',
-    [editPreviewEnabled, editContent, showLoggedOutNewDocPreviewDescription],
+    [
+      currentRepoDocPath,
+      editPreviewEnabled,
+      editContent,
+      editingBackend,
+      resolveMarkdownImageSrc,
+      showLoggedOutNewDocPreviewDescription,
+    ],
   );
   const onToggleSidebar = useCallback(() => {
     setSidebarVisibilityOverride((prev) => {

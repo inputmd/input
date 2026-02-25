@@ -11,6 +11,10 @@ export function escapeHtml(s: string): string {
 
 export function encodeUtf8ToBase64(s: string): string {
   const bytes = new TextEncoder().encode(s);
+  return encodeBytesToBase64(bytes);
+}
+
+export function encodeBytesToBase64(bytes: Uint8Array): string {
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary);

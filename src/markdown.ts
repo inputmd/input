@@ -123,7 +123,11 @@ function createHashLinkIndicator(): HTMLSpanElement {
   return span;
 }
 
-export function parseMarkdownToHtml(text: string): string {
+interface ParseMarkdownOptions {
+  resolveImageSrc?: (src: string) => string | null;
+}
+
+export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
   const raw = marked.parse(text) as string;
   const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel'] });
   const template = document.createElement('template');
@@ -150,6 +154,17 @@ export function parseMarkdownToHtml(text: string): string {
 
     anchor.removeAttribute('target');
     anchor.removeAttribute('rel');
+  });
+
+  template.content.querySelectorAll('img').forEach((img: HTMLImageElement) => {
+    const src = (img.getAttribute('src') ?? '').trim();
+    if (!src) return;
+    const resolvedSrc = options?.resolveImageSrc ? options.resolveImageSrc(src) : src;
+    if (!resolvedSrc) {
+      img.removeAttribute('src');
+      return;
+    }
+    img.setAttribute('src', resolvedSrc);
   });
 
   return template.innerHTML;

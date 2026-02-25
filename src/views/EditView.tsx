@@ -8,6 +8,7 @@ interface EditViewProps {
   canRenderPreview: boolean;
   onTogglePreview: () => void;
   onContentChange: (content: string) => void;
+  onEditorPaste?: (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => void;
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
@@ -20,6 +21,7 @@ export function EditView({
   canRenderPreview,
   onTogglePreview,
   onContentChange,
+  onEditorPaste,
   saving,
   canSave,
   onSave,
@@ -151,6 +153,7 @@ export function EditView({
           placeholder="Write your markdown here..."
           value={content}
           onInput={(e) => onContentChange((e.target as HTMLTextAreaElement).value)}
+          onPaste={onEditorPaste}
           onKeyDown={handleEditorKeyDown}
         />
         {previewVisible && canRenderPreview && (
