@@ -78,3 +78,19 @@
   font-size: 14px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
 }
+
+.toast-root--success {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-color);
+}
+
+.toast-root--failure {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--error-color);
+}
+
+.toast-root--loading {
+  border-color: var(--focus-border);
+}

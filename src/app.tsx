@@ -230,7 +230,7 @@ function viewFromRoute(route: Route): ActiveView {
 export function App() {
   const { route, navigate } = useRoute();
   const { showAlert, showConfirm } = useDialogs();
-  const { showToast } = useToast();
+  const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
 
   // --- Shared state ---
   const [user, setUser] = useState<GitHubUser | null>(null);
@@ -349,16 +349,17 @@ export function App() {
       event.preventDefault();
 
       if (editingBackend !== 'repo' || !currentRepoDocPath || !selectedRepo || !installationId) {
-        showToast('Paste image upload is only available after creating a repo document.');
+        showFailureToast('Save your document before uploading images');
         return;
       }
 
       const file = imageItem.getAsFile();
       if (!file) {
-        showToast('Failed to read pasted image.');
+        showFailureToast('Failed to read pasted image.');
         return;
       }
 
+      const uploadToastId = showLoadingToast('Uploading image...');
       try {
         const processed = await maybeResizePastedImage(file);
         const now = new Date();
@@ -378,13 +379,24 @@ export function App() {
         const next = `${currentValue.slice(0, start)}${insertion}${currentValue.slice(end)}`;
         setEditContent(next);
         setHasUnsavedChanges(true);
-        showToast(processed.resized ? 'Image resized and uploaded' : 'Image uploaded');
+        dismissToast(uploadToastId);
+        showSuccessToast(processed.resized ? 'Image resized and uploaded' : 'Image uploaded');
       } catch (err) {
+        dismissToast(uploadToastId);
         const message = err instanceof Error ? err.message : 'Upload failed';
-        showToast(`Image upload failed: ${message}`);
+        showFailureToast(`Image upload failed: ${message}`);
       }
     },
-    [currentRepoDocPath, editingBackend, installationId, selectedRepo, showToast],
+    [
+      currentRepoDocPath,
+      dismissToast,
+      editingBackend,
+      installationId,
+      selectedRepo,
+      showFailureToast,
+      showLoadingToast,
+      showSuccessToast,
+    ],
   );
 
   // --- Auth ---
@@ -1008,7 +1020,7 @@ export function App() {
         renderDocumentContent(content, filename);
         navigate(routePath.gistView(gist.id, filename));
       }
-      showToast('Saved');
+      showSuccessToast('Saved');
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         handleSessionExpired();
@@ -1032,7 +1044,7 @@ export function App() {
     handleSessionExpired,
     user,
     showAlert,
-    showToast,
+    showSuccessToast,
     renderDocumentContent,
   ]);
 
