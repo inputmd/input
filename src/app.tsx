@@ -1126,7 +1126,25 @@ export function App() {
   }, [repoAccessMode, currentRepoDocPath, currentGistId, currentFileName, navigate]);
 
   const onSharePublicLink = useCallback(async () => {
-    const url = window.location.href;
+    if (
+      repoAccessMode !== 'installed' ||
+      route.name !== 'repoedit' ||
+      selectedRepoPrivate !== false ||
+      !selectedRepo ||
+      !currentRepoDocPath ||
+      !(currentRepoDocPath === REPO_DOCS_DIR || currentRepoDocPath.startsWith(`${REPO_DOCS_DIR}/`))
+    ) {
+      showFailureToast('Public sharing is not available for this file');
+      return;
+    }
+
+    const [owner, repo] = selectedRepo.split('/');
+    if (!owner || !repo) {
+      showFailureToast('Failed to build public link');
+      return;
+    }
+    const publicPath = routePath.publicRepoFile(owner, repo, currentRepoDocPath);
+    const url = `${window.location.origin}/${publicPath}`;
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
@@ -1143,9 +1161,9 @@ export function App() {
       }
       showSuccessToast('Copied public read-only link');
     } catch {
-      showFailureToast('Failed to copy public link');
-    }
-  }, [showFailureToast, showSuccessToast]);
+        showFailureToast('Failed to copy public link');
+      }
+  }, [repoAccessMode, route.name, selectedRepoPrivate, selectedRepo, currentRepoDocPath, showFailureToast, showSuccessToast]);
 
   const onSave = useCallback(async () => {
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
@@ -1677,7 +1695,13 @@ export function App() {
   }, []);
   const showHeaderEdit =
     activeView === 'content' && (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
-  const showHeaderShare = activeView === 'content' && repoAccessMode === 'public' && route.name === 'publicrepofile';
+  const showHeaderShare =
+    activeView === 'edit' &&
+    route.name === 'repoedit' &&
+    repoAccessMode === 'installed' &&
+    selectedRepoPrivate === false &&
+    currentRepoDocPath !== null &&
+    (currentRepoDocPath === REPO_DOCS_DIR || currentRepoDocPath.startsWith(`${REPO_DOCS_DIR}/`));
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
     repoAccessMode === 'installed' &&
