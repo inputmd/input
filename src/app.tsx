@@ -153,6 +153,13 @@ interface PublicRepoRef {
   repo: string;
 }
 
+interface MarkdownRepoSourceContext {
+  mode: 'installed' | 'public';
+  installationId?: string | null;
+  selectedRepo?: string | null;
+  publicRepoRef?: PublicRepoRef | null;
+}
+
 function extensionFromMimeType(mimeType: string): string {
   const mimeExt: Record<string, string> = {
     'image/png': 'png',
@@ -318,7 +325,7 @@ export function App() {
   }, []);
 
   const resolveMarkdownImageSrc = useCallback(
-    (src: string, repoDocPath: string | null): string | null => {
+    (src: string, repoDocPath: string | null, repoSource?: MarkdownRepoSourceContext): string | null => {
       const normalizedSrc = src.trim();
       if (!normalizedSrc) return null;
       if (!repoDocPath) return normalizedSrc;
@@ -329,11 +336,19 @@ export function App() {
 
       const resolvedPath = resolveRepoAssetPath(repoDocPath, normalizedSrc);
       if (!resolvedPath) return normalizedSrc;
-      if (repoAccessMode === 'installed' && selectedRepo && installationId) {
-        return repoRawFileUrl(installationId, selectedRepo, resolvedPath);
+      const effectiveMode = repoSource?.mode ?? repoAccessMode;
+      if (effectiveMode === 'installed') {
+        const effectiveSelectedRepo = repoSource?.selectedRepo ?? selectedRepo;
+        const effectiveInstallationId = repoSource?.installationId ?? installationId;
+        if (effectiveSelectedRepo && effectiveInstallationId) {
+          return repoRawFileUrl(effectiveInstallationId, effectiveSelectedRepo, resolvedPath);
+        }
       }
-      if (repoAccessMode === 'public' && publicRepoRef) {
-        return publicRepoRawFileUrl(publicRepoRef.owner, publicRepoRef.repo, resolvedPath);
+      if (effectiveMode === 'public') {
+        const effectivePublicRepoRef = repoSource?.publicRepoRef ?? publicRepoRef;
+        if (effectivePublicRepoRef) {
+          return publicRepoRawFileUrl(effectivePublicRepoRef.owner, effectivePublicRepoRef.repo, resolvedPath);
+        }
       }
       return normalizedSrc;
     },
@@ -341,11 +356,16 @@ export function App() {
   );
 
   const renderDocumentContent = useCallback(
-    (content: string, fileName: string | null | undefined, repoDocPath: string | null = null) => {
+    (
+      content: string,
+      fileName: string | null | undefined,
+      repoDocPath: string | null = null,
+      repoSource?: MarkdownRepoSourceContext,
+    ) => {
       if (isMarkdownFileName(fileName)) {
         setRenderedHtml(
           parseMarkdownToHtml(content, {
-            resolveImageSrc: (src) => resolveMarkdownImageSrc(src, repoDocPath),
+            resolveImageSrc: (src) => resolveMarkdownImageSrc(src, repoDocPath, repoSource),
           }),
         );
         setRenderMode('markdown');
@@ -712,7 +732,11 @@ export function App() {
           setEditTitle(contents.name.replace(/\.md$/i, ''));
           setEditContent(decoded);
         } else {
-          renderDocumentContent(decoded, contents.name, contents.path);
+          renderDocumentContent(decoded, contents.name, contents.path, {
+            mode: 'installed',
+            installationId: instId,
+            selectedRepo: repoName,
+          });
         }
         await fetchRepoSidebarFiles(instId, repoName);
         setViewPhase(null);
@@ -754,7 +778,10 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(relativePath);
         setEditingBackend(null);
-        renderDocumentContent(decoded, contents.name, contents.path);
+        renderDocumentContent(decoded, contents.name, contents.path, {
+          mode: 'public',
+          publicRepoRef: { owner, repo },
+        });
         const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
         setRepoFiles(mdFiles);
         setViewPhase(null);
