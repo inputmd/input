@@ -4,6 +4,7 @@ export type Route =
   | { name: 'githubapp'; params: Record<string, never> }
   | { name: 'publicrepodocuments'; params: { owner: string; repo: string } }
   | { name: 'publicrepofile'; params: { owner: string; repo: string; path: string } }
+  | { name: 'publicrepofilelegacy'; params: { owner: string; repo: string; path: string } }
   | { name: 'repodocuments'; params: Record<string, never> }
   | { name: 'repofile'; params: { path: string } }
   | { name: 'reponew'; params: Record<string, never> }
@@ -28,8 +29,12 @@ const ROUTE_TABLE: RouteDef[] = [
     build: (m) => ({ name: 'publicrepodocuments', params: { owner: m[1], repo: m[2] } }),
   },
   {
-    pattern: /^publicfile\/([^/]+)\/([^/]+)\/(.+)$/,
+    pattern: /^public\/([^/]+)\/([^/]+)\/(.+)$/,
     build: (m) => ({ name: 'publicrepofile', params: { owner: m[1], repo: m[2], path: m[3] } }),
+  },
+  {
+    pattern: /^publicfile\/([^/]+)\/([^/]+)\/(.+)$/,
+    build: (m) => ({ name: 'publicrepofilelegacy', params: { owner: m[1], repo: m[2], path: m[3] } }),
   },
   { pattern: /^repodocuments$/, build: () => ({ name: 'repodocuments', params: {} }) },
   { pattern: /^repofile\/(.+)$/, build: (m) => ({ name: 'repofile', params: { path: m[1] } }) },
@@ -50,7 +55,7 @@ export const routePath = {
   githubApp: () => 'githubapp',
   publicRepoDocuments: (owner: string, repo: string) => `publicrepo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
   publicRepoFile: (owner: string, repo: string, path: string) =>
-    `publicfile/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+    `public/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
   repoDocuments: () => 'repodocuments',
   repoFile: (path: string) => `repofile/${encodeURIComponent(path)}`,
   repoNew: () => 'reponew',

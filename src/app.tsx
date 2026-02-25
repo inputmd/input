@@ -236,6 +236,7 @@ function viewFromRoute(route: Route): ActiveView {
       return 'githubapp';
     case 'repofile':
     case 'publicrepofile':
+    case 'publicrepofilelegacy':
     case 'gist':
       return 'content';
     default:
@@ -836,6 +837,13 @@ export function App() {
               ? decodedPath
               : toRepoDocPath(REPO_DOCS_DIR, decodedPath);
           await loadPublicRepoFile(owner, repo, targetPath);
+          return;
+        }
+        case 'publicrepofilelegacy': {
+          const owner = safeDecodeURIComponent(r.params.owner);
+          const repo = safeDecodeURIComponent(r.params.repo);
+          const path = safeDecodeURIComponent(r.params.path);
+          navigate(routePath.publicRepoFile(owner, repo, path), { replace: true });
           return;
         }
         case 'repodocuments': {
@@ -1580,7 +1588,9 @@ export function App() {
               }
 
               if (repoAccessMode === 'public' && publicRepoRef && route.name === 'publicrepofile') {
-                const match = new RegExp(`^publicfile/${encodeURIComponent(publicRepoRef.owner)}/${encodeURIComponent(publicRepoRef.repo)}/(.+)$`).exec(routePathname);
+                const match = new RegExp(
+                  `^public(?:file)?/${encodeURIComponent(publicRepoRef.owner)}/${encodeURIComponent(publicRepoRef.repo)}/(.+)$`,
+                ).exec(routePathname);
                 if (!match) {
                   navigate(routePathname);
                   return;
