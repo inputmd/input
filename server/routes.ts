@@ -116,6 +116,21 @@ async function proxyGitHubJson(
   json(ctx.res, 200, data);
 }
 
+async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'input-github-app-auth-server',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...((init.headers as Record<string, string>) ?? {}),
+  };
+  if (GITHUB_TOKEN) headers.Authorization = `Bearer ${GITHUB_TOKEN}`;
+  return fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers,
+    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+  });
+}
+
 async function handleHealth(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, { ok: true });
 }
@@ -462,6 +477,57 @@ async function handleGetRawContent(ctx: RouteContext): Promise<void> {
   ctx.res.end(body);
 }
 
+async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  const owner = decodeURIComponent(ctx.match[1]);
+  const repo = decodeURIComponent(ctx.match[2]);
+  const pathParam = ctx.url.searchParams.get('path') ?? '';
+  const ref = ctx.url.searchParams.get('ref');
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+  const ghUrl = ref ? `${ghPath}?ref=${encodeURIComponent(ref)}` : ghPath;
+  const ghRes = await fetchPublicGitHub(ghUrl);
+  const data = (await ghRes.json().catch(() => null)) as GitHubApiError | unknown;
+  if (!ghRes.ok) {
+    const err = data as GitHubApiError | null;
+    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
+    return;
+  }
+  json(ctx.res, 200, data);
+}
+
+async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  const owner = decodeURIComponent(ctx.match[1]);
+  const repo = decodeURIComponent(ctx.match[2]);
+  const pathParam = ctx.url.searchParams.get('path');
+  if (!pathParam) throw new ClientError('path is required');
+
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+  const ghRes = await fetchPublicGitHub(ghPath, {
+    headers: { Accept: 'application/vnd.github.raw' },
+  });
+  if (!ghRes.ok) {
+    const text = await ghRes.text().catch(() => '');
+    let message = 'GitHub API error';
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as GitHubApiError;
+        message = parsed.message ?? message;
+      } catch {
+        message = text;
+      }
+    }
+    json(ctx.res, ghRes.status, { error: message });
+    return;
+  }
+
+  ctx.res.statusCode = 200;
+  ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
+  ctx.res.setHeader('Cache-Control', 'public, max-age=300');
+  const body = Buffer.from(await ghRes.arrayBuffer());
+  ctx.res.end(body);
+}
+
 async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
   if (!checkRateLimit(ctx.req, ctx.res)) return;
   const gistId = ctx.match[1];
@@ -525,6 +591,8 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
 
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const RAW_CONTENT_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/raw$/;
+const PUBLIC_REPO_CONTENTS_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/contents$/;
+const PUBLIC_REPO_RAW_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/raw$/;
 
 const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/github-app\/health$/, handler: handleHealth },
@@ -546,6 +614,8 @@ const routes: RouteDef[] = [
   { method: 'PUT', pattern: CONTENTS_PATTERN, handler: handlePutContents },
   { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
   { method: 'GET', pattern: RAW_CONTENT_PATTERN, handler: handleGetRawContent },
+  { method: 'GET', pattern: PUBLIC_REPO_CONTENTS_PATTERN, handler: handleGetPublicRepoContents },
+  { method: 'GET', pattern: PUBLIC_REPO_RAW_PATTERN, handler: handleGetPublicRepoRaw },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
 ];
 

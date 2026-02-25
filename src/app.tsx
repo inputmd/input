@@ -33,10 +33,12 @@ import {
   consumeInstallState,
   createSession,
   disconnectInstallation,
+  getPublicRepoContents,
   getInstallationId,
   getPendingInstallationId,
   getRepoContents,
   repoRawFileUrl,
+  publicRepoRawFileUrl,
   getSelectedRepo,
   type InstallationRepo,
   isRepoFile,
@@ -146,6 +148,11 @@ function resolveRepoAssetPath(currentDocPath: string, src: string): string | nul
   return `${normalized}${suffix}`;
 }
 
+interface PublicRepoRef {
+  owner: string;
+  repo: string;
+}
+
 function extensionFromMimeType(mimeType: string): string {
   const mimeExt: Record<string, string> = {
     'image/png': 'png',
@@ -220,6 +227,7 @@ function viewFromRoute(route: Route): ActiveView {
     case 'githubapp':
       return 'githubapp';
     case 'repofile':
+    case 'publicrepofile':
     case 'gist':
       return 'content';
     default:
@@ -237,6 +245,8 @@ export function App() {
   const [installationId, setInstId] = useState<string | null>(getInstallationId());
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
   const [selectedRepoPrivate, setSelectedRepoPrivate] = useState<boolean | null>(getSelectedRepo()?.private ?? null);
+  const [publicRepoRef, setPublicRepoRef] = useState<PublicRepoRef | null>(null);
+  const [repoAccessMode, setRepoAccessMode] = useState<'installed' | 'public' | null>(null);
   const [installationRepos, setInstallationRepos] = useState<InstallationRepo[]>([]);
   const [installationReposLoading, setInstallationReposLoading] = useState(false);
   const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
@@ -289,6 +299,8 @@ export function App() {
     setInstId(null);
     setSelectedRepo(null);
     setSelectedRepoPrivate(null);
+    setRepoAccessMode(null);
+    setPublicRepoRef(null);
     navigate(routePath.auth());
   }, [navigate]);
 
@@ -309,7 +321,7 @@ export function App() {
     (src: string, repoDocPath: string | null): string | null => {
       const normalizedSrc = src.trim();
       if (!normalizedSrc) return null;
-      if (!repoDocPath || !selectedRepo || !installationId) return normalizedSrc;
+      if (!repoDocPath) return normalizedSrc;
       if (normalizedSrc.startsWith('#') || normalizedSrc.startsWith('?')) return normalizedSrc;
 
       const protocolMatch = normalizedSrc.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
@@ -317,9 +329,15 @@ export function App() {
 
       const resolvedPath = resolveRepoAssetPath(repoDocPath, normalizedSrc);
       if (!resolvedPath) return normalizedSrc;
-      return repoRawFileUrl(installationId, selectedRepo, resolvedPath);
+      if (repoAccessMode === 'installed' && selectedRepo && installationId) {
+        return repoRawFileUrl(installationId, selectedRepo, resolvedPath);
+      }
+      if (repoAccessMode === 'public' && publicRepoRef) {
+        return publicRepoRawFileUrl(publicRepoRef.owner, publicRepoRef.repo, resolvedPath);
+      }
+      return normalizedSrc;
     },
-    [installationId, selectedRepo],
+    [installationId, publicRepoRef, repoAccessMode, selectedRepo],
   );
 
   const renderDocumentContent = useCallback(
@@ -526,6 +544,37 @@ export function App() {
     return files;
   }, []);
 
+  const loadPublicRepoMarkdownFiles = useCallback(async (owner: string, repo: string): Promise<RepoDocFile[]> => {
+    const queue = [REPO_DOCS_DIR];
+    const files: RepoDocFile[] = [];
+
+    while (queue.length > 0) {
+      const dirPath = queue.shift();
+      if (!dirPath) break;
+      const contents = await getPublicRepoContents(owner, repo, dirPath);
+      if (!Array.isArray(contents)) continue;
+
+      for (const item of contents) {
+        if (item.type === 'dir') {
+          queue.push(item.path);
+          continue;
+        }
+        if (item.type !== 'file' || !item.name.toLowerCase().endsWith('.md')) continue;
+        const relativePath = repoDocRelativePath(REPO_DOCS_DIR, item.path);
+        if (!relativePath) continue;
+        files.push({
+          name: item.name,
+          relativePath,
+          path: item.path,
+          sha: item.sha,
+        });
+      }
+    }
+
+    files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    return files;
+  }, []);
+
   const fetchRepoSidebarFiles = useCallback(
     async (instId: string, repoName: string) => {
       if (repoFiles.length > 0) return;
@@ -551,6 +600,8 @@ export function App() {
           setCurrentFileName(cacheFile.filename);
           renderDocumentContent(cacheFile.content ?? '', cacheFile.filename);
           setCurrentGistId(id);
+          setRepoAccessMode(null);
+          setPublicRepoRef(null);
           setCurrentRepoDocPath(null);
           setCurrentRepoDocSha(null);
           setRepoFiles([]);
@@ -596,6 +647,8 @@ export function App() {
           setCurrentFileName(file.filename);
           renderDocumentContent(content ?? '', file.filename);
           setCurrentGistId(id);
+          setRepoAccessMode(null);
+          setPublicRepoRef(null);
           setCurrentRepoDocPath(null);
           setCurrentRepoDocSha(null);
           setRepoFiles([]);
@@ -616,6 +669,8 @@ export function App() {
 
         setCurrentFileName(file.filename);
         setCurrentGistId(gist.id);
+        setRepoAccessMode(null);
+        setPublicRepoRef(null);
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
         setRepoFiles([]);
@@ -645,6 +700,8 @@ export function App() {
         if (!isRepoFile(contents)) throw new Error('Expected a file');
         const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
         const relativePath = repoDocRelativePath(REPO_DOCS_DIR, contents.path) ?? contents.name;
+        setRepoAccessMode('installed');
+        setPublicRepoRef(null);
         setCurrentRepoDocPath(contents.path);
         setCurrentRepoDocSha(contents.sha);
         setCurrentGistId(null);
@@ -678,6 +735,36 @@ export function App() {
     ],
   );
 
+  const loadPublicRepoFile = useCallback(
+    async (owner: string, repo: string, path: string) => {
+      const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
+      if (shouldShowLoading) {
+        setViewPhase('loading');
+      }
+      try {
+        const contents = await getPublicRepoContents(owner, repo, path);
+        if (!isRepoFile(contents)) throw new Error('Expected a file');
+        const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
+        const relativePath = repoDocRelativePath(REPO_DOCS_DIR, contents.path) ?? contents.name;
+        setRepoAccessMode('public');
+        setPublicRepoRef({ owner, repo });
+        setCurrentRepoDocPath(contents.path);
+        setCurrentRepoDocSha(null);
+        setCurrentGistId(null);
+        setGistFiles(null);
+        setCurrentFileName(relativePath);
+        setEditingBackend(null);
+        renderDocumentContent(decoded, contents.name, contents.path);
+        const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
+        setRepoFiles(mdFiles);
+        setViewPhase(null);
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'Failed to load file');
+      }
+    },
+    [activeView, currentFileName, loadPublicRepoMarkdownFiles, renderDocumentContent, showError],
+  );
+
   // --- Route handler ---
   const handleRoute = useCallback(
     async (r: Route, authenticatedOverride?: boolean) => {
@@ -690,6 +777,33 @@ export function App() {
           syncRepoState();
           setViewPhase(null);
           return;
+        case 'publicrepodocuments': {
+          const owner = safeDecodeURIComponent(r.params.owner);
+          const repo = safeDecodeURIComponent(r.params.repo);
+          setViewPhase('loading');
+          try {
+            const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
+            if (mdFiles.length === 0) {
+              showError('No markdown files found under .input/documents');
+              return;
+            }
+            setRepoAccessMode('public');
+            setPublicRepoRef({ owner, repo });
+            setRepoFiles(mdFiles);
+            const indexFile = mdFiles.find((f) => f.relativePath.toLowerCase() === 'index.md');
+            const target = indexFile ?? mdFiles[0];
+            navigate(routePath.publicRepoFile(owner, repo, target.path));
+          } catch (err) {
+            showError(err instanceof Error ? err.message : 'Failed to load public repo documents');
+          }
+          return;
+        }
+        case 'publicrepofile': {
+          const owner = safeDecodeURIComponent(r.params.owner);
+          const repo = safeDecodeURIComponent(r.params.repo);
+          await loadPublicRepoFile(owner, repo, safeDecodeURIComponent(r.params.path));
+          return;
+        }
         case 'repodocuments': {
           syncRepoState();
           const instId = getInstallationId();
@@ -702,6 +816,8 @@ export function App() {
           try {
             const mdFiles = await loadRepoMarkdownFiles(instId, repoName);
             if (mdFiles.length > 0) {
+              setRepoAccessMode('installed');
+              setPublicRepoRef(null);
               setRepoFiles(mdFiles);
               const indexFile = mdFiles.find((f) => f.relativePath.toLowerCase() === 'index.md');
               const target = indexFile ?? mdFiles[0];
@@ -736,6 +852,8 @@ export function App() {
             return;
           }
           setDraftMode(false);
+          setRepoAccessMode('installed');
+          setPublicRepoRef(null);
           setEditingBackend('repo');
           setCurrentRepoDocPath(null);
           setCurrentRepoDocSha(null);
@@ -759,6 +877,8 @@ export function App() {
             navigate(routePath.auth());
             return;
           }
+          setRepoAccessMode(null);
+          setPublicRepoRef(null);
           setGistFiles(null);
           setCurrentFileName(null);
           setRepoFiles([]);
@@ -771,6 +891,8 @@ export function App() {
             setHasUnsavedChanges(false);
           }
           setDraftMode(true);
+          setRepoAccessMode(null);
+          setPublicRepoRef(null);
           setEditingBackend('gist');
           setCurrentGistId(null);
           setCurrentRepoDocPath(null);
@@ -790,6 +912,8 @@ export function App() {
             return;
           }
           setDraftMode(false);
+          setRepoAccessMode(null);
+          setPublicRepoRef(null);
           // Serve from cache if we already have this gist's files
           const cachedFiles = currentGistId === r.params.id ? gistFiles : null;
           if (cachedFiles) {
@@ -856,7 +980,9 @@ export function App() {
       navigate,
       syncRepoState,
       loadRepoFile,
+      loadPublicRepoFile,
       loadRepoMarkdownFiles,
+      loadPublicRepoMarkdownFiles,
       loadGist,
       showError,
       focusEditorSoon,
@@ -955,15 +1081,17 @@ export function App() {
     setInstId(null);
     setSelectedRepo(null);
     setSelectedRepoPrivate(null);
+    setRepoAccessMode(null);
+    setPublicRepoRef(null);
     setCurrentGistId(null);
     navigate(routePath.home());
   }, [navigate]);
 
   const onEdit = useCallback(() => {
-    if (currentRepoDocPath) navigate(routePath.repoEdit(currentRepoDocPath));
+    if (repoAccessMode === 'installed' && currentRepoDocPath) navigate(routePath.repoEdit(currentRepoDocPath));
     else if (currentGistId && currentFileName) navigate(routePath.gistEdit(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistEdit(currentGistId));
-  }, [currentRepoDocPath, currentGistId, currentFileName, navigate]);
+  }, [repoAccessMode, currentRepoDocPath, currentGistId, currentFileName, navigate]);
 
   const onSave = useCallback(async () => {
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
@@ -1061,7 +1189,7 @@ export function App() {
       return createGistDocumentStore(currentGistId);
     }
 
-    if (selectedRepo) {
+    if (repoAccessMode === 'installed' && selectedRepo) {
       const instId = getInstallationId();
       const repoName = getSelectedRepo()?.full_name;
       if (!instId || !repoName) return null;
@@ -1069,7 +1197,7 @@ export function App() {
     }
 
     return null;
-  }, [currentGistId, selectedRepo]);
+  }, [currentGistId, repoAccessMode, selectedRepo]);
 
   // --- Sidebar actions ---
   const handleSelectFile = useCallback(
@@ -1078,8 +1206,10 @@ export function App() {
         setHasUnsavedChanges(false);
         if (currentGistId) {
           navigate(routePath.gistView(currentGistId, filePath));
-        } else if (selectedRepo) {
+        } else if (repoAccessMode === 'installed' && selectedRepo) {
           navigate(routePath.repoFile(toRepoDocPath(REPO_DOCS_DIR, filePath)));
+        } else if (repoAccessMode === 'public' && publicRepoRef) {
+          navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, toRepoDocPath(REPO_DOCS_DIR, filePath)));
         }
       };
 
@@ -1090,7 +1220,7 @@ export function App() {
       }
       doNavigate();
     },
-    [currentGistId, selectedRepo, activeView, hasUnsavedChanges, navigate, showConfirm],
+    [currentGistId, repoAccessMode, selectedRepo, publicRepoRef, activeView, hasUnsavedChanges, navigate, showConfirm],
   );
 
   const handleCreateFile = useCallback(
@@ -1129,7 +1259,7 @@ export function App() {
 
       const target = currentGistId
         ? routePath.gistEdit(currentGistId, filePath)
-        : selectedRepo
+        : repoAccessMode === 'installed' && selectedRepo
           ? routePath.repoEdit(toRepoDocPath(REPO_DOCS_DIR, filePath))
           : null;
       if (!target) return;
@@ -1147,7 +1277,7 @@ export function App() {
 
       navigate(target);
     },
-    [currentGistId, selectedRepo, activeView, currentFileName, hasUnsavedChanges, onSave, navigate, showConfirm],
+    [currentGistId, repoAccessMode, selectedRepo, activeView, currentFileName, hasUnsavedChanges, onSave, navigate, showConfirm],
   );
 
   const handleViewOnGitHub = useCallback(
@@ -1156,14 +1286,20 @@ export function App() {
         window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer');
         return;
       }
-      if (!selectedRepo) return;
+      const repoFullName =
+        repoAccessMode === 'installed'
+          ? selectedRepo
+          : repoAccessMode === 'public' && publicRepoRef
+            ? `${publicRepoRef.owner}/${publicRepoRef.repo}`
+            : null;
+      if (!repoFullName) return;
       const repoPath = toRepoDocPath(REPO_DOCS_DIR, filePath)
         .split('/')
         .map((segment) => encodeURIComponent(segment))
         .join('/');
-      window.open(`https://github.com/${selectedRepo}/blob/HEAD/${repoPath}`, '_blank', 'noopener,noreferrer');
+      window.open(`https://github.com/${repoFullName}/blob/HEAD/${repoPath}`, '_blank', 'noopener,noreferrer');
     },
-    [currentGistId, selectedRepo],
+    [currentGistId, repoAccessMode, selectedRepo, publicRepoRef],
   );
 
   const handleDeleteFile = useCallback(
@@ -1343,36 +1479,56 @@ export function App() {
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');
 
-              // Detect repo context from repo routes; selectedRepo is a safety check
-              // to avoid rewriting links when not actively connected to a repo.
-              if (!selectedRepo || (route.name !== 'repofile' && route.name !== 'repoedit')) {
-                navigate(routePathname);
+              if (repoAccessMode === 'installed' && selectedRepo && (route.name === 'repofile' || route.name === 'repoedit')) {
+                const match = /^(repofile|repoedit)\/(.+)$/.exec(routePathname);
+                if (!match) {
+                  navigate(routePathname);
+                  return;
+                }
+                const routeName = match[1];
+                const decodedPath = safeDecodeURIComponent(match[2]).replace(/^\/+/, '');
+                if (!decodedPath) {
+                  navigate(routePathname);
+                  return;
+                }
+                if (decodedPath === REPO_DOCS_DIR || decodedPath.startsWith(`${REPO_DOCS_DIR}/`)) {
+                  navigate(routePathname);
+                  return;
+                }
+                try {
+                  const prefixed = toRepoDocPath(REPO_DOCS_DIR, decodedPath);
+                  navigate(`${routeName}/${encodeURIComponent(prefixed)}`);
+                } catch {
+                  navigate(routePathname);
+                }
                 return;
               }
 
-              const match = /^(repofile|repoedit)\/(.+)$/.exec(routePathname);
-              if (!match) {
-                navigate(routePathname);
+              if (repoAccessMode === 'public' && publicRepoRef && route.name === 'publicrepofile') {
+                const match = new RegExp(`^publicfile/${encodeURIComponent(publicRepoRef.owner)}/${encodeURIComponent(publicRepoRef.repo)}/(.+)$`).exec(routePathname);
+                if (!match) {
+                  navigate(routePathname);
+                  return;
+                }
+                const decodedPath = safeDecodeURIComponent(match[1]).replace(/^\/+/, '');
+                if (!decodedPath) {
+                  navigate(routePathname);
+                  return;
+                }
+                if (decodedPath === REPO_DOCS_DIR || decodedPath.startsWith(`${REPO_DOCS_DIR}/`)) {
+                  navigate(routePathname);
+                  return;
+                }
+                try {
+                  const prefixed = toRepoDocPath(REPO_DOCS_DIR, decodedPath);
+                  navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, prefixed));
+                } catch {
+                  navigate(routePathname);
+                }
                 return;
               }
 
-              const routeName = match[1];
-              const decodedPath = safeDecodeURIComponent(match[2]).replace(/^\/+/, '');
-              if (!decodedPath) {
-                navigate(routePathname);
-                return;
-              }
-              if (decodedPath === REPO_DOCS_DIR || decodedPath.startsWith(`${REPO_DOCS_DIR}/`)) {
-                navigate(routePathname);
-                return;
-              }
-
-              try {
-                const prefixed = toRepoDocPath(REPO_DOCS_DIR, decodedPath);
-                navigate(`${routeName}/${encodeURIComponent(prefixed)}`);
-              } catch {
-                navigate(routePathname);
-              }
+              navigate(routePathname);
             }}
           />
         );
@@ -1425,7 +1581,7 @@ export function App() {
   }, [gistFiles, currentFileName, repoFiles, currentRepoDocPath]);
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
-  const defaultShowSidebar = sidebarEligible && !!user && sidebarFiles.length > 0;
+  const defaultShowSidebar = sidebarEligible && sidebarFiles.length > 0 && (!!user || repoAccessMode === 'public');
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar) && sidebarFiles.length > 0;
   const canToggleSidebar = sidebarEligible && sidebarFiles.length > 0 && currentFileName !== null;
   const editingFileName = currentFileName ?? editTitle;
@@ -1433,8 +1589,8 @@ export function App() {
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
   const showLoggedOutNewDocPreviewDescription =
     route.name === 'new' && activeView === 'edit' && !user && editContent.trim().length === 0;
-  const showEditorCancel = activeView === 'edit' && !draftMode;
-  const showEditorSave = activeView === 'edit' && !(draftMode && !user);
+  const showEditorCancel = activeView === 'edit' && !draftMode && repoAccessMode !== 'public';
+  const showEditorSave = activeView === 'edit' && !(draftMode && !user) && repoAccessMode !== 'public';
   const editPreviewHtml = useMemo(
     () =>
       editPreviewEnabled
@@ -1465,9 +1621,11 @@ export function App() {
     setEditContent(content);
     setHasUnsavedChanges(true);
   }, []);
-  const showHeaderEdit = activeView === 'content' && (currentRepoDocPath !== null || currentGistId !== null);
+  const showHeaderEdit =
+    activeView === 'content' && (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
+    repoAccessMode === 'installed' &&
     (currentRepoDocPath !== null || (editingBackend === 'repo' && selectedRepo !== null));
 
   return (
@@ -1510,7 +1668,8 @@ export function App() {
               onSelectFile={handleSelectFile}
               onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}
-              canViewOnGitHub={currentGistId !== null || selectedRepo !== null}
+              canViewOnGitHub={currentGistId !== null || selectedRepo !== null || publicRepoRef !== null}
+              readOnly={repoAccessMode === 'public'}
               onCreateFile={handleCreateFile}
               onDeleteFile={handleDeleteFile}
               onRenameFile={handleRenameFile}

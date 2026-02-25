@@ -9,6 +9,7 @@ export interface SidebarFile {
 
 interface SidebarProps {
   files: SidebarFile[];
+  readOnly?: boolean;
   onSelectFile: (path: string) => void;
   onEditFile: (path: string) => void;
   onViewOnGitHub: (path: string) => void;
@@ -32,6 +33,7 @@ function sanitizePathInput(input: string): string {
 
 export function Sidebar({
   files,
+  readOnly = false,
   onSelectFile,
   onEditFile,
   onViewOnGitHub,
@@ -100,17 +102,19 @@ export function Sidebar({
     <aside class="sidebar">
       <div class="sidebar-header">
         <h3>Files</h3>
-        <button
-          type="button"
-          class="sidebar-add-btn"
-          title="New file"
-          onClick={() => {
-            setCreatingNew(true);
-            setNewFileName('');
-          }}
-        >
-          +
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            class="sidebar-add-btn"
+            title="New file"
+            onClick={() => {
+              setCreatingNew(true);
+              setNewFileName('');
+            }}
+          >
+            +
+          </button>
+        )}
       </div>
       <div class="sidebar-files">
         {files.map((f) => {
@@ -121,13 +125,15 @@ export function Sidebar({
               role="button"
               aria-current={f.active ? 'true' : undefined}
               onClick={() => !f.active && onSelectFile(f.path)}
-              onDblClick={() => startRename(f.path)}
+              onDblClick={() => {
+                if (!readOnly) startRename(f.path);
+              }}
               onKeyDown={(e) => {
                 if (renamingFile === f.path) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   if (!f.active) onSelectFile(f.path);
-                } else if (e.key === 'F2') {
+                } else if (!readOnly && e.key === 'F2') {
                   e.preventDefault();
                   startRename(f.path);
                 }
@@ -160,6 +166,10 @@ export function Sidebar({
             return <div key={f.path}>{fileRow}</div>;
           }
 
+          if (readOnly) {
+            return <div key={f.path}>{fileRow}</div>;
+          }
+
           return (
             <ContextMenu.Root key={f.path}>
               <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
@@ -189,7 +199,7 @@ export function Sidebar({
             </ContextMenu.Root>
           );
         })}
-        {creatingNew && (
+        {!readOnly && creatingNew && (
           <div class="sidebar-file renaming">
             <input
               ref={newInputRef}

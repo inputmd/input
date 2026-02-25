@@ -89,6 +89,15 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
   return res;
 }
 
+async function publicFetch(url: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
+  }
+  return res;
+}
+
 // --- Public endpoints (no auth) ---
 
 export async function createSession(installationId: string): Promise<void> {
@@ -413,10 +422,22 @@ export async function getRepoContents(
   return data;
 }
 
+export async function getPublicRepoContents(owner: string, repo: string, path: string, ref?: string): Promise<RepoContents> {
+  const qs = new URLSearchParams({ path });
+  if (ref) qs.set('ref', ref);
+  const res = await publicFetch(`/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`);
+  return (await res.json()) as RepoContents;
+}
+
 export function repoRawFileUrl(installationId: string, repoFullName: string, path: string): string {
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams({ path });
   return `${installationUrl(installationId, 'repos', owner, repo)}/raw?${qs.toString()}`;
+}
+
+export function publicRepoRawFileUrl(owner: string, repo: string, path: string): string {
+  const qs = new URLSearchParams({ path });
+  return `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw?${qs.toString()}`;
 }
 
 export async function putRepoFile(

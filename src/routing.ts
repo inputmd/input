@@ -2,6 +2,8 @@ export type Route =
   | { name: 'home'; params: Record<string, never> }
   | { name: 'auth'; params: Record<string, never> }
   | { name: 'githubapp'; params: Record<string, never> }
+  | { name: 'publicrepodocuments'; params: { owner: string; repo: string } }
+  | { name: 'publicrepofile'; params: { owner: string; repo: string; path: string } }
   | { name: 'repodocuments'; params: Record<string, never> }
   | { name: 'repofile'; params: { path: string } }
   | { name: 'reponew'; params: Record<string, never> }
@@ -21,6 +23,14 @@ interface RouteDef {
 const ROUTE_TABLE: RouteDef[] = [
   { pattern: /^auth$/, build: () => ({ name: 'auth', params: {} }) },
   { pattern: /^githubapp$/, build: () => ({ name: 'githubapp', params: {} }) },
+  {
+    pattern: /^publicrepo\/([^/]+)\/([^/]+)$/,
+    build: (m) => ({ name: 'publicrepodocuments', params: { owner: m[1], repo: m[2] } }),
+  },
+  {
+    pattern: /^publicfile\/([^/]+)\/([^/]+)\/(.+)$/,
+    build: (m) => ({ name: 'publicrepofile', params: { owner: m[1], repo: m[2], path: m[3] } }),
+  },
   { pattern: /^repodocuments$/, build: () => ({ name: 'repodocuments', params: {} }) },
   { pattern: /^repofile\/(.+)$/, build: (m) => ({ name: 'repofile', params: { path: m[1] } }) },
   { pattern: /^reponew$/, build: () => ({ name: 'reponew', params: {} }) },
@@ -38,6 +48,9 @@ export const routePath = {
   home: () => '',
   auth: () => 'auth',
   githubApp: () => 'githubapp',
+  publicRepoDocuments: (owner: string, repo: string) => `publicrepo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+  publicRepoFile: (owner: string, repo: string, path: string) =>
+    `publicfile/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
   repoDocuments: () => 'repodocuments',
   repoFile: (path: string) => `repofile/${encodeURIComponent(path)}`,
   repoNew: () => 'reponew',
