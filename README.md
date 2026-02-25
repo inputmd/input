@@ -52,7 +52,7 @@ Create a GitHub App to allow Input to be installed onto repos, via
 https://github.com/settings/apps/new:
 
 - Set the **Homepage URL** and **Callback URL** to your app URL,
-  e.g. `http://localhost:5173/` (or your `CLIENT_PORT` value).
+  e.g. `http://localhost:5173/`.
 - Grant **Repository permissions → Contents: Read & write**.
 - No webhook is required.
 
@@ -66,9 +66,6 @@ npm run server
 # Terminal B — Vite dev server (default: http://localhost:5173)
 npm run dev
 ```
-
-Set `CLIENT_PORT` in `.env` if you want to run the Vite dev server on a
-different port. The API server CORS allowlist uses this value.
 
 Auth sessions and remembered GitHub App installations are persisted in
 SQLite using `DATABASE_PATH` (default `./.data/input.db`).

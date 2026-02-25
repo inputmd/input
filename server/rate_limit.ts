@@ -1,43 +1,41 @@
-import type http from 'node:http';
-import { json } from './http_helpers';
+import type { Context, MiddlewareHandler } from 'hono';
 import type { RateLimitEntry } from './types';
 
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
+const CLEANUP_INTERVAL = 100;
 
 const rateLimitWindows = new Map<string, RateLimitEntry>();
+let checkCount = 0;
 
-export function startRateLimitCleanup(): void {
-  setInterval(
-    () => {
-      const now = Date.now();
-      for (const [ip, entry] of rateLimitWindows) {
-        if (now >= entry.resetAtMs) rateLimitWindows.delete(ip);
-      }
-    },
-    2 * 60 * 1000,
-  ).unref();
-}
-
-function getClientIp(req: http.IncomingMessage): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
+function getClientIp(c: Context): string {
+  const forwarded = c.req.header('x-forwarded-for');
+  if (forwarded) {
     const first = forwarded.split(',')[0].trim();
     if (first) return first;
   }
-  return req.socket.remoteAddress || 'unknown';
+  return 'unknown';
 }
 
-export function checkRateLimit(req: http.IncomingMessage, res: http.ServerResponse): boolean {
-  const ip = getClientIp(req);
+function lazyCleanup(): void {
+  checkCount++;
+  if (checkCount % CLEANUP_INTERVAL !== 0) return;
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitWindows) {
+    if (now >= entry.resetAtMs) rateLimitWindows.delete(ip);
+  }
+}
+
+function checkRateLimit(c: Context): Response | null {
+  lazyCleanup();
+  const ip = getClientIp(c);
   const now = Date.now();
   let entry = rateLimitWindows.get(ip);
 
   if (!entry || now >= entry.resetAtMs) {
     if (!entry && rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES) {
-      json(res, 429, { error: 'Too many requests' });
-      return false;
+      return c.json({ error: 'Too many requests' }, 429);
     }
     entry = { count: 0, resetAtMs: now + RATE_LIMIT_WINDOW_MS };
     rateLimitWindows.set(ip, entry);
@@ -46,10 +44,15 @@ export function checkRateLimit(req: http.IncomingMessage, res: http.ServerRespon
   entry.count++;
   if (entry.count > RATE_LIMIT_MAX) {
     const retryAfter = Math.ceil((entry.resetAtMs - now) / 1000);
-    res.setHeader('Retry-After', String(retryAfter));
-    json(res, 429, { error: 'Too many requests' });
-    return false;
+    c.header('Retry-After', String(retryAfter));
+    return c.json({ error: 'Too many requests' }, 429);
   }
 
-  return true;
+  return null;
 }
+
+export const rateLimitMiddleware: MiddlewareHandler = async (c, next) => {
+  const limited = checkRateLimit(c);
+  if (limited) return limited;
+  await next();
+};

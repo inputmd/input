@@ -119,7 +119,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
           <h1>My Gists</h1>
           <p class="hint documents-subtitle">Each collection is stored as a multi-file Gist on GitHub.</p>
         </div>
-        <button type="button" onClick={() => navigate(routePath.freshDraft())}>
+        <button type="button" onClick={() => navigate(routePath.home())}>
           New
         </button>
       </div>
@@ -127,7 +127,7 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
         <div class="empty-state">
           <p>No gists yet.</p>
           <p>Create your first gist to get started.</p>
-          <button type="button" onClick={() => navigate(routePath.freshDraft())}>
+          <button type="button" onClick={() => navigate(routePath.home())}>
             New
           </button>
         </div>

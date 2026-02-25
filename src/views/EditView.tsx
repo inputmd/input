@@ -167,7 +167,7 @@ export function EditView({
           </>
         )}
       </div>
-      {previewVisible && !canRenderPreview && (
+      {previewVisible && !canRenderPreview && previewHtml && (
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane">

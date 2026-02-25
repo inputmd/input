@@ -1,5 +1,3 @@
-import crypto from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { GITHUB_FETCH_TIMEOUT_MS } from './config';
 import { ClientError } from './errors';
 import { base64url, requireEnv } from './http_helpers';
@@ -8,17 +6,8 @@ import type { TokenCacheRecord } from './types';
 const installationTokenCache = new Map<string, TokenCacheRecord>();
 const MAX_TOKEN_CACHE_SIZE = 1000;
 
-export function startInstallationTokenCacheCleanup(): void {
-  setInterval(
-    () => {
-      const now = Date.now();
-      for (const [key, record] of installationTokenCache) {
-        if (record.expiresAtMs <= now) installationTokenCache.delete(key);
-      }
-    },
-    5 * 60 * 1000,
-  ).unref();
-}
+let cachedSigningKey: CryptoKey | null = null;
+let cachedKeyPem: string | null = null;
 
 function cacheKey(installationId: string, repositoryIds?: number[]): string {
   if (!repositoryIds?.length) return `${installationId}:all`;
@@ -28,14 +17,12 @@ function cacheKey(installationId: string, repositoryIds?: number[]): string {
     .join(',')}`;
 }
 
-async function getAppPrivateKeyPem(): Promise<string> {
+function getAppPrivateKeyPem(): string {
   const keyInline = process.env.GITHUB_APP_PRIVATE_KEY;
-  const keyPath = process.env.GITHUB_APP_PRIVATE_KEY_PATH;
-  if (keyInline?.trim()) {
-    return normalizeInlinePem(keyInline);
+  if (!keyInline?.trim()) {
+    throw new Error('Missing GITHUB_APP_PRIVATE_KEY');
   }
-  if (keyPath?.trim()) return readFile(keyPath, 'utf8');
-  throw new Error('Missing GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_PATH');
+  return normalizeInlinePem(keyInline);
 }
 
 function normalizeInlinePem(rawValue: string): string {
@@ -47,9 +34,31 @@ function normalizeInlinePem(rawValue: string): string {
   return withoutWrappingQuotes.replace(/\\n/g, '\n');
 }
 
+function pemToDer(pem: string): ArrayBuffer {
+  const lines = pem.split('\n').filter((l) => !l.startsWith('-----'));
+  const b64 = lines.join('');
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+async function getSigningKey(pem: string): Promise<CryptoKey> {
+  if (cachedSigningKey && cachedKeyPem === pem) return cachedSigningKey;
+  const der = pemToDer(pem);
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, [
+    'sign',
+  ]);
+  cachedSigningKey = key;
+  cachedKeyPem = pem;
+  return key;
+}
+
 export async function createAppJwt(): Promise<string> {
   const appId = requireEnv('GITHUB_APP_ID');
-  const privateKeyPem = await getAppPrivateKeyPem();
+  const privateKeyPem = getAppPrivateKeyPem();
   const now = Math.floor(Date.now() / 1000);
 
   const encodedHeader = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
@@ -62,18 +71,22 @@ export async function createAppJwt(): Promise<string> {
   );
   const signingInput = `${encodedHeader}.${encodedPayload}`;
 
-  const signer = crypto.createSign('RSA-SHA256');
-  signer.update(signingInput);
-  signer.end();
-  const signature = signer.sign(privateKeyPem);
+  const key = await getSigningKey(privateKeyPem);
+  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(signingInput));
 
-  return `${signingInput}.${base64url(signature)}`;
+  return `${signingInput}.${base64url(new Uint8Array(signature))}`;
 }
 
 async function getInstallationToken(installationId: string, repositoryIds?: number[]): Promise<TokenCacheRecord> {
   const key = cacheKey(installationId, repositoryIds);
   const cached = installationTokenCache.get(key);
   if (cached && cached.expiresAtMs - Date.now() > 60_000) return cached;
+
+  // Lazy eviction of expired tokens
+  const now = Date.now();
+  for (const [k, record] of installationTokenCache) {
+    if (record.expiresAtMs <= now) installationTokenCache.delete(k);
+  }
 
   const jwt = await createAppJwt();
   const res = await fetch(

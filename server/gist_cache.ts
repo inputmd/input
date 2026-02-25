@@ -7,21 +7,6 @@ const GIST_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 const gistCache = new Map<string, GistCacheEntry>();
 let gistCacheTotalBytes = 0;
 
-export function startGistCacheCleanup(): void {
-  setInterval(
-    () => {
-      const cutoff = Date.now() - GIST_CACHE_TTL_MS * 10;
-      for (const [key, entry] of gistCache) {
-        if (entry.cachedAt < cutoff) {
-          gistCacheTotalBytes -= entry.size;
-          gistCache.delete(key);
-        }
-      }
-    },
-    10 * 60 * 1000,
-  ).unref();
-}
-
 function gistCacheSet(id: string, entry: GistCacheEntry): void {
   const existing = gistCache.get(id);
   if (existing) gistCacheTotalBytes -= existing.size;
@@ -45,7 +30,7 @@ export function getGistCacheEntry(id: string): GistCacheEntry | undefined {
 
 export function setGistCacheEntry(id: string, data: unknown, etag: string | null, now: number): void {
   const serialized = JSON.stringify(data);
-  const size = Buffer.byteLength(serialized, 'utf8');
+  const size = new TextEncoder().encode(serialized).byteLength;
   if (size > GIST_CACHE_MAX_ENTRY_BYTES) return;
   gistCacheSet(id, { data, etag, cachedAt: now, size });
 }

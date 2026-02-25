@@ -62,13 +62,6 @@ const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
 const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
-const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = [
-  '### Input',
-  '',
-  'Write Markdown and preview it live.',
-  '',
-  'Sign in to save documents to GitHub Gists, or connect a repo to manage multi-file docs under `.input/documents/`.',
-].join('\n');
 
 function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
@@ -549,7 +542,6 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
-          setPreviewVisible(true);
           setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, 'title')) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, 'content')) ?? '');
           setViewPhase(null);
@@ -584,7 +576,6 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
-          setPreviewVisible(true);
           setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
           setViewPhase(null);
@@ -956,21 +947,10 @@ export function App() {
     [currentGistId, selectedRepo, activeView, currentFileName, hasUnsavedChanges, onSave, navigate, showConfirm],
   );
 
-  const handleViewOnGitHub = useCallback(
-    (filePath: string) => {
-      if (currentGistId) {
-        window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer');
-        return;
-      }
-      if (!selectedRepo) return;
-      const repoPath = toRepoDocPath(REPO_DOCS_DIR, filePath)
-        .split('/')
-        .map((segment) => encodeURIComponent(segment))
-        .join('/');
-      window.open(`https://github.com/${selectedRepo}/blob/HEAD/${repoPath}`, '_blank', 'noopener,noreferrer');
-    },
-    [currentGistId, selectedRepo],
-  );
+  const handleViewOnGitHub = useCallback(() => {
+    if (!currentGistId) return;
+    window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer');
+  }, [currentGistId]);
 
   const handleDeleteFile = useCallback(
     async (filePath: string) => {
@@ -1199,18 +1179,11 @@ export function App() {
   const editingFileName = currentFileName ?? editTitle;
   const editPreviewEnabled = isMarkdownFileName(editingFileName);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
-  const showLoggedOutNewDocPreviewDescription =
-    route.name === 'new' && activeView === 'edit' && !user && editContent.trim().length === 0;
   const showEditorCancel = activeView === 'edit' && !draftMode;
   const showEditorSave = activeView === 'edit' && !(draftMode && !user);
   const editPreviewHtml = useMemo(
-    () =>
-      editPreviewEnabled
-        ? parseMarkdownToHtml(
-            showLoggedOutNewDocPreviewDescription ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION : editContent,
-          )
-        : '',
-    [editPreviewEnabled, editContent, showLoggedOutNewDocPreviewDescription],
+    () => (editPreviewEnabled ? parseMarkdownToHtml(editContent) : ''),
+    [editPreviewEnabled, editContent],
   );
   const onToggleSidebar = useCallback(() => {
     setSidebarVisibilityOverride((prev) => {
@@ -1232,6 +1205,7 @@ export function App() {
       <Toolbar
         view={activeView}
         user={user}
+        installationId={installationId}
         selectedRepo={selectedRepo}
         selectedRepoPrivate={selectedRepoPrivate}
         inRepoContext={inRepoContext}
@@ -1267,7 +1241,7 @@ export function App() {
               onSelectFile={handleSelectFile}
               onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}
-              canViewOnGitHub={currentGistId !== null || selectedRepo !== null}
+              canViewOnGitHub={currentGistId !== null}
               onCreateFile={handleCreateFile}
               onDeleteFile={handleDeleteFile}
               onRenameFile={handleRenameFile}

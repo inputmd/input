@@ -1,71 +1,36 @@
-import './env';
-import http from 'node:http';
-import { PORT } from './config';
-import { applyCors } from './cors';
+import { type Env, serveStatic, TunnelServer } from '@teekit/kettle/worker';
+import { Hono } from 'hono';
+import { corsMiddleware } from './cors';
 import { ClientError } from './errors';
-import { startGistCacheCleanup } from './gist_cache';
-import { startInstallationTokenCacheCleanup } from './github_client';
-import { json } from './http_helpers';
-import { startRateLimitCleanup } from './rate_limit';
-import { handleApiRequest } from './routes';
-import { applySecurityHeaders } from './security_headers';
-import { startSessionCleanup } from './session';
-import { serveStatic } from './static_files';
+import { rateLimitMiddleware } from './rate_limit';
+import { registerApiRoutes, registerHealthRoute } from './routes';
+import { securityHeadersMiddleware } from './security_headers';
+import { initSessionDb } from './session';
 
-startInstallationTokenCacheCleanup();
-startGistCacheCleanup();
-startRateLimitCleanup();
-startSessionCleanup();
+const app = new Hono<{ Bindings: Env }>();
 
-const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
-  try {
-    applySecurityHeaders(res);
-    applyCors(req, res);
+app.use('*', securityHeadersMiddleware);
+app.use('*', corsMiddleware);
 
-    if (req.method === 'OPTIONS') {
-      res.end();
-      return;
-    }
-
-    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-    const pathname = url.pathname;
-
-    const handledApi = await handleApiRequest(req, res, url, pathname);
-    if (handledApi) return;
-
-    if (req.method === 'GET') {
-      if (await serveStatic(res, pathname)) return;
-      if (await serveStatic(res, '/index.html')) return;
-    }
-
-    json(res, 404, { error: 'Not found' });
-  } catch (err) {
-    if (err instanceof ClientError) {
-      json(res, err.statusCode, { error: err.message });
-      return;
-    }
-
-    console.error('Unhandled server error:', err);
-    json(res, 500, { error: 'Internal server error' });
+app.onError((err, c) => {
+  if (err instanceof ClientError) {
+    return c.json({ error: err.message }, err.statusCode as 400);
   }
+  console.error('Unhandled server error:', err);
+  return c.json({ error: 'Internal server error' }, 500);
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  const configured = Boolean(
-    process.env.GITHUB_APP_ID &&
-      (process.env.GITHUB_APP_PRIVATE_KEY || process.env.GITHUB_APP_PRIVATE_KEY_PATH) &&
-      process.env.GITHUB_APP_SLUG &&
-      process.env.GITHUB_CLIENT_ID &&
-      process.env.GITHUB_CLIENT_SECRET,
-  );
-  console.log(`GitHub App auth server listening on http://0.0.0.0:${PORT} (configured=${configured})`);
-});
+registerHealthRoute(app);
+app.use('/api/*', rateLimitMiddleware);
 
-function gracefulShutdown(signal: string): void {
-  console.log(`\n${signal} received, shutting down gracefully...`);
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 5000).unref();
+TunnelServer.initialize(app);
+
+registerApiRoutes(app);
+
+app.get('*', serveStatic());
+
+export async function onInit(env: Env) {
+  initSessionDb(env.DO_STORAGE!.sql!);
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+export default app;
