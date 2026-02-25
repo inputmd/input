@@ -80,9 +80,9 @@
 }
 
 .toast-root--success {
-  border-color: var(--success-border);
-  background: var(--success-bg);
-  color: var(--success-color);
+  border-color: #34d399;
+  background: rgba(6, 78, 59, 0.92);
+  color: #ecfdf5;
 }
 
 .toast-root--failure {
