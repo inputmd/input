@@ -64,6 +64,9 @@ const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
 const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
+const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
+const PASTED_IMAGE_MAX_SIDE_PX = 1600;
+const PASTED_IMAGE_QUALITY = 0.82;
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = [
   '### Input',
   '',
@@ -141,6 +144,71 @@ function resolveRepoAssetPath(currentDocPath: string, src: string): string | nul
   const normalized = normalizeRepoPath(pathWithBase);
   if (!normalized) return null;
   return `${normalized}${suffix}`;
+}
+
+function extensionFromMimeType(mimeType: string): string {
+  const mimeExt: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+  };
+  return mimeExt[mimeType] ?? 'png';
+}
+
+function isResizableImageType(mimeType: string): boolean {
+  return mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/jpg' || mimeType === 'image/webp';
+}
+
+async function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), mimeType, quality);
+  });
+}
+
+async function maybeResizePastedImage(
+  file: File,
+): Promise<{ bytes: Uint8Array; extension: string; resized: boolean }> {
+  const originalBytes = new Uint8Array(await file.arrayBuffer());
+  const originalExtension = extensionFromMimeType(file.type);
+
+  if (file.size <= PASTED_IMAGE_RESIZE_THRESHOLD_BYTES || !isResizableImageType(file.type)) {
+    return { bytes: originalBytes, extension: originalExtension, resized: false };
+  }
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const { width, height } = bitmap;
+    const longest = Math.max(width, height);
+    const scale = longest > PASTED_IMAGE_MAX_SIDE_PX ? PASTED_IMAGE_MAX_SIDE_PX / longest : 1;
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      bitmap.close();
+      return { bytes: originalBytes, extension: originalExtension, resized: false };
+    }
+    context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+    bitmap.close();
+
+    const outputMimeType = file.type === 'image/jpeg' || file.type === 'image/jpg' ? 'image/jpeg' : 'image/webp';
+    const resizedBlob = await canvasToBlob(canvas, outputMimeType, PASTED_IMAGE_QUALITY);
+    if (!resizedBlob) return { bytes: originalBytes, extension: originalExtension, resized: false };
+
+    const resizedBytes = new Uint8Array(await resizedBlob.arrayBuffer());
+    if (resizedBytes.length >= originalBytes.length) {
+      return { bytes: originalBytes, extension: originalExtension, resized: false };
+    }
+
+    return { bytes: resizedBytes, extension: extensionFromMimeType(outputMimeType), resized: true };
+  } catch {
+    return { bytes: originalBytes, extension: originalExtension, resized: false };
+  }
 }
 
 function viewFromRoute(route: Route): ActiveView {
@@ -292,24 +360,15 @@ export function App() {
       }
 
       try {
-        const mimeExt: Record<string, string> = {
-          'image/png': 'png',
-          'image/jpeg': 'jpg',
-          'image/jpg': 'jpg',
-          'image/gif': 'gif',
-          'image/webp': 'webp',
-          'image/svg+xml': 'svg',
-        };
-        const ext = mimeExt[file.type] ?? 'png';
+        const processed = await maybeResizePastedImage(file);
         const now = new Date();
         const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-        const imageName = `pasted-${stamp}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const imageName = `pasted-${stamp}-${Math.random().toString(36).slice(2, 8)}.${processed.extension}`;
         const docDir = dirName(currentRepoDocPath);
         const assetDir = docDir ? `${docDir}/.assets` : '.assets';
         const imageRepoPath = `${assetDir}/${imageName}`;
 
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const contentB64 = encodeBytesToBase64(bytes);
+        const contentB64 = encodeBytesToBase64(processed.bytes);
         await putRepoFile(installationId, selectedRepo, imageRepoPath, `Add image ${imageName}`, contentB64);
 
         const currentValue = editor.value;
@@ -319,7 +378,7 @@ export function App() {
         const next = `${currentValue.slice(0, start)}${insertion}${currentValue.slice(end)}`;
         setEditContent(next);
         setHasUnsavedChanges(true);
-        showToast('Image uploaded');
+        showToast(processed.resized ? 'Image resized and uploaded' : 'Image uploaded');
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Upload failed';
         showToast(`Image upload failed: ${message}`);
