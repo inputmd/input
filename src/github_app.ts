@@ -256,6 +256,10 @@ function repoContentsCacheKey(installationId: string, repoFullName: string, path
   return `${installationId}|${repoFullName}|${ref ?? ''}|${path}`;
 }
 
+function publicRepoContentsCacheIdentity(owner: string, repo: string): string {
+  return `public:${owner.toLowerCase()}/${repo.toLowerCase()}`;
+}
+
 function repoContentsStorageKey(cacheKey: string): string {
   return `${REPO_CONTENTS_CACHE_KEY_PREFIX}${cacheKey}`;
 }
@@ -423,10 +427,17 @@ export async function getRepoContents(
 }
 
 export async function getPublicRepoContents(owner: string, repo: string, path: string, ref?: string): Promise<RepoContents> {
+  const cacheIdentity = publicRepoContentsCacheIdentity(owner, repo);
+  const cacheKey = repoContentsCacheKey(cacheIdentity, `${owner}/${repo}`, path, ref);
+  const cached = getCachedRepoContents(cacheKey);
+  if (cached) return cached;
+
   const qs = new URLSearchParams({ path });
   if (ref) qs.set('ref', ref);
   const res = await publicFetch(`/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`);
-  return (await res.json()) as RepoContents;
+  const data = (await res.json()) as RepoContents;
+  setCachedRepoContents(cacheKey, data);
+  return data;
 }
 
 export function repoRawFileUrl(installationId: string, repoFullName: string, path: string): string {
