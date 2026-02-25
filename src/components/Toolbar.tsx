@@ -18,6 +18,8 @@ interface ToolbarProps {
   draftMode: boolean;
   canToggleSidebar: boolean;
   sidebarVisible: boolean;
+  showShare: boolean;
+  onShare: () => void;
   showEdit: boolean;
   showPreviewToggle: boolean;
   previewVisible: boolean;
@@ -48,6 +50,8 @@ export function Toolbar({
   draftMode,
   canToggleSidebar,
   sidebarVisible,
+  showShare,
+  onShare,
   showEdit,
   showPreviewToggle,
   previewVisible,
@@ -160,6 +164,11 @@ export function Toolbar({
       </div>
       <div class="toolbar-right">
         <div class="action-buttons">
+          {showShare && (
+            <button type="button" onClick={onShare}>
+              Share
+            </button>
+          )}
           {showEdit && (
             <button type="button" onClick={onEdit}>
               Edit

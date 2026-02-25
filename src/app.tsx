@@ -801,7 +801,12 @@ export function App() {
         case 'publicrepofile': {
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
-          await loadPublicRepoFile(owner, repo, safeDecodeURIComponent(r.params.path));
+          const decodedPath = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
+          const targetPath =
+            decodedPath === REPO_DOCS_DIR || decodedPath.startsWith(`${REPO_DOCS_DIR}/`)
+              ? decodedPath
+              : toRepoDocPath(REPO_DOCS_DIR, decodedPath);
+          await loadPublicRepoFile(owner, repo, targetPath);
           return;
         }
         case 'repodocuments': {
@@ -1092,6 +1097,28 @@ export function App() {
     else if (currentGistId && currentFileName) navigate(routePath.gistEdit(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistEdit(currentGistId));
   }, [repoAccessMode, currentRepoDocPath, currentGistId, currentFileName, navigate]);
+
+  const onSharePublicLink = useCallback(async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = url;
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.append(input);
+        input.select();
+        document.execCommand('copy');
+        input.remove();
+      }
+      showSuccessToast('Copied public read-only link');
+    } catch {
+      showFailureToast('Failed to copy public link');
+    }
+  }, [showFailureToast, showSuccessToast]);
 
   const onSave = useCallback(async () => {
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
@@ -1623,6 +1650,7 @@ export function App() {
   }, []);
   const showHeaderEdit =
     activeView === 'content' && (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
+  const showHeaderShare = activeView === 'content' && repoAccessMode === 'public' && route.name === 'publicrepofile';
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
     repoAccessMode === 'installed' &&
@@ -1641,6 +1669,10 @@ export function App() {
         draftMode={draftMode}
         canToggleSidebar={canToggleSidebar}
         sidebarVisible={showSidebar}
+        showShare={showHeaderShare}
+        onShare={() => {
+          void onSharePublicLink();
+        }}
         showEdit={showHeaderEdit}
         navigate={navigate}
         onOpenRepoMenu={onOpenRepoMenu}
