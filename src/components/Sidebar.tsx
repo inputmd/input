@@ -107,7 +107,7 @@ export function Sidebar({
           <h3>Files</h3>
         </div>
         <div class="sidebar-files sidebar-files-disabled">
-          <p class="sidebar-disabled-message">Create a workspace to manage files</p>
+          <p class="sidebar-disabled-message">Empty workspace</p>
         </div>
       </aside>
     );
