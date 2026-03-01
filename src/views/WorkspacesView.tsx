@@ -16,8 +16,8 @@ interface WorkspacesViewProps {
   initialGists: GistSummary[];
   navigate: (route: string) => void;
   userLogin: string;
-  notice: string | null;
-  onDismissNotice: () => void;
+  workspaceNotice: string | null;
+  onDismissWorkspaceNotice: () => void;
 }
 
 function formatRepoMeta(repo: InstallationRepo): string {
@@ -37,8 +37,8 @@ export function WorkspacesView({
   initialGists,
   navigate,
   userLogin,
-  notice,
-  onDismissNotice,
+  workspaceNotice,
+  onDismissWorkspaceNotice,
 }: WorkspacesViewProps) {
   useEffect(() => {
     onLoadRepos();
@@ -47,11 +47,16 @@ export function WorkspacesView({
   const sectionsReady = reposInitialLoaded && gistsInitialLoaded;
 
   return (
-    <div class="settings-view">
-      {notice ? (
-        <div class="settings-alert" role="status">
-          <span>{notice}</span>
-          <button type="button" class="settings-alert-close" aria-label="Dismiss notice" onClick={onDismissNotice}>
+    <div class="account-view">
+      {workspaceNotice ? (
+        <div class="workspaces-alert" role="status">
+          <span>{workspaceNotice}</span>
+          <button
+            type="button"
+            class="workspaces-alert-close"
+            aria-label="Dismiss notice"
+            onClick={onDismissWorkspaceNotice}
+          >
             ×
           </button>
         </div>
@@ -59,13 +64,13 @@ export function WorkspacesView({
       <h1>Workspaces</h1>
       {sectionsReady ? (
         <>
-          <div class="settings-repos-header">
-            <div class="settings-repos-header-copy">
-              <h2 class="settings-repos-title">My Repos</h2>
-              <p class="hint settings-repos-subtitle">Workspaces stored as repos on GitHub</p>
+          <div class="workspaces-repos-header">
+            <div class="workspaces-repos-header-copy">
+              <h2 class="workspaces-repos-title">My Repos</h2>
+              <p class="hint workspaces-repos-subtitle">Workspaces stored as repos on GitHub</p>
             </div>
-            <div class="settings-actions">
-              <button type="button" class="settings-connect-btn" onClick={() => void onConnect()}>
+            <div class="workspaces-actions">
+              <button type="button" class="workspaces-connect-btn" onClick={() => void onConnect()}>
                 Configure
               </button>
               <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
@@ -76,14 +81,14 @@ export function WorkspacesView({
           {repoListLoading ? (
             <p class="loading-hint">Loading repos...</p>
           ) : availableRepos.length > 0 ? (
-            <div class="settings-repo-list">
+            <div class="workspaces-repo-list">
               {availableRepos.map((repo) => (
-                <div class="settings-repo-card" key={repo.id}>
-                  <div class="settings-repo-info">
-                    <div class="settings-repo-title">{repo.full_name}</div>
-                    <div class="settings-repo-meta">{formatRepoMeta(repo)}</div>
+                <div class="workspaces-repo-card" key={repo.id}>
+                  <div class="workspaces-repo-info">
+                    <div class="workspaces-repo-title">{repo.full_name}</div>
+                    <div class="workspaces-repo-meta">{formatRepoMeta(repo)}</div>
                   </div>
-                  <div class="settings-repo-actions">
+                  <div class="workspaces-repo-actions">
                     <button type="button" onClick={() => onOpenRepo(repo.full_name, repo.id, repo.private)}>
                       Open
                     </button>
@@ -92,7 +97,7 @@ export function WorkspacesView({
               ))}
             </div>
           ) : (
-            <div class="empty-state settings-empty-state">
+            <div class="empty-state workspaces-empty-state">
               <p>No connected repos</p>
               <p>Connect a repository to start editing docs.</p>
             </div>

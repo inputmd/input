@@ -114,14 +114,14 @@
   margin-top: 16px;
 }
 
-.settings-view {
+.account-view {
   max-width: 800px;
   width: 100%;
   margin: 0 auto;
   padding: 40px 16px 56px;
 }
 
-.settings-alert {
+.workspaces-alert {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -134,7 +134,7 @@
   color: var(--text-secondary);
 }
 
-.settings-alert-close {
+.workspaces-alert-close {
   min-width: 28px;
   min-height: 28px;
   padding: 0;
@@ -147,56 +147,56 @@
   cursor: pointer;
 }
 
-.settings-alert-close:hover {
+.workspaces-alert-close:hover {
   background: var(--btn-hover);
 }
 
-.settings-view h1 {
+.account-view h1 {
   font-size: 22px;
   font-weight: 600;
   margin-bottom: 14px;
 }
 
-.settings-panel {
+.account-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--toolbar-bg);
   padding: 16px;
 }
 
-.settings-user-panel {
+.account-user-panel {
   padding: 12px;
 }
 
-.settings-user-header {
+.account-user-header {
   display: flex;
   align-items: center;
   gap: 14px;
 }
 
-.settings-user-avatar {
+.account-user-avatar {
   border-radius: 50%;
   flex-shrink: 0;
   display: block;
 }
 
-.settings-user-avatar-link {
+.account-user-avatar-link {
   position: relative;
   display: inline-flex;
   border-radius: 50%;
   text-decoration: none;
 }
 
-.settings-user-avatar-link:hover,
-.settings-user-avatar-link:focus-visible {
+.account-user-avatar-link:hover,
+.account-user-avatar-link:focus-visible {
   box-shadow: 0 0 0 2px var(--focus-border);
 }
 
-.settings-user-avatar-link:focus-visible {
+.account-user-avatar-link:focus-visible {
   outline: none;
 }
 
-.settings-user-avatar-overlay {
+.account-user-avatar-overlay {
   position: absolute;
   right: -2px;
   bottom: -2px;
@@ -213,46 +213,46 @@
   transform: scale(0.9);
 }
 
-.settings-user-avatar-link:hover .settings-user-avatar-overlay,
-.settings-user-avatar-link:focus-visible .settings-user-avatar-overlay {
+.account-user-avatar-link:hover .account-user-avatar-overlay,
+.account-user-avatar-link:focus-visible .account-user-avatar-overlay {
   opacity: 1;
   transform: scale(1);
   color: var(--text);
 }
 
-.settings-user-meta {
+.account-user-meta {
   min-width: 0;
 }
 
-.settings-user-name {
+.account-user-name {
   font-size: 16px;
   font-weight: 600;
 }
 
-.settings-user-login {
+.account-user-login {
   font-size: 13px;
   color: var(--text-secondary);
   word-break: break-word;
 }
 
-.settings-actions {
+.workspaces-actions {
   display: flex;
   gap: 8px;
   margin-top: 0;
 }
 
-.settings-connect-btn {
+.workspaces-connect-btn {
   background: #198754;
   color: #fff;
   border-color: #198754;
 }
 
-.settings-connect-btn:hover {
+.workspaces-connect-btn:hover {
   background: #157347;
   border-color: #146c43;
 }
 
-.settings-repos-header {
+.workspaces-repos-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -260,28 +260,28 @@
   margin: 36px 0 12px;
 }
 
-.settings-repos-title {
+.workspaces-repos-title {
   font-size: 22px;
   font-weight: 600;
 }
 
-.settings-repos-header-copy {
+.workspaces-repos-header-copy {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.settings-repos-subtitle {
+.workspaces-repos-subtitle {
   color: color-mix(in srgb, var(--text-secondary) 75%, transparent);
 }
 
-.settings-repo-list {
+.workspaces-repo-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.settings-repo-card {
+.workspaces-repo-card {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -292,39 +292,39 @@
   background: var(--toolbar-bg);
 }
 
-.settings-repo-info {
+.workspaces-repo-info {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.settings-repo-title {
+.workspaces-repo-title {
   font-weight: 500;
   word-break: break-word;
 }
 
-.settings-repo-meta {
+.workspaces-repo-meta {
   font-size: 13px;
   color: var(--text-secondary);
   word-break: break-word;
 }
 
-.settings-repo-actions {
+.workspaces-repo-actions {
   flex-shrink: 0;
 }
 
-.settings-empty-state {
+.workspaces-empty-state {
   margin-top: 0;
 }
 
 @media (max-width: 768px) {
-  .settings-repos-header {
+  .workspaces-repos-header {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .settings-repo-card {
+  .workspaces-repo-card {
     align-items: flex-start;
     flex-direction: column;
   }

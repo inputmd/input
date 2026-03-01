@@ -321,7 +321,7 @@ export function App() {
   const [menuGistsLoading, setMenuGistsLoading] = useState(false);
   const [menuGistsLoaded, setMenuGistsLoaded] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
-  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+  const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
 
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
@@ -547,7 +547,7 @@ export function App() {
           setInstId(pendingInstallationId);
           clearPendingInstallationId();
           if (route.name === 'login') {
-            setSettingsNotice('GitHub App installation connected. Review your installation details below.');
+            setWorkspaceNotice('GitHub App installation connected. Review your installation details below.');
             navigate(routePath.workspaces());
             return { authenticated: true, navigated: true };
           }
@@ -569,7 +569,7 @@ export function App() {
       // Navigate away from auth page after successful session restore.
       if (route.name === 'login') {
         if (session.installationId) {
-          setSettingsNotice('Signed in with an active GitHub App installation. Review your installation details below.');
+          setWorkspaceNotice('Signed in with an active GitHub App installation. Review your installation details below.');
         }
         navigate(routePath.workspaces());
         return { authenticated: true, navigated: true };
@@ -618,7 +618,7 @@ export function App() {
     consumeInstallState(actualState);
     setInstallationId(id);
     setInstId(id);
-    setSettingsNotice('GitHub App installation setup complete. Review your installation details below.');
+    setWorkspaceNotice('GitHub App installation setup complete. Review your installation details below.');
 
     const cleanUrl = window.location.pathname;
     window.history.replaceState({}, '', cleanUrl);
@@ -1773,8 +1773,8 @@ export function App() {
             initialGists={menuGists}
             navigate={navigate}
             userLogin={user.login}
-            notice={settingsNotice}
-            onDismissNotice={() => setSettingsNotice(null)}
+            workspaceNotice={workspaceNotice}
+            onDismissWorkspaceNotice={() => setWorkspaceNotice(null)}
           />
         ) : (
           <AuthView />
