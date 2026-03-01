@@ -2,7 +2,6 @@ export type Route =
   | { name: 'home'; params: Record<string, never> }
   | { name: 'auth'; params: Record<string, never> }
   | { name: 'settings'; params: Record<string, never> }
-  | { name: 'githubapp'; params: Record<string, never> }
   | { name: 'publicrepodocuments'; params: { owner: string; repo: string } }
   | { name: 'publicrepofile'; params: { owner: string; repo: string; path: string } }
   | { name: 'publicrepofilelegacy'; params: { owner: string; repo: string; path: string } }
@@ -25,7 +24,6 @@ interface RouteDef {
 const ROUTE_TABLE: RouteDef[] = [
   { pattern: /^auth$/, build: () => ({ name: 'auth', params: {} }) },
   { pattern: /^settings$/, build: () => ({ name: 'settings', params: {} }) },
-  { pattern: /^githubapp$/, build: () => ({ name: 'githubapp', params: {} }) },
   {
     pattern: /^publicrepo\/([^/]+)\/([^/]+)$/,
     build: (m) => ({ name: 'publicrepodocuments', params: { owner: m[1], repo: m[2] } }),
@@ -55,7 +53,6 @@ export const routePath = {
   home: () => '',
   auth: () => 'auth',
   settings: () => 'settings',
-  githubApp: () => 'githubapp',
   publicRepoDocuments: (owner: string, repo: string) => `publicrepo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
   publicRepoFile: (owner: string, repo: string, path: string) =>
     `public/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,

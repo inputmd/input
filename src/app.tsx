@@ -59,7 +59,6 @@ import { ContentView } from './views/ContentView';
 import { DocumentsView } from './views/DocumentsView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
-import { GitHubAppView } from './views/GitHubAppView';
 import { LoadingView } from './views/LoadingView';
 import { SettingsView } from './views/SettingsView';
 
@@ -287,8 +286,6 @@ function viewFromRoute(route: Route): ActiveView {
       return 'documents';
     case 'settings':
       return 'settings';
-    case 'githubapp':
-      return 'githubapp';
     case 'repofile':
     case 'publicrepofile':
     case 'publicrepofilelegacy':
@@ -315,6 +312,7 @@ export function App() {
   const [installationReposLoading, setInstallationReposLoading] = useState(false);
   const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
 
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
@@ -525,7 +523,8 @@ export function App() {
           setInstId(pendingInstallationId);
           clearPendingInstallationId();
           if (route.name === 'auth') {
-            navigate(routePath.githubApp());
+            setSettingsNotice('GitHub App installation connected. Review your installation details below.');
+            navigate(routePath.settings());
             return { authenticated: true, navigated: true };
           }
         } catch (err) {
@@ -543,7 +542,10 @@ export function App() {
       }
       // Navigate away from auth page after successful session restore.
       if (route.name === 'auth') {
-        navigate(session.installationId ? routePath.githubApp() : routePath.documents());
+        if (session.installationId) {
+          setSettingsNotice('Signed in with an active GitHub App installation. Review your installation details below.');
+        }
+        navigate(session.installationId ? routePath.settings() : routePath.documents());
         return { authenticated: true, navigated: true };
       }
       return { authenticated: true, navigated: false };
@@ -589,11 +591,12 @@ export function App() {
 
     setInstallationId(id);
     setInstId(id);
+    setSettingsNotice('GitHub App installation setup complete. Review your installation details below.');
 
     const cleanUrl = window.location.pathname;
     window.history.replaceState({}, '', cleanUrl);
 
-    navigate(routePath.githubApp());
+    navigate(routePath.settings());
     return true;
   }, [navigate, showError]);
 
@@ -770,7 +773,7 @@ export function App() {
       const instId = getInstallationId();
       const repoName = getSelectedRepo()?.full_name ?? null;
       if (!instId || !repoName) {
-        navigate(routePath.githubApp());
+        navigate(routePath.settings());
         return;
       }
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
@@ -908,10 +911,6 @@ export function App() {
           setRepoFiles([]);
           setViewPhase(null);
           return;
-        case 'githubapp':
-          syncRepoState();
-          setViewPhase(null);
-          return;
         case 'publicrepodocuments': {
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
@@ -956,7 +955,7 @@ export function App() {
           const instId = getInstallationId();
           const repoName = getSelectedRepo()?.full_name ?? null;
           if (!instId || !repoName) {
-            navigate(routePath.githubApp());
+            navigate(routePath.settings());
             return;
           }
           setViewPhase('loading');
@@ -995,7 +994,7 @@ export function App() {
           const instId = getInstallationId();
           const repoName = getSelectedRepo()?.full_name ?? null;
           if (!instId || !repoName) {
-            navigate(routePath.githubApp());
+            navigate(routePath.settings());
             return;
           }
           setDraftMode(false);
@@ -1682,21 +1681,20 @@ export function App() {
       case 'documents':
         return <DocumentsView navigate={navigate} userLogin={user?.login ?? null} />;
       case 'settings':
-        return user ? <SettingsView user={user} /> : <AuthView isAuthenticated={false} />;
-      case 'githubapp':
-        return installationId ? (
-          <GitHubAppView
+        return user ? (
+          <SettingsView
+            user={user}
             installationId={installationId}
-            selectedRepo={selectedRepo}
             availableRepos={installationRepos}
             repoListLoading={installationReposLoading}
-            onSelectRepo={onSelectRepo}
             onLoadRepos={onOpenRepoMenu}
+            onConnect={() => navigate(routePath.auth())}
             onDisconnect={onDisconnect}
-            navigate={navigate}
+            notice={settingsNotice}
+            onDismissNotice={() => setSettingsNotice(null)}
           />
         ) : (
-          <AuthView isAuthenticated={Boolean(user)} />
+          <AuthView isAuthenticated={false} />
         );
       case 'content':
         return (

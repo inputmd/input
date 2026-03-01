@@ -97,35 +97,41 @@
   margin-top: 16px;
 }
 
-.githubapp-view {
-  max-width: 800px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 24px 16px;
-}
-
-.githubapp-view h1 {
-  font-size: 24px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.githubapp-actions {
-  display: flex;
-  gap: 8px;
-  margin: 12px 0 16px;
-}
-
-.githubapp-repos ul {
-  margin-top: 8px;
-  padding-left: 20px;
-}
-
 .settings-view {
   max-width: 800px;
   width: 100%;
   margin: 0 auto;
   padding: 24px 16px;
+}
+
+.settings-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+  margin-bottom: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--btn-bg) 70%, transparent);
+  color: var(--text-secondary);
+}
+
+.settings-alert-close {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-alert-close:hover {
+  background: var(--btn-hover);
 }
 
 .settings-view h1 {
@@ -139,6 +145,16 @@
   border-radius: 8px;
   background: var(--toolbar-bg);
   padding: 16px;
+}
+
+.settings-panel + .settings-panel {
+  margin-top: 14px;
+}
+
+.settings-panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
 }
 
 .settings-user-header {
@@ -193,6 +209,49 @@
 
 .settings-user-row a {
   color: var(--text);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-connect-btn {
+  background: #198754;
+  color: #fff;
+  border-color: #198754;
+}
+
+.settings-connect-btn:hover {
+  background: #157347;
+  border-color: #146c43;
+}
+
+.settings-repo-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.settings-repo-table th,
+.settings-repo-table td {
+  text-align: left;
+  padding: 9px 10px;
+}
+
+.settings-repo-table th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--btn-bg) 70%, transparent);
+}
+
+.settings-repo-table tbody tr + tr td {
+  border-top: 1px solid var(--border);
 }
 
 @media (max-width: 768px) {

@@ -5,7 +5,7 @@ import type { GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
 
-export type ActiveView = 'auth' | 'documents' | 'settings' | 'githubapp' | 'loading' | 'error' | 'content' | 'edit';
+export type ActiveView = 'auth' | 'documents' | 'settings' | 'loading' | 'error' | 'content' | 'edit';
 
 interface ToolbarProps {
   view: ActiveView;
