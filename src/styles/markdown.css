@@ -80,7 +80,7 @@
 .rendered-markdown pre,
 .rendered-markdown hr,
 .rendered-markdown table {
-  margin: 0 0 0.9em;
+  margin: 0.75em 0;
 }
 
 .rendered-markdown ul,
