@@ -61,7 +61,6 @@ export function WorkspacesView({
           </button>
         </div>
       ) : null}
-      <h1>Workspaces</h1>
       {sectionsReady ? (
         <>
           <div class="workspaces-repos-header">
