@@ -61,6 +61,7 @@ import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { GitHubAppView } from './views/GitHubAppView';
 import { LoadingView } from './views/LoadingView';
+import { SettingsView } from './views/SettingsView';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const DRAFT_TITLE_KEY = 'draft_title';
@@ -284,6 +285,8 @@ function viewFromRoute(route: Route): ActiveView {
       return 'auth';
     case 'documents':
       return 'documents';
+    case 'settings':
+      return 'settings';
     case 'githubapp':
       return 'githubapp';
     case 'repofile':
@@ -891,6 +894,18 @@ export function App() {
       const isAuthenticated = authenticatedOverride ?? Boolean(user);
       switch (r.name) {
         case 'auth':
+          setViewPhase(null);
+          return;
+        case 'settings':
+          if (!isAuthenticated) {
+            navigate(routePath.auth());
+            return;
+          }
+          setRepoAccessMode(null);
+          setPublicRepoRef(null);
+          setGistFiles(null);
+          setCurrentFileName(null);
+          setRepoFiles([]);
           setViewPhase(null);
           return;
         case 'githubapp':
@@ -1666,6 +1681,8 @@ export function App() {
         return <AuthView isAuthenticated={Boolean(user)} />;
       case 'documents':
         return <DocumentsView navigate={navigate} userLogin={user?.login ?? null} />;
+      case 'settings':
+        return user ? <SettingsView user={user} /> : <AuthView isAuthenticated={false} />;
       case 'githubapp':
         return installationId ? (
           <GitHubAppView

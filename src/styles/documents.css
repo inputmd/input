@@ -120,3 +120,87 @@
   margin-top: 8px;
   padding-left: 20px;
 }
+
+.settings-view {
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.settings-view h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.settings-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  padding: 16px;
+}
+
+.settings-user-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.settings-user-avatar {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.settings-user-meta {
+  min-width: 0;
+}
+
+.settings-user-name {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.settings-user-login {
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.settings-user-fields {
+  margin: 0;
+}
+
+.settings-user-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.settings-user-row + .settings-user-row {
+  margin-top: 8px;
+}
+
+.settings-user-row dt {
+  min-width: 120px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.settings-user-row dd {
+  margin: 0;
+}
+
+.settings-user-row a {
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .settings-user-row {
+    display: block;
+  }
+
+  .settings-user-row dt {
+    margin-bottom: 3px;
+  }
+}
