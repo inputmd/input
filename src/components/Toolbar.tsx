@@ -29,7 +29,7 @@ interface ToolbarProps {
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
-  navigate: (route: string) => void;
+  navigate: (route: string, options?: { replace?: boolean; state?: unknown }) => void;
   onOpenRepoMenu: () => void;
   onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void;
   onSignOut: () => void;
@@ -117,7 +117,15 @@ export function Toolbar({
                         class="repo-menu-item"
                         onSelect={() => {
                           onSelectRepo(repo.full_name, repo.id, repo.private);
-                          navigate(routePath.repoDocuments());
+                          navigate(routePath.repoDocuments(), {
+                            state: {
+                              selectedRepo: {
+                                full_name: repo.full_name,
+                                id: repo.id,
+                                private: repo.private,
+                              },
+                            },
+                          });
                         }}
                       >
                         <span class="repo-menu-item-main">

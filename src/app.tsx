@@ -220,6 +220,27 @@ interface MarkdownRepoSourceContext {
   publicRepoRef?: PublicRepoRef | null;
 }
 
+interface HistorySelectedRepo {
+  full_name: string;
+  id: number;
+  private: boolean;
+}
+
+function historySelectedRepo(state: unknown): HistorySelectedRepo | null {
+  if (!state || typeof state !== 'object') return null;
+  const selectedRepo = (state as { selectedRepo?: unknown }).selectedRepo;
+  if (!selectedRepo || typeof selectedRepo !== 'object') return null;
+  const candidate = selectedRepo as Partial<HistorySelectedRepo>;
+  if (
+    typeof candidate.full_name !== 'string' ||
+    typeof candidate.id !== 'number' ||
+    typeof candidate.private !== 'boolean'
+  ) {
+    return null;
+  }
+  return { full_name: candidate.full_name, id: candidate.id, private: candidate.private };
+}
+
 function extensionFromMimeType(mimeType: string): string {
   const mimeExt: Record<string, string> = {
     'image/png': 'png',
@@ -300,7 +321,7 @@ function viewFromRoute(route: Route): ActiveView {
 }
 
 export function App() {
-  const { route, navigate } = useRoute();
+  const { route, routeState, navigate } = useRoute();
   const { showAlert, showConfirm } = useDialogs();
   const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
 
@@ -361,6 +382,14 @@ export function App() {
     setSelectedRepo(storedRepo?.full_name ?? null);
     setSelectedRepoPrivate(storedRepo?.private ?? null);
   }, []);
+
+  const syncRepoStateFromHistory = useCallback(() => {
+    const selectedRepoState = historySelectedRepo(routeState);
+    if (!selectedRepoState) return;
+    storeSelectedRepo(selectedRepoState);
+    setSelectedRepo(selectedRepoState.full_name);
+    setSelectedRepoPrivate(selectedRepoState.private);
+  }, [routeState]);
 
   const handleSessionExpired = useCallback(() => {
     clearInstallationId();
@@ -961,7 +990,7 @@ export function App() {
             setRepoFiles(mdFiles);
             const indexFile = mdFiles.find((f) => f.relativePath.toLowerCase() === 'index.md');
             const target = indexFile ?? mdFiles[0];
-            navigate(routePath.publicRepoFile(owner, repo, target.path));
+            navigate(routePath.publicRepoFile(owner, repo, target.path), { replace: true });
           } catch (err) {
             showError(err instanceof Error ? err.message : 'Failed to load public repo documents');
           }
@@ -986,6 +1015,7 @@ export function App() {
           return;
         }
         case 'repodocuments': {
+          syncRepoStateFromHistory();
           syncRepoState();
           const instId = getInstallationId();
           const repoName = getSelectedRepo()?.full_name ?? null;
@@ -1002,7 +1032,7 @@ export function App() {
               setRepoFiles(mdFiles);
               const indexFile = mdFiles.find((f) => f.relativePath.toLowerCase() === 'index.md');
               const target = indexFile ?? mdFiles[0];
-              navigate(routePath.repoFile(target.path));
+              navigate(routePath.repoFile(target.path), { replace: true });
               return;
             }
           } catch (err) {
@@ -1017,14 +1047,16 @@ export function App() {
               return;
             }
           }
-          navigate(routePath.repoNew());
+          navigate(routePath.repoNew(), { replace: true });
           return;
         }
         case 'repofile':
+          syncRepoStateFromHistory();
           syncRepoState();
           await loadRepoFile(safeDecodeURIComponent(r.params.path), false);
           return;
         case 'reponew': {
+          syncRepoStateFromHistory();
           syncRepoState();
           const instId = getInstallationId();
           const repoName = getSelectedRepo()?.full_name ?? null;
@@ -1050,6 +1082,7 @@ export function App() {
         }
         case 'repoedit':
           setDraftMode(false);
+          syncRepoStateFromHistory();
           syncRepoState();
           await loadRepoFile(safeDecodeURIComponent(r.params.path), true);
           return;
@@ -1147,6 +1180,7 @@ export function App() {
     },
     [
       navigate,
+      syncRepoStateFromHistory,
       syncRepoState,
       loadRepoFile,
       loadPublicRepoFile,
@@ -1654,7 +1688,15 @@ export function App() {
   const onOpenRepoFromWorkspaces = useCallback(
     (fullName: string, id: number, isPrivate: boolean) => {
       onSelectRepo(fullName, id, isPrivate);
-      navigate(routePath.repoDocuments());
+      navigate(routePath.repoDocuments(), {
+        state: {
+          selectedRepo: {
+            full_name: fullName,
+            id,
+            private: isPrivate,
+          },
+        },
+      });
     },
     [navigate, onSelectRepo],
   );
