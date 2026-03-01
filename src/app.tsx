@@ -1296,6 +1296,14 @@ export function App() {
     else if (currentGistId) navigate(routePath.gistEdit(currentGistId));
   }, [repoAccessMode, currentRepoDocPath, currentGistId, currentFileName, navigate]);
 
+  const onCancel = useCallback(() => {
+    if (currentRepoDocPath) navigate(routePath.repoFile(currentRepoDocPath));
+    else if (currentGistId && currentFileName) navigate(routePath.gistView(currentGistId, currentFileName));
+    else if (currentGistId) navigate(routePath.gistView(currentGistId));
+    else if (selectedRepo) navigate(routePath.repoDocuments());
+    else navigate(routePath.workspaces());
+  }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
+
   const onSharePublicLink = useCallback(async () => {
     if (
       repoAccessMode !== 'installed' ||
@@ -1938,6 +1946,7 @@ export function App() {
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
   const showLoggedOutNewDocPreviewDescription =
     route.name === 'new' && activeView === 'edit' && !user && editContent.trim().length === 0;
+  const showEditorCancel = activeView === 'edit' && !draftMode && repoAccessMode !== 'public';
   const showEditorSave = activeView === 'edit' && !(draftMode && !user) && repoAccessMode !== 'public';
   const editPreviewHtml = useMemo(
     () =>
@@ -2021,6 +2030,8 @@ export function App() {
         showPreviewToggle={activeView === 'edit' && editPreviewEnabled}
         previewVisible={previewVisible}
         onTogglePreview={onTogglePreview}
+        showCancel={showEditorCancel}
+        onCancel={onCancel}
         showSave={showEditorSave}
         saving={saving}
         canSave={hasUnsavedChanges}
