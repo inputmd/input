@@ -77,6 +77,21 @@ export function Toolbar({
   return (
     <header class="toolbar">
       <div class="toolbar-left">
+        {showSidebarToggle ? (
+          <button
+            type="button"
+            class="document-menu-trigger"
+            onClick={onToggleSidebar}
+            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+          >
+            {sidebarVisible ? (
+              <PanelLeftClose size={20} aria-hidden="true" />
+            ) : (
+              <PanelLeftOpen size={20} aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
         {showGitHubApp && (
           <DropdownMenu.Root
             onOpenChange={(open: boolean) => {
@@ -169,21 +184,6 @@ export function Toolbar({
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
         )}
-        {showSidebarToggle ? (
-          <button
-            type="button"
-            class="document-menu-trigger"
-            onClick={onToggleSidebar}
-            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-          >
-            {sidebarVisible ? (
-              <PanelLeftClose size={20} aria-hidden="true" />
-            ) : (
-              <PanelLeftOpen size={20} aria-hidden="true" />
-            )}
-          </button>
-        ) : null}
       </div>
       <div class="toolbar-right">
         <div class="action-buttons">
