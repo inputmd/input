@@ -349,25 +349,10 @@ export function App() {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(min-width: 1024px)').matches;
   });
-  const previousActiveViewRef = useRef<ActiveView | null>(null);
 
   // Track initialization
   const initialized = useRef(false);
   const activeView = viewPhase ?? viewFromRoute(route);
-
-  useEffect(() => {
-    const previousActiveView = previousActiveViewRef.current;
-    const enteringDocumentView =
-      (activeView === 'content' || activeView === 'edit') &&
-      !(previousActiveView === 'content' || previousActiveView === 'edit');
-    const hasExistingWorkspace = currentGistId !== null || currentRepoDocPath !== null;
-
-    if (enteringDocumentView && hasExistingWorkspace) {
-      setSidebarVisibilityOverride(null);
-    }
-
-    previousActiveViewRef.current = activeView;
-  }, [activeView, currentGistId, currentRepoDocPath]);
 
   // --- Helpers ---
   const syncRepoState = useCallback(() => {
@@ -930,6 +915,17 @@ export function App() {
   const handleRoute = useCallback(
     async (r: Route, authenticatedOverride?: boolean) => {
       const isAuthenticated = authenticatedOverride ?? Boolean(user);
+      const enteringDocumentRoute =
+        r.name === 'repofile' ||
+        r.name === 'repoedit' ||
+        r.name === 'edit' ||
+        r.name === 'gist' ||
+        r.name === 'publicrepofile';
+      if (enteringDocumentRoute && activeView !== 'content' && activeView !== 'edit') {
+        // Reentering an existing repo/gist should reset manual sidebar overrides.
+        setSidebarVisibilityOverride(null);
+      }
+
       switch (r.name) {
         case 'login':
           if (isAuthenticated) {
@@ -1892,8 +1888,7 @@ export function App() {
   }, [gistFiles, currentFileName, repoFiles, currentRepoDocPath]);
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
-  const canToggleSidebar = sidebarEligible && sidebarFiles.length > 0 && currentFileName !== null;
-  const sidebarDisabled = (activeView === 'edit' && draftMode) || !canToggleSidebar;
+  const sidebarDisabled = activeView === 'edit' && draftMode;
   const defaultShowSidebar = !sidebarDisabled && (!!user || repoAccessMode === 'public');
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
   const editingFileName = currentFileName ?? editTitle;
