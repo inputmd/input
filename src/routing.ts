@@ -4,7 +4,6 @@ export type Route =
   | { name: 'workspaces'; params: Record<string, never> }
   | { name: 'publicrepodocuments'; params: { owner: string; repo: string } }
   | { name: 'publicrepofile'; params: { owner: string; repo: string; path: string } }
-  | { name: 'publicrepofilelegacy'; params: { owner: string; repo: string; path: string } }
   | { name: 'repodocuments'; params: Record<string, never> }
   | { name: 'repofile'; params: { path: string } }
   | { name: 'reponew'; params: Record<string, never> }
@@ -20,6 +19,8 @@ interface RouteDef {
   build: (match: RegExpMatchArray) => Route;
 }
 
+const GIST_ID_PATTERN = '[a-f0-9]{8,}';
+
 const ROUTE_TABLE: RouteDef[] = [
   { pattern: /^login$/, build: () => ({ name: 'login', params: {} }) },
   { pattern: /^workspaces$/, build: () => ({ name: 'workspaces', params: {} }) },
@@ -27,24 +28,26 @@ const ROUTE_TABLE: RouteDef[] = [
     pattern: /^publicrepo\/([^/]+)\/([^/]+)$/,
     build: (m) => ({ name: 'publicrepodocuments', params: { owner: m[1], repo: m[2] } }),
   },
-  {
-    pattern: /^public\/([^/]+)\/([^/]+)\/(.+)$/,
-    build: (m) => ({ name: 'publicrepofile', params: { owner: m[1], repo: m[2], path: m[3] } }),
-  },
-  {
-    pattern: /^publicfile\/([^/]+)\/([^/]+)\/(.+)$/,
-    build: (m) => ({ name: 'publicrepofilelegacy', params: { owner: m[1], repo: m[2], path: m[3] } }),
-  },
   { pattern: /^repodocuments$/, build: () => ({ name: 'repodocuments', params: {} }) },
   { pattern: /^repofile\/(.+)$/, build: (m) => ({ name: 'repofile', params: { path: m[1] } }) },
   { pattern: /^reponew$/, build: () => ({ name: 'reponew', params: {} }) },
   { pattern: /^repoedit\/(.+)$/, build: (m) => ({ name: 'repoedit', params: { path: m[1] } }) },
   { pattern: /^new$/, build: () => ({ name: 'new', params: {} }) },
-  { pattern: /^edit\/([^/]+)\/(.+)$/, build: (m) => ({ name: 'edit', params: { id: m[1], filename: m[2] } }) },
-  { pattern: /^gist\/([^/]+)\/(.+)$/, build: (m) => ({ name: 'gist', params: { id: m[1], filename: m[2] } }) },
-  { pattern: /^edit\/([^/]+)$/, build: (m) => ({ name: 'edit', params: { id: m[1] } }) },
-  { pattern: /^gist\/([^/]+)$/, build: (m) => ({ name: 'gist', params: { id: m[1] } }) },
-  { pattern: /^([a-f0-9]+)$/i, build: (m) => ({ name: 'gist', params: { id: m[1] } }) },
+  {
+    pattern: new RegExp(`^edit\\/(${GIST_ID_PATTERN})\\/(.+)$`, 'i'),
+    build: (m) => ({ name: 'edit', params: { id: m[1], filename: m[2] } }),
+  },
+  {
+    pattern: new RegExp(`^gist\\/(${GIST_ID_PATTERN})\\/(.+)$`, 'i'),
+    build: (m) => ({ name: 'gist', params: { id: m[1], filename: m[2] } }),
+  },
+  { pattern: new RegExp(`^edit\\/(${GIST_ID_PATTERN})$`, 'i'), build: (m) => ({ name: 'edit', params: { id: m[1] } }) },
+  { pattern: new RegExp(`^gist\\/(${GIST_ID_PATTERN})$`, 'i'), build: (m) => ({ name: 'gist', params: { id: m[1] } }) },
+  { pattern: new RegExp(`^(${GIST_ID_PATTERN})$`, 'i'), build: (m) => ({ name: 'gist', params: { id: m[1] } }) },
+  {
+    pattern: /^([^/]+)\/([^/]+)\/(.+)$/,
+    build: (m) => ({ name: 'publicrepofile', params: { owner: m[1], repo: m[2], path: m[3] } }),
+  },
 ];
 
 export const routePath = {
@@ -53,7 +56,7 @@ export const routePath = {
   workspaces: () => 'workspaces',
   publicRepoDocuments: (owner: string, repo: string) => `publicrepo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
   publicRepoFile: (owner: string, repo: string, path: string) =>
-    `public/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+    `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
   repoDocuments: () => 'repodocuments',
   repoFile: (path: string) => `repofile/${encodeURIComponent(path)}`,
   repoNew: () => 'reponew',

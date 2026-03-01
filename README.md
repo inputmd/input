@@ -13,8 +13,7 @@ Multi-file markdown documents, backed by Gists & repos.
     create, edit, and delete your gists as documents. Each gist holds
     one or more `.md` files.
 - **Connect to repos** — Connects to your GitHub repos as an installed
-    application, to read/write Markdown files under
-    `.input/documents/`.
+    application, to read/write Markdown files from the repo root.
 
 ## Prerequisites
 

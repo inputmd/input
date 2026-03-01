@@ -406,10 +406,20 @@ async function handleGetContents(ctx: RouteContext): Promise<void> {
 
   const pathParam = ctx.url.searchParams.get('path') ?? '';
   const ref = ctx.url.searchParams.get('ref');
-  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+  const encodedPath = encodePathPreserveSlashes(pathParam);
+  const ghPath = encodedPath
+    ? `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`
+    : `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`;
   const ghUrl = ref ? `${ghPath}?ref=${encodeURIComponent(ref)}` : ghPath;
   const ghRes = await githubFetchWithInstallationToken(installationId, ghUrl);
-  json(ctx.res, 200, await ghRes.json());
+  const data = (await ghRes.json().catch(() => null)) as unknown;
+  if (!ghRes.ok) {
+    const err = data as GitHubApiError | null;
+    if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
+    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
+    return;
+  }
+  json(ctx.res, 200, data);
 }
 
 async function handlePutContents(ctx: RouteContext): Promise<void> {
@@ -483,7 +493,10 @@ async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
   const repo = decodeURIComponent(ctx.match[2]);
   const pathParam = ctx.url.searchParams.get('path') ?? '';
   const ref = ctx.url.searchParams.get('ref');
-  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+  const encodedPath = encodePathPreserveSlashes(pathParam);
+  const ghPath = encodedPath
+    ? `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`
+    : `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`;
   const ghUrl = ref ? `${ghPath}?ref=${encodeURIComponent(ref)}` : ghPath;
   const ghRes = await fetchPublicGitHub(ghUrl);
   const data = (await ghRes.json().catch(() => null)) as GitHubApiError | unknown;

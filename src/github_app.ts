@@ -5,7 +5,7 @@ const INSTALL_STATE_KEY = 'github_app_install_state';
 const INSTALL_STATES_FALLBACK_KEY = 'github_app_install_states';
 const INSTALL_STATE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_REPO_CONTENTS_CACHE_TTL_MS = 120_000;
-const REPO_CONTENTS_CACHE_KEY_PREFIX = 'input_cache_v1:repo_contents:';
+const REPO_CONTENTS_CACHE_KEY_PREFIX = 'input_cache_v2:repo_contents:';
 const REPO_CONTENTS_CACHE_CHANNEL = 'input_cache_sync_v1';
 
 interface CacheEntry<T> {

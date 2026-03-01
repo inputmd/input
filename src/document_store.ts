@@ -4,7 +4,6 @@ import { encodeUtf8ToBase64 } from './util';
 
 export interface RepoDocFile {
   name: string;
-  relativePath: string;
   path: string;
   sha: string;
 }
@@ -18,9 +17,9 @@ export interface GistStore {
 
 export interface RepoStore {
   kind: 'repo';
-  createFile: (relativePath: string) => Promise<PutFileResult>;
+  createFile: (path: string) => Promise<PutFileResult>;
   deleteFile: (file: RepoDocFile) => Promise<void>;
-  renameFile: (file: RepoDocFile, newRelativePath: string) => Promise<PutFileResult>;
+  renameFile: (file: RepoDocFile, newPath: string) => Promise<PutFileResult>;
 }
 
 export type DocumentStore = GistStore | RepoStore;
@@ -40,25 +39,25 @@ export function createGistDocumentStore(gistId: string): GistStore {
   };
 }
 
-export function createRepoDocumentStore(installationId: string, repoFullName: string, docsDir: string): RepoStore {
+export function createRepoDocumentStore(installationId: string, repoFullName: string): RepoStore {
   return {
     kind: 'repo',
-    createFile(relativePath: string) {
-      const path = toRepoDocPath(docsDir, relativePath);
-      return putRepoFile(installationId, repoFullName, path, `Create ${relativePath}`, encodeUtf8ToBase64(''));
+    createFile(path: string) {
+      const normalized = normalizeRelativePath(path);
+      return putRepoFile(installationId, repoFullName, normalized, `Create ${path}`, encodeUtf8ToBase64(''));
     },
     deleteFile(file: RepoDocFile) {
       return deleteRepoFile(installationId, repoFullName, file.path, `Delete ${file.name}`, file.sha);
     },
-    async renameFile(file: RepoDocFile, newRelativePath: string) {
+    async renameFile(file: RepoDocFile, newPath: string) {
       const contents = await getRepoContents(installationId, repoFullName, file.path);
       if (!isRepoFile(contents)) throw new Error('Expected a file');
-      const newPath = toRepoDocPath(docsDir, newRelativePath);
+      const normalizedNewPath = normalizeRelativePath(newPath);
       const created = await putRepoFile(
         installationId,
         repoFullName,
-        newPath,
-        `Rename ${file.relativePath} to ${newRelativePath}`,
+        normalizedNewPath,
+        `Rename ${file.path} to ${newPath}`,
         contents.content ?? '',
       );
       await deleteRepoFile(installationId, repoFullName, file.path, `Delete ${file.name} (renamed)`, file.sha);
@@ -67,8 +66,8 @@ export function createRepoDocumentStore(installationId: string, repoFullName: st
   };
 }
 
-export function findRepoDocFile(files: RepoDocFile[], relativePath: string): RepoDocFile | undefined {
-  return files.find((file) => file.relativePath === relativePath);
+export function findRepoDocFile(files: RepoDocFile[], path: string): RepoDocFile | undefined {
+  return files.find((file) => file.path === path);
 }
 
 function normalizeRelativePath(relativePath: string): string {
@@ -78,13 +77,4 @@ function normalizeRelativePath(relativePath: string): string {
     throw new Error('Invalid file path');
   }
   return parts.join('/');
-}
-
-export function toRepoDocPath(docsDir: string, relativePath: string): string {
-  return `${docsDir}/${normalizeRelativePath(relativePath)}`;
-}
-
-export function repoDocRelativePath(docsDir: string, path: string): string | null {
-  if (!path.startsWith(`${docsDir}/`)) return null;
-  return path.slice(docsDir.length + 1);
 }
