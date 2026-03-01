@@ -53,6 +53,7 @@ export function Sidebar({
   const renameInputRef = useRef<HTMLInputElement>(null);
   const createInFlightRef = useRef(false);
   const renameInFlightRef = useRef(false);
+  const cancelRenameOnBlurRef = useRef(false);
 
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
@@ -81,6 +82,7 @@ export function Sidebar({
 
   const handleRenameSubmit = async () => {
     if (!renamingFile || renameInFlightRef.current) return;
+    cancelRenameOnBlurRef.current = false;
     renameInFlightRef.current = true;
     const oldPath = renamingFile;
     const newPath = sanitizePathInput(renameValue);
@@ -96,6 +98,7 @@ export function Sidebar({
   };
 
   const startRename = (path: string) => {
+    cancelRenameOnBlurRef.current = false;
     setRenamingFile(path);
     setRenameValue(path);
   };
@@ -164,11 +167,19 @@ export function Sidebar({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') void handleRenameSubmit();
                     if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelRenameOnBlurRef.current = true;
                       setRenamingFile(null);
                       setRenameValue('');
                     }
                   }}
-                  onBlur={() => void handleRenameSubmit()}
+                  onBlur={() => {
+                    if (cancelRenameOnBlurRef.current) {
+                      cancelRenameOnBlurRef.current = false;
+                      return;
+                    }
+                    void handleRenameSubmit();
+                  }}
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
