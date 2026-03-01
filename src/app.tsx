@@ -352,10 +352,25 @@ export function App() {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(min-width: 1024px)').matches;
   });
+  const previousActiveViewRef = useRef<ActiveView | null>(null);
 
   // Track initialization
   const initialized = useRef(false);
   const activeView = viewPhase ?? viewFromRoute(route);
+
+  useEffect(() => {
+    const previousActiveView = previousActiveViewRef.current;
+    const enteringDocumentView =
+      (activeView === 'content' || activeView === 'edit') &&
+      !(previousActiveView === 'content' || previousActiveView === 'edit');
+    const hasExistingWorkspace = currentGistId !== null || currentRepoDocPath !== null;
+
+    if (enteringDocumentView && hasExistingWorkspace) {
+      setSidebarVisibilityOverride(null);
+    }
+
+    previousActiveViewRef.current = activeView;
+  }, [activeView, currentGistId, currentRepoDocPath]);
 
   // --- Helpers ---
   const syncRepoState = useCallback(() => {
