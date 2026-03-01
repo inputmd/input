@@ -32,9 +32,12 @@ import {
   clearPendingInstallationId,
   clearSelectedRepo,
   consumeInstallState,
+  createInstallState,
   createSession,
   disconnectInstallation,
   getInstallationId,
+  getInstallUrl,
+  hasInstallState,
   getPendingInstallationId,
   getPublicRepoContents,
   getRepoContents,
@@ -45,6 +48,7 @@ import {
   publicRepoRawFileUrl,
   putRepoFile,
   repoRawFileUrl,
+  rememberInstallState,
   SessionExpiredError,
   setInstallationId,
   setPendingInstallationId,
@@ -280,8 +284,8 @@ async function maybeResizePastedImage(file: File): Promise<{ bytes: Uint8Array; 
 
 function viewFromRoute(route: Route): ActiveView {
   switch (route.name) {
-    case 'auth':
-      return 'auth';
+    case 'login':
+      return 'login';
     case 'documents':
       return 'documents';
     case 'settings':
@@ -364,7 +368,7 @@ export function App() {
     setSelectedRepoPrivate(null);
     setRepoAccessMode(null);
     setPublicRepoRef(null);
-    navigate(routePath.auth());
+    navigate(routePath.login());
   }, [navigate]);
 
   const showError = useCallback((msg: string) => {
@@ -522,7 +526,7 @@ export function App() {
           setInstallationId(pendingInstallationId);
           setInstId(pendingInstallationId);
           clearPendingInstallationId();
-          if (route.name === 'auth') {
+          if (route.name === 'login') {
             setSettingsNotice('GitHub App installation connected. Review your installation details below.');
             navigate(routePath.settings());
             return { authenticated: true, navigated: true };
@@ -541,7 +545,7 @@ export function App() {
         setInstId(null);
       }
       // Navigate away from auth page after successful session restore.
-      if (route.name === 'auth') {
+      if (route.name === 'login') {
         if (session.installationId) {
           setSettingsNotice('Signed in with an active GitHub App installation. Review your installation details below.');
         }
@@ -562,7 +566,7 @@ export function App() {
     if (!id) return false;
 
     const actualState = params.get('state');
-    if (!consumeInstallState(actualState)) {
+    if (!hasInstallState(actualState)) {
       showError('GitHub App install state mismatch. Please try again.');
       return true;
     }
@@ -573,7 +577,7 @@ export function App() {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
-        navigate(routePath.auth());
+        navigate(routePath.login());
         return true;
       }
       await createSession(id);
@@ -582,13 +586,14 @@ export function App() {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
-        navigate(routePath.auth());
+        navigate(routePath.login());
         return true;
       }
       showError(err instanceof Error ? err.message : 'Failed to create session');
       return true;
     }
 
+    consumeInstallState(actualState);
     setInstallationId(id);
     setInstId(id);
     setSettingsNotice('GitHub App installation setup complete. Review your installation details below.');
@@ -599,6 +604,17 @@ export function App() {
     navigate(routePath.settings());
     return true;
   }, [navigate, showError]);
+
+  const onConnectInstallation = useCallback(async () => {
+    try {
+      const state = createInstallState();
+      rememberInstallState(state);
+      const url = await getInstallUrl(state);
+      window.location.assign(url);
+    } catch (err) {
+      void showAlert(err instanceof Error ? err.message : 'Failed to start GitHub App install');
+    }
+  }, [showAlert]);
 
   // --- Helpers ---
   const loadRepoMarkdownFiles = useCallback(async (instId: string, repoName: string): Promise<RepoDocFile[]> => {
@@ -896,12 +912,16 @@ export function App() {
     async (r: Route, authenticatedOverride?: boolean) => {
       const isAuthenticated = authenticatedOverride ?? Boolean(user);
       switch (r.name) {
-        case 'auth':
+        case 'login':
+          if (isAuthenticated) {
+            navigate(routePath.settings(), { replace: true });
+            return;
+          }
           setViewPhase(null);
           return;
         case 'settings':
           if (!isAuthenticated) {
-            navigate(routePath.auth());
+            navigate(routePath.login());
             return;
           }
           setRepoAccessMode(null);
@@ -1020,7 +1040,7 @@ export function App() {
           return;
         case 'documents':
           if (!isAuthenticated) {
-            navigate(routePath.auth());
+            navigate(routePath.login());
             return;
           }
           setRepoAccessMode(null);
@@ -1054,7 +1074,7 @@ export function App() {
           return;
         case 'edit': {
           if (!isAuthenticated) {
-            navigate(routePath.auth(), { replace: true });
+            navigate(routePath.login(), { replace: true });
             return;
           }
           setDraftMode(false);
@@ -1669,15 +1689,15 @@ export function App() {
       setInstId(null);
       setSelectedRepo(null);
       setSelectedRepoPrivate(null);
-      navigate(routePath.auth());
+      navigate(routePath.login());
     }
   }, [navigate]);
 
   // --- Render active view ---
   const renderView = () => {
     switch (activeView) {
-      case 'auth':
-        return <AuthView isAuthenticated={Boolean(user)} />;
+      case 'login':
+        return <AuthView />;
       case 'documents':
         return <DocumentsView navigate={navigate} userLogin={user?.login ?? null} />;
       case 'settings':
@@ -1688,13 +1708,13 @@ export function App() {
             availableRepos={installationRepos}
             repoListLoading={installationReposLoading}
             onLoadRepos={onOpenRepoMenu}
-            onConnect={() => navigate(routePath.auth())}
+            onConnect={onConnectInstallation}
             onDisconnect={onDisconnect}
             notice={settingsNotice}
             onDismissNotice={() => setSettingsNotice(null)}
           />
         ) : (
-          <AuthView isAuthenticated={false} />
+          <AuthView />
         );
       case 'content':
         return (

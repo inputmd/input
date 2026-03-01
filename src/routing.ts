@@ -1,6 +1,6 @@
 export type Route =
   | { name: 'home'; params: Record<string, never> }
-  | { name: 'auth'; params: Record<string, never> }
+  | { name: 'login'; params: Record<string, never> }
   | { name: 'settings'; params: Record<string, never> }
   | { name: 'publicrepodocuments'; params: { owner: string; repo: string } }
   | { name: 'publicrepofile'; params: { owner: string; repo: string; path: string } }
@@ -22,7 +22,7 @@ interface RouteDef {
 }
 
 const ROUTE_TABLE: RouteDef[] = [
-  { pattern: /^auth$/, build: () => ({ name: 'auth', params: {} }) },
+  { pattern: /^login$/, build: () => ({ name: 'login', params: {} }) },
   { pattern: /^settings$/, build: () => ({ name: 'settings', params: {} }) },
   {
     pattern: /^publicrepo\/([^/]+)\/([^/]+)$/,
@@ -51,7 +51,7 @@ const ROUTE_TABLE: RouteDef[] = [
 
 export const routePath = {
   home: () => '',
-  auth: () => 'auth',
+  login: () => 'login',
   settings: () => 'settings',
   publicRepoDocuments: (owner: string, repo: string) => `publicrepo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
   publicRepoFile: (owner: string, repo: string, path: string) =>

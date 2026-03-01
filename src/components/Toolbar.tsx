@@ -5,7 +5,7 @@ import type { GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
 
-export type ActiveView = 'auth' | 'documents' | 'settings' | 'loading' | 'error' | 'content' | 'edit';
+export type ActiveView = 'login' | 'documents' | 'settings' | 'loading' | 'error' | 'content' | 'edit';
 
 interface ToolbarProps {
   view: ActiveView;
@@ -151,7 +151,7 @@ export function Toolbar({
                   })
                 )}
                 <DropdownMenu.Separator class="user-menu-separator" />
-                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.auth())}>
+                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.settings())}>
                   Connect a repo
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
@@ -193,7 +193,7 @@ export function Toolbar({
             </button>
           )}
           {showSignInToSave && (
-            <button type="button" onClick={() => navigate(routePath.auth())}>
+            <button type="button" onClick={() => navigate(routePath.login())}>
               Sign in
             </button>
           )}
@@ -236,8 +236,8 @@ export function Toolbar({
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           </Tooltip.Provider>
-        ) : !showSignInToSave && view !== 'auth' ? (
-          <button type="button" onClick={() => navigate(routePath.auth())}>
+        ) : !showSignInToSave && view !== 'login' ? (
+          <button type="button" onClick={() => navigate(routePath.login())}>
             Sign In
           </button>
         ) : null}

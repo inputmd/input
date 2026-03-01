@@ -164,6 +164,16 @@ export function rememberInstallState(state: string): void {
   writeStoredInstallStates(next);
 }
 
+export function hasInstallState(actualState: string | null): boolean {
+  if (!actualState) return false;
+  const expectedState = sessionStorage.getItem(INSTALL_STATE_KEY);
+  if (expectedState && expectedState === actualState) return true;
+
+  const next = pruneExpiredInstallStates(readStoredInstallStates());
+  writeStoredInstallStates(next);
+  return typeof next[actualState] === 'number';
+}
+
 export function consumeInstallState(actualState: string | null): boolean {
   const expectedState = sessionStorage.getItem(INSTALL_STATE_KEY);
   sessionStorage.removeItem(INSTALL_STATE_KEY);
