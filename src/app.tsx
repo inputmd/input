@@ -1679,6 +1679,9 @@ export function App() {
   }, [user, installationId, installationReposLoading, loadedReposInstallationId, handleSessionExpired]);
 
   const onDisconnect = useCallback(async () => {
+    const confirmed = await showConfirm('Disconnect GitHub repos for this session?');
+    if (!confirmed) return;
+
     try {
       await disconnectInstallation();
     } catch {
@@ -1691,7 +1694,7 @@ export function App() {
       setSelectedRepoPrivate(null);
       navigate(routePath.login());
     }
-  }, [navigate]);
+  }, [navigate, showConfirm]);
 
   // --- Render active view ---
   const renderView = () => {

@@ -1,4 +1,5 @@
 import { useEffect } from 'preact/hooks';
+import { Edit } from 'lucide-react';
 import type { GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 
@@ -42,53 +43,37 @@ export function SettingsView({
       <h1>Settings</h1>
       <div class="settings-panel">
         <div class="settings-user-header">
-          <img class="settings-user-avatar" src={user.avatar_url} alt="" width={72} height={72} />
+          <a
+            class="settings-user-avatar-link"
+            href="https://github.com/settings/profile"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Change avatar on GitHub"
+          >
+            <img class="settings-user-avatar" src={user.avatar_url} alt="" width={72} height={72} />
+            <span class="settings-user-avatar-overlay" aria-hidden="true">
+              <Edit size={14} />
+            </span>
+          </a>
           <div class="settings-user-meta">
             <div class="settings-user-name">{user.name ?? 'No display name'}</div>
             <div class="settings-user-login">@{user.login}</div>
           </div>
         </div>
-        <dl class="settings-user-fields">
-          <div class="settings-user-row">
-            <dt>GitHub profile</dt>
-            <dd>
-              <a href={`https://github.com/${user.login}`} target="_blank" rel="noopener noreferrer">
-                github.com/{user.login}
-              </a>
-            </dd>
-          </div>
-          <div class="settings-user-row">
-            <dt>Avatar</dt>
-            <dd>
-              <a href="https://github.com/settings/profile" target="_blank" rel="noopener noreferrer">
-                Change avatar on GitHub
-              </a>
-            </dd>
-          </div>
-        </dl>
       </div>
       <div class="settings-panel">
-        <h2 class="settings-panel-title">GitHub App Status</h2>
-        <dl class="settings-user-fields">
-          <div class="settings-user-row">
-            <dt>Installation ID</dt>
-            <dd>{installationId ?? 'Not connected'}</dd>
+        <div class="settings-panel-header">
+          <h2 class="settings-panel-title">Connected GitHub repos</h2>
+          <div class="settings-actions">
+            <button type="button" class="settings-connect-btn" onClick={() => void onConnect()}>
+              Connect
+            </button>
+            <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
+              Disconnect
+            </button>
           </div>
-        </dl>
-        <div class="settings-actions">
-          <button type="button" class="settings-connect-btn" onClick={() => void onConnect()}>
-            Connect
-          </button>
-          <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
-            Disconnect
-          </button>
         </div>
         <table class="settings-repo-table">
-          <thead>
-            <tr>
-              <th>Accessible repositories</th>
-            </tr>
-          </thead>
           <tbody>
             {repoListLoading ? (
               <tr>
