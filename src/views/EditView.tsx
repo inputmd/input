@@ -33,10 +33,6 @@ export function EditView({
   const [splitPercent, setSplitPercent] = useState(52);
 
   useEffect(() => {
-    editorRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
