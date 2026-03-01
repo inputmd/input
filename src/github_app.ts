@@ -350,6 +350,11 @@ function clearRepoContentsCacheForRepo(installationId: string, repoFullName: str
   }
   removeStoredRepoContentsByPrefix(keyPrefix);
   repoContentsCacheChannel?.postMessage({ type: 'repo-prefix-cleared', cacheKeyPrefix: keyPrefix });
+
+  const treeKeyPrefix = `tree|${installationId}|${repoFullName}|`;
+  for (const key of repoTreeCache.keys()) {
+    if (key.startsWith(treeKeyPrefix)) repoTreeCache.delete(key);
+  }
 }
 
 export function setRepoContentsCacheTtlMs(ttlMs: number): void {
@@ -447,6 +452,71 @@ export async function getPublicRepoContents(owner: string, repo: string, path: s
   const res = await publicFetch(`/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`);
   const data = (await res.json()) as RepoContents;
   setCachedRepoContents(cacheKey, data);
+  return data;
+}
+
+export interface RepoTreeResult {
+  files: Array<{ name: string; path: string; sha: string }>;
+  truncated: boolean;
+}
+
+const repoTreeCache = new Map<string, CacheEntry<RepoTreeResult>>();
+
+function repoTreeCacheKey(identity: string, repoFullName: string, ref?: string): string {
+  return `tree|${identity}|${repoFullName}|${ref ?? ''}`;
+}
+
+function getCachedRepoTree(key: string): RepoTreeResult | null {
+  const cached = repoTreeCache.get(key);
+  if (!cached) return null;
+  if (Date.now() > cached.expiresAt) {
+    repoTreeCache.delete(key);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedRepoTree(key: string, value: RepoTreeResult): void {
+  repoTreeCache.set(key, { value, expiresAt: Date.now() + repoContentsCacheTtlMs });
+}
+
+export async function getRepoTree(
+  installationId: string,
+  repoFullName: string,
+  ref?: string,
+): Promise<RepoTreeResult> {
+  const key = repoTreeCacheKey(installationId, repoFullName, ref);
+  const cached = getCachedRepoTree(key);
+  if (cached) return cached;
+
+  const { owner, repo } = splitFullName(repoFullName);
+  const qs = new URLSearchParams();
+  if (ref) qs.set('ref', ref);
+  const qsStr = qs.toString();
+  const url = `${installationUrl(installationId, 'repos', owner, repo)}/tree${qsStr ? `?${qsStr}` : ''}`;
+  const res = await authFetch(url);
+  const data = (await res.json()) as RepoTreeResult;
+  setCachedRepoTree(key, data);
+  return data;
+}
+
+export async function getPublicRepoTree(
+  owner: string,
+  repo: string,
+  ref?: string,
+): Promise<RepoTreeResult> {
+  const identity = publicRepoContentsCacheIdentity(owner, repo);
+  const key = repoTreeCacheKey(identity, `${owner}/${repo}`, ref);
+  const cached = getCachedRepoTree(key);
+  if (cached) return cached;
+
+  const qs = new URLSearchParams();
+  if (ref) qs.set('ref', ref);
+  const qsStr = qs.toString();
+  const url = `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tree${qsStr ? `?${qsStr}` : ''}`;
+  const res = await publicFetch(url);
+  const data = (await res.json()) as RepoTreeResult;
+  setCachedRepoTree(key, data);
   return data;
 }
 

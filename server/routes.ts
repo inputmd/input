@@ -131,10 +131,6 @@ async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<
   });
 }
 
-async function handleHealth(ctx: RouteContext): Promise<void> {
-  json(ctx.res, 200, { ok: true });
-}
-
 async function handleAuthStart(ctx: RouteContext): Promise<void> {
   if (!checkRateLimit(ctx.req, ctx.res)) return;
   if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
@@ -541,6 +537,54 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
   ctx.res.end(body);
 }
 
+type GitTreeEntry = { path: string; type: string; sha: string };
+
+function mdFilesFromTree(tree: GitTreeEntry[]): { name: string; path: string; sha: string }[] {
+  const files: { name: string; path: string; sha: string }[] = [];
+  for (const entry of tree) {
+    if (entry.type !== 'blob' || !entry.path.toLowerCase().endsWith('.md')) continue;
+    const slash = entry.path.lastIndexOf('/');
+    files.push({ name: slash === -1 ? entry.path : entry.path.slice(slash + 1), path: entry.path, sha: entry.sha });
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  return files;
+}
+
+async function handleGetTree(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  const session = requireAuthSession(ctx);
+  const installationId = requireMatchedInstallation(ctx, session, 1);
+  const owner = ctx.match[2];
+  const repo = ctx.match[3];
+  const ref = ctx.url.searchParams.get('ref') || 'HEAD';
+
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
+  const data = (await ghRes.json()) as { tree: GitTreeEntry[]; truncated: boolean };
+  json(ctx.res, 200, { files: mdFilesFromTree(data.tree), truncated: data.truncated });
+}
+
+async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  const owner = decodeURIComponent(ctx.match[1]);
+  const repo = decodeURIComponent(ctx.match[2]);
+  const ref = ctx.url.searchParams.get('ref') || 'HEAD';
+
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+  const ghRes = await fetchPublicGitHub(ghPath);
+  const data = (await ghRes.json().catch(() => null)) as {
+    tree?: GitTreeEntry[];
+    truncated?: boolean;
+    message?: string;
+  } | null;
+  if (!ghRes.ok) {
+    const err = data as GitHubApiError | null;
+    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
+    return;
+  }
+  json(ctx.res, 200, { files: mdFilesFromTree(data?.tree ?? []), truncated: data?.truncated ?? false });
+}
+
 async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
   if (!checkRateLimit(ctx.req, ctx.res)) return;
   const gistId = ctx.match[1];
@@ -604,11 +648,12 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
 
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const RAW_CONTENT_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/raw$/;
+const TREE_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tree$/;
 const PUBLIC_REPO_CONTENTS_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const PUBLIC_REPO_RAW_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/raw$/;
+const PUBLIC_REPO_TREE_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tree$/;
 
 const routes: RouteDef[] = [
-  { method: 'GET', pattern: /^\/api\/github-app\/health$/, handler: handleHealth },
   { method: 'GET', pattern: /^\/api\/auth\/github\/start$/, handler: handleAuthStart },
   { method: 'GET', pattern: /^\/api\/auth\/github\/callback$/, handler: handleAuthCallback },
   { method: 'GET', pattern: /^\/api\/auth\/session$/, handler: handleAuthSession },
@@ -627,8 +672,10 @@ const routes: RouteDef[] = [
   { method: 'PUT', pattern: CONTENTS_PATTERN, handler: handlePutContents },
   { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
   { method: 'GET', pattern: RAW_CONTENT_PATTERN, handler: handleGetRawContent },
+  { method: 'GET', pattern: TREE_PATTERN, handler: handleGetTree },
   { method: 'GET', pattern: PUBLIC_REPO_CONTENTS_PATTERN, handler: handleGetPublicRepoContents },
   { method: 'GET', pattern: PUBLIC_REPO_RAW_PATTERN, handler: handleGetPublicRepoRaw },
+  { method: 'GET', pattern: PUBLIC_REPO_TREE_PATTERN, handler: handleGetPublicTree },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
 ];
 

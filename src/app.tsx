@@ -39,7 +39,9 @@ import {
   hasInstallState,
   getPendingInstallationId,
   getPublicRepoContents,
+  getPublicRepoTree,
   getRepoContents,
+  getRepoTree,
   getSelectedRepo,
   type InstallationRepo,
   isRepoFile,
@@ -655,59 +657,13 @@ export function App() {
 
   // --- Helpers ---
   const loadRepoMarkdownFiles = useCallback(async (instId: string, repoName: string): Promise<RepoDocFile[]> => {
-    const queue = [''];
-    const files: RepoDocFile[] = [];
-
-    while (queue.length > 0) {
-      const dirPath = queue.shift();
-      if (dirPath == null) break;
-      const contents = await getRepoContents(instId, repoName, dirPath);
-      if (!Array.isArray(contents)) continue;
-
-      for (const item of contents) {
-        if (item.type === 'dir') {
-          queue.push(item.path);
-          continue;
-        }
-        if (item.type !== 'file' || !item.name.toLowerCase().endsWith('.md')) continue;
-        files.push({
-          name: item.name,
-          path: item.path,
-          sha: item.sha,
-        });
-      }
-    }
-
-    files.sort((a, b) => a.path.localeCompare(b.path));
-    return files;
+    const result = await getRepoTree(instId, repoName);
+    return result.files;
   }, []);
 
   const loadPublicRepoMarkdownFiles = useCallback(async (owner: string, repo: string): Promise<RepoDocFile[]> => {
-    const queue = [''];
-    const files: RepoDocFile[] = [];
-
-    while (queue.length > 0) {
-      const dirPath = queue.shift();
-      if (dirPath == null) break;
-      const contents = await getPublicRepoContents(owner, repo, dirPath);
-      if (!Array.isArray(contents)) continue;
-
-      for (const item of contents) {
-        if (item.type === 'dir') {
-          queue.push(item.path);
-          continue;
-        }
-        if (item.type !== 'file' || !item.name.toLowerCase().endsWith('.md')) continue;
-        files.push({
-          name: item.name,
-          path: item.path,
-          sha: item.sha,
-        });
-      }
-    }
-
-    files.sort((a, b) => a.path.localeCompare(b.path));
-    return files;
+    const result = await getPublicRepoTree(owner, repo);
+    return result.files;
   }, []);
 
   // --- Data loaders ---
