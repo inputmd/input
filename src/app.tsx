@@ -70,13 +70,14 @@ const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
 const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
 const PASTED_IMAGE_MAX_SIDE_PX = 1600;
 const PASTED_IMAGE_QUALITY = 0.82;
-const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = [
-  '### Input',
-  '',
-  'Write Markdown and preview it live.',
-  '',
-  'Sign in to save documents to GitHub Gists, or connect a repo to manage multi-file docs under `.input/documents/`.',
-].join('\n');
+const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
+### Input
+
+An experimental Markdown editor, backed by GitHub.
+
+Input supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own repos or gists as files.
+
+Privacy preserving; we do not log your data.`
 
 function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
