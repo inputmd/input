@@ -1,7 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Check, ChevronDown, Eye, Globe, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import type { GitHubUser } from '../github';
+import { Check, ChevronDown, Eye, Globe, Lock, PanelLeftClose, PanelLeftOpen, ScrollText } from 'lucide-react';
+import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
 
@@ -15,6 +15,8 @@ interface ToolbarProps {
   inRepoContext: boolean;
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
+  menuGists: GistSummary[];
+  menuGistsLoading: boolean;
   draftMode: boolean;
   sidebarVisible: boolean;
   showShare: boolean;
@@ -46,6 +48,8 @@ export function Toolbar({
   inRepoContext,
   availableRepos,
   repoListLoading,
+  menuGists,
+  menuGistsLoading,
   draftMode,
   sidebarVisible,
   showShare,
@@ -77,21 +81,6 @@ export function Toolbar({
   return (
     <header class="toolbar">
       <div class="toolbar-left">
-        {showSidebarToggle ? (
-          <button
-            type="button"
-            class="document-menu-trigger"
-            onClick={onToggleSidebar}
-            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-          >
-            {sidebarVisible ? (
-              <PanelLeftClose size={20} aria-hidden="true" />
-            ) : (
-              <PanelLeftOpen size={20} aria-hidden="true" />
-            )}
-          </button>
-        ) : null}
         {showGitHubApp && (
           <DropdownMenu.Root
             onOpenChange={(open: boolean) => {
@@ -113,13 +102,7 @@ export function Toolbar({
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="repo-menu-content" sideOffset={6} align="start">
-                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.documents())}>
-                  <span class="repo-menu-item-main">
-                    <span>My Gists</span>
-                  </span>
-                  {view === 'documents' ? <Check size={14} aria-hidden="true" /> : null}
-                </DropdownMenu.Item>
-                <DropdownMenu.Separator class="user-menu-separator" />
+                <div class="repo-menu-section-label">Repos</div>
                 {repoListLoading ? (
                   <DropdownMenu.Item class="repo-menu-item" disabled>
                     Loading repos...
@@ -150,14 +133,58 @@ export function Toolbar({
                     );
                   })
                 )}
-                <DropdownMenu.Separator class="user-menu-separator" />
                 <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.settings())}>
                   Connect a repo
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator class="user-menu-separator" />
+                <div class="repo-menu-section-label">Gists</div>
+                {menuGistsLoading ? (
+                  <DropdownMenu.Item class="repo-menu-item" disabled>
+                    Loading gists...
+                  </DropdownMenu.Item>
+                ) : menuGists.length === 0 ? (
+                  <DropdownMenu.Item class="repo-menu-item" disabled>
+                    No gists
+                  </DropdownMenu.Item>
+                ) : (
+                  menuGists.map((gist) => (
+                    <DropdownMenu.Item
+                      key={gist.id}
+                      class="repo-menu-item"
+                      onSelect={() => navigate(routePath.gistView(gist.id))}
+                    >
+                      <span class="repo-menu-item-main">
+                        <ScrollText size={14} aria-hidden="true" />
+                        <span>{gist.description || 'Untitled'}</span>
+                      </span>
+                    </DropdownMenu.Item>
+                  ))
+                )}
+                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.documents())}>
+                  <span class="repo-menu-item-main">
+                    <span>See all gists</span>
+                  </span>
+                  {view === 'documents' ? <Check size={14} aria-hidden="true" /> : null}
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
         )}
+        {showSidebarToggle ? (
+          <button
+            type="button"
+            class="document-menu-trigger"
+            onClick={onToggleSidebar}
+            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+          >
+            {sidebarVisible ? (
+              <PanelLeftClose size={20} aria-hidden="true" />
+            ) : (
+              <PanelLeftOpen size={20} aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
       </div>
       <div class="toolbar-right">
         <div class="action-buttons">

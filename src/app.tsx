@@ -21,9 +21,11 @@ import {
   createGist,
   type GistDetail,
   type GistFile,
+  type GistSummary,
   type GitHubUser,
   getAuthSession,
   getGist,
+  listGists,
   logout,
   updateGist,
 } from './github';
@@ -315,6 +317,9 @@ export function App() {
   const [installationRepos, setInstallationRepos] = useState<InstallationRepo[]>([]);
   const [installationReposLoading, setInstallationReposLoading] = useState(false);
   const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
+  const [menuGists, setMenuGists] = useState<GistSummary[]>([]);
+  const [menuGistsLoading, setMenuGistsLoading] = useState(false);
+  const [menuGistsLoaded, setMenuGistsLoaded] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
 
@@ -1657,26 +1662,66 @@ export function App() {
   }, []);
 
   const onOpenRepoMenu = useCallback(() => {
-    if (!user || !installationId || installationReposLoading) return;
-    if (loadedReposInstallationId === installationId) return;
+    if (!user) return;
 
-    setInstallationReposLoading(true);
+    const shouldLoadRepos =
+      Boolean(installationId) && !installationReposLoading && loadedReposInstallationId !== installationId;
+    const shouldLoadGists = !menuGistsLoading && !menuGistsLoaded;
+    if (!shouldLoadRepos && !shouldLoadGists) return;
+
+    if (shouldLoadRepos) setInstallationReposLoading(true);
+    if (shouldLoadGists) setMenuGistsLoading(true);
+
     void (async () => {
-      try {
-        const repos = await listInstallationRepos(installationId);
-        setInstallationRepos(repos.repositories);
-        setLoadedReposInstallationId(installationId);
-      } catch (err) {
-        if (err instanceof SessionExpiredError) {
-          handleSessionExpired();
-          return;
-        }
-        setInstallationRepos([]);
-      } finally {
-        setInstallationReposLoading(false);
+      const tasks: Promise<void>[] = [];
+
+      if (shouldLoadRepos && installationId) {
+        tasks.push(
+          (async () => {
+            try {
+              const repos = await listInstallationRepos(installationId);
+              setInstallationRepos(repos.repositories);
+              setLoadedReposInstallationId(installationId);
+            } catch (err) {
+              if (err instanceof SessionExpiredError) {
+                handleSessionExpired();
+                return;
+              }
+              setInstallationRepos([]);
+            } finally {
+              setInstallationReposLoading(false);
+            }
+          })(),
+        );
       }
+
+      if (shouldLoadGists) {
+        tasks.push(
+          (async () => {
+            try {
+              const gists = await listGists(1, 6);
+              setMenuGists(gists);
+              setMenuGistsLoaded(true);
+            } catch {
+              setMenuGists([]);
+            } finally {
+              setMenuGistsLoading(false);
+            }
+          })(),
+        );
+      }
+
+      await Promise.all(tasks);
     })();
-  }, [user, installationId, installationReposLoading, loadedReposInstallationId, handleSessionExpired]);
+  }, [
+    user,
+    installationId,
+    installationReposLoading,
+    loadedReposInstallationId,
+    handleSessionExpired,
+    menuGistsLoading,
+    menuGistsLoaded,
+  ]);
 
   const onDisconnect = useCallback(async () => {
     const confirmed = await showConfirm('Disconnect GitHub repos for this session?');
@@ -1909,6 +1954,8 @@ export function App() {
         inRepoContext={inRepoContext}
         availableRepos={installationRepos}
         repoListLoading={installationReposLoading}
+        menuGists={menuGists}
+        menuGistsLoading={menuGistsLoading}
         draftMode={draftMode}
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
