@@ -65,6 +65,7 @@ import { LoadingView } from './views/LoadingView';
 import { WorkspacesView } from './views/WorkspacesView';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
+const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
@@ -356,6 +357,9 @@ export function App() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && !window.matchMedia(DESKTOP_MEDIA_QUERY).matches) {
+      return false;
+    }
     try {
       return localStorage.getItem(EDITOR_PREVIEW_VISIBLE_KEY) === 'true';
     } catch {
@@ -364,8 +368,12 @@ export function App() {
   });
   const [isDesktopWidth, setIsDesktopWidth] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    return window.matchMedia('(min-width: 1024px)').matches;
+    return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
   });
+  const defaultPreviewVisible = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
+  }, []);
 
   // Track initialization
   const initialized = useRef(false);
@@ -1051,7 +1059,7 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
-          setPreviewVisible(true);
+          setPreviewVisible(defaultPreviewVisible());
           setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, 'title')) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, 'content')) ?? '');
           setViewPhase(null);
@@ -1079,7 +1087,7 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
-          setPreviewVisible(true);
+          setPreviewVisible(defaultPreviewVisible());
           setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
           setViewPhase(null);
@@ -1235,7 +1243,7 @@ export function App() {
 
   // --- Preview state ---
   useEffect(() => {
-    const media = window.matchMedia('(min-width: 1024px)');
+    const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
     const onChange = (event: MediaQueryListEvent) => setIsDesktopWidth(event.matches);
     setIsDesktopWidth(media.matches);
     media.addEventListener('change', onChange);
@@ -1852,7 +1860,7 @@ export function App() {
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
   const sidebarDisabled = activeView === 'edit' && draftMode;
-  const defaultShowSidebar = !sidebarDisabled && (!!user || repoAccessMode === 'public');
+  const defaultShowSidebar = isDesktopWidth && !sidebarDisabled && (!!user || repoAccessMode === 'public');
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
   const editingFileName = currentFileName ?? editTitle;
   const editPreviewEnabled = isMarkdownFileName(editingFileName);
