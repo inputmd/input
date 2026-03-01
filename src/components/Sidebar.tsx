@@ -9,6 +9,7 @@ export interface SidebarFile {
 
 interface SidebarProps {
   files: SidebarFile[];
+  disabled?: boolean;
   readOnly?: boolean;
   onSelectFile: (path: string) => void;
   onEditFile: (path: string) => void;
@@ -33,6 +34,7 @@ function sanitizePathInput(input: string): string {
 
 export function Sidebar({
   files,
+  disabled = false,
   readOnly = false,
   onSelectFile,
   onEditFile,
@@ -97,6 +99,19 @@ export function Sidebar({
     setRenamingFile(path);
     setRenameValue(path);
   };
+
+  if (disabled) {
+    return (
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h3>Files</h3>
+        </div>
+        <div class="sidebar-files sidebar-files-disabled">
+          <p class="sidebar-disabled-message">Create a workspace to manage files</p>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside class="sidebar">

@@ -123,13 +123,6 @@
   box-shadow: none;
 }
 
-.document-menu-label {
-  padding: 0 10px;
-  font-size: 14px;
-  color: var(--text-secondary);
-  user-select: none;
-}
-
 .user-menu {
   position: relative;
 }

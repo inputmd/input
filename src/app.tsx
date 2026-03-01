@@ -1799,9 +1799,10 @@ export function App() {
   }, [gistFiles, currentFileName, repoFiles, currentRepoDocPath]);
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
-  const defaultShowSidebar = sidebarEligible && sidebarFiles.length > 0 && (!!user || repoAccessMode === 'public');
-  const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar) && sidebarFiles.length > 0;
   const canToggleSidebar = sidebarEligible && sidebarFiles.length > 0 && currentFileName !== null;
+  const sidebarDisabled = (activeView === 'edit' && draftMode) || !canToggleSidebar;
+  const defaultShowSidebar = !sidebarDisabled && (!!user || repoAccessMode === 'public');
+  const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
   const editingFileName = currentFileName ?? editTitle;
   const editPreviewEnabled = isMarkdownFileName(editingFileName);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
@@ -1871,7 +1872,6 @@ export function App() {
         availableRepos={installationRepos}
         repoListLoading={installationReposLoading}
         draftMode={draftMode}
-        canToggleSidebar={canToggleSidebar}
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
         onShare={() => {
@@ -1905,6 +1905,7 @@ export function App() {
               onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}
               canViewOnGitHub={currentGistId !== null || selectedRepo !== null || publicRepoRef !== null}
+              disabled={sidebarDisabled}
               readOnly={repoAccessMode === 'public'}
               onCreateFile={handleCreateFile}
               onDeleteFile={handleDeleteFile}

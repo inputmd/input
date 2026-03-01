@@ -16,7 +16,6 @@ interface ToolbarProps {
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
   draftMode: boolean;
-  canToggleSidebar: boolean;
   sidebarVisible: boolean;
   showShare: boolean;
   onShare: () => void;
@@ -48,7 +47,6 @@ export function Toolbar({
   availableRepos,
   repoListLoading,
   draftMode,
-  canToggleSidebar,
   sidebarVisible,
   showShare,
   onShare,
@@ -73,11 +71,27 @@ export function Toolbar({
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!user;
+  const showSidebarToggle = view === 'content' || view === 'edit';
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
 
   return (
     <header class="toolbar">
       <div class="toolbar-left">
+        {showSidebarToggle ? (
+          <button
+            type="button"
+            class="document-menu-trigger"
+            onClick={onToggleSidebar}
+            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+          >
+            {sidebarVisible ? (
+              <PanelLeftClose size={20} aria-hidden="true" />
+            ) : (
+              <PanelLeftOpen size={20} aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
         {showGitHubApp && (
           <DropdownMenu.Root
             onOpenChange={(open: boolean) => {
@@ -144,23 +158,6 @@ export function Toolbar({
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
         )}
-        {isHomeDraft ? (
-          <span class="document-menu-label">New Document</span>
-        ) : canToggleSidebar ? (
-          <button
-            type="button"
-            class="document-menu-trigger"
-            onClick={onToggleSidebar}
-            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-          >
-            {sidebarVisible ? (
-              <PanelLeftClose size={20} aria-hidden="true" />
-            ) : (
-              <PanelLeftOpen size={20} aria-hidden="true" />
-            )}
-          </button>
-        ) : null}
       </div>
       <div class="toolbar-right">
         <div class="action-buttons">
