@@ -65,7 +65,6 @@ import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { LoadingView } from './views/LoadingView';
-import { ProfileView } from './views/ProfileView';
 import { WorkspacesView } from './views/WorkspacesView';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
@@ -288,8 +287,6 @@ function viewFromRoute(route: Route): ActiveView {
   switch (route.name) {
     case 'login':
       return 'login';
-    case 'profile':
-      return 'profile';
     case 'workspaces':
       return 'workspaces';
     case 'repofile':
@@ -941,7 +938,6 @@ export function App() {
           }
           setViewPhase(null);
           return;
-        case 'profile':
         case 'workspaces':
           if (!isAuthenticated) {
             navigate(routePath.login());
@@ -1754,8 +1750,6 @@ export function App() {
     switch (activeView) {
       case 'login':
         return <AuthView />;
-      case 'profile':
-        return user ? <ProfileView user={user} /> : <AuthView />;
       case 'workspaces': {
         const reposInitialLoaded = !installationId || loadedReposInstallationId === installationId;
         const gistsInitialLoaded = menuGistsLoaded;

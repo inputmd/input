@@ -181,6 +181,17 @@
   color: var(--text-secondary);
 }
 
+.user-menu-label a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.user-menu-label a:hover,
+.user-menu-label a:focus-visible {
+  color: color-mix(in srgb, var(--text) 80%, var(--text-secondary) 20%);
+  text-decoration: none;
+}
+
 .user-menu-separator {
   height: 1px;
   margin: 4px 0;
