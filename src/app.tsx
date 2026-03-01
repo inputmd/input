@@ -1764,7 +1764,7 @@ export function App() {
   ]);
 
   const onDisconnect = useCallback(async () => {
-    const confirmed = await showConfirm('Disconnect all repos');
+    const confirmed = await showConfirm('Disconnect all repos?');
     if (!confirmed) return;
 
     try {

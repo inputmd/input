@@ -1,4 +1,5 @@
 import { useEffect } from 'preact/hooks';
+import { ExternalLink } from 'lucide-react';
 import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { DocumentsView } from './DocumentsView';
@@ -90,6 +91,15 @@ export function WorkspacesView({
                   <div class="workspaces-repo-actions">
                     <button type="button" onClick={() => onOpenRepo(repo.full_name, repo.id, repo.private)}>
                       Open
+                    </button>
+                    <button
+                      type="button"
+                      class="workspaces-repo-open-github-btn"
+                      aria-label={`Open ${repo.full_name} on GitHub`}
+                      title="Open on GitHub"
+                      onClick={() => window.open(`https://github.com/${repo.full_name}`, '_blank', 'noopener,noreferrer')}
+                    >
+                      <ExternalLink size={15} aria-hidden="true" />
                     </button>
                   </div>
                 </div>
