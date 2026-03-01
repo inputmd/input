@@ -25,8 +25,6 @@ interface ToolbarProps {
   showPreviewToggle: boolean;
   previewVisible: boolean;
   onTogglePreview: () => void;
-  showCancel: boolean;
-  onCancel: () => void;
   showSave: boolean;
   saving: boolean;
   canSave: boolean;
@@ -58,8 +56,6 @@ export function Toolbar({
   showPreviewToggle,
   previewVisible,
   onTogglePreview,
-  showCancel,
-  onCancel,
   showSave,
   saving,
   canSave,
@@ -202,11 +198,6 @@ export function Toolbar({
               onClick={onTogglePreview}
             >
               <Eye size={16} />
-            </button>
-          )}
-          {showCancel && (
-            <button type="button" onClick={onCancel}>
-              Cancel
             </button>
           )}
           {showSave && (
