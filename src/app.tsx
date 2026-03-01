@@ -65,7 +65,8 @@ import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { LoadingView } from './views/LoadingView';
-import { SettingsView } from './views/SettingsView';
+import { ProfileView } from './views/ProfileView';
+import { WorkspacesView } from './views/WorkspacesView';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const DRAFT_TITLE_KEY = 'draft_title';
@@ -287,8 +288,10 @@ function viewFromRoute(route: Route): ActiveView {
   switch (route.name) {
     case 'login':
       return 'login';
-    case 'settings':
-      return 'settings';
+    case 'profile':
+      return 'profile';
+    case 'workspaces':
+      return 'workspaces';
     case 'repofile':
     case 'publicrepofile':
     case 'publicrepofilelegacy':
@@ -530,7 +533,7 @@ export function App() {
           clearPendingInstallationId();
           if (route.name === 'login') {
             setSettingsNotice('GitHub App installation connected. Review your installation details below.');
-            navigate(routePath.settings());
+            navigate(routePath.workspaces());
             return { authenticated: true, navigated: true };
           }
         } catch (err) {
@@ -553,7 +556,7 @@ export function App() {
         if (session.installationId) {
           setSettingsNotice('Signed in with an active GitHub App installation. Review your installation details below.');
         }
-        navigate(routePath.settings());
+        navigate(routePath.workspaces());
         return { authenticated: true, navigated: true };
       }
       return { authenticated: true, navigated: false };
@@ -605,7 +608,7 @@ export function App() {
     const cleanUrl = window.location.pathname;
     window.history.replaceState({}, '', cleanUrl);
 
-    navigate(routePath.settings());
+    navigate(routePath.workspaces());
     return true;
   }, [navigate, showError]);
 
@@ -793,7 +796,7 @@ export function App() {
       const instId = getInstallationId();
       const repoName = getSelectedRepo()?.full_name ?? null;
       if (!instId || !repoName) {
-        navigate(routePath.settings());
+        navigate(routePath.workspaces());
         return;
       }
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
@@ -918,12 +921,13 @@ export function App() {
       switch (r.name) {
         case 'login':
           if (isAuthenticated) {
-            navigate(routePath.settings(), { replace: true });
+            navigate(routePath.workspaces(), { replace: true });
             return;
           }
           setViewPhase(null);
           return;
-        case 'settings':
+        case 'profile':
+        case 'workspaces':
           if (!isAuthenticated) {
             navigate(routePath.login());
             return;
@@ -979,7 +983,7 @@ export function App() {
           const instId = getInstallationId();
           const repoName = getSelectedRepo()?.full_name ?? null;
           if (!instId || !repoName) {
-            navigate(routePath.settings());
+            navigate(routePath.workspaces());
             return;
           }
           setViewPhase('loading');
@@ -1018,7 +1022,7 @@ export function App() {
           const instId = getInstallationId();
           const repoName = getSelectedRepo()?.full_name ?? null;
           if (!instId || !repoName) {
-            navigate(routePath.settings());
+            navigate(routePath.workspaces());
             return;
           }
           setDraftMode(false);
@@ -1126,7 +1130,7 @@ export function App() {
           return;
         }
         case 'home':
-          if (isAuthenticated) navigate(routePath.settings(), { replace: true });
+          if (isAuthenticated) navigate(routePath.workspaces(), { replace: true });
           else navigate(routePath.freshDraft(), { replace: true });
           return;
         default:
@@ -1405,7 +1409,7 @@ export function App() {
     else if (currentGistId && currentFileName) navigate(routePath.gistView(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistView(currentGistId));
     else if (selectedRepo) navigate(routePath.repoDocuments());
-    else navigate(routePath.settings());
+    else navigate(routePath.workspaces());
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
   const getActiveDocumentStore = useCallback(() => {
@@ -1555,7 +1559,7 @@ export function App() {
             if (remaining.length > 0) {
               navigate(routePath.gistView(currentGistId, remaining[0]));
             } else {
-              navigate(routePath.settings());
+              navigate(routePath.workspaces());
             }
           }
         } else {
@@ -1648,7 +1652,7 @@ export function App() {
     storeSelectedRepo({ full_name: fullName, id, private: isPrivate });
   }, []);
 
-  const onOpenRepoFromSettings = useCallback(
+  const onOpenRepoFromWorkspaces = useCallback(
     (fullName: string, id: number, isPrivate: boolean) => {
       onSelectRepo(fullName, id, isPrivate);
       navigate(routePath.repoDocuments());
@@ -1743,20 +1747,20 @@ export function App() {
     switch (activeView) {
       case 'login':
         return <AuthView />;
-      case 'settings':
-        {
-          const reposInitialLoaded = !installationId || loadedReposInstallationId === installationId;
-          const gistsInitialLoaded = menuGistsLoaded;
+      case 'profile':
+        return user ? <ProfileView user={user} /> : <AuthView />;
+      case 'workspaces': {
+        const reposInitialLoaded = !installationId || loadedReposInstallationId === installationId;
+        const gistsInitialLoaded = menuGistsLoaded;
         return user ? (
-          <SettingsView
-            user={user}
+          <WorkspacesView
             installationId={installationId}
             availableRepos={installationRepos}
             repoListLoading={installationReposLoading}
             onLoadRepos={onOpenRepoMenu}
             onConnect={onConnectInstallation}
             onDisconnect={onDisconnect}
-            onOpenRepo={onOpenRepoFromSettings}
+            onOpenRepo={onOpenRepoFromWorkspaces}
             reposInitialLoaded={reposInitialLoaded}
             gistsInitialLoaded={gistsInitialLoaded}
             initialGists={menuGists}
@@ -1768,7 +1772,7 @@ export function App() {
         ) : (
           <AuthView />
         );
-        }
+      }
       case 'content':
         return (
           <ContentView

@@ -5,7 +5,7 @@ import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
 
-export type ActiveView = 'login' | 'settings' | 'loading' | 'error' | 'content' | 'edit';
+export type ActiveView = 'login' | 'profile' | 'workspaces' | 'loading' | 'error' | 'content' | 'edit';
 
 interface ToolbarProps {
   view: ActiveView;
@@ -158,7 +158,7 @@ export function Toolbar({
                   ))
                 )}
                 <DropdownMenu.Separator class="user-menu-separator" />
-                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.settings())}>
+                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.workspaces())}>
                   Manage Workspaces
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
@@ -226,7 +226,7 @@ export function Toolbar({
               <Tooltip.Root>
                 <DropdownMenu.Trigger asChild>
                   <Tooltip.Trigger asChild>
-                    <button type="button" class="user-menu-trigger" aria-label="Settings">
+                    <button type="button" class="user-menu-trigger" aria-label="User menu">
                       <img class="user-avatar" src={user.avatar_url} alt="" width={24} height={24} />
                       <span class="user-name">{user.name ?? user.login}</span>
                     </button>
@@ -234,7 +234,7 @@ export function Toolbar({
                 </DropdownMenu.Trigger>
                 <Tooltip.Portal>
                   <Tooltip.Content class="toolbar-tooltip" side="bottom" align="end" sideOffset={6}>
-                    Settings
+                    Profile
                     <Tooltip.Arrow class="toolbar-tooltip-arrow" />
                   </Tooltip.Content>
                 </Tooltip.Portal>
@@ -243,10 +243,12 @@ export function Toolbar({
                 <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
                   <DropdownMenu.Label class="user-menu-label">{user.login}</DropdownMenu.Label>
                   <DropdownMenu.Separator class="user-menu-separator" />
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.settings())}>
-                    Settings
+                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.workspaces())}>
+                    Workspaces
                   </DropdownMenu.Item>
-                  <DropdownMenu.Separator class="user-menu-separator" />
+                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.profile())}>
+                    Profile
+                  </DropdownMenu.Item>
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                     Toggle Theme
                   </DropdownMenu.Item>
