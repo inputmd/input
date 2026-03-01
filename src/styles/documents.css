@@ -147,24 +147,6 @@
   padding: 16px;
 }
 
-.settings-panel + .settings-panel {
-  margin-top: 14px;
-}
-
-.settings-panel-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.settings-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
 .settings-user-header {
   display: flex;
   align-items: center;
@@ -250,38 +232,69 @@
   border-color: #146c43;
 }
 
-.settings-repo-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 12px;
+.settings-repos-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 12px;
+}
+
+.settings-repos-title {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.settings-repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-repo-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
+  background: var(--toolbar-bg);
 }
 
-.settings-repo-table td {
-  text-align: left;
-  padding: 9px 12px;
+.settings-repo-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.settings-repo-table td:first-child {
-  padding-left: 0;
+.settings-repo-title {
+  font-weight: 500;
+  word-break: break-word;
 }
 
-.settings-repo-table td a,
-.settings-repo-table td a:visited,
-.settings-repo-table td a:hover,
-.settings-repo-table td a:focus {
-  color: #fff;
-  text-decoration: none;
+.settings-repo-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+  word-break: break-word;
 }
 
-.settings-repo-table tbody tr + tr td {
-  border-top: 1px solid var(--border);
+.settings-repo-actions {
+  flex-shrink: 0;
+}
+
+.settings-empty-state {
+  margin-top: 0;
 }
 
 @media (max-width: 768px) {
-  .settings-panel-header {
+  .settings-repos-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settings-repo-card {
     align-items: flex-start;
     flex-direction: column;
   }

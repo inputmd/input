@@ -1661,6 +1661,14 @@ export function App() {
     storeSelectedRepo({ full_name: fullName, id, private: isPrivate });
   }, []);
 
+  const onOpenRepoFromSettings = useCallback(
+    (fullName: string, id: number, isPrivate: boolean) => {
+      onSelectRepo(fullName, id, isPrivate);
+      navigate(routePath.repoDocuments());
+    },
+    [navigate, onSelectRepo],
+  );
+
   const onOpenRepoMenu = useCallback(() => {
     if (!user) return;
 
@@ -1758,6 +1766,7 @@ export function App() {
             onLoadRepos={onOpenRepoMenu}
             onConnect={onConnectInstallation}
             onDisconnect={onDisconnect}
+            onOpenRepo={onOpenRepoFromSettings}
             notice={settingsNotice}
             onDismissNotice={() => setSettingsNotice(null)}
           />

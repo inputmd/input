@@ -11,8 +11,19 @@ interface SettingsViewProps {
   onLoadRepos: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  onOpenRepo: (fullName: string, id: number, isPrivate: boolean) => void;
   notice: string | null;
   onDismissNotice: () => void;
+}
+
+function formatRepoMeta(repo: InstallationRepo): string {
+  const permissionEntries = repo.permissions ? Object.entries(repo.permissions).filter(([, allowed]) => allowed) : [];
+  const permissionsLabel =
+    permissionEntries.length > 0
+      ? `Permissions: ${permissionEntries.map(([name]) => name).join(', ')}`
+      : 'Permissions: unavailable';
+  const visibilityLabel = repo.private ? 'Private' : 'Public';
+  return `${visibilityLabel} · ${permissionsLabel} · ID ${repo.id}`;
 }
 
 export function SettingsView({
@@ -23,6 +34,7 @@ export function SettingsView({
   onLoadRepos,
   onConnect,
   onDisconnect,
+  onOpenRepo,
   notice,
   onDismissNotice,
 }: SettingsViewProps) {
@@ -61,42 +73,41 @@ export function SettingsView({
           </div>
         </div>
       </div>
-      <div class="settings-panel">
-        <div class="settings-panel-header">
-          <h2 class="settings-panel-title">Connected GitHub repos</h2>
-          <div class="settings-actions">
-            <button type="button" class="settings-connect-btn" onClick={() => void onConnect()}>
-              Connect
-            </button>
-            <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
-              Disconnect
-            </button>
-          </div>
+      <div class="settings-repos-header">
+        <h2 class="settings-repos-title">Connected Repos</h2>
+        <div class="settings-actions">
+          <button type="button" class="settings-connect-btn" onClick={() => void onConnect()}>
+            Connect
+          </button>
+          <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
+            Disconnect
+          </button>
         </div>
-        <table class="settings-repo-table">
-          <tbody>
-            {repoListLoading ? (
-              <tr>
-                <td>Loading repos...</td>
-              </tr>
-            ) : availableRepos.length > 0 ? (
-              availableRepos.map((repo) => (
-                <tr key={repo.id}>
-                  <td>
-                    <a href={repo.html_url} target="_blank" rel="noopener noreferrer">
-                      {repo.full_name}
-                    </a>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td>No connected repos</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
       </div>
+      {repoListLoading ? (
+        <p class="loading-hint">Loading repos...</p>
+      ) : availableRepos.length > 0 ? (
+        <div class="settings-repo-list">
+          {availableRepos.map((repo) => (
+            <div class="settings-repo-card" key={repo.id}>
+              <div class="settings-repo-info">
+                <div class="settings-repo-title">{repo.full_name}</div>
+                <div class="settings-repo-meta">{formatRepoMeta(repo)}</div>
+              </div>
+              <div class="settings-repo-actions">
+                <button type="button" onClick={() => onOpenRepo(repo.full_name, repo.id, repo.private)}>
+                  Open
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div class="empty-state settings-empty-state">
+          <p>No connected repos</p>
+          <p>Connect a repository to start editing docs.</p>
+        </div>
+      )}
     </div>
   );
 }
