@@ -13,6 +13,9 @@ import { routePath } from '../routing';
 interface DocumentsViewProps {
   navigate: (route: string) => void;
   userLogin: string | null;
+  embedded?: boolean;
+  initialGists?: GistSummary[];
+  initialLoaded?: boolean;
 }
 
 function formatDate(iso: string): string {
@@ -20,12 +23,18 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
+export function DocumentsView({
+  navigate,
+  userLogin,
+  embedded = false,
+  initialGists = [],
+  initialLoaded = false,
+}: DocumentsViewProps) {
   const { showAlert, showConfirm, showPrompt } = useDialogs();
-  const [gists, setGists] = useState<GistSummary[]>([]);
-  const [page, setPage] = useState(1);
-  const [allLoaded, setAllLoaded] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [gists, setGists] = useState<GistSummary[]>(initialLoaded ? initialGists : []);
+  const [page, setPage] = useState(initialLoaded ? (initialGists.length < 30 ? 1 : 2) : 1);
+  const [allLoaded, setAllLoaded] = useState(initialLoaded ? initialGists.length < 30 : false);
+  const [loading, setLoading] = useState(!initialLoaded);
   const [error, setError] = useState<string | null>(null);
 
   const loadPage = async (p: number, reset: boolean) => {
@@ -50,8 +59,9 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: initial load only
   useEffect(() => {
+    if (initialLoaded) return;
     loadPage(1, true);
-  }, []);
+  }, [initialLoaded]);
 
   useEffect(() => {
     reconcileRecentGists(userLogin, gists);
@@ -113,22 +123,22 @@ export function DocumentsView({ navigate, userLogin }: DocumentsViewProps) {
   }
 
   return (
-    <div class="documents-view">
+    <div class={`documents-view${embedded ? ' documents-view--embedded' : ''}`}>
       <div class="documents-header">
         <div class="documents-header-copy">
-          <h1>My Gists</h1>
-          <p class="hint documents-subtitle">Each collection is stored as a multi-file Gist on GitHub.</p>
+          <h2 class="documents-title">My Gists</h2>
+          <p class="hint documents-subtitle">Workspaces stored as multi-file gists on GitHub</p>
         </div>
-        <button type="button" onClick={() => navigate(routePath.freshDraft())}>
-          New
+        <button type="button" class="documents-new-btn" onClick={() => navigate(routePath.freshDraft())}>
+          New Gist
         </button>
       </div>
       {!loading && visibleGists.length === 0 ? (
         <div class="empty-state">
           <p>No gists yet.</p>
           <p>Create your first gist to get started.</p>
-          <button type="button" onClick={() => navigate(routePath.freshDraft())}>
-            New
+          <button type="button" class="documents-new-btn" onClick={() => navigate(routePath.freshDraft())}>
+            New Gist
           </button>
         </div>
       ) : (

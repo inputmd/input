@@ -62,7 +62,6 @@ import { type Route, routePath } from './routing';
 import { decodeBase64ToUtf8, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
 import { AuthView } from './views/AuthView';
 import { ContentView } from './views/ContentView';
-import { DocumentsView } from './views/DocumentsView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { LoadingView } from './views/LoadingView';
@@ -288,8 +287,6 @@ function viewFromRoute(route: Route): ActiveView {
   switch (route.name) {
     case 'login':
       return 'login';
-    case 'documents':
-      return 'documents';
     case 'settings':
       return 'settings';
     case 'repofile':
@@ -548,13 +545,15 @@ export function App() {
       } else {
         clearInstallationId();
         setInstId(null);
+        setInstallationRepos([]);
+        setLoadedReposInstallationId(null);
       }
       // Navigate away from auth page after successful session restore.
       if (route.name === 'login') {
         if (session.installationId) {
           setSettingsNotice('Signed in with an active GitHub App installation. Review your installation details below.');
         }
-        navigate(session.installationId ? routePath.settings() : routePath.documents());
+        navigate(routePath.settings());
         return { authenticated: true, navigated: true };
       }
       return { authenticated: true, navigated: false };
@@ -1043,18 +1042,6 @@ export function App() {
           syncRepoState();
           await loadRepoFile(safeDecodeURIComponent(r.params.path), true);
           return;
-        case 'documents':
-          if (!isAuthenticated) {
-            navigate(routePath.login());
-            return;
-          }
-          setRepoAccessMode(null);
-          setPublicRepoRef(null);
-          setGistFiles(null);
-          setCurrentFileName(null);
-          setRepoFiles([]);
-          setViewPhase(null);
-          return;
         case 'new':
           if (activeView === 'edit') {
             localStorage.removeItem(DRAFT_TITLE_KEY);
@@ -1139,7 +1126,7 @@ export function App() {
           return;
         }
         case 'home':
-          if (isAuthenticated) navigate(routePath.documents(), { replace: true });
+          if (isAuthenticated) navigate(routePath.settings(), { replace: true });
           else navigate(routePath.freshDraft(), { replace: true });
           return;
         default:
@@ -1418,7 +1405,7 @@ export function App() {
     else if (currentGistId && currentFileName) navigate(routePath.gistView(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistView(currentGistId));
     else if (selectedRepo) navigate(routePath.repoDocuments());
-    else navigate(routePath.documents());
+    else navigate(routePath.settings());
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
   const getActiveDocumentStore = useCallback(() => {
@@ -1568,7 +1555,7 @@ export function App() {
             if (remaining.length > 0) {
               navigate(routePath.gistView(currentGistId, remaining[0]));
             } else {
-              navigate(routePath.documents());
+              navigate(routePath.settings());
             }
           }
         } else {
@@ -1707,7 +1694,7 @@ export function App() {
         tasks.push(
           (async () => {
             try {
-              const gists = await listGists(1, 6);
+              const gists = await listGists(1, 30);
               setMenuGists(gists);
               setMenuGistsLoaded(true);
             } catch {
@@ -1732,7 +1719,7 @@ export function App() {
   ]);
 
   const onDisconnect = useCallback(async () => {
-    const confirmed = await showConfirm('Disconnect GitHub repos for this session?');
+    const confirmed = await showConfirm('Disconnect all repos');
     if (!confirmed) return;
 
     try {
@@ -1745,6 +1732,8 @@ export function App() {
       setInstId(null);
       setSelectedRepo(null);
       setSelectedRepoPrivate(null);
+      setInstallationRepos([]);
+      setLoadedReposInstallationId(null);
       navigate(routePath.login());
     }
   }, [navigate, showConfirm]);
@@ -1754,9 +1743,10 @@ export function App() {
     switch (activeView) {
       case 'login':
         return <AuthView />;
-      case 'documents':
-        return <DocumentsView navigate={navigate} userLogin={user?.login ?? null} />;
       case 'settings':
+        {
+          const reposInitialLoaded = !installationId || loadedReposInstallationId === installationId;
+          const gistsInitialLoaded = menuGistsLoaded;
         return user ? (
           <SettingsView
             user={user}
@@ -1767,12 +1757,18 @@ export function App() {
             onConnect={onConnectInstallation}
             onDisconnect={onDisconnect}
             onOpenRepo={onOpenRepoFromSettings}
+            reposInitialLoaded={reposInitialLoaded}
+            gistsInitialLoaded={gistsInitialLoaded}
+            initialGists={menuGists}
+            navigate={navigate}
+            userLogin={user.login}
             notice={settingsNotice}
             onDismissNotice={() => setSettingsNotice(null)}
           />
         ) : (
           <AuthView />
         );
+        }
       case 'content':
         return (
           <ContentView
@@ -1963,7 +1959,7 @@ export function App() {
         inRepoContext={inRepoContext}
         availableRepos={installationRepos}
         repoListLoading={installationReposLoading}
-        menuGists={menuGists}
+        menuGists={menuGists.slice(0, 6)}
         menuGistsLoading={menuGistsLoading}
         draftMode={draftMode}
         sidebarVisible={showSidebar}

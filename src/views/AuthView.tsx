@@ -2,7 +2,7 @@ import { routePath } from '../routing';
 
 export function AuthView() {
   const onSignIn = () => {
-    window.location.assign(`/api/auth/github/start?return_to=${encodeURIComponent(`/${routePath.documents()}`)}`);
+    window.location.assign(`/api/auth/github/start?return_to=${encodeURIComponent(`/${routePath.settings()}`)}`);
   };
 
   return (

@@ -5,7 +5,7 @@ import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
 
-export type ActiveView = 'login' | 'documents' | 'settings' | 'loading' | 'error' | 'content' | 'edit';
+export type ActiveView = 'login' | 'settings' | 'loading' | 'error' | 'content' | 'edit';
 
 interface ToolbarProps {
   view: ActiveView;
@@ -133,9 +133,6 @@ export function Toolbar({
                     );
                   })
                 )}
-                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.settings())}>
-                  Connect a repo
-                </DropdownMenu.Item>
                 <DropdownMenu.Separator class="user-menu-separator" />
                 <div class="repo-menu-section-label">Gists</div>
                 {menuGistsLoading ? (
@@ -160,11 +157,9 @@ export function Toolbar({
                     </DropdownMenu.Item>
                   ))
                 )}
-                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.documents())}>
-                  <span class="repo-menu-item-main">
-                    <span>See all gists</span>
-                  </span>
-                  {view === 'documents' ? <Check size={14} aria-hidden="true" /> : null}
+                <DropdownMenu.Separator class="user-menu-separator" />
+                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.settings())}>
+                  Manage Workspaces
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>

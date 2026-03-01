@@ -1,7 +1,8 @@
 import { useEffect } from 'preact/hooks';
 import { Edit } from 'lucide-react';
-import type { GitHubUser } from '../github';
+import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
+import { DocumentsView } from './DocumentsView';
 
 interface SettingsViewProps {
   user: GitHubUser;
@@ -12,18 +13,17 @@ interface SettingsViewProps {
   onConnect: () => void;
   onDisconnect: () => void;
   onOpenRepo: (fullName: string, id: number, isPrivate: boolean) => void;
+  reposInitialLoaded: boolean;
+  gistsInitialLoaded: boolean;
+  initialGists: GistSummary[];
+  navigate: (route: string) => void;
+  userLogin: string;
   notice: string | null;
   onDismissNotice: () => void;
 }
 
 function formatRepoMeta(repo: InstallationRepo): string {
-  const permissionEntries = repo.permissions ? Object.entries(repo.permissions).filter(([, allowed]) => allowed) : [];
-  const permissionsLabel =
-    permissionEntries.length > 0
-      ? `Permissions: ${permissionEntries.map(([name]) => name).join(', ')}`
-      : 'Permissions: unavailable';
-  const visibilityLabel = repo.private ? 'Private' : 'Public';
-  return `${visibilityLabel} · ${permissionsLabel} · ID ${repo.id}`;
+  return repo.private ? 'Private' : 'Public';
 }
 
 export function SettingsView({
@@ -35,12 +35,19 @@ export function SettingsView({
   onConnect,
   onDisconnect,
   onOpenRepo,
+  reposInitialLoaded,
+  gistsInitialLoaded,
+  initialGists,
+  navigate,
+  userLogin,
   notice,
   onDismissNotice,
 }: SettingsViewProps) {
   useEffect(() => {
     onLoadRepos();
   }, [onLoadRepos]);
+
+  const sectionsReady = reposInitialLoaded && gistsInitialLoaded;
 
   return (
     <div class="settings-view">
@@ -52,8 +59,8 @@ export function SettingsView({
           </button>
         </div>
       ) : null}
-      <h1>Settings</h1>
-      <div class="settings-panel">
+      <h1>Connected User</h1>
+      <div class="settings-panel settings-user-panel">
         <div class="settings-user-header">
           <a
             class="settings-user-avatar-link"
@@ -62,7 +69,7 @@ export function SettingsView({
             rel="noopener noreferrer"
             aria-label="Change avatar on GitHub"
           >
-            <img class="settings-user-avatar" src={user.avatar_url} alt="" width={72} height={72} />
+            <img class="settings-user-avatar" src={user.avatar_url} alt="" width={56} height={56} />
             <span class="settings-user-avatar-overlay" aria-hidden="true">
               <Edit size={14} />
             </span>
@@ -73,40 +80,50 @@ export function SettingsView({
           </div>
         </div>
       </div>
-      <div class="settings-repos-header">
-        <h2 class="settings-repos-title">Connected Repos</h2>
-        <div class="settings-actions">
-          <button type="button" class="settings-connect-btn" onClick={() => void onConnect()}>
-            Connect
-          </button>
-          <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
-            Disconnect
-          </button>
-        </div>
-      </div>
-      {repoListLoading ? (
-        <p class="loading-hint">Loading repos...</p>
-      ) : availableRepos.length > 0 ? (
-        <div class="settings-repo-list">
-          {availableRepos.map((repo) => (
-            <div class="settings-repo-card" key={repo.id}>
-              <div class="settings-repo-info">
-                <div class="settings-repo-title">{repo.full_name}</div>
-                <div class="settings-repo-meta">{formatRepoMeta(repo)}</div>
-              </div>
-              <div class="settings-repo-actions">
-                <button type="button" onClick={() => onOpenRepo(repo.full_name, repo.id, repo.private)}>
-                  Open
-                </button>
-              </div>
+      {sectionsReady ? (
+        <>
+          <div class="settings-repos-header">
+            <div class="settings-repos-header-copy">
+              <h2 class="settings-repos-title">My Repos</h2>
+              <p class="hint settings-repos-subtitle">Workspaces stored as repos on GitHub</p>
             </div>
-          ))}
-        </div>
+            <div class="settings-actions">
+              <button type="button" class="settings-connect-btn" onClick={() => void onConnect()}>
+                Configure
+              </button>
+              <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
+                Disconnect
+              </button>
+            </div>
+          </div>
+          {repoListLoading ? (
+            <p class="loading-hint">Loading repos...</p>
+          ) : availableRepos.length > 0 ? (
+            <div class="settings-repo-list">
+              {availableRepos.map((repo) => (
+                <div class="settings-repo-card" key={repo.id}>
+                  <div class="settings-repo-info">
+                    <div class="settings-repo-title">{repo.full_name}</div>
+                    <div class="settings-repo-meta">{formatRepoMeta(repo)}</div>
+                  </div>
+                  <div class="settings-repo-actions">
+                    <button type="button" onClick={() => onOpenRepo(repo.full_name, repo.id, repo.private)}>
+                      Open
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div class="empty-state settings-empty-state">
+              <p>No connected repos</p>
+              <p>Connect a repository to start editing docs.</p>
+            </div>
+          )}
+          <DocumentsView navigate={navigate} userLogin={userLogin} embedded initialGists={initialGists} initialLoaded />
+        </>
       ) : (
-        <div class="empty-state settings-empty-state">
-          <p>No connected repos</p>
-          <p>Connect a repository to start editing docs.</p>
-        </div>
+        <p class="loading-hint">Loading repos and gists...</p>
       )}
     </div>
   );

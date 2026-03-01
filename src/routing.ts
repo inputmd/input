@@ -9,7 +9,6 @@ export type Route =
   | { name: 'repofile'; params: { path: string } }
   | { name: 'reponew'; params: Record<string, never> }
   | { name: 'repoedit'; params: { path: string } }
-  | { name: 'documents'; params: Record<string, never> }
   | { name: 'new'; params: Record<string, never> }
   | { name: 'edit'; params: { id: string; filename?: string } }
   | { name: 'gist'; params: { id: string; filename?: string } };
@@ -40,7 +39,6 @@ const ROUTE_TABLE: RouteDef[] = [
   { pattern: /^repofile\/(.+)$/, build: (m) => ({ name: 'repofile', params: { path: m[1] } }) },
   { pattern: /^reponew$/, build: () => ({ name: 'reponew', params: {} }) },
   { pattern: /^repoedit\/(.+)$/, build: (m) => ({ name: 'repoedit', params: { path: m[1] } }) },
-  { pattern: /^documents$/, build: () => ({ name: 'documents', params: {} }) },
   { pattern: /^new$/, build: () => ({ name: 'new', params: {} }) },
   { pattern: /^edit\/([^/]+)\/(.+)$/, build: (m) => ({ name: 'edit', params: { id: m[1], filename: m[2] } }) },
   { pattern: /^gist\/([^/]+)\/(.+)$/, build: (m) => ({ name: 'gist', params: { id: m[1], filename: m[2] } }) },
@@ -60,7 +58,6 @@ export const routePath = {
   repoFile: (path: string) => `repofile/${encodeURIComponent(path)}`,
   repoNew: () => 'reponew',
   repoEdit: (path: string) => `repoedit/${encodeURIComponent(path)}`,
-  documents: () => 'documents',
   freshDraft: () => 'new',
   gistEdit: (id: string, filename?: string) => (filename ? `edit/${id}/${encodeURIComponent(filename)}` : `edit/${id}`),
   gistView: (id: string, filename?: string) => (filename ? `gist/${id}/${encodeURIComponent(filename)}` : `gist/${id}`),

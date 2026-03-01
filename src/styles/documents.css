@@ -5,6 +5,12 @@
   padding: 24px 16px;
 }
 
+.documents-view--embedded {
+  max-width: none;
+  margin: 36px 0 0;
+  padding: 0;
+}
+
 .documents-header {
   display: flex;
   justify-content: space-between;
@@ -12,8 +18,8 @@
   margin-bottom: 16px;
 }
 
-.documents-header h1 {
-  font-size: 24px;
+.documents-title {
+  font-size: 22px;
   font-weight: 600;
 }
 
@@ -31,6 +37,17 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+.documents-new-btn {
+  background: #198754;
+  color: #fff;
+  border-color: #198754;
+}
+
+.documents-new-btn:hover {
+  background: #157347;
+  border-color: #146c43;
 }
 
 .document-card {
@@ -101,7 +118,7 @@
   max-width: 800px;
   width: 100%;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 40px 16px 56px;
 }
 
 .settings-alert {
@@ -135,7 +152,7 @@
 }
 
 .settings-view h1 {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
   margin-bottom: 14px;
 }
@@ -145,6 +162,10 @@
   border-radius: 8px;
   background: var(--toolbar-bg);
   padding: 16px;
+}
+
+.settings-user-panel {
+  padding: 12px;
 }
 
 .settings-user-header {
@@ -164,7 +185,6 @@
   display: inline-flex;
   border-radius: 50%;
   text-decoration: none;
-  transition: box-shadow 0.15s ease;
 }
 
 .settings-user-avatar-link:hover,
@@ -191,7 +211,6 @@
   justify-content: center;
   opacity: 0;
   transform: scale(0.9);
-  transition: opacity 0.15s ease, transform 0.15s ease, color 0.15s ease;
 }
 
 .settings-user-avatar-link:hover .settings-user-avatar-overlay,
@@ -206,11 +225,12 @@
 }
 
 .settings-user-name {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .settings-user-login {
+  font-size: 13px;
   color: var(--text-secondary);
   word-break: break-word;
 }
@@ -237,12 +257,22 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin: 14px 0 12px;
+  margin: 36px 0 12px;
 }
 
 .settings-repos-title {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
+}
+
+.settings-repos-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-repos-subtitle {
+  color: color-mix(in srgb, var(--text-secondary) 75%, transparent);
 }
 
 .settings-repo-list {
