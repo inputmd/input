@@ -52,7 +52,21 @@
   padding: 12px;
 }
 
+.sidebar-files-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
 .sidebar-disabled-message {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+.sidebar-empty-message {
   margin: 0;
   color: var(--text-secondary);
   font-size: 14px;

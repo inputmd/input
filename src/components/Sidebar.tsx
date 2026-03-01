@@ -131,7 +131,7 @@ export function Sidebar({
           </button>
         )}
       </div>
-      <div class="sidebar-files">
+      <div class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}`}>
         {files.map((f) => {
           const fileRow = (
             <div
@@ -214,6 +214,7 @@ export function Sidebar({
             </ContextMenu.Root>
           );
         })}
+        {files.length === 0 && !creatingNew && <p class="sidebar-empty-message">No files</p>}
         {!readOnly && creatingNew && (
           <div class="sidebar-file renaming">
             <input
