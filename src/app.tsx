@@ -1,5 +1,6 @@
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { parseAnsiToHtml } from './ansi';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -428,6 +429,14 @@ export function App() {
     setErrorMessage(msg);
     setViewPhase('error');
   }, []);
+  const showRateLimitToastIfNeeded = useCallback(
+    (err: unknown) => {
+      if (isRateLimitError(err)) {
+        showFailureToast(rateLimitToastMessage(err));
+      }
+    },
+    [showFailureToast],
+  );
 
   const focusEditorSoon = useCallback(() => {
     requestAnimationFrame(() => {
@@ -541,6 +550,10 @@ export function App() {
         showSuccessToast(processed.resized ? 'Image resized and uploaded' : 'Image uploaded');
       } catch (err) {
         dismissToast(uploadToastId);
+        if (isRateLimitError(err)) {
+          showFailureToast(rateLimitToastMessage(err));
+          return;
+        }
         const message = err instanceof Error ? err.message : 'Upload failed';
         showFailureToast(`Image upload failed: ${message}`);
       }
@@ -637,6 +650,7 @@ export function App() {
       }
       await createSession(id);
     } catch (err) {
+      showRateLimitToastIfNeeded(err);
       if (err instanceof Error && err.message === 'Unauthorized') {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
@@ -667,9 +681,10 @@ export function App() {
       const url = await getInstallUrl(state);
       window.location.assign(url);
     } catch (err) {
+      showRateLimitToastIfNeeded(err);
       void showAlert(err instanceof Error ? err.message : 'Failed to start GitHub App install');
     }
-  }, [showAlert]);
+  }, [showAlert, showRateLimitToastIfNeeded]);
 
   // --- Helpers ---
   const loadRepoMarkdownFiles = useCallback(async (instId: string, repoName: string): Promise<RepoDocFile[]> => {
@@ -719,7 +734,7 @@ export function App() {
             console.warn(`GitHub API failed (${res.status}), falling back to gist proxy`);
             res = await fetch(`/api/gists/${encodeURIComponent(id)}`);
           }
-          if (!res.ok) throw new Error(`Failed to fetch gist: ${res.status} ${res.statusText}`);
+          if (!res.ok) throw await responseToApiError(res);
           const data = await res.json();
           const files = data.files as Record<string, GistFile>;
           setGistFiles(files);
@@ -781,10 +796,11 @@ export function App() {
         });
         setViewPhase(null);
       } catch (err) {
+        showRateLimitToastIfNeeded(err);
         showError(err instanceof Error ? err.message : 'Unknown error');
       }
     },
-    [showError, currentGistId, gistFiles, renderDocumentContent, activeView, currentFileName],
+    [showError, currentGistId, gistFiles, renderDocumentContent, activeView, currentFileName, showRateLimitToastIfNeeded],
   );
 
   const loadRepoFile = useCallback(
@@ -849,6 +865,7 @@ export function App() {
           handleSessionExpired();
           return;
         }
+        showRateLimitToastIfNeeded(err);
         showError(err instanceof Error ? err.message : 'Failed to load file');
       }
     },
@@ -861,6 +878,7 @@ export function App() {
       renderDocumentContent,
       activeView,
       currentFileName,
+      showRateLimitToastIfNeeded,
     ],
   );
 
@@ -902,10 +920,11 @@ export function App() {
         );
         setViewPhase(null);
       } catch (err) {
+        showRateLimitToastIfNeeded(err);
         showError(err instanceof Error ? err.message : 'Failed to load file');
       }
     },
-    [activeView, currentFileName, loadPublicRepoMarkdownFiles, renderDocumentContent, showError],
+    [activeView, currentFileName, loadPublicRepoMarkdownFiles, renderDocumentContent, showError, showRateLimitToastIfNeeded],
   );
 
   // --- Route handler ---
@@ -960,6 +979,7 @@ export function App() {
             const target = indexFile ?? mdFiles[0];
             navigate(routePath.publicRepoFile(owner, repo, target.path), { replace: true });
           } catch (err) {
+            showRateLimitToastIfNeeded(err);
             showError(err instanceof Error ? err.message : 'Failed to load public repo documents');
           }
           return;
@@ -1000,6 +1020,7 @@ export function App() {
             // 404 means directory doesn't exist yet — fall through to repoNew
             const msg = err instanceof Error ? err.message : '';
             if (!msg.includes('404')) {
+              showRateLimitToastIfNeeded(err);
               showError(msg || 'Failed to load repo documents');
               return;
             }
@@ -1116,6 +1137,7 @@ export function App() {
             setEditContent(file.content ?? '');
             setViewPhase(null);
           } catch (err) {
+            showRateLimitToastIfNeeded(err);
             showError(err instanceof Error ? err.message : 'Failed to load gist');
           }
           return;
@@ -1151,6 +1173,7 @@ export function App() {
       currentGistId,
       gistFiles,
       handleSessionExpired,
+      showRateLimitToastIfNeeded,
     ],
   );
 
@@ -1390,6 +1413,7 @@ export function App() {
         handleSessionExpired();
         return;
       }
+      showRateLimitToastIfNeeded(err);
       void showAlert(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSaving(false);
@@ -1408,6 +1432,7 @@ export function App() {
     handleSessionExpired,
     user,
     showAlert,
+    showRateLimitToastIfNeeded,
     showSuccessToast,
     renderDocumentContent,
     repoFiles,
@@ -1475,10 +1500,11 @@ export function App() {
           navigate(routePath.repoEdit(result.content.path));
         }
       } catch (err) {
+        showRateLimitToastIfNeeded(err);
         void showAlert(err instanceof Error ? err.message : 'Failed to create file');
       }
     },
-    [getActiveDocumentStore, currentGistId, navigate, showAlert],
+    [getActiveDocumentStore, currentGistId, navigate, showAlert, showRateLimitToastIfNeeded],
   );
 
   const handleEditFile = useCallback(
@@ -1580,6 +1606,7 @@ export function App() {
           handleSessionExpired();
           return;
         }
+        showRateLimitToastIfNeeded(err);
         void showAlert(err instanceof Error ? err.message : 'Failed to delete file');
       }
     },
@@ -1592,6 +1619,7 @@ export function App() {
       handleSessionExpired,
       showConfirm,
       showAlert,
+      showRateLimitToastIfNeeded,
       currentGistId,
     ],
   );
@@ -1635,10 +1663,20 @@ export function App() {
           handleSessionExpired();
           return;
         }
+        showRateLimitToastIfNeeded(err);
         void showAlert(err instanceof Error ? err.message : 'Failed to rename file');
       }
     },
-    [getActiveDocumentStore, currentGistId, currentFileName, repoFiles, navigate, handleSessionExpired, showAlert],
+    [
+      getActiveDocumentStore,
+      currentGistId,
+      currentFileName,
+      repoFiles,
+      navigate,
+      handleSessionExpired,
+      showAlert,
+      showRateLimitToastIfNeeded,
+    ],
   );
 
   // --- GitHub App callbacks ---
@@ -1690,6 +1728,7 @@ export function App() {
                 handleSessionExpired();
                 return;
               }
+              showRateLimitToastIfNeeded(err);
               setInstallationRepos([]);
             } finally {
               setInstallationReposLoading(false);
@@ -1705,7 +1744,8 @@ export function App() {
               const gists = await listGists(1, 30);
               setMenuGists(gists);
               setMenuGistsLoaded(true);
-            } catch {
+            } catch (err) {
+              showRateLimitToastIfNeeded(err);
               setMenuGists([]);
             } finally {
               setMenuGistsLoading(false);
@@ -1724,6 +1764,7 @@ export function App() {
     handleSessionExpired,
     menuGistsLoading,
     menuGistsLoaded,
+    showRateLimitToastIfNeeded,
   ]);
 
   const onDisconnect = useCallback(async () => {

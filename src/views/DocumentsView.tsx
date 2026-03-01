@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
+import { isRateLimitError, rateLimitToastMessage } from '../api_error';
 import { useDialogs } from '../components/DialogProvider';
 import { DocumentCard } from '../components/DocumentCard';
+import { useToast } from '../components/ToastProvider';
 import {
   getRecentlyCreatedGists,
   getRecentlyDeletedGistIds,
@@ -31,6 +33,7 @@ export function DocumentsView({
   initialLoaded = false,
 }: DocumentsViewProps) {
   const { showAlert, showConfirm, showPrompt } = useDialogs();
+  const { showFailureToast } = useToast();
   const [gists, setGists] = useState<GistSummary[]>(initialLoaded ? initialGists : []);
   const [page, setPage] = useState(initialLoaded ? (initialGists.length < 30 ? 1 : 2) : 1);
   const [allLoaded, setAllLoaded] = useState(initialLoaded ? initialGists.length < 30 : false);
@@ -51,6 +54,9 @@ export function DocumentsView({
       setPage(reachedEnd ? p : p + 1);
       setError(null);
     } catch (err) {
+      if (isRateLimitError(err)) {
+        showFailureToast(rateLimitToastMessage(err));
+      }
       setError(err instanceof Error ? err.message : 'Failed to load documents');
     } finally {
       setLoading(false);
@@ -89,6 +95,9 @@ export function DocumentsView({
       markGistRecentlyDeleted(userLogin, gist.id);
       setGists((prev) => prev.filter((g) => g.id !== gist.id));
     } catch (err) {
+      if (isRateLimitError(err)) {
+        showFailureToast(rateLimitToastMessage(err));
+      }
       void showAlert(err instanceof Error ? err.message : 'Failed to delete');
     }
   };
@@ -107,6 +116,9 @@ export function DocumentsView({
         ),
       );
     } catch (err) {
+      if (isRateLimitError(err)) {
+        showFailureToast(rateLimitToastMessage(err));
+      }
       void showAlert(err instanceof Error ? err.message : 'Failed to rename');
     }
   };

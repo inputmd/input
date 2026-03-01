@@ -1,3 +1,5 @@
+import { responseToApiError } from './api_error';
+
 const API_BASE = '/api/github';
 const DEFAULT_GISTS_CACHE_TTL_MS = 120_000;
 const DEFAULT_GIST_DETAIL_CACHE_TTL_MS = 120_000;
@@ -308,22 +310,19 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
   if (res.status === 401) {
     throw new Error('Unauthorized');
   }
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw await responseToApiError(res);
   return res;
 }
 
 export async function getAuthSession(): Promise<AuthSessionResponse> {
   const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
-  if (!res.ok) throw new Error(`Failed to fetch auth session: ${res.status} ${res.statusText}`);
+  if (!res.ok) throw await responseToApiError(res);
   return res.json();
 }
 
 export async function logout(): Promise<void> {
   const res = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
-  if (!res.ok) throw new Error(`Failed to logout: ${res.status} ${res.statusText}`);
+  if (!res.ok) throw await responseToApiError(res);
 }
 
 export async function listGists(page = 1, perPage = 30): Promise<GistSummary[]> {

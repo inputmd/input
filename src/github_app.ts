@@ -1,3 +1,5 @@
+import { responseToApiError } from './api_error';
+
 const INSTALLATION_ID_KEY = 'github_app_installation_id';
 const SELECTED_REPO_KEY = 'github_app_selected_repo';
 const PENDING_INSTALLATION_ID_KEY = 'github_app_pending_installation_id';
@@ -82,19 +84,13 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
   if (res.status === 401) {
     throw new SessionExpiredError();
   }
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw await responseToApiError(res);
   return res;
 }
 
 async function publicFetch(url: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(url, init);
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw await responseToApiError(res);
   return res;
 }
 
@@ -107,10 +103,7 @@ export async function createSession(installationId: string): Promise<void> {
     credentials: 'same-origin',
     body: JSON.stringify({ installationId }),
   });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw await responseToApiError(res);
   await res.json();
 }
 
@@ -119,10 +112,7 @@ export async function disconnectInstallation(): Promise<void> {
     method: 'POST',
     credentials: 'same-origin',
   });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw await responseToApiError(res);
 }
 
 export function createInstallState(): string {
@@ -198,7 +188,7 @@ export function consumeInstallState(actualState: string | null): boolean {
 
 export async function getInstallUrl(state: string): Promise<string> {
   const res = await fetch(`/api/github-app/install-url?state=${encodeURIComponent(state)}`);
-  if (!res.ok) throw new Error(`Failed to get install URL: ${res.status} ${res.statusText}`);
+  if (!res.ok) throw await responseToApiError(res);
   const data = (await res.json()) as { url: string };
   return data.url;
 }
