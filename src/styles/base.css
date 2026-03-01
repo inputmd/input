@@ -131,7 +131,7 @@ body {
 }
 
 .app-body--with-sidebar main {
-  margin-left: 220px;
+  margin-left: var(--sidebar-width, 220px);
 }
 
 @media (max-width: 768px) {

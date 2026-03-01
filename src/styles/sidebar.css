@@ -4,7 +4,7 @@
   left: 0;
   bottom: 0;
   z-index: 5;
-  width: 220px;
+  width: var(--sidebar-width, 220px);
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--toolbar-bg);
@@ -12,6 +12,23 @@
   display: flex;
   flex-direction: column;
   font-size: 15px;
+}
+
+.sidebar-splitter {
+  position: fixed;
+  top: var(--toolbar-height);
+  left: calc(var(--sidebar-width, 220px) - 4px);
+  bottom: 0;
+  z-index: 6;
+  width: 8px;
+  cursor: col-resize;
+  background: var(--toolbar-bg);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.sidebar-splitter:hover {
+  background: var(--btn-hover);
 }
 
 .sidebar-header {
@@ -195,5 +212,9 @@
     inset: 0;
     background: rgba(0, 0, 0, 0.4);
     z-index: 24;
+  }
+
+  .sidebar-splitter {
+    display: none;
   }
 }

@@ -67,11 +67,15 @@ import { LoadingView } from './views/LoadingView';
 import { WorkspacesView } from './views/WorkspacesView';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
+const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
 const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
+const DEFAULT_SIDEBAR_WIDTH_PX = 220;
+const MIN_SIDEBAR_WIDTH_PX = 180;
+const MAX_SIDEBAR_WIDTH_PX = 420;
 const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
 const PASTED_IMAGE_MAX_SIDE_PX = 1600;
 const PASTED_IMAGE_QUALITY = 0.82;
@@ -148,6 +152,10 @@ function normalizeRepoPath(path: string): string | null {
     parts.push(part);
   }
   return parts.join('/');
+}
+
+function clampSidebarWidth(width: number): number {
+  return Math.max(MIN_SIDEBAR_WIDTH_PX, Math.min(MAX_SIDEBAR_WIDTH_PX, width));
 }
 
 function resolveRepoAssetPath(currentDocPath: string, src: string): string | null {
@@ -358,6 +366,14 @@ export function App() {
   const [repoFiles, setRepoFiles] = useState<RepoDocFile[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH_PX;
+    try {
+      const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+      if (Number.isFinite(raw)) return clampSidebarWidth(raw);
+    } catch {}
+    return DEFAULT_SIDEBAR_WIDTH_PX;
+  });
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
     if (typeof window !== 'undefined' && !window.matchMedia(DESKTOP_MEDIA_QUERY).matches) {
       return false;
@@ -1212,6 +1228,12 @@ export function App() {
     } catch {}
   }, [previewVisible]);
 
+  useLayoutEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    } catch {}
+  }, [sidebarWidth]);
+
   const onTogglePreview = useCallback(() => {
     setPreviewVisible((v) => !v);
   }, []);
@@ -1851,6 +1873,23 @@ export function App() {
       return !current;
     });
   }, [defaultShowSidebar]);
+  const onSidebarSplitPointerDown = useCallback(
+    (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
+      if (!isDesktopWidth) return;
+      const onMove = (moveEvent: globalThis.PointerEvent) => {
+        setSidebarWidth(clampSidebarWidth(moveEvent.clientX));
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      event.preventDefault();
+    },
+    [isDesktopWidth],
+  );
   const onOpenLightbox = useCallback((src: string, alt: string) => {
     setLightboxImage({ src, alt });
   }, []);
@@ -1913,7 +1952,10 @@ export function App() {
         canSave={hasUnsavedChanges}
         onSave={onSave}
       />
-      <div class={showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}>
+      <div
+        class={showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}
+        style={showSidebar ? ({ '--sidebar-width': `${sidebarWidth}px` } as JSX.CSSProperties) : undefined}
+      >
         {showSidebar && (
           <>
             <div class="sidebar-backdrop" onClick={onToggleSidebar} />
@@ -1929,6 +1971,7 @@ export function App() {
               onDeleteFile={handleDeleteFile}
               onRenameFile={handleRenameFile}
             />
+            <div class="sidebar-splitter" role="separator" aria-orientation="vertical" onPointerDown={onSidebarSplitPointerDown} />
           </>
         )}
         <ErrorBoundary
