@@ -36,6 +36,7 @@ interface ToolbarProps {
   onToggleTheme: () => void;
   onToggleSidebar: () => void;
   onEdit: () => void;
+  showLeftLoading: boolean;
 }
 
 export function Toolbar({
@@ -67,6 +68,7 @@ export function Toolbar({
   onToggleTheme,
   onToggleSidebar,
   onEdit,
+  showLeftLoading,
 }: ToolbarProps) {
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
@@ -77,112 +79,124 @@ export function Toolbar({
   return (
     <header class="toolbar">
       <div class="toolbar-left">
-        {showSidebarToggle ? (
-          <button
-            type="button"
-            class="document-menu-trigger"
-            onClick={onToggleSidebar}
-            aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-          >
-            {sidebarVisible ? (
-              <PanelLeftClose size={20} aria-hidden="true" />
-            ) : (
-              <PanelLeftOpen size={20} aria-hidden="true" />
-            )}
-          </button>
-        ) : null}
-        {showGitHubApp && (
-          <DropdownMenu.Root
-            onOpenChange={(open: boolean) => {
-              if (open) onOpenRepoMenu();
-            }}
-          >
-            <DropdownMenu.Trigger asChild>
-              <button type="button" class="repo-menu-trigger" aria-label="Navigation menu">
-                {inRepoContext && selectedRepo ? (
-                  <>
-                    <RepoPrivacyIcon size={14} aria-hidden="true" />
-                    {selectedRepo}
-                  </>
+        {showLeftLoading ? (
+          <div class="toolbar-left-loading" role="status" aria-label="Loading workspace">
+            <span class="toolbar-spinner" aria-hidden="true" />
+          </div>
+        ) : (
+          <>
+            {showSidebarToggle ? (
+              <button
+                type="button"
+                class="document-menu-trigger"
+                onClick={onToggleSidebar}
+                aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+                title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+              >
+                {sidebarVisible ? (
+                  <PanelLeftClose size={20} aria-hidden="true" />
                 ) : (
-                  'My Workspaces'
+                  <PanelLeftOpen size={20} aria-hidden="true" />
                 )}
-                <ChevronDown size={14} aria-hidden="true" />
               </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content class="repo-menu-content" sideOffset={6} align="start">
-                <div class="repo-menu-section-label">Repos</div>
-                {repoListLoading ? (
-                  <DropdownMenu.Item class="repo-menu-item" disabled>
-                    Loading repos...
-                  </DropdownMenu.Item>
-                ) : availableRepos.length === 0 ? (
-                  <DropdownMenu.Item class="repo-menu-item" disabled>
-                    No connected repos
-                  </DropdownMenu.Item>
-                ) : (
-                  availableRepos.map((repo) => {
-                    const PrivacyIcon = repo.private ? Lock : Globe;
-                    const isSelected = selectedRepo === repo.full_name;
-                    return (
-                      <DropdownMenu.Item
-                        key={repo.id}
-                        class="repo-menu-item"
-                        onSelect={() => {
-                          onSelectRepo(repo.full_name, repo.id, repo.private);
-                          navigate(routePath.repoDocuments(), {
-                            state: {
-                              selectedRepo: {
-                                full_name: repo.full_name,
-                                id: repo.id,
-                                private: repo.private,
-                              },
-                            },
-                          });
-                        }}
-                      >
-                        <span class="repo-menu-item-main">
-                          <PrivacyIcon size={14} aria-hidden="true" />
-                          <span>{repo.full_name}</span>
-                        </span>
-                        {isSelected && inRepoContext ? <Check size={14} aria-hidden="true" /> : null}
+            ) : null}
+            {showGitHubApp && (
+              <DropdownMenu.Root
+                onOpenChange={(open: boolean) => {
+                  if (open) onOpenRepoMenu();
+                }}
+              >
+                <DropdownMenu.Trigger asChild>
+                  <button type="button" class="repo-menu-trigger" aria-label="Navigation menu">
+                    {inRepoContext && selectedRepo ? (
+                      <>
+                        <RepoPrivacyIcon size={14} aria-hidden="true" />
+                        {selectedRepo}
+                      </>
+                    ) : (
+                      'My Workspaces'
+                    )}
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content class="repo-menu-content" sideOffset={6} align="start">
+                    <div class="repo-menu-section-label">Repos</div>
+                    {repoListLoading ? (
+                      <DropdownMenu.Item class="repo-menu-item" disabled>
+                        Loading repos...
                       </DropdownMenu.Item>
-                    );
-                  })
-                )}
-                <DropdownMenu.Separator class="user-menu-separator" />
-                <div class="repo-menu-section-label">Gists</div>
-                {menuGistsLoading ? (
-                  <DropdownMenu.Item class="repo-menu-item" disabled>
-                    Loading gists...
-                  </DropdownMenu.Item>
-                ) : menuGists.length === 0 ? (
-                  <DropdownMenu.Item class="repo-menu-item" disabled>
-                    No gists
-                  </DropdownMenu.Item>
-                ) : (
-                  menuGists.map((gist) => (
-                    <DropdownMenu.Item
-                      key={gist.id}
-                      class="repo-menu-item"
-                      onSelect={() => navigate(routePath.gistView(gist.id))}
-                    >
-                      <span class="repo-menu-item-main">
-                        {gist.public ? <Globe size={14} aria-hidden="true" /> : <Link2 size={14} aria-hidden="true" />}
-                        <span>{gist.description || 'Untitled'}</span>
-                      </span>
+                    ) : availableRepos.length === 0 ? (
+                      <DropdownMenu.Item class="repo-menu-item" disabled>
+                        No connected repos
+                      </DropdownMenu.Item>
+                    ) : (
+                      availableRepos.map((repo) => {
+                        const PrivacyIcon = repo.private ? Lock : Globe;
+                        const isSelected = selectedRepo === repo.full_name;
+                        return (
+                          <DropdownMenu.Item
+                            key={repo.id}
+                            class="repo-menu-item"
+                            onSelect={() => {
+                              onSelectRepo(repo.full_name, repo.id, repo.private);
+                              navigate(routePath.repoDocuments(), {
+                                state: {
+                                  selectedRepo: {
+                                    full_name: repo.full_name,
+                                    id: repo.id,
+                                    private: repo.private,
+                                  },
+                                },
+                              });
+                            }}
+                          >
+                            <span class="repo-menu-item-main">
+                              <PrivacyIcon size={14} aria-hidden="true" />
+                              <span>{repo.full_name}</span>
+                            </span>
+                            {isSelected && inRepoContext ? <Check size={14} aria-hidden="true" /> : null}
+                          </DropdownMenu.Item>
+                        );
+                      })
+                    )}
+                    <DropdownMenu.Separator class="user-menu-separator" />
+                    <div class="repo-menu-section-label">Gists</div>
+                    {menuGistsLoading ? (
+                      <DropdownMenu.Item class="repo-menu-item" disabled>
+                        Loading gists...
+                      </DropdownMenu.Item>
+                    ) : menuGists.length === 0 ? (
+                      <DropdownMenu.Item class="repo-menu-item" disabled>
+                        No gists
+                      </DropdownMenu.Item>
+                    ) : (
+                      menuGists.map((gist) => (
+                        <DropdownMenu.Item
+                          key={gist.id}
+                          class="repo-menu-item"
+                          onSelect={() => navigate(routePath.gistView(gist.id))}
+                        >
+                          <span class="repo-menu-item-main">
+                            {gist.public ? (
+                              <Globe size={14} aria-hidden="true" />
+                            ) : (
+                              <Link2 size={14} aria-hidden="true" />
+                            )}
+                            <span>{gist.description || 'Untitled'}</span>
+                          </span>
+                        </DropdownMenu.Item>
+                      ))
+                    )}
+                    <DropdownMenu.Separator class="user-menu-separator" />
+                    <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.workspaces())}>
+                      Manage Workspaces
                     </DropdownMenu.Item>
-                  ))
-                )}
-                <DropdownMenu.Separator class="user-menu-separator" />
-                <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.workspaces())}>
-                  Manage Workspaces
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            )}
+          </>
         )}
       </div>
       <div class="toolbar-right">

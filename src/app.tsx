@@ -1989,6 +1989,7 @@ export function App() {
     (activeView === 'content' || activeView === 'edit') &&
     repoAccessMode === 'installed' &&
     (currentRepoDocPath !== null || (editingBackend === 'repo' && selectedRepo !== null));
+  const showHeaderLeftLoading = activeView === 'loading' && Boolean(user);
 
   return (
     <>
@@ -2016,6 +2017,7 @@ export function App() {
         onToggleTheme={toggleTheme}
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
+        showLeftLoading={showHeaderLeftLoading}
         showPreviewToggle={activeView === 'edit' && editPreviewEnabled}
         previewVisible={previewVisible}
         onTogglePreview={onTogglePreview}
