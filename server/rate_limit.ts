@@ -1,5 +1,5 @@
-import type http from 'node:http';
-import { json } from './http_helpers';
+import { getConnInfo } from '@hono/node-server/conninfo';
+import { createMiddleware } from 'hono/factory';
 import type { RateLimitEntry } from './types';
 
 const RATE_LIMIT_MAX = 30;
@@ -20,24 +20,24 @@ export function startRateLimitCleanup(): void {
   ).unref();
 }
 
-function getClientIp(req: http.IncomingMessage): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
+function getClientIp(c: Parameters<Parameters<typeof createMiddleware>[0]>[0]): string {
+  const forwarded = c.req.header('x-forwarded-for');
+  if (forwarded) {
     const first = forwarded.split(',')[0].trim();
     if (first) return first;
   }
-  return req.socket.remoteAddress || 'unknown';
+  const info = getConnInfo(c);
+  return info.remote.address || 'unknown';
 }
 
-export function checkRateLimit(req: http.IncomingMessage, res: http.ServerResponse): boolean {
-  const ip = getClientIp(req);
+export const rateLimitMiddleware = createMiddleware(async (c, next) => {
+  const ip = getClientIp(c);
   const now = Date.now();
   let entry = rateLimitWindows.get(ip);
 
   if (!entry || now >= entry.resetAtMs) {
     if (!entry && rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES) {
-      json(res, 429, { error: 'Too many requests' });
-      return false;
+      return c.json({ error: 'Too many requests' }, 429);
     }
     entry = { count: 0, resetAtMs: now + RATE_LIMIT_WINDOW_MS };
     rateLimitWindows.set(ip, entry);
@@ -46,10 +46,9 @@ export function checkRateLimit(req: http.IncomingMessage, res: http.ServerRespon
   entry.count++;
   if (entry.count > RATE_LIMIT_MAX) {
     const retryAfter = Math.ceil((entry.resetAtMs - now) / 1000);
-    res.setHeader('Retry-After', String(retryAfter));
-    json(res, 429, { error: 'Too many requests' });
-    return false;
+    c.header('Retry-After', String(retryAfter));
+    return c.json({ error: 'Too many requests' }, 429);
   }
 
-  return true;
-}
+  await next();
+});

@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
-import type http from 'node:http';
 import path from 'node:path';
+import { createMiddleware } from 'hono/factory';
 
 const DIST_DIR = path.resolve(new URL('../dist', import.meta.url).pathname);
 
@@ -17,24 +17,43 @@ const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain',
 };
 
-export async function serveStatic(res: http.ServerResponse, pathname: string): Promise<boolean> {
-  const safePath = path.normalize(decodeURIComponent(pathname));
-  const filePath = path.join(DIST_DIR, safePath);
-  if (!filePath.startsWith(DIST_DIR)) return false;
-
+async function tryServeFile(filePath: string): Promise<Response | null> {
+  if (!filePath.startsWith(DIST_DIR)) return null;
   try {
     const s = await stat(filePath);
-    if (!s.isFile()) return false;
+    if (!s.isFile()) return null;
 
     const ext = path.extname(filePath);
     const content = await readFile(filePath);
-    res.writeHead(200, {
+    const headers: Record<string, string> = {
       'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-      ...(ext !== '.html' ? { 'Cache-Control': 'public, max-age=31536000, immutable' } : {}),
-    });
-    res.end(content);
-    return true;
+    };
+    if (ext !== '.html') {
+      headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+    }
+    return new Response(content, { status: 200, headers });
   } catch {
-    return false;
+    return null;
   }
 }
+
+export const serveStaticMiddleware = createMiddleware(async (c, next) => {
+  if (c.req.method !== 'GET') {
+    await next();
+    return;
+  }
+
+  const pathname = decodeURIComponent(new URL(c.req.url).pathname);
+  const safePath = path.normalize(pathname);
+  const filePath = path.join(DIST_DIR, safePath);
+
+  const res = await tryServeFile(filePath);
+  if (res) return res;
+
+  // SPA fallback: serve index.html for unmatched GET requests
+  const indexPath = path.join(DIST_DIR, 'index.html');
+  const indexRes = await tryServeFile(indexPath);
+  if (indexRes) return indexRes;
+
+  await next();
+});
