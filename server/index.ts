@@ -1,16 +1,17 @@
 import './env';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { PORT } from './config';
+import { bodyLimit } from 'hono/body-limit';
+import { MAX_BODY_BYTES, PORT } from './config';
 import { corsMiddleware } from './cors';
-import { ClientError } from './errors';
+import { HTTPException } from 'hono/http-exception';
 import { startGistCacheCleanup } from './gist_cache';
 import { startInstallationTokenCacheCleanup } from './github_client';
 import { startRateLimitCleanup, rateLimitMiddleware } from './rate_limit';
 import { api } from './routes';
 import { securityHeaders } from './security_headers';
 import { startSessionCleanup } from './session';
-import { serveStaticMiddleware } from './static_files';
+import { serveStaticMiddleware, spaFallback } from './static_files';
 
 startInstallationTokenCacheCleanup();
 startGistCacheCleanup();
@@ -23,19 +24,21 @@ const app = new Hono();
 app.use('*', securityHeaders);
 app.use('*', corsMiddleware);
 
-// Rate limiting on API routes
+// Rate limiting and body size limit on API routes
 app.use('/api/*', rateLimitMiddleware);
+app.use('/api/*', bodyLimit({ maxSize: MAX_BODY_BYTES }));
 
 // API routes
 app.route('/api', api);
 
 // Static files + SPA fallback
 app.use('*', serveStaticMiddleware);
+app.use('*', spaFallback);
 
 // Error handler
 app.onError((err, c) => {
-  if (err instanceof ClientError) {
-    return c.json({ error: err.message }, err.statusCode as 400);
+  if (err instanceof HTTPException) {
+    return c.json({ error: err.message }, err.status);
   }
   console.error('Unhandled server error:', err);
   return c.json({ error: 'Internal server error' }, 500);

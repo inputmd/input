@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_FETCH_TIMEOUT_MS, GITHUB_TOKEN } from './config';
-import { ClientError } from './errors';
+import { HTTPException } from 'hono/http-exception';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
 import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
 import { requireEnv, requireString } from './http_helpers';
@@ -49,14 +49,14 @@ function normalizeReturnTo(raw: string | null): string {
 
 function requireAuthSession(c: Context): Session {
   const session = getSession(c);
-  if (!session) throw new ClientError('Unauthorized', 401);
+  if (!session) throw new HTTPException(401, { message: 'Unauthorized' });
   return session;
 }
 
 function requireMatchedInstallation(c: Context, session: Session, paramName: string): string {
   const installationId = c.req.param(paramName);
   if (!session.installationId || session.installationId !== installationId) {
-    throw new ClientError('Forbidden', 403);
+    throw new HTTPException(403, { message: 'Forbidden' });
   }
   return installationId;
 }
@@ -87,7 +87,7 @@ async function proxyGitHubJson(
   const data = (await ghRes.json().catch(() => null)) as unknown;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
-    if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
+    if (ghRes.status === 401) throw new HTTPException(401, { message: 'Unauthorized' });
     return c.json({ error: err?.message ?? 'GitHub API error' }, ghRes.status as 400);
   }
   return c.json(data, 200);
@@ -301,7 +301,7 @@ api.delete('/github/gists/:id', async (c) => {
   });
   if (!ghRes.ok) {
     const data = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
-    if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
+    if (ghRes.status === 401) throw new HTTPException(401, { message: 'Unauthorized' });
     return c.json({ error: data?.message ?? 'GitHub API error' }, ghRes.status as 400);
   }
   return c.json({ ok: true }, 200);
@@ -399,7 +399,7 @@ api.get('/github-app/installations/:installationId/repos/:owner/:repo/contents',
   const data = (await ghRes.json().catch(() => null)) as unknown;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
-    if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
+    if (ghRes.status === 401) throw new HTTPException(401, { message: 'Unauthorized' });
     return c.json({ error: err?.message ?? 'GitHub API error' }, ghRes.status as 400);
   }
   return c.json(data, 200);
@@ -415,7 +415,7 @@ api.put('/github-app/installations/:installationId/repos/:owner/:repo/contents',
   const pathParam = requireString(body, 'path');
   const message = requireString(body, 'message');
   const content = body?.content;
-  if (typeof content !== 'string') throw new ClientError('content is required');
+  if (typeof content !== 'string') throw new HTTPException(400, { message: 'content is required' });
   const sha = typeof body?.sha === 'string' ? body.sha : undefined;
   const branch = typeof body?.branch === 'string' ? body.branch : undefined;
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
@@ -455,7 +455,7 @@ api.get('/github-app/installations/:installationId/repos/:owner/:repo/raw', asyn
   const owner = c.req.param('owner');
   const repo = c.req.param('repo');
   const pathParam = c.req.query('path');
-  if (!pathParam) throw new ClientError('path is required');
+  if (!pathParam) throw new HTTPException(400, { message: 'path is required' });
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
   const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
@@ -512,7 +512,7 @@ api.get('/public/repos/:owner/:repo/raw', async (c) => {
   const owner = c.req.param('owner');
   const repo = c.req.param('repo');
   const pathParam = c.req.query('path');
-  if (!pathParam) throw new ClientError('path is required');
+  if (!pathParam) throw new HTTPException(400, { message: 'path is required' });
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
   const ghRes = await fetchPublicGitHub(ghPath, {
@@ -615,7 +615,7 @@ api.get('/gists/:id', async (c) => {
       return c.json(cached.data, 200);
     }
     console.error('Gist fetch failed:', err);
-    throw new ClientError('Failed to load gist', 502);
+    throw new HTTPException(502, { message: 'Failed to load gist' });
   }
 });
 

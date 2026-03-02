@@ -1,4 +1,4 @@
-import { ClientError } from './errors';
+import { HTTPException } from 'hono/http-exception';
 
 export function requireEnv(name: string): string {
   const value = process.env[name];
@@ -8,7 +8,7 @@ export function requireEnv(name: string): string {
 
 export function requireString(body: Record<string, unknown> | null, key: string): string {
   const value = body?.[key];
-  if (typeof value !== 'string' || !value.trim()) throw new ClientError(`${key} is required`);
+  if (typeof value !== 'string' || !value.trim()) throw new HTTPException(400, { message: `${key} is required` });
   return value;
 }
 
