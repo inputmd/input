@@ -431,7 +431,12 @@ export async function getRepoContents(
   return data;
 }
 
-export async function getPublicRepoContents(owner: string, repo: string, path: string, ref?: string): Promise<RepoContents> {
+export async function getPublicRepoContents(
+  owner: string,
+  repo: string,
+  path: string,
+  ref?: string,
+): Promise<RepoContents> {
   const cacheIdentity = publicRepoContentsCacheIdentity(owner, repo);
   const cacheKey = repoContentsCacheKey(cacheIdentity, `${owner}/${repo}`, path, ref);
   const cached = getCachedRepoContents(cacheKey);
@@ -439,7 +444,9 @@ export async function getPublicRepoContents(owner: string, repo: string, path: s
 
   const qs = new URLSearchParams({ path });
   if (ref) qs.set('ref', ref);
-  const res = await publicFetch(`/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`);
+  const res = await publicFetch(
+    `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`,
+  );
   const data = (await res.json()) as RepoContents;
   setCachedRepoContents(cacheKey, data);
   return data;
@@ -470,11 +477,7 @@ function setCachedRepoTree(key: string, value: RepoTreeResult): void {
   repoTreeCache.set(key, { value, expiresAt: Date.now() + repoContentsCacheTtlMs });
 }
 
-export async function getRepoTree(
-  installationId: string,
-  repoFullName: string,
-  ref?: string,
-): Promise<RepoTreeResult> {
+export async function getRepoTree(installationId: string, repoFullName: string, ref?: string): Promise<RepoTreeResult> {
   const key = repoTreeCacheKey(installationId, repoFullName, ref);
   const cached = getCachedRepoTree(key);
   if (cached) return cached;
@@ -490,11 +493,7 @@ export async function getRepoTree(
   return data;
 }
 
-export async function getPublicRepoTree(
-  owner: string,
-  repo: string,
-  ref?: string,
-): Promise<RepoTreeResult> {
+export async function getPublicRepoTree(owner: string, repo: string, ref?: string): Promise<RepoTreeResult> {
   const identity = publicRepoContentsCacheIdentity(owner, repo);
   const key = repoTreeCacheKey(identity, `${owner}/${repo}`, ref);
   const cached = getCachedRepoTree(key);

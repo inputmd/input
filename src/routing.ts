@@ -53,7 +53,8 @@ const ROUTE_TABLE: RouteDef[] = [
 export const routePath = {
   home: () => '',
   workspaces: () => 'workspaces',
-  publicRepoDocuments: (owner: string, repo: string) => `repo/load/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+  publicRepoDocuments: (owner: string, repo: string) =>
+    `repo/load/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
   publicRepoFile: (owner: string, repo: string, path: string) =>
     getSubdomainOwner()
       ? encodeURIComponent(path)

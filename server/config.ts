@@ -22,7 +22,11 @@ export function isAllowedOrigin(origin: string): boolean {
   // Allow https://<sub>.input.md
   try {
     const url = new URL(origin);
-    if (url.protocol === 'https:' && url.hostname.endsWith('.input.md') && !url.hostname.slice(0, -'.input.md'.length).includes('.')) {
+    if (
+      url.protocol === 'https:' &&
+      url.hostname.endsWith('.input.md') &&
+      !url.hostname.slice(0, -'.input.md'.length).includes('.')
+    ) {
       return true;
     }
     // Dev: http://<sub>.localhost:<port>

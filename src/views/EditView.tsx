@@ -187,11 +187,7 @@ export function EditView({
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane">
-            <div
-              class="rendered-markdown"
-              onClick={onPreviewClick}
-              dangerouslySetInnerHTML={{ __html: previewHtml }}
-            />
+            <div class="rendered-markdown" onClick={onPreviewClick} dangerouslySetInnerHTML={{ __html: previewHtml }} />
           </div>
         </>
       )}

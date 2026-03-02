@@ -56,9 +56,12 @@ export function ToastProvider({ children }: { children: ComponentChildren }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const dismissToast = useCallback((id: number) => {
-    removeToast(id);
-  }, [removeToast]);
+  const dismissToast = useCallback(
+    (id: number) => {
+      removeToast(id);
+    },
+    [removeToast],
+  );
 
   return (
     <ToastContext.Provider value={{ showToast, showSuccessToast, showFailureToast, showLoadingToast, dismissToast }}>

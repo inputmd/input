@@ -1212,6 +1212,7 @@ export function App() {
       startGitHubSignIn,
       handleSessionExpired,
       showRateLimitToastIfNeeded,
+      defaultPreviewVisible,
     ],
   );
 
