@@ -1,13 +1,16 @@
 import './env';
-import { serve } from '@hono/node-server';
+import type http from 'node:http';
+import { getRequestListener, serve } from '@hono/node-server';
+import type { QuoteData } from '@teekit/tunnel';
+import { TunnelServer } from '@teekit/tunnel';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { HTTPException } from 'hono/http-exception';
 import { MAX_BODY_BYTES, PORT } from './config';
 import { corsMiddleware } from './cors';
-import { HTTPException } from 'hono/http-exception';
 import { startGistCacheCleanup } from './gist_cache';
 import { startInstallationTokenCacheCleanup } from './github_client';
-import { startRateLimitCleanup, rateLimitMiddleware } from './rate_limit';
+import { rateLimitMiddleware, startRateLimitCleanup } from './rate_limit';
 import { api } from './routes';
 import { securityHeaders } from './security_headers';
 import { startSessionCleanup } from './session';
@@ -44,25 +47,62 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, 500);
 });
 
-const server = serve(
-  { fetch: app.fetch, port: PORT, hostname: '0.0.0.0' },
-  () => {
-    const configured = Boolean(
-      process.env.GITHUB_APP_ID &&
-        (process.env.GITHUB_APP_PRIVATE_KEY || process.env.GITHUB_APP_PRIVATE_KEY_PATH) &&
-        process.env.GITHUB_APP_SLUG &&
-        process.env.GITHUB_CLIENT_ID &&
-        process.env.GITHUB_CLIENT_SECRET,
-    );
-    console.log(`GitHub App auth server listening on http://0.0.0.0:${PORT} (configured=${configured})`);
-  },
-);
+// Convert Hono app to a Node.js-compatible request listener for TunnelServer
+const nodeHandler = getRequestListener(app.fetch);
 
-function gracefulShutdown(signal: string): void {
-  console.log(`\n${signal} received, shutting down gracefully...`);
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 5000).unref();
+async function startServer(): Promise<http.Server> {
+  const getQuote = process.env.TEEKIT_GET_QUOTE_URL;
+
+  if (getQuote) {
+    // Running inside a TEE — use TunnelServer for encrypted channels
+    const tunnelServer = await TunnelServer.initialize(
+      nodeHandler as any,
+      async (x25519PublicKey: Uint8Array): Promise<QuoteData> => {
+        const res = await fetch(getQuote, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            report_data: Buffer.from(x25519PublicKey).toString('base64'),
+          }),
+        });
+        if (!res.ok) {
+          throw new Error(`Failed to get quote: ${res.status} ${res.statusText}`);
+        }
+        return (await res.json()) as QuoteData;
+      },
+    );
+    return new Promise((resolve) => {
+      tunnelServer.server.listen(PORT, '0.0.0.0', () => {
+        resolve(tunnelServer.server);
+      });
+    });
+  }
+
+  // Standard mode — use Hono's built-in serve
+  return new Promise((resolve) => {
+    const s = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () => {
+      resolve(s);
+    });
+  });
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+startServer().then((server) => {
+  const configured = Boolean(
+    process.env.GITHUB_APP_ID &&
+      (process.env.GITHUB_APP_PRIVATE_KEY || process.env.GITHUB_APP_PRIVATE_KEY_PATH) &&
+      process.env.GITHUB_APP_SLUG &&
+      process.env.GITHUB_CLIENT_ID &&
+      process.env.GITHUB_CLIENT_SECRET,
+  );
+  const mode = process.env.TEEKIT_GET_QUOTE_URL ? 'teekit' : 'standard';
+  console.log(`GitHub App auth server listening on http://0.0.0.0:${PORT} (configured=${configured}, mode=${mode})`);
+
+  function gracefulShutdown(signal: string): void {
+    console.log(`\n${signal} received, shutting down gracefully...`);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 5000).unref();
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+});
