@@ -81,6 +81,7 @@ export function Toolbar({
   const showGitHubApp = !!user;
   const showSidebarToggle = view === 'content' || view === 'edit';
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
+  const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
 
   return (
     <header class="toolbar">
@@ -196,7 +197,7 @@ export function Toolbar({
                     )}
                     <DropdownMenu.Separator class="user-menu-separator" />
                     <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.workspaces())}>
-                      Manage Workspaces
+                      {noReposOrGists ? 'Get started...' : 'Manage Workspaces'}
                     </DropdownMenu.Item>
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
