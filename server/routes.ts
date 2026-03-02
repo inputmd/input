@@ -656,15 +656,23 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
 
 type GitTreeEntry = { path: string; type: string; sha: string };
 
-function mdFilesFromTree(tree: GitTreeEntry[]): { name: string; path: string; sha: string }[] {
+function filesFromTree(tree: GitTreeEntry[], markdownOnly: boolean): { name: string; path: string; sha: string }[] {
   const files: { name: string; path: string; sha: string }[] = [];
   for (const entry of tree) {
-    if (entry.type !== 'blob' || !entry.path.toLowerCase().endsWith('.md')) continue;
+    if (entry.type !== 'blob') continue;
+    if (markdownOnly && !entry.path.toLowerCase().endsWith('.md')) continue;
     const slash = entry.path.lastIndexOf('/');
     files.push({ name: slash === -1 ? entry.path : entry.path.slice(slash + 1), path: entry.path, sha: entry.sha });
   }
   files.sort((a, b) => a.path.localeCompare(b.path));
   return files;
+}
+
+function markdownOnlyTreeQuery(url: URL): boolean {
+  const raw = url.searchParams.get('markdown_only');
+  if (!raw) return true;
+  const value = raw.toLowerCase();
+  return !(value === '0' || value === 'false' || value === 'no');
 }
 
 async function handleGetTree(ctx: RouteContext): Promise<void> {
@@ -674,11 +682,12 @@ async function handleGetTree(ctx: RouteContext): Promise<void> {
   const owner = ctx.match[2];
   const repo = ctx.match[3];
   const ref = ctx.url.searchParams.get('ref') || 'HEAD';
+  const markdownOnly = markdownOnlyTreeQuery(ctx.url);
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
   const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
   const data = (await ghRes.json()) as { tree: GitTreeEntry[]; truncated: boolean };
-  json(ctx.res, 200, { files: mdFilesFromTree(data.tree), truncated: data.truncated });
+  json(ctx.res, 200, { files: filesFromTree(data.tree, markdownOnly), truncated: data.truncated });
 }
 
 async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
@@ -686,6 +695,7 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
   const owner = decodeURIComponent(ctx.match[1]);
   const repo = decodeURIComponent(ctx.match[2]);
   const ref = ctx.url.searchParams.get('ref') || 'HEAD';
+  const markdownOnly = markdownOnlyTreeQuery(ctx.url);
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
   const ghRes = await fetchPublicGitHub(ghPath);
@@ -699,7 +709,7 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
     json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
     return;
   }
-  json(ctx.res, 200, { files: mdFilesFromTree(data?.tree ?? []), truncated: data?.truncated ?? false });
+  json(ctx.res, 200, { files: filesFromTree(data?.tree ?? [], markdownOnly), truncated: data?.truncated ?? false });
 }
 
 async function handleGetPublicGist(ctx: RouteContext): Promise<void> {

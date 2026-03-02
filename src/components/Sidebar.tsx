@@ -5,10 +5,15 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 export interface SidebarFile {
   path: string;
   active: boolean;
+  editable: boolean;
 }
+
+export type SidebarFileFilter = 'markdown' | 'all';
 
 interface SidebarProps {
   files: SidebarFile[];
+  fileFilter: SidebarFileFilter;
+  onFileFilterChange: (value: SidebarFileFilter) => void;
   disabled?: boolean;
   readOnly?: boolean;
   onSelectFile: (path: string) => void;
@@ -34,6 +39,8 @@ function sanitizePathInput(input: string): string {
 
 export function Sidebar({
   files,
+  fileFilter,
+  onFileFilterChange,
   disabled = false,
   readOnly = false,
   onSelectFile,
@@ -103,11 +110,24 @@ export function Sidebar({
     setRenameValue(path);
   };
 
+  const filterLabel = fileFilter === 'markdown' ? '.md files' : 'All files';
+
   if (disabled) {
     return (
       <aside class="sidebar">
         <div class="sidebar-header">
-          <h3>Files</h3>
+          <label class="sidebar-filter-label">
+            <span class="sr-only">Sidebar file filter</span>
+            <select
+              class="sidebar-filter-select"
+              value={fileFilter}
+              onChange={(e) => onFileFilterChange((e.currentTarget as HTMLSelectElement).value as SidebarFileFilter)}
+              aria-label="Sidebar file filter"
+            >
+              <option value="markdown">.md files</option>
+              <option value="all">All files</option>
+            </select>
+          </label>
         </div>
         <div class="sidebar-files sidebar-files-disabled">
           <p class="sidebar-disabled-message">Empty workspace</p>
@@ -119,7 +139,18 @@ export function Sidebar({
   return (
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h3>Files</h3>
+        <label class="sidebar-filter-label" title={filterLabel}>
+          <span class="sr-only">Sidebar file filter</span>
+          <select
+            class="sidebar-filter-select"
+            value={fileFilter}
+            onChange={(e) => onFileFilterChange((e.currentTarget as HTMLSelectElement).value as SidebarFileFilter)}
+            aria-label="Sidebar file filter"
+          >
+            <option value="markdown">.md files</option>
+            <option value="all">All files</option>
+          </select>
+        </label>
         {!readOnly && (
           <button
             type="button"
@@ -138,20 +169,20 @@ export function Sidebar({
         {files.map((f) => {
           const fileRow = (
             <div
-              class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.path ? ' renaming' : ''}`}
+              class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.path ? ' renaming' : ''}${!f.editable ? ' sidebar-file-readonly' : ''}`}
               tabIndex={0}
               role="button"
               aria-current={f.active ? 'true' : undefined}
               onClick={() => !f.active && onSelectFile(f.path)}
               onDblClick={() => {
-                if (!readOnly) startRename(f.path);
+                if (!readOnly && f.editable) startRename(f.path);
               }}
               onKeyDown={(e) => {
                 if (renamingFile === f.path) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   if (!f.active) onSelectFile(f.path);
-                } else if (!readOnly && e.key === 'F2') {
+                } else if (!readOnly && f.editable && e.key === 'F2') {
                   e.preventDefault();
                   startRename(f.path);
                 }
@@ -193,6 +224,10 @@ export function Sidebar({
           }
 
           if (readOnly) {
+            return <div key={f.path}>{fileRow}</div>;
+          }
+
+          if (!f.editable) {
             return <div key={f.path}>{fileRow}</div>;
           }
 

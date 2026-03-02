@@ -5,7 +5,7 @@ import { isRateLimitError, rateLimitToastMessage, responseToApiError } from './a
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageLightbox } from './components/ImageLightbox';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
@@ -73,6 +73,7 @@ const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
 const DEFAULT_SIDEBAR_WIDTH_PX = 220;
 const MIN_SIDEBAR_WIDTH_PX = 180;
 const MAX_SIDEBAR_WIDTH_PX = 420;
+const SIDEBAR_FILE_FILTER_KEY = 'sidebar_file_filter';
 const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
 const PASTED_IMAGE_MAX_SIDE_PX = 1600;
 const PASTED_IMAGE_QUALITY = 0.82;
@@ -385,8 +386,17 @@ export function App() {
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [gistFiles, setGistFiles] = useState<Record<string, GistFile> | null>(null);
   const [repoFiles, setRepoFiles] = useState<RepoDocFile[]>([]);
+  const [repoSidebarFiles, setRepoSidebarFiles] = useState<RepoDocFile[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
+  const [sidebarFileFilter, setSidebarFileFilter] = useState<SidebarFileFilter>(() => {
+    if (typeof window === 'undefined') return 'markdown';
+    try {
+      return localStorage.getItem(SIDEBAR_FILE_FILTER_KEY) === 'all' ? 'all' : 'markdown';
+    } catch {
+      return 'markdown';
+    }
+  });
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH_PX;
     try {
@@ -505,6 +515,8 @@ export function App() {
     setSelectedRepoPrivate(null);
     setRepoAccessMode(null);
     setPublicRepoRef(null);
+    setRepoFiles([]);
+    setRepoSidebarFiles([]);
     setErrorMessage('Your session expired. Sign in with GitHub from the header to continue.');
     setViewPhase('error');
   }, []);
@@ -762,8 +774,18 @@ export function App() {
     return result.files;
   }, []);
 
+  const loadRepoAllFiles = useCallback(async (instId: string, repoName: string): Promise<RepoDocFile[]> => {
+    const result = await getRepoTree(instId, repoName, undefined, false);
+    return result.files;
+  }, []);
+
   const loadPublicRepoMarkdownFiles = useCallback(async (owner: string, repo: string): Promise<RepoDocFile[]> => {
     const result = await getPublicRepoTree(owner, repo);
+    return result.files;
+  }, []);
+
+  const loadPublicRepoAllFiles = useCallback(async (owner: string, repo: string): Promise<RepoDocFile[]> => {
+    const result = await getPublicRepoTree(owner, repo, undefined, false);
     return result.files;
   }, []);
 
@@ -788,6 +810,7 @@ export function App() {
           setCurrentRepoDocPath(null);
           setCurrentRepoDocSha(null);
           setRepoFiles([]);
+          setRepoSidebarFiles([]);
           setViewPhase(null);
           return;
         }
@@ -838,6 +861,7 @@ export function App() {
           setCurrentRepoDocPath(null);
           setCurrentRepoDocSha(null);
           setRepoFiles([]);
+          setRepoSidebarFiles([]);
           setViewPhase(null);
           return;
         }
@@ -860,6 +884,7 @@ export function App() {
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
         setRepoFiles([]);
+        setRepoSidebarFiles([]);
         renderDocumentContent(file.content ?? '', file.filename, null, undefined, {
           currentDocPath: file.filename,
           knownMarkdownPaths: fileKeys,
@@ -904,11 +929,12 @@ export function App() {
         setCurrentGistId(null);
         setGistFiles(null);
         setCurrentFileName(contents.path);
-        let knownMarkdownPaths = repoFiles.map((file) => file.path);
+        let knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
         if (knownMarkdownPaths.length === 0) {
           try {
             const mdFiles = await loadRepoMarkdownFiles(instId, repoName);
             setRepoFiles(mdFiles);
+            if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
             knownMarkdownPaths = mdFiles.map((file) => file.path);
           } catch {
             /* sidebar index is best-effort */
@@ -956,6 +982,7 @@ export function App() {
       renderDocumentContent,
       activeView,
       currentFileName,
+      sidebarFileFilter,
       showRateLimitToastIfNeeded,
     ],
   );
@@ -973,6 +1000,7 @@ export function App() {
         const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
         const knownMarkdownPaths = mdFiles.map((file) => file.path);
         setRepoFiles(mdFiles);
+        if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
         setRepoAccessMode('public');
         setPublicRepoRef({ owner, repo });
         setCurrentRepoDocPath(contents.path);
@@ -1007,6 +1035,7 @@ export function App() {
       currentFileName,
       loadPublicRepoMarkdownFiles,
       renderDocumentContent,
+      sidebarFileFilter,
       showError,
       showRateLimitToastIfNeeded,
     ],
@@ -1070,6 +1099,7 @@ export function App() {
           setGistFiles(null);
           setCurrentFileName(null);
           setRepoFiles([]);
+          setRepoSidebarFiles([]);
           setViewPhase(null);
           return;
         case 'publicrepodocuments': {
@@ -1085,6 +1115,7 @@ export function App() {
             setRepoAccessMode('public');
             setPublicRepoRef({ owner, repo });
             setRepoFiles(mdFiles);
+            if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
             const indexFile = mdFiles.find((f) => f.path.toLowerCase() === 'index.md');
             const target = indexFile ?? mdFiles[0];
             if (isSubdomainMode() && indexFile && target.path === indexFile.path) {
@@ -1124,6 +1155,7 @@ export function App() {
               setRepoAccessMode('installed');
               setPublicRepoRef(null);
               setRepoFiles(mdFiles);
+              if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
               const indexFile = mdFiles.find((f) => f.path.toLowerCase() === 'index.md');
               const target = indexFile ?? mdFiles[0];
               navigate(routePath.repoFile(target.path), { replace: true });
@@ -1169,6 +1201,7 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
+          setRepoSidebarFiles([]);
           setPreviewVisible(defaultPreviewVisible());
           setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, 'title')) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, 'content')) ?? '');
@@ -1197,6 +1230,7 @@ export function App() {
           setCurrentFileName(null);
           setGistFiles(null);
           setRepoFiles([]);
+          setRepoSidebarFiles([]);
           setPreviewVisible(defaultPreviewVisible());
           setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
@@ -1229,6 +1263,7 @@ export function App() {
               setCurrentRepoDocPath(null);
               setCurrentRepoDocSha(null);
               setRepoFiles([]);
+              setRepoSidebarFiles([]);
               setEditTitle(cacheFile.filename.replace(/\.md$/i, ''));
               setEditContent(cacheFile.content ?? '');
               setHasUnsavedChanges(false);
@@ -1255,6 +1290,7 @@ export function App() {
             setCurrentRepoDocPath(null);
             setCurrentRepoDocSha(null);
             setRepoFiles([]);
+            setRepoSidebarFiles([]);
             setEditTitle(file.filename.replace(/\.md$/i, ''));
             setEditContent(file.content ?? '');
             setViewPhase(null);
@@ -1297,6 +1333,7 @@ export function App() {
       gistFiles,
       startGitHubSignIn,
       handleSessionExpired,
+      sidebarFileFilter,
       showRateLimitToastIfNeeded,
       defaultPreviewVisible,
     ],
@@ -1387,6 +1424,44 @@ export function App() {
     } catch {}
   }, [sidebarWidth]);
 
+  useLayoutEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_FILE_FILTER_KEY, sidebarFileFilter);
+    } catch {}
+  }, [sidebarFileFilter]);
+
+  useEffect(() => {
+    if (sidebarFileFilter !== 'all') return;
+    let active = true;
+    void (async () => {
+      try {
+        if (repoAccessMode === 'installed' && installationId && selectedRepo) {
+          const files = await loadRepoAllFiles(installationId, selectedRepo);
+          if (active) setRepoSidebarFiles(files);
+          return;
+        }
+        if (repoAccessMode === 'public' && publicRepoRef) {
+          const files = await loadPublicRepoAllFiles(publicRepoRef.owner, publicRepoRef.repo);
+          if (active) setRepoSidebarFiles(files);
+        }
+      } catch (err) {
+        showRateLimitToastIfNeeded(err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [
+    sidebarFileFilter,
+    repoAccessMode,
+    installationId,
+    selectedRepo,
+    publicRepoRef,
+    loadRepoAllFiles,
+    loadPublicRepoAllFiles,
+    showRateLimitToastIfNeeded,
+  ]);
+
   const onTogglePreview = useCallback(() => {
     setPreviewVisible((v) => !v);
   }, []);
@@ -1403,6 +1478,8 @@ export function App() {
     setRepoAccessMode(null);
     setPublicRepoRef(null);
     setCurrentGistId(null);
+    setRepoFiles([]);
+    setRepoSidebarFiles([]);
     navigate(routePath.home());
   }, [navigate]);
 
@@ -1496,7 +1573,7 @@ export function App() {
           currentRepoDocSha ?? undefined,
         );
 
-        const knownMarkdownPaths = repoFiles.map((file) => file.path);
+        const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
         renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath, undefined, {
           currentDocPath: currentRepoDocPath,
           knownMarkdownPaths: knownMarkdownPaths.includes(currentRepoDocPath)
@@ -1514,7 +1591,7 @@ export function App() {
         setCurrentRepoDocPath(path);
         setCurrentRepoDocSha(null);
 
-        const knownMarkdownPaths = repoFiles.map((file) => file.path);
+        const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
         renderDocumentContent(content, filename, path, undefined, {
           currentDocPath: filename,
           knownMarkdownPaths: knownMarkdownPaths.includes(filename)
@@ -1630,13 +1707,17 @@ export function App() {
           navigate(routePath.gistEdit(currentGistId, filePath));
         } else {
           const result = await store.createFile(filePath);
-          setRepoFiles((prev) =>
-            [...prev, { name: fileNameFromPath(filePath), path: result.content.path, sha: result.content.sha }].sort(
-              (a, b) => a.path.localeCompare(b.path),
-            ),
-          );
+          const createdFile = { name: fileNameFromPath(filePath), path: result.content.path, sha: result.content.sha };
+          if (isMarkdownFileName(createdFile.path)) {
+            setRepoFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
+          }
+          setRepoSidebarFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
           setHasUnsavedChanges(false);
-          navigate(routePath.repoEdit(result.content.path));
+          if (isMarkdownFileName(result.content.path)) {
+            navigate(routePath.repoEdit(result.content.path));
+          } else {
+            navigate(routePath.repoFile(result.content.path));
+          }
         }
       } catch (err) {
         showRateLimitToastIfNeeded(err);
@@ -1648,6 +1729,7 @@ export function App() {
 
   const handleEditFile = useCallback(
     async (filePath: string) => {
+      if (!isMarkdownFileName(filePath)) return;
       if (activeView === 'edit' && currentFileName === filePath) return;
 
       const target = currentGistId
@@ -1726,15 +1808,17 @@ export function App() {
             }
           }
         } else {
-          const repoFile = findRepoDocFile(repoFiles, filePath);
+          const repoFile = findRepoDocFile(repoSidebarFiles, filePath);
           if (!repoFile) return;
           await store.deleteFile(repoFile);
           const remaining = repoFiles.filter((f) => f.path !== filePath);
+          const remainingSidebar = repoSidebarFiles.filter((f) => f.path !== filePath);
           setRepoFiles(remaining);
+          setRepoSidebarFiles(remainingSidebar);
           const deletedCurrent = currentRepoDocPath === repoFile.path;
           if (deletedCurrent) {
-            if (remaining.length > 0) {
-              navigate(routePath.repoFile(remaining[0].path));
+            if (remainingSidebar.length > 0) {
+              navigate(routePath.repoFile(remainingSidebar[0].path));
             } else {
               navigate(routePath.repoDocuments());
             }
@@ -1753,6 +1837,7 @@ export function App() {
       getActiveDocumentStore,
       currentFileName,
       repoFiles,
+      repoSidebarFiles,
       currentRepoDocPath,
       navigate,
       handleSessionExpired,
@@ -1778,10 +1863,10 @@ export function App() {
             navigate(routePath.gistView(currentGistId, newPath));
           }
         } else {
-          const oldFile = findRepoDocFile(repoFiles, oldPath);
+          const oldFile = findRepoDocFile(repoSidebarFiles, oldPath);
           if (!oldFile) return;
           const created = await store.renameFile(oldFile, newPath);
-          const updatedFiles = repoFiles
+          const updatedSidebarFiles = repoSidebarFiles
             .map((f) =>
               f.path === oldPath
                 ? {
@@ -1792,6 +1877,20 @@ export function App() {
                 : f,
             )
             .sort((a, b) => a.path.localeCompare(b.path));
+          const updatedFiles = isMarkdownFileName(newPath)
+            ? repoFiles
+                .map((f) =>
+                  f.path === oldPath
+                    ? {
+                        name: fileNameFromPath(newPath),
+                        path: created.content.path,
+                        sha: created.content.sha,
+                      }
+                    : f,
+                )
+                .sort((a, b) => a.path.localeCompare(b.path))
+            : repoFiles.filter((f) => f.path !== oldPath);
+          setRepoSidebarFiles(updatedSidebarFiles);
           setRepoFiles(updatedFiles);
           if (currentFileName === oldPath) {
             navigate(routePath.repoFile(created.content.path));
@@ -1811,6 +1910,7 @@ export function App() {
       currentGistId,
       currentFileName,
       repoFiles,
+      repoSidebarFiles,
       navigate,
       handleSessionExpired,
       showAlert,
@@ -1929,6 +2029,8 @@ export function App() {
       setSelectedRepoPrivate(null);
       setInstallationRepos([]);
       setLoadedReposInstallationId(null);
+      setRepoFiles([]);
+      setRepoSidebarFiles([]);
       navigate(routePath.workspaces());
     }
   }, [navigate, showConfirm]);
@@ -2008,20 +2110,27 @@ export function App() {
 
   const sidebarFiles = useMemo(() => {
     if (gistFiles) {
-      return Object.keys(gistFiles).map((path) => ({
-        path,
-        active: path === currentFileName,
-      }));
+      const files = Object.keys(gistFiles)
+        .map((path) => ({
+          path,
+          active: path === currentFileName,
+          editable: isMarkdownFileName(path),
+        }))
+        .sort((a, b) => a.path.localeCompare(b.path));
+      return sidebarFileFilter === 'markdown' ? files.filter((file) => file.editable) : files;
     }
-    if (repoFiles.length > 0 && currentRepoDocPath) {
+    const sourceFiles = sidebarFileFilter === 'all' ? repoSidebarFiles : repoFiles;
+    if (sourceFiles.length > 0 && currentRepoDocPath) {
       const currentPath = currentRepoDocPath;
-      return repoFiles.map((f) => ({
+      const files = sourceFiles.map((f) => ({
         path: f.path,
         active: f.path === currentPath,
+        editable: isMarkdownFileName(f.path),
       }));
+      return sidebarFileFilter === 'markdown' ? files.filter((file) => file.editable) : files;
     }
     return [];
-  }, [gistFiles, currentFileName, repoFiles, currentRepoDocPath]);
+  }, [gistFiles, currentFileName, repoFiles, repoSidebarFiles, currentRepoDocPath, sidebarFileFilter]);
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
   const sidebarDisabled = activeView === 'edit' && draftMode;
@@ -2104,6 +2213,7 @@ export function App() {
   }, [startGitHubSignIn]);
   const showHeaderEdit =
     activeView === 'content' &&
+    isMarkdownFileName(currentFileName) &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
@@ -2170,6 +2280,8 @@ export function App() {
             <div class="sidebar-backdrop" onClick={onToggleSidebar} />
             <Sidebar
               files={sidebarFiles}
+              fileFilter={sidebarFileFilter}
+              onFileFilterChange={setSidebarFileFilter}
               onSelectFile={handleSelectFile}
               onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}

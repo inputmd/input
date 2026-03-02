@@ -477,7 +477,11 @@ export interface RepoTreeResult {
 const repoTreeCache = new Map<string, CacheEntry<RepoTreeResult>>();
 
 function repoTreeCacheKey(identity: string, repoFullName: string, ref?: string): string {
-  return `tree|${identity}|${repoFullName}|${ref ?? ''}`;
+  return `tree|${identity}|${repoFullName}|${ref ?? ''}|md`;
+}
+
+function repoTreeCacheKeyForMode(identity: string, repoFullName: string, markdownOnly: boolean, ref?: string): string {
+  return `${repoTreeCacheKey(identity, repoFullName, ref)}:${markdownOnly ? '1' : '0'}`;
 }
 
 function getCachedRepoTree(key: string): RepoTreeResult | null {
@@ -494,14 +498,20 @@ function setCachedRepoTree(key: string, value: RepoTreeResult): void {
   repoTreeCache.set(key, { value, expiresAt: Date.now() + repoContentsCacheTtlMs });
 }
 
-export async function getRepoTree(installationId: string, repoFullName: string, ref?: string): Promise<RepoTreeResult> {
-  const key = repoTreeCacheKey(installationId, repoFullName, ref);
+export async function getRepoTree(
+  installationId: string,
+  repoFullName: string,
+  ref?: string,
+  markdownOnly = true,
+): Promise<RepoTreeResult> {
+  const key = repoTreeCacheKeyForMode(installationId, repoFullName, markdownOnly, ref);
   const cached = getCachedRepoTree(key);
   if (cached) return cached;
 
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams();
   if (ref) qs.set('ref', ref);
+  if (!markdownOnly) qs.set('markdown_only', '0');
   const qsStr = qs.toString();
   const url = `${installationUrl(installationId, 'repos', owner, repo)}/tree${qsStr ? `?${qsStr}` : ''}`;
   const res = await authFetch(url);
@@ -510,14 +520,20 @@ export async function getRepoTree(installationId: string, repoFullName: string, 
   return data;
 }
 
-export async function getPublicRepoTree(owner: string, repo: string, ref?: string): Promise<RepoTreeResult> {
+export async function getPublicRepoTree(
+  owner: string,
+  repo: string,
+  ref?: string,
+  markdownOnly = true,
+): Promise<RepoTreeResult> {
   const identity = publicRepoContentsCacheIdentity(owner, repo);
-  const key = repoTreeCacheKey(identity, `${owner}/${repo}`, ref);
+  const key = repoTreeCacheKeyForMode(identity, `${owner}/${repo}`, markdownOnly, ref);
   const cached = getCachedRepoTree(key);
   if (cached) return cached;
 
   const qs = new URLSearchParams();
   if (ref) qs.set('ref', ref);
+  if (!markdownOnly) qs.set('markdown_only', '0');
   const qsStr = qs.toString();
   const url = `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tree${qsStr ? `?${qsStr}` : ''}`;
   const res = await publicFetch(url);

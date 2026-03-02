@@ -39,14 +39,45 @@
   align-items: center;
 }
 
-.sidebar-header h3 {
+.sidebar-filter-label {
+  display: inline-flex;
+  align-items: center;
+  max-width: calc(100% - 36px);
+}
+
+.sidebar-filter-select {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--text-secondary);
   margin: 0;
-  margin-left: 2px;
+  padding: 0 16px 0 2px;
+  cursor: pointer;
+}
+
+.sidebar-filter-select:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.sidebar-file-readonly .sidebar-file-name {
+  color: var(--text-secondary);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .sidebar-add-btn {
