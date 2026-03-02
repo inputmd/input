@@ -131,6 +131,53 @@ Note: during deploys, Fly may briefly need more than one unattached
 `data` volume in the region for rolling replacement. Creating two
 volumes up front avoids that failure mode.
 
+## Wildcard subdomains
+
+`[username].input.md` automatically renders the public GitHub repo
+`[username]/homepage` as a read-only workspace. This requires wildcard
+DNS and TLS.
+
+### Fly.io TLS
+
+Issue a wildcard certificate so Fly can terminate TLS from Cloudflare
+(required when SSL mode is Full (strict)):
+
+```
+fly certs create "*.input.md" -a input-dry-thunder-7019
+```
+
+This returns the A/AAAA IP addresses and an ACME challenge record needed
+for the steps below. Check status at any time with:
+
+```
+fly certs show "*.input.md" -a input-dry-thunder-7019
+```
+
+### Cloudflare DNS
+
+Add wildcard A and AAAA records using the IP addresses from `fly certs`,
+plus the ACME challenge CNAME for certificate validation:
+
+| Type | Name | Target | Proxy |
+|------|------|--------|-------|
+| `A` | `*` | *(A IP from `fly certs`)* | Proxied |
+| `AAAA` | `*` | *(AAAA IP from `fly certs`)* | Proxied |
+| `CNAME` | `_acme-challenge` | *(target from `fly certs`)* | **DNS only** |
+
+**Important:** The `_acme-challenge` record **must** be set to DNS only
+(grey cloud, not proxied). Cloudflare proxying will prevent Fly from
+validating the certificate.
+
+### Cloudflare settings
+
+- **SSL/TLS > Overview**: Full (strict)
+- **SSL/TLS > Edge Certificates**: Verify Universal SSL covers `*.input.md`
+
+### Protected subdomains
+
+`www`, `api`, `app`, `mail`, `ftp`, `admin`, `blog`, `docs`, `status`,
+`cdn`, `staging`, and `dev` are reserved and bypass subdomain routing.
+
 ## License
 
 MIT (C) 2026
