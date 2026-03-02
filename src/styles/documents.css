@@ -252,6 +252,11 @@
   margin-top: 0;
 }
 
+.workspaces-empty-state a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 @media (max-width: 768px) {
   .workspaces-repos-header {
     align-items: flex-start;

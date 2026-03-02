@@ -107,8 +107,13 @@ export function WorkspacesView({
             </div>
           ) : (
             <div class="empty-state workspaces-empty-state">
-              <p>No connected repos</p>
-              <p>Connect a repository to start editing docs.</p>
+              <p>No connected repos yet.</p>
+              <p>
+                <a href="https://github.com/new" target="_blank" rel="noopener noreferrer">
+                  Create a repo
+                </a>{' '}
+                and select "Configure" to get started.
+              </p>
             </div>
           )}
           <DocumentsView navigate={navigate} userLogin={userLogin} embedded initialGists={initialGists} initialLoaded />

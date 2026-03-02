@@ -148,10 +148,12 @@ export function DocumentsView({
       {!loading && visibleGists.length === 0 ? (
         <div class="empty-state">
           <p>No gists yet.</p>
-          <p>Create your first gist to get started.</p>
-          <button type="button" class="documents-new-btn" onClick={() => navigate(routePath.freshDraft())}>
-            New Gist
-          </button>
+          <p>Create a new gist to get started.</p>
+          {!embedded ? (
+            <button type="button" class="documents-new-btn" onClick={() => navigate(routePath.freshDraft())}>
+              New Gist
+            </button>
+          ) : null}
         </div>
       ) : (
         <div class="documents-list">
