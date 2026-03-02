@@ -59,6 +59,7 @@ import {
 import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import { type Route, routePath } from './routing';
+import { getSubdomainOwner } from './subdomain';
 import { decodeBase64ToUtf8, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
 import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
@@ -1967,6 +1968,11 @@ export function App() {
   const showHeaderEdit =
     activeView === 'content' &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
+  const subdomainOwner = getSubdomainOwner();
+  const subdomainEditUrl =
+    subdomainOwner && activeView === 'content' && repoAccessMode === 'public'
+      ? `https://input.md/${routePath.publicRepoDocuments(subdomainOwner, 'homepage')}`
+      : null;
   const showHeaderShare =
     activeView === 'edit' &&
     route.name === 'repoedit' &&
@@ -1998,6 +2004,7 @@ export function App() {
           void onSharePublicLink();
         }}
         showEdit={showHeaderEdit}
+        editUrl={subdomainEditUrl}
         navigate={navigate}
         onOpenRepoMenu={onOpenRepoMenu}
         onSelectRepo={onSelectRepo}

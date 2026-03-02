@@ -125,6 +125,29 @@
   gap: 8px;
 }
 
+.edit-on-input-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  text-decoration: none;
+  min-height: 35px;
+  min-width: 40px;
+  box-sizing: border-box;
+  transition: background 0.15s;
+}
+
+.edit-on-input-link:hover {
+  background: var(--btn-hover);
+}
+
 .github-signin-btn {
   background: #238636;
   border-color: #2ea043;

@@ -17,6 +17,24 @@ const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain',
 };
 
+const INDEX_PATH = path.join(DIST_DIR, 'index.html');
+
+export async function serveIndexHtml(res: http.ServerResponse, subdomainOwner: string | null): Promise<boolean> {
+  try {
+    let html = await readFile(INDEX_PATH, 'utf-8');
+    if (subdomainOwner) {
+      const safe = subdomainOwner.replace(/[^a-zA-Z0-9_-]/g, '');
+      const meta = `<meta name="subdomain-owner" content="${safe}">`;
+      html = html.replace('</head>', `    ${meta}\n  </head>`);
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function serveStatic(res: http.ServerResponse, pathname: string): Promise<boolean> {
   const safePath = path.normalize(decodeURIComponent(pathname));
   const filePath = path.join(DIST_DIR, safePath);

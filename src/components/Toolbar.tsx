@@ -1,6 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Check, ChevronDown, Eye, Globe, Link2, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Check, ChevronDown, ExternalLink, Eye, Globe, Link2, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
@@ -22,6 +22,7 @@ interface ToolbarProps {
   showShare: boolean;
   onShare: () => void;
   showEdit: boolean;
+  editUrl: string | null;
   showPreviewToggle: boolean;
   previewVisible: boolean;
   onTogglePreview: () => void;
@@ -57,6 +58,7 @@ export function Toolbar({
   showShare,
   onShare,
   showEdit,
+  editUrl,
   showPreviewToggle,
   previewVisible,
   onTogglePreview,
@@ -217,6 +219,11 @@ export function Toolbar({
             <button type="button" onClick={onEdit}>
               Edit
             </button>
+          )}
+          {editUrl && (
+            <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
+              Edit <ExternalLink size={14} aria-hidden="true" />
+            </a>
           )}
           {showPreviewToggle && (
             <button

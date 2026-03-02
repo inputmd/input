@@ -1,3 +1,5 @@
+import { getSubdomainOwner } from './subdomain';
+
 export type Route =
   | { name: 'home'; params: Record<string, never> }
   | { name: 'workspaces'; params: Record<string, never> }
@@ -53,7 +55,9 @@ export const routePath = {
   workspaces: () => 'workspaces',
   publicRepoDocuments: (owner: string, repo: string) => `repo/load/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
   publicRepoFile: (owner: string, repo: string, path: string) =>
-    `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+    getSubdomainOwner()
+      ? encodeURIComponent(path)
+      : `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
   repoDocuments: () => 'repo/load',
   repoFile: (path: string) => `repo/file/${encodeURIComponent(path)}`,
   repoNew: () => 'repo/new',
@@ -68,6 +72,14 @@ export function getPathSegment(): string {
 }
 
 export function matchRoute(path: string): Route {
+  const owner = getSubdomainOwner();
+  if (owner) {
+    if (!path || path === '/') {
+      return { name: 'publicrepodocuments', params: { owner, repo: 'homepage' } };
+    }
+    return { name: 'publicrepofile', params: { owner, repo: 'homepage', path } };
+  }
+
   for (const { pattern, build } of ROUTE_TABLE) {
     const m = path.match(pattern);
     if (m) return build(m);

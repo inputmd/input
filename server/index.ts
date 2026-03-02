@@ -10,7 +10,8 @@ import { startRateLimitCleanup } from './rate_limit';
 import { handleApiRequest } from './routes';
 import { applySecurityHeaders } from './security_headers';
 import { startSessionCleanup } from './session';
-import { serveStatic } from './static_files';
+import { serveStatic, serveIndexHtml } from './static_files';
+import { extractSubdomain } from './subdomain';
 
 startInstallationTokenCacheCleanup();
 startGistCacheCleanup();
@@ -35,7 +36,9 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
 
     if (req.method === 'GET') {
       if (await serveStatic(res, pathname)) return;
-      if (await serveStatic(res, '/index.html')) return;
+
+      const subdomainOwner = extractSubdomain(req.headers.host);
+      if (await serveIndexHtml(res, subdomainOwner)) return;
     }
 
     json(res, 404, { error: 'Not found' });
