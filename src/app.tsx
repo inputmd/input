@@ -84,11 +84,11 @@ const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
-An experimental Markdown editor, backed by GitHub.
+An experimental Markdown editor, where all content is stored on GitHub.
 
 Input supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own repos or gists as files.
 
-Privacy preserving; we do not log your data.`
+Input is privacy preserving. We do not log your data.`
 
 function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
