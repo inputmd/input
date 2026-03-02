@@ -1,19 +1,14 @@
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { parseAnsiToHtml } from './ansi';
+import { isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageLightbox } from './components/ImageLightbox';
 import { Sidebar } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
-import {
-  createGistDocumentStore,
-  createRepoDocumentStore,
-  findRepoDocFile,
-  type RepoDocFile,
-} from './document_store';
+import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
 import { markGistRecentlyCreated } from './gist_consistency';
 import {
   createGist,
@@ -37,20 +32,20 @@ import {
   disconnectInstallation,
   getInstallationId,
   getInstallUrl,
-  hasInstallState,
   getPendingInstallationId,
   getPublicRepoContents,
   getPublicRepoTree,
   getRepoContents,
   getRepoTree,
   getSelectedRepo,
+  hasInstallState,
   type InstallationRepo,
   isRepoFile,
   listInstallationRepos,
   publicRepoRawFileUrl,
   putRepoFile,
-  repoRawFileUrl,
   rememberInstallState,
+  repoRawFileUrl,
   SessionExpiredError,
   setInstallationId,
   setPendingInstallationId,
@@ -59,7 +54,7 @@ import {
 import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import { type Route, routePath } from './routing';
-import { getSubdomainOwner } from './subdomain';
+import { isSubdomainMode } from './subdomain';
 import { decodeBase64ToUtf8, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
 import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
@@ -89,7 +84,7 @@ An experimental Markdown editor, where all content is stored on GitHub.
 
 Input supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own repos or gists as files.
 
-Input is privacy preserving. We do not log your data.`
+Input is privacy preserving. We do not log your data.`;
 
 function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
@@ -834,7 +829,15 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Unknown error');
       }
     },
-    [showError, currentGistId, gistFiles, renderDocumentContent, activeView, currentFileName, showRateLimitToastIfNeeded],
+    [
+      showError,
+      currentGistId,
+      gistFiles,
+      renderDocumentContent,
+      activeView,
+      currentFileName,
+      showRateLimitToastIfNeeded,
+    ],
   );
 
   const loadRepoFile = useCallback(
@@ -958,7 +961,14 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Failed to load file');
       }
     },
-    [activeView, currentFileName, loadPublicRepoMarkdownFiles, renderDocumentContent, showError, showRateLimitToastIfNeeded],
+    [
+      activeView,
+      currentFileName,
+      loadPublicRepoMarkdownFiles,
+      renderDocumentContent,
+      showError,
+      showRateLimitToastIfNeeded,
+    ],
   );
 
   // --- Route handler ---
@@ -1965,14 +1975,24 @@ export function App() {
     setEditContent(content);
     setHasUnsavedChanges(true);
   }, []);
+  const handleSignInWithGitHub = useCallback(() => {
+    if (isSubdomainMode()) {
+      const { protocol, hostname, port } = window.location;
+      const apexHost = hostname.endsWith('.input.md')
+        ? 'input.md'
+        : hostname.endsWith('.localhost')
+          ? port
+            ? `localhost:${port}`
+            : 'localhost'
+          : 'input.md';
+      window.location.assign(`${protocol}//${apexHost}/input.md`);
+      return;
+    }
+    startGitHubSignIn(`/${routePath.workspaces()}`);
+  }, [startGitHubSignIn]);
   const showHeaderEdit =
     activeView === 'content' &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
-  const subdomainOwner = getSubdomainOwner();
-  const subdomainEditUrl =
-    subdomainOwner && activeView === 'content' && repoAccessMode === 'public'
-      ? `https://input.md/${routePath.publicRepoDocuments(subdomainOwner, 'homepage')}`
-      : null;
   const showHeaderShare =
     activeView === 'edit' &&
     route.name === 'repoedit' &&
@@ -2004,7 +2024,7 @@ export function App() {
           void onSharePublicLink();
         }}
         showEdit={showHeaderEdit}
-        editUrl={subdomainEditUrl}
+        editUrl={null}
         navigate={navigate}
         onOpenRepoMenu={onOpenRepoMenu}
         onSelectRepo={onSelectRepo}
@@ -2022,9 +2042,7 @@ export function App() {
         saving={saving}
         canSave={hasUnsavedChanges}
         onSave={onSave}
-        onSignInWithGitHub={() => {
-          startGitHubSignIn(`/${routePath.workspaces()}`);
-        }}
+        onSignInWithGitHub={handleSignInWithGitHub}
       />
       <div
         class={showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}
@@ -2045,7 +2063,12 @@ export function App() {
               onDeleteFile={handleDeleteFile}
               onRenameFile={handleRenameFile}
             />
-            <div class="sidebar-splitter" role="separator" aria-orientation="vertical" onPointerDown={onSidebarSplitPointerDown} />
+            <div
+              class="sidebar-splitter"
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={onSidebarSplitPointerDown}
+            />
           </>
         )}
         <ErrorBoundary

@@ -10,8 +10,14 @@ import { startRateLimitCleanup } from './rate_limit';
 import { handleApiRequest } from './routes';
 import { applySecurityHeaders } from './security_headers';
 import { startSessionCleanup } from './session';
-import { serveStatic, serveIndexHtml } from './static_files';
+import { serveIndexHtml, serveStatic } from './static_files';
 import { extractSubdomain } from './subdomain';
+
+function normalizeReturnTo(raw: string | null): string {
+  if (!raw) return '/workspaces';
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/workspaces';
+  return raw;
+}
 
 startInstallationTokenCacheCleanup();
 startGistCacheCleanup();
@@ -35,6 +41,14 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     if (handledApi) return;
 
     if (req.method === 'GET') {
+      if (pathname === '/input.md') {
+        const returnTo = normalizeReturnTo(url.searchParams.get('return_to'));
+        res.statusCode = 302;
+        res.setHeader('Location', `/api/auth/github/start?return_to=${encodeURIComponent(returnTo)}`);
+        res.end();
+        return;
+      }
+
       if (await serveStatic(res, pathname)) return;
 
       const subdomainOwner = extractSubdomain(req.headers.host);
