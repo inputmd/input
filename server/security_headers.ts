@@ -1,9 +1,14 @@
-import type http from 'node:http';
-import { CONTENT_SECURITY_POLICY } from './config';
+import { secureHeaders } from 'hono/secure-headers';
 
-export function applySecurityHeaders(res: http.ServerResponse): void {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
-  res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
-}
+export const securityHeaders = secureHeaders({
+  xFrameOptions: 'DENY',
+  strictTransportSecurity: 'max-age=63072000; includeSubDomains; preload',
+  contentSecurityPolicy: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'", "'sha256-wBdtWdXsHnAU2DdByySW4LlXFAScrBvmBgkXtydwJdg='"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", "https://avatars.githubusercontent.com"],
+    connectSrc: ["'self'", "https://api.github.com", "https://gist.githubusercontent.com"],
+    fontSrc: ["'self'"],
+  },
+});

@@ -7,6 +7,7 @@
     "server": "tsx server/index.ts",
     "dev": "vite",
     "build": "tsc && tsc -p tsconfig.server.json && vite build",
+    "build:worker": "tsc -p tsconfig.server.json && kettle build-app server/index.ts && kettle build-worker",
     "preview": "vite preview",
     "deploy": "fly deploy",
     "lint": "biome check .",
@@ -22,6 +23,10 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource/source-code-pro": "^5.2.7",
+    "@hono/node-server": "^1.19.9",
+    "@teekit/kettle": "file:../teekitpriv/packages/kettle",
+    "@teekit/kettle-sgx": "file:../teekitpriv/packages/kettle-sgx",
+    "@teekit/tunnel": "file:../teekitpriv/packages/tunnel",
     "@preact/preset-vite": "^2.10.3",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-context-menu": "^2.2.16",
@@ -32,6 +37,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "dompurify": "^3.3.1",
     "dotenv": "^17.3.1",
+    "hono": "^4.12.3",
     "lucide-react": "^0.575.0",
     "marked": "^17.0.3",
     "preact": "^10.28.3"

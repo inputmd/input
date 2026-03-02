@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import type http from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { Context } from 'hono';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { DATABASE_PATH, SESSION_MAX_LIFETIME_SECONDS, SESSION_TTL_SECONDS } from './config';
 import type { Session } from './types';
 
@@ -123,43 +124,6 @@ const selectInstallationStmt = db.prepare(`
 
 const deleteInstallationStmt = db.prepare('DELETE FROM user_installations WHERE github_user_id = ?');
 
-function parseCookies(req: http.IncomingMessage): Record<string, string> {
-  const raw = req.headers.cookie;
-  if (!raw) return {};
-  const result: Record<string, string> = {};
-  for (const pair of raw.split(';')) {
-    const idx = pair.indexOf('=');
-    if (idx === -1) continue;
-    const key = pair.slice(0, idx).trim();
-    const value = pair.slice(idx + 1).trim();
-    if (!key) continue;
-    result[key] = decodeURIComponent(value);
-  }
-  return result;
-}
-
-function appendSetCookie(res: http.ServerResponse, cookie: string): void {
-  const existing = res.getHeader('Set-Cookie');
-  if (!existing) {
-    res.setHeader('Set-Cookie', cookie);
-    return;
-  }
-  if (Array.isArray(existing)) {
-    res.setHeader('Set-Cookie', [...existing, cookie]);
-    return;
-  }
-  res.setHeader('Set-Cookie', [String(existing), cookie]);
-}
-
-function cookieOptions(maxAgeSeconds: number): string {
-  const secure = process.env.NODE_ENV === 'production' ? 'Secure; ' : '';
-  return `${secure}HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
-}
-
-function makeCookie(value: string, maxAgeSeconds: number): string {
-  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(value)}; ${cookieOptions(maxAgeSeconds)}`;
-}
-
 function createSessionId(): string {
   return crypto.randomBytes(32).toString('base64url');
 }
@@ -194,7 +158,7 @@ function rowToSession(row: Record<string, unknown>): Session {
   };
 }
 
-function upsertSession(res: http.ServerResponse, id: string, input: SessionInput, createdAtMs: number): Session {
+function upsertSession(c: Context, id: string, input: SessionInput, createdAtMs: number): Session {
   const session = buildSession(id, input, createdAtMs);
   sessionUpsertStmt.run(
     session.id,
@@ -208,24 +172,33 @@ function upsertSession(res: http.ServerResponse, id: string, input: SessionInput
     session.expiresAtMs,
   );
   const cookieMaxAge = Math.max(0, Math.ceil((session.expiresAtMs - Date.now()) / 1000));
-  appendSetCookie(res, makeCookie(id, cookieMaxAge));
+  setCookie(c, SESSION_COOKIE_NAME, id, {
+    httpOnly: true,
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: cookieMaxAge,
+    secure: process.env.NODE_ENV === 'production',
+  });
   return session;
 }
 
-export function createSession(res: http.ServerResponse, input: SessionInput): Session {
-  return upsertSession(res, createSessionId(), input, Date.now());
+export function createSession(c: Context, input: SessionInput): Session {
+  return upsertSession(c, createSessionId(), input, Date.now());
 }
 
-export function destroySession(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const cookies = parseCookies(req);
-  const id = cookies[SESSION_COOKIE_NAME];
+export function destroySession(c: Context): void {
+  const id = getCookie(c, SESSION_COOKIE_NAME);
   if (id) deleteSessionByIdStmt.run(id);
-  appendSetCookie(res, makeCookie('', 0));
+  deleteCookie(c, SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'Lax',
+    path: '/',
+    secure: process.env.NODE_ENV === 'production',
+  });
 }
 
-export function getSession(req: http.IncomingMessage): Session | null {
-  const cookies = parseCookies(req);
-  const id = cookies[SESSION_COOKIE_NAME];
+export function getSession(c: Context): Session | null {
+  const id = getCookie(c, SESSION_COOKIE_NAME);
   if (!id) return null;
 
   const row = sessionByIdStmt.get(id) as Record<string, unknown> | undefined;
@@ -239,9 +212,9 @@ export function getSession(req: http.IncomingMessage): Session | null {
   return session;
 }
 
-export function refreshSession(session: Session, res: http.ServerResponse): Session {
+export function refreshSession(session: Session, c: Context): Session {
   return upsertSession(
-    res,
+    c,
     session.id,
     {
       githubUserId: session.githubUserId,

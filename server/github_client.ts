@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { GITHUB_FETCH_TIMEOUT_MS } from './config';
-import { ClientError } from './errors';
+import { HTTPException } from 'hono/http-exception';
 import { base64url, requireEnv } from './http_helpers';
 import type { TokenCacheRecord } from './types';
 
@@ -95,7 +95,7 @@ async function getInstallationToken(installationId: string, repositoryIds?: numb
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.error(`Failed to mint installation token: ${res.status} ${res.statusText}`, body);
-    throw new ClientError(`GitHub API error: ${res.status}`, 502);
+    throw new HTTPException(502, { message: `GitHub API error: ${res.status}` });
   }
 
   const data = (await res.json()) as { token: string; expires_at: string };
@@ -135,7 +135,7 @@ export async function githubFetchWithInstallationToken(
     const body = await res.text().catch(() => '');
     console.error(`GitHub API error on ${ghPath}: ${res.status} ${res.statusText}`, body);
     const statusCode = res.status >= 400 && res.status < 500 ? res.status : 502;
-    throw new ClientError(`GitHub API error: ${res.status}`, statusCode);
+    throw new HTTPException(statusCode as 400, { message: `GitHub API error: ${res.status}` });
   }
 
   return res;

@@ -1,10 +1,10 @@
-import type http from 'node:http';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_FETCH_TIMEOUT_MS, GITHUB_TOKEN } from './config';
-import { ClientError } from './errors';
+import { HTTPException } from 'hono/http-exception';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
 import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
-import { json, readJson, requireEnv, requireString } from './http_helpers';
-import { checkRateLimit } from './rate_limit';
+import { requireEnv, requireString } from './http_helpers';
 import {
   clearRememberedInstallationForUser,
   consumeOAuthState,
@@ -18,22 +18,6 @@ import {
 } from './session';
 import type { Session } from './types';
 
-interface RouteContext {
-  req: http.IncomingMessage;
-  res: http.ServerResponse;
-  url: URL;
-  pathname: string;
-  match: RegExpMatchArray;
-}
-
-type RouteHandler = (ctx: RouteContext) => Promise<void>;
-
-interface RouteDef {
-  method: string;
-  pattern: RegExp;
-  handler: RouteHandler;
-}
-
 type OAuthTokenResponse = {
   access_token?: string;
   token_type?: string;
@@ -45,21 +29,15 @@ type GitHubApiError = {
   message?: string;
 };
 
-function redirect(res: http.ServerResponse, location: string): void {
-  res.statusCode = 302;
-  res.setHeader('Location', location);
-  res.end();
-}
-
-function requestBaseUrl(req: http.IncomingMessage): string {
-  const proto = req.headers['x-forwarded-proto'];
-  const scheme = typeof proto === 'string' ? proto.split(',')[0].trim() : 'http';
-  const host = req.headers.host ?? 'localhost';
+function requestBaseUrl(c: Context): string {
+  const proto = c.req.header('x-forwarded-proto');
+  const scheme = proto ? proto.split(',')[0].trim() : 'http';
+  const host = c.req.header('host') ?? 'localhost';
   return `${scheme}://${host}`;
 }
 
-function oauthBaseUrl(req: http.IncomingMessage): string {
-  return APP_URL || requestBaseUrl(req);
+function oauthBaseUrl(c: Context): string {
+  return APP_URL || requestBaseUrl(c);
 }
 
 function normalizeReturnTo(raw: string | null): string {
@@ -69,16 +47,16 @@ function normalizeReturnTo(raw: string | null): string {
   return raw;
 }
 
-function requireAuthSession(ctx: RouteContext): Session {
-  const session = getSession(ctx.req);
-  if (!session) throw new ClientError('Unauthorized', 401);
+function requireAuthSession(c: Context): Session {
+  const session = getSession(c);
+  if (!session) throw new HTTPException(401, { message: 'Unauthorized' });
   return session;
 }
 
-function requireMatchedInstallation(ctx: RouteContext, session: Session, matchIndex: number): string {
-  const installationId = ctx.match[matchIndex];
+function requireMatchedInstallation(c: Context, session: Session, paramName: string): string {
+  const installationId = c.req.param(paramName);
   if (!session.installationId || session.installationId !== installationId) {
-    throw new ClientError('Forbidden', 403);
+    throw new HTTPException(403, { message: 'Forbidden' });
   }
   return installationId;
 }
@@ -100,20 +78,19 @@ async function githubFetchWithUserToken(session: Session, path: string, init: Re
 }
 
 async function proxyGitHubJson(
-  ctx: RouteContext,
+  c: Context,
   session: Session,
   path: string,
   init: RequestInit = {},
-): Promise<void> {
+): Promise<Response> {
   const ghRes = await githubFetchWithUserToken(session, path, init);
   const data = (await ghRes.json().catch(() => null)) as unknown;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
-    if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
-    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
-    return;
+    if (ghRes.status === 401) throw new HTTPException(401, { message: 'Unauthorized' });
+    return c.json({ error: err?.message ?? 'GitHub API error' }, ghRes.status as 400);
   }
-  json(ctx.res, 200, data);
+  return c.json(data, 200);
 }
 
 async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<Response> {
@@ -131,46 +108,59 @@ async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<
   });
 }
 
-async function handleAuthStart(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
+type GitTreeEntry = { path: string; type: string; sha: string };
+
+function mdFilesFromTree(tree: GitTreeEntry[]): { name: string; path: string; sha: string }[] {
+  const files: { name: string; path: string; sha: string }[] = [];
+  for (const entry of tree) {
+    if (entry.type !== 'blob' || !entry.path.toLowerCase().endsWith('.md')) continue;
+    const slash = entry.path.lastIndexOf('/');
+    files.push({ name: slash === -1 ? entry.path : entry.path.slice(slash + 1), path: entry.path, sha: entry.sha });
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  return files;
+}
+
+// --- Route handlers ---
+
+const api = new Hono();
+
+// Auth routes
+
+api.get('/auth/github/start', async (c) => {
   if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
-    json(ctx.res, 503, { error: 'GitHub OAuth is not configured' });
-    return;
+    return c.json({ error: 'GitHub OAuth is not configured' }, 503);
   }
 
-  const returnTo = normalizeReturnTo(ctx.url.searchParams.get('return_to'));
+  const returnTo = normalizeReturnTo(c.req.query('return_to') ?? null);
   const state = createOAuthState(returnTo);
-  const redirectUri = `${oauthBaseUrl(ctx.req)}/api/auth/github/callback`;
+  const redirectUri = `${oauthBaseUrl(c)}/api/auth/github/callback`;
   console.log(`[auth] OAuth start: redirect_uri=${redirectUri}, return_to=${returnTo}`);
   const authUrl = new URL('https://github.com/login/oauth/authorize');
   authUrl.searchParams.set('client_id', GITHUB_CLIENT_ID);
   authUrl.searchParams.set('redirect_uri', redirectUri);
   authUrl.searchParams.set('scope', 'gist read:user');
   authUrl.searchParams.set('state', state);
-  redirect(ctx.res, authUrl.toString());
-}
+  return c.redirect(authUrl.toString(), 302);
+});
 
-async function handleAuthCallback(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
+api.get('/auth/github/callback', async (c) => {
   if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
-    json(ctx.res, 503, { error: 'GitHub OAuth is not configured' });
-    return;
+    return c.json({ error: 'GitHub OAuth is not configured' }, 503);
   }
 
-  const code = ctx.url.searchParams.get('code');
-  const state = ctx.url.searchParams.get('state');
+  const code = c.req.query('code');
+  const state = c.req.query('state');
   if (!code || !state) {
-    json(ctx.res, 400, { error: 'Missing OAuth callback parameters' });
-    return;
+    return c.json({ error: 'Missing OAuth callback parameters' }, 400);
   }
 
   const returnTo = consumeOAuthState(state);
   if (!returnTo) {
-    json(ctx.res, 400, { error: 'Invalid or expired OAuth state' });
-    return;
+    return c.json({ error: 'Invalid or expired OAuth state' }, 400);
   }
 
-  const redirectUri = `${oauthBaseUrl(ctx.req)}/api/auth/github/callback`;
+  const redirectUri = `${oauthBaseUrl(c)}/api/auth/github/callback`;
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -186,8 +176,10 @@ async function handleAuthCallback(ctx: RouteContext): Promise<void> {
 
   const tokenData = (await tokenRes.json().catch(() => null)) as OAuthTokenResponse | null;
   if (!tokenRes.ok || !tokenData?.access_token) {
-    json(ctx.res, 502, { error: tokenData?.error_description ?? tokenData?.error ?? 'Failed to exchange OAuth code' });
-    return;
+    return c.json(
+      { error: tokenData?.error_description ?? tokenData?.error ?? 'Failed to exchange OAuth code' },
+      502,
+    );
   }
 
   const userRes = await fetch('https://api.github.com/user', {
@@ -200,8 +192,7 @@ async function handleAuthCallback(ctx: RouteContext): Promise<void> {
     signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });
   if (!userRes.ok) {
-    json(ctx.res, 502, { error: 'Failed to fetch GitHub user profile' });
-    return;
+    return c.json({ error: 'Failed to fetch GitHub user profile' }, 502);
   }
 
   const ghUser = (await userRes.json()) as {
@@ -211,7 +202,7 @@ async function handleAuthCallback(ctx: RouteContext): Promise<void> {
     name: string | null;
   };
 
-  const session = createSession(ctx.res, {
+  const session = createSession(c, {
     githubUserId: ghUser.id,
     githubAccessToken: tokenData.access_token,
     githubLogin: ghUser.login,
@@ -221,56 +212,117 @@ async function handleAuthCallback(ctx: RouteContext): Promise<void> {
   });
 
   console.log(`[auth] Created session for ${ghUser.login} (id=${session.id.slice(0, 8)}…), redirecting to ${returnTo}`);
-  redirect(ctx.res, returnTo);
-}
+  return c.redirect(returnTo, 302);
+});
 
-async function handleAuthSession(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = getSession(ctx.req);
+api.get('/auth/session', (c) => {
+  const session = getSession(c);
   if (!session) {
-    const hasCookie = Boolean(ctx.req.headers.cookie?.includes('input_session_id'));
+    const cookieHeader = c.req.header('cookie') ?? '';
+    const hasCookie = cookieHeader.includes('input_session_id');
     console.log(`[auth] Session check: no valid session (cookie present=${hasCookie})`);
-    json(ctx.res, 200, { authenticated: false });
-    return;
+    return c.json({ authenticated: false }, 200);
   }
-  refreshSession(session, ctx.res);
-  json(ctx.res, 200, {
-    authenticated: true,
-    user: {
+  refreshSession(session, c);
+  return c.json(
+    {
+      authenticated: true,
+      user: {
+        login: session.githubLogin,
+        avatar_url: session.githubAvatarUrl,
+        name: session.githubName,
+      },
+      installationId: session.installationId,
+    },
+    200,
+  );
+});
+
+api.post('/auth/logout', (c) => {
+  destroySession(c);
+  return c.json({ ok: true }, 200);
+});
+
+// GitHub user routes
+
+api.get('/github/user', (c) => {
+  const session = requireAuthSession(c);
+  return c.json(
+    {
       login: session.githubLogin,
       avatar_url: session.githubAvatarUrl,
       name: session.githubName,
     },
-    installationId: session.installationId,
+    200,
+  );
+});
+
+// Gist routes (authenticated)
+
+api.get('/github/gists', async (c) => {
+  const session = requireAuthSession(c);
+  const qs = new URLSearchParams();
+  const page = c.req.query('page') ?? '1';
+  const perPage = c.req.query('per_page') ?? '30';
+  qs.set('page', page);
+  qs.set('per_page', perPage);
+  return proxyGitHubJson(c, session, `/gists?${qs.toString()}`);
+});
+
+api.get('/github/gists/:id', async (c) => {
+  const session = requireAuthSession(c);
+  return proxyGitHubJson(c, session, `/gists/${encodeURIComponent(c.req.param('id'))}`);
+});
+
+api.post('/github/gists', async (c) => {
+  const session = requireAuthSession(c);
+  const body = await c.req.json();
+  return proxyGitHubJson(c, session, '/gists', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
   });
-}
+});
 
-async function handleAuthLogout(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  // We only destroy the server-side session; the GitHub access token is not
-  // revoked. It remains valid until GitHub's own expiry or the user revokes
-  // it manually at https://github.com/settings/applications.
-  destroySession(ctx.req, ctx.res);
-  json(ctx.res, 200, { ok: true });
-}
+api.patch('/github/gists/:id', async (c) => {
+  const session = requireAuthSession(c);
+  const body = await c.req.json();
+  return proxyGitHubJson(c, session, `/gists/${encodeURIComponent(c.req.param('id'))}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+});
 
-async function handleInstallUrl(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
+api.delete('/github/gists/:id', async (c) => {
+  const session = requireAuthSession(c);
+  const ghRes = await githubFetchWithUserToken(session, `/gists/${encodeURIComponent(c.req.param('id'))}`, {
+    method: 'DELETE',
+  });
+  if (!ghRes.ok) {
+    const data = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+    if (ghRes.status === 401) throw new HTTPException(401, { message: 'Unauthorized' });
+    return c.json({ error: data?.message ?? 'GitHub API error' }, ghRes.status as 400);
+  }
+  return c.json({ ok: true }, 200);
+});
+
+// GitHub App routes
+
+api.get('/github-app/install-url', (c) => {
   const slug = requireEnv('GITHUB_APP_SLUG');
-  const state = ctx.url.searchParams.get('state');
+  const state = c.req.query('state');
   const installUrl = new URL(`https://github.com/apps/${slug}/installations/new`);
   if (state) installUrl.searchParams.set('state', state);
-  json(ctx.res, 200, { url: installUrl.toString() });
-}
+  return c.json({ url: installUrl.toString() }, 200);
+});
 
-async function handleCreateSession(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const body = await readJson(ctx.req);
+api.post('/github-app/sessions', async (c) => {
+  const session = requireAuthSession(c);
+  const body = await c.req.json();
   const installationId = body?.installationId;
   if (!installationId || typeof installationId !== 'string') {
-    json(ctx.res, 400, { error: 'installationId is required' });
-    return;
+    return c.json({ error: 'installationId is required' }, 400);
   }
 
   const jwt = await createAppJwt();
@@ -287,94 +339,29 @@ async function handleCreateSession(ctx: RouteContext): Promise<void> {
   if (!ghRes.ok) {
     clearRememberedInstallationForUser(session.githubUserId);
     session.installationId = null;
-    refreshSession(session, ctx.res);
-    json(ctx.res, 403, { error: 'Invalid installation' });
-    return;
+    refreshSession(session, c);
+    return c.json({ error: 'Invalid installation' }, 403);
   }
 
   session.installationId = installationId;
   rememberInstallationForUser(session.githubUserId, installationId);
-  refreshSession(session, ctx.res);
-  json(ctx.res, 200, { installationId });
-}
+  refreshSession(session, c);
+  return c.json({ installationId }, 200);
+});
 
-async function handleDisconnectInstallation(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
+api.post('/github-app/disconnect', (c) => {
+  const session = requireAuthSession(c);
   session.installationId = null;
   clearRememberedInstallationForUser(session.githubUserId);
-  refreshSession(session, ctx.res);
-  json(ctx.res, 200, { ok: true });
-}
+  refreshSession(session, c);
+  return c.json({ ok: true }, 200);
+});
 
-async function handleGitHubUser(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  json(ctx.res, 200, {
-    login: session.githubLogin,
-    avatar_url: session.githubAvatarUrl,
-    name: session.githubName,
-  });
-}
+// Installation repos
 
-async function handleListGists(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const qs = new URLSearchParams();
-  const page = ctx.url.searchParams.get('page') ?? '1';
-  const perPage = ctx.url.searchParams.get('per_page') ?? '30';
-  qs.set('page', page);
-  qs.set('per_page', perPage);
-  await proxyGitHubJson(ctx, session, `/gists?${qs.toString()}`);
-}
-
-async function handleGetAuthedGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  await proxyGitHubJson(ctx, session, `/gists/${encodeURIComponent(ctx.match[1])}`);
-}
-
-async function handleCreateGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const body = await readJson(ctx.req);
-  await proxyGitHubJson(ctx, session, '/gists', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  });
-}
-
-async function handlePatchGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const body = await readJson(ctx.req);
-  await proxyGitHubJson(ctx, session, `/gists/${encodeURIComponent(ctx.match[1])}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  });
-}
-
-async function handleDeleteGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const ghRes = await githubFetchWithUserToken(session, `/gists/${encodeURIComponent(ctx.match[1])}`, {
-    method: 'DELETE',
-  });
-  if (!ghRes.ok) {
-    const data = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
-    if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
-    json(ctx.res, ghRes.status, { error: data?.message ?? 'GitHub API error' });
-    return;
-  }
-  json(ctx.res, 200, { ok: true });
-}
-
-async function handleListRepos(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const installationId = requireMatchedInstallation(ctx, session, 1);
+api.get('/github-app/installations/:installationId/repositories', async (c) => {
+  const session = requireAuthSession(c);
+  const installationId = requireMatchedInstallation(c, session, 'installationId');
 
   const allRepos: unknown[] = [];
   const MAX_PAGES = 50;
@@ -390,18 +377,19 @@ async function handleListRepos(ctx: RouteContext): Promise<void> {
     page++;
   }
 
-  json(ctx.res, 200, { total_count: allRepos.length, repositories: allRepos });
-}
+  return c.json({ total_count: allRepos.length, repositories: allRepos }, 200);
+});
 
-async function handleGetContents(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const installationId = requireMatchedInstallation(ctx, session, 1);
-  const owner = ctx.match[2];
-  const repo = ctx.match[3];
+// Repo contents (authenticated via installation)
 
-  const pathParam = ctx.url.searchParams.get('path') ?? '';
-  const ref = ctx.url.searchParams.get('ref');
+api.get('/github-app/installations/:installationId/repos/:owner/:repo/contents', async (c) => {
+  const session = requireAuthSession(c);
+  const installationId = requireMatchedInstallation(c, session, 'installationId');
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+
+  const pathParam = c.req.query('path') ?? '';
+  const ref = c.req.query('ref');
   const encodedPath = encodePathPreserveSlashes(pathParam);
   const ghPath = encodedPath
     ? `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`
@@ -411,25 +399,23 @@ async function handleGetContents(ctx: RouteContext): Promise<void> {
   const data = (await ghRes.json().catch(() => null)) as unknown;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
-    if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
-    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
-    return;
+    if (ghRes.status === 401) throw new HTTPException(401, { message: 'Unauthorized' });
+    return c.json({ error: err?.message ?? 'GitHub API error' }, ghRes.status as 400);
   }
-  json(ctx.res, 200, data);
-}
+  return c.json(data, 200);
+});
 
-async function handlePutContents(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const installationId = requireMatchedInstallation(ctx, session, 1);
-  const owner = ctx.match[2];
-  const repo = ctx.match[3];
+api.put('/github-app/installations/:installationId/repos/:owner/:repo/contents', async (c) => {
+  const session = requireAuthSession(c);
+  const installationId = requireMatchedInstallation(c, session, 'installationId');
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
 
-  const body = await readJson(ctx.req);
+  const body = await c.req.json();
   const pathParam = requireString(body, 'path');
   const message = requireString(body, 'message');
   const content = body?.content;
-  if (typeof content !== 'string') throw new ClientError('content is required');
+  if (typeof content !== 'string') throw new HTTPException(400, { message: 'content is required' });
   const sha = typeof body?.sha === 'string' ? body.sha : undefined;
   const branch = typeof body?.branch === 'string' ? body.branch : undefined;
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
@@ -438,17 +424,16 @@ async function handlePutContents(ctx: RouteContext): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, content, sha, branch }),
   });
-  json(ctx.res, 200, await ghRes.json());
-}
+  return c.json(await ghRes.json(), 200);
+});
 
-async function handleDeleteContents(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const installationId = requireMatchedInstallation(ctx, session, 1);
-  const owner = ctx.match[2];
-  const repo = ctx.match[3];
+api.delete('/github-app/installations/:installationId/repos/:owner/:repo/contents', async (c) => {
+  const session = requireAuthSession(c);
+  const installationId = requireMatchedInstallation(c, session, 'installationId');
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
 
-  const body = await readJson(ctx.req);
+  const body = await c.req.json();
   const pathParam = requireString(body, 'path');
   const message = requireString(body, 'message');
   const sha = requireString(body, 'sha');
@@ -459,36 +444,56 @@ async function handleDeleteContents(ctx: RouteContext): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, sha, branch }),
   });
-  json(ctx.res, 200, await ghRes.json());
-}
+  return c.json(await ghRes.json(), 200);
+});
 
-async function handleGetRawContent(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const installationId = requireMatchedInstallation(ctx, session, 1);
-  const owner = ctx.match[2];
-  const repo = ctx.match[3];
-  const pathParam = ctx.url.searchParams.get('path');
-  if (!pathParam) throw new ClientError('path is required');
+// Raw content (authenticated)
+
+api.get('/github-app/installations/:installationId/repos/:owner/:repo/raw', async (c) => {
+  const session = requireAuthSession(c);
+  const installationId = requireMatchedInstallation(c, session, 'installationId');
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const pathParam = c.req.query('path');
+  if (!pathParam) throw new HTTPException(400, { message: 'path is required' });
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
   const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
     headers: { Accept: 'application/vnd.github.raw' },
   });
 
-  ctx.res.statusCode = 200;
-  ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
-  ctx.res.setHeader('Cache-Control', 'private, max-age=300');
   const body = Buffer.from(await ghRes.arrayBuffer());
-  ctx.res.end(body);
-}
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': ghRes.headers.get('content-type') ?? 'application/octet-stream',
+      'Cache-Control': 'private, max-age=300',
+    },
+  });
+});
 
-async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const owner = decodeURIComponent(ctx.match[1]);
-  const repo = decodeURIComponent(ctx.match[2]);
-  const pathParam = ctx.url.searchParams.get('path') ?? '';
-  const ref = ctx.url.searchParams.get('ref');
+// Tree (authenticated)
+
+api.get('/github-app/installations/:installationId/repos/:owner/:repo/tree', async (c) => {
+  const session = requireAuthSession(c);
+  const installationId = requireMatchedInstallation(c, session, 'installationId');
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const ref = c.req.query('ref') || 'HEAD';
+
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
+  const data = (await ghRes.json()) as { tree: GitTreeEntry[]; truncated: boolean };
+  return c.json({ files: mdFilesFromTree(data.tree), truncated: data.truncated }, 200);
+});
+
+// Public repo routes
+
+api.get('/public/repos/:owner/:repo/contents', async (c) => {
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const pathParam = c.req.query('path') ?? '';
+  const ref = c.req.query('ref');
   const encodedPath = encodePathPreserveSlashes(pathParam);
   const ghPath = encodedPath
     ? `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`
@@ -498,18 +503,16 @@ async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
   const data = (await ghRes.json().catch(() => null)) as GitHubApiError | unknown;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
-    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
-    return;
+    return c.json({ error: err?.message ?? 'GitHub API error' }, ghRes.status as 400);
   }
-  json(ctx.res, 200, data);
-}
+  return c.json(data, 200);
+});
 
-async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const owner = decodeURIComponent(ctx.match[1]);
-  const repo = decodeURIComponent(ctx.match[2]);
-  const pathParam = ctx.url.searchParams.get('path');
-  if (!pathParam) throw new ClientError('path is required');
+api.get('/public/repos/:owner/:repo/raw', async (c) => {
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const pathParam = c.req.query('path');
+  if (!pathParam) throw new HTTPException(400, { message: 'path is required' });
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
   const ghRes = await fetchPublicGitHub(ghPath, {
@@ -526,49 +529,23 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
         message = text;
       }
     }
-    json(ctx.res, ghRes.status, { error: message });
-    return;
+    return c.json({ error: message }, ghRes.status as 400);
   }
 
-  ctx.res.statusCode = 200;
-  ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
-  ctx.res.setHeader('Cache-Control', 'public, max-age=300');
   const body = Buffer.from(await ghRes.arrayBuffer());
-  ctx.res.end(body);
-}
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': ghRes.headers.get('content-type') ?? 'application/octet-stream',
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+});
 
-type GitTreeEntry = { path: string; type: string; sha: string };
-
-function mdFilesFromTree(tree: GitTreeEntry[]): { name: string; path: string; sha: string }[] {
-  const files: { name: string; path: string; sha: string }[] = [];
-  for (const entry of tree) {
-    if (entry.type !== 'blob' || !entry.path.toLowerCase().endsWith('.md')) continue;
-    const slash = entry.path.lastIndexOf('/');
-    files.push({ name: slash === -1 ? entry.path : entry.path.slice(slash + 1), path: entry.path, sha: entry.sha });
-  }
-  files.sort((a, b) => a.path.localeCompare(b.path));
-  return files;
-}
-
-async function handleGetTree(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const session = requireAuthSession(ctx);
-  const installationId = requireMatchedInstallation(ctx, session, 1);
-  const owner = ctx.match[2];
-  const repo = ctx.match[3];
-  const ref = ctx.url.searchParams.get('ref') || 'HEAD';
-
-  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
-  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
-  const data = (await ghRes.json()) as { tree: GitTreeEntry[]; truncated: boolean };
-  json(ctx.res, 200, { files: mdFilesFromTree(data.tree), truncated: data.truncated });
-}
-
-async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const owner = decodeURIComponent(ctx.match[1]);
-  const repo = decodeURIComponent(ctx.match[2]);
-  const ref = ctx.url.searchParams.get('ref') || 'HEAD';
+api.get('/public/repos/:owner/:repo/tree', async (c) => {
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const ref = c.req.query('ref') || 'HEAD';
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
   const ghRes = await fetchPublicGitHub(ghPath);
@@ -579,22 +556,21 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
   } | null;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
-    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
-    return;
+    return c.json({ error: err?.message ?? 'GitHub API error' }, ghRes.status as 400);
   }
-  json(ctx.res, 200, { files: mdFilesFromTree(data?.tree ?? []), truncated: data?.truncated ?? false });
-}
+  return c.json({ files: mdFilesFromTree(data?.tree ?? []), truncated: data?.truncated ?? false }, 200);
+});
 
-async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
-  const gistId = ctx.match[1];
+// Public gist route
+
+api.get('/gists/:id', async (c) => {
+  const gistId = c.req.param('id');
   const cached = getGistCacheEntry(gistId);
   const now = Date.now();
 
   if (cached && isFresh(cached, now)) {
-    ctx.res.setHeader('X-Cache', 'hit');
-    json(ctx.res, 200, cached.data);
-    return;
+    c.header('X-Cache', 'hit');
+    return c.json(cached.data, 200);
   }
 
   const ghHeaders: Record<string, string> = {
@@ -613,94 +589,34 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
 
     if (ghRes.status === 304 && cached) {
       markRevalidated(cached, now);
-      ctx.res.setHeader('X-Cache', 'revalidated');
-      json(ctx.res, 200, cached.data);
-      return;
+      c.header('X-Cache', 'revalidated');
+      return c.json(cached.data, 200);
     }
 
     if (!ghRes.ok) {
       if (cached) {
-        ctx.res.setHeader('X-Cache', 'stale');
-        json(ctx.res, 200, cached.data);
-        return;
+        c.header('X-Cache', 'stale');
+        return c.json(cached.data, 200);
       }
-      json(ctx.res, ghRes.status === 404 ? 404 : 502, {
-        error: ghRes.status === 404 ? 'Gist not found' : 'GitHub API error',
-      });
-      return;
+      return c.json(
+        { error: ghRes.status === 404 ? 'Gist not found' : 'GitHub API error' },
+        ghRes.status === 404 ? 404 : 502,
+      );
     }
 
     const data: unknown = await ghRes.json();
     const etag = ghRes.headers.get('etag');
     setGistCacheEntry(gistId, data, etag, now);
-    ctx.res.setHeader('X-Cache', 'miss');
-    json(ctx.res, 200, data);
+    c.header('X-Cache', 'miss');
+    return c.json(data, 200);
   } catch (err) {
     if (cached) {
-      ctx.res.setHeader('X-Cache', 'stale');
-      json(ctx.res, 200, cached.data);
-      return;
+      c.header('X-Cache', 'stale');
+      return c.json(cached.data, 200);
     }
     console.error('Gist fetch failed:', err);
-    throw new ClientError('Failed to load gist', 502);
+    throw new HTTPException(502, { message: 'Failed to load gist' });
   }
-}
+});
 
-const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
-const RAW_CONTENT_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/raw$/;
-const TREE_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tree$/;
-const PUBLIC_REPO_CONTENTS_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/contents$/;
-const PUBLIC_REPO_RAW_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/raw$/;
-const PUBLIC_REPO_TREE_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tree$/;
-
-const routes: RouteDef[] = [
-  { method: 'GET', pattern: /^\/api\/auth\/github\/start$/, handler: handleAuthStart },
-  { method: 'GET', pattern: /^\/api\/auth\/github\/callback$/, handler: handleAuthCallback },
-  { method: 'GET', pattern: /^\/api\/auth\/session$/, handler: handleAuthSession },
-  { method: 'POST', pattern: /^\/api\/auth\/logout$/, handler: handleAuthLogout },
-  { method: 'GET', pattern: /^\/api\/github\/user$/, handler: handleGitHubUser },
-  { method: 'GET', pattern: /^\/api\/github\/gists$/, handler: handleListGists },
-  { method: 'POST', pattern: /^\/api\/github\/gists$/, handler: handleCreateGist },
-  { method: 'GET', pattern: /^\/api\/github\/gists\/([a-f0-9]+)$/i, handler: handleGetAuthedGist },
-  { method: 'PATCH', pattern: /^\/api\/github\/gists\/([a-f0-9]+)$/i, handler: handlePatchGist },
-  { method: 'DELETE', pattern: /^\/api\/github\/gists\/([a-f0-9]+)$/i, handler: handleDeleteGist },
-  { method: 'GET', pattern: /^\/api\/github-app\/install-url$/, handler: handleInstallUrl },
-  { method: 'POST', pattern: /^\/api\/github-app\/sessions$/, handler: handleCreateSession },
-  { method: 'POST', pattern: /^\/api\/github-app\/disconnect$/, handler: handleDisconnectInstallation },
-  { method: 'GET', pattern: /^\/api\/github-app\/installations\/([^/]+)\/repositories$/, handler: handleListRepos },
-  { method: 'GET', pattern: CONTENTS_PATTERN, handler: handleGetContents },
-  { method: 'PUT', pattern: CONTENTS_PATTERN, handler: handlePutContents },
-  { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
-  { method: 'GET', pattern: RAW_CONTENT_PATTERN, handler: handleGetRawContent },
-  { method: 'GET', pattern: TREE_PATTERN, handler: handleGetTree },
-  { method: 'GET', pattern: PUBLIC_REPO_CONTENTS_PATTERN, handler: handleGetPublicRepoContents },
-  { method: 'GET', pattern: PUBLIC_REPO_RAW_PATTERN, handler: handleGetPublicRepoRaw },
-  { method: 'GET', pattern: PUBLIC_REPO_TREE_PATTERN, handler: handleGetPublicTree },
-  { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
-];
-
-export async function handleApiRequest(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  url: URL,
-  pathname: string,
-): Promise<boolean> {
-  for (const route of routes) {
-    const match = pathname.match(route.pattern);
-    if (!match) continue;
-
-    if (req.method !== route.method) {
-      const hasMethodMatch = routes.some((r) => r.method === req.method && pathname.match(r.pattern));
-      if (!hasMethodMatch) {
-        json(res, 405, { error: 'Method not allowed' });
-        return true;
-      }
-      continue;
-    }
-
-    await route.handler({ req, res, url, pathname, match });
-    return true;
-  }
-
-  return false;
-}
+export { api };
