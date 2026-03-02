@@ -1014,6 +1014,10 @@ export function App() {
             setRepoFiles(mdFiles);
             const indexFile = mdFiles.find((f) => f.path.toLowerCase() === 'index.md');
             const target = indexFile ?? mdFiles[0];
+            if (isSubdomainMode() && indexFile && target.path === indexFile.path) {
+              await loadPublicRepoFile(owner, repo, target.path);
+              return;
+            }
             navigate(routePath.publicRepoFile(owner, repo, target.path), { replace: true });
           } catch (err) {
             showRateLimitToastIfNeeded(err);
