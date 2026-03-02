@@ -28,6 +28,7 @@ import {
   clearSelectedRepo,
   consumeInstallState,
   createInstallState,
+  createRepoFileShareLink,
   createSession,
   disconnectInstallation,
   getInstallationId,
@@ -38,6 +39,7 @@ import {
   getRepoContents,
   getRepoTree,
   getSelectedRepo,
+  getSharedRepoFile,
   hasInstallState,
   type InstallationRepo,
   isRepoFile,
@@ -316,6 +318,7 @@ function viewFromRoute(route: Route): ActiveView {
       return 'workspaces';
     case 'repofile':
     case 'publicrepofile':
+    case 'sharefile':
     case 'gist':
       return 'content';
     default:
@@ -971,6 +974,34 @@ export function App() {
     ],
   );
 
+  const loadSharedRepoFile = useCallback(
+    async (token: string) => {
+      const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
+      if (shouldShowLoading) {
+        setViewPhase('loading');
+      }
+      try {
+        const shared = await getSharedRepoFile(token);
+        const decoded = decodeBase64ToUtf8(shared.content);
+        setRepoAccessMode(null);
+        setPublicRepoRef(null);
+        setRepoFiles([]);
+        setCurrentRepoDocPath(shared.path);
+        setCurrentRepoDocSha(shared.sha);
+        setCurrentGistId(null);
+        setGistFiles(null);
+        setCurrentFileName(shared.path);
+        setEditingBackend(null);
+        renderDocumentContent(decoded, shared.name, shared.path);
+        setViewPhase(null);
+      } catch (err) {
+        showRateLimitToastIfNeeded(err);
+        showError(err instanceof Error ? err.message : 'Failed to load shared file');
+      }
+    },
+    [activeView, currentFileName, renderDocumentContent, showError, showRateLimitToastIfNeeded],
+  );
+
   // --- Route handler ---
   const handleRoute = useCallback(
     async (r: Route, authenticatedOverride?: boolean) => {
@@ -980,7 +1011,8 @@ export function App() {
         r.name === 'repoedit' ||
         r.name === 'edit' ||
         r.name === 'gist' ||
-        r.name === 'publicrepofile';
+        r.name === 'publicrepofile' ||
+        r.name === 'sharefile';
       if (enteringDocumentRoute && activeView !== 'content' && activeView !== 'edit') {
         // Reentering an existing repo/gist should reset manual sidebar overrides.
         setSidebarVisibilityOverride(null);
@@ -1032,6 +1064,9 @@ export function App() {
           await loadPublicRepoFile(owner, repo, decodedPath);
           return;
         }
+        case 'sharefile':
+          await loadSharedRepoFile(safeDecodeURIComponent(r.params.token));
+          return;
         case 'repodocuments': {
           syncRepoStateFromHistory();
           syncRepoState();
@@ -1204,6 +1239,7 @@ export function App() {
       syncRepoState,
       loadRepoFile,
       loadPublicRepoFile,
+      loadSharedRepoFile,
       loadRepoMarkdownFiles,
       loadPublicRepoMarkdownFiles,
       loadGist,
@@ -1333,26 +1369,36 @@ export function App() {
     else navigate(routePath.workspaces());
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
-  const onSharePublicLink = useCallback(async () => {
+  const onShareLink = useCallback(async () => {
     if (
       repoAccessMode !== 'installed' ||
       route.name !== 'repoedit' ||
-      selectedRepoPrivate !== false ||
       !selectedRepo ||
-      !currentRepoDocPath
+      !currentRepoDocPath ||
+      !installationId
     ) {
-      showFailureToast('Public sharing is not available for this file');
+      showFailureToast('Sharing is not available for this file');
       return;
     }
 
-    const [owner, repo] = selectedRepo.split('/');
-    if (!owner || !repo) {
-      showFailureToast('Failed to build public link');
-      return;
-    }
-    const publicPath = routePath.publicRepoFile(owner, repo, currentRepoDocPath);
-    const url = `${window.location.origin}/${publicPath}`;
     try {
+      let url: string;
+      let successMessage: string;
+      if (selectedRepoPrivate === false) {
+        const [owner, repo] = selectedRepo.split('/');
+        if (!owner || !repo) {
+          showFailureToast('Failed to build public link');
+          return;
+        }
+        const publicPath = routePath.publicRepoFile(owner, repo, currentRepoDocPath);
+        url = `${window.location.origin}/${publicPath}`;
+        successMessage = 'Copied public read-only link';
+      } else {
+        const share = await createRepoFileShareLink(installationId, selectedRepo, currentRepoDocPath);
+        url = share.url;
+        successMessage = 'Copied private share link';
+      }
+
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
       } else {
@@ -1366,9 +1412,9 @@ export function App() {
         document.execCommand('copy');
         input.remove();
       }
-      showSuccessToast('Copied public read-only link');
+      showSuccessToast(successMessage);
     } catch {
-      showFailureToast('Failed to copy public link');
+      showFailureToast('Failed to copy share link');
     }
   }, [
     repoAccessMode,
@@ -1376,8 +1422,9 @@ export function App() {
     selectedRepoPrivate,
     selectedRepo,
     currentRepoDocPath,
-    showFailureToast,
+    installationId,
     showSuccessToast,
+    showFailureToast,
   ]);
 
   const onSave = useCallback(async () => {
@@ -1999,11 +2046,7 @@ export function App() {
     activeView === 'content' &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showHeaderShare =
-    activeView === 'edit' &&
-    route.name === 'repoedit' &&
-    repoAccessMode === 'installed' &&
-    selectedRepoPrivate === false &&
-    currentRepoDocPath !== null;
+    activeView === 'edit' && route.name === 'repoedit' && repoAccessMode === 'installed' && currentRepoDocPath !== null;
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
     repoAccessMode === 'installed' &&
@@ -2026,7 +2069,7 @@ export function App() {
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
         onShare={() => {
-          void onSharePublicLink();
+          void onShareLink();
         }}
         showEdit={showHeaderEdit}
         editUrl={null}

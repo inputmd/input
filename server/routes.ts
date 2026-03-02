@@ -1,5 +1,13 @@
 import type http from 'node:http';
-import { APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_FETCH_TIMEOUT_MS, GITHUB_TOKEN } from './config';
+import {
+  APP_URL,
+  GITHUB_CLIENT_ID,
+  GITHUB_CLIENT_SECRET,
+  GITHUB_FETCH_TIMEOUT_MS,
+  GITHUB_TOKEN,
+  SHARE_TOKEN_SECRET,
+  SHARE_TOKEN_TTL_SECONDS,
+} from './config';
 import { ClientError } from './errors';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
 import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
@@ -16,6 +24,7 @@ import {
   refreshSession,
   rememberInstallationForUser,
 } from './session';
+import { createRepoFileShareToken, verifyRepoFileShareToken } from './share_tokens';
 import type { Session } from './types';
 
 interface RouteContext {
@@ -45,6 +54,12 @@ type GitHubApiError = {
   message?: string;
 };
 
+interface ShareRepoFileCreateBody {
+  installationId?: unknown;
+  repoFullName?: unknown;
+  path?: unknown;
+}
+
 function redirect(res: http.ServerResponse, location: string): void {
   res.statusCode = 302;
   res.setHeader('Location', location);
@@ -67,6 +82,12 @@ function normalizeReturnTo(raw: string | null): string {
   // Only allow same-origin relative paths.
   if (!raw.startsWith('/') || raw.startsWith('//')) return '/auth';
   return raw;
+}
+
+function splitRepoFullName(repoFullName: string): { owner: string; repo: string } {
+  const [owner, repo] = repoFullName.split('/');
+  if (!owner || !repo) throw new ClientError('Invalid repoFullName', 400);
+  return { owner, repo };
 }
 
 function requireAuthSession(ctx: RouteContext): Session {
@@ -462,6 +483,102 @@ async function handleDeleteContents(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, await ghRes.json());
 }
 
+async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  if (!SHARE_TOKEN_SECRET) {
+    json(ctx.res, 503, { error: 'Share links are not configured' });
+    return;
+  }
+
+  const session = requireAuthSession(ctx);
+  const body = (await readJson(ctx.req)) as ShareRepoFileCreateBody | null;
+  const installationId = typeof body?.installationId === 'string' ? body.installationId : '';
+  const repoFullName = typeof body?.repoFullName === 'string' ? body.repoFullName : '';
+  const pathParam = typeof body?.path === 'string' ? body.path.trim() : '';
+  if (!installationId || !repoFullName || !pathParam)
+    throw new ClientError('installationId, repoFullName, and path are required', 400);
+  if (!pathParam.toLowerCase().endsWith('.md')) throw new ClientError('Only markdown files can be shared', 400);
+  if (!session.installationId || session.installationId !== installationId) throw new ClientError('Forbidden', 403);
+
+  const { owner, repo } = splitRepoFullName(repoFullName);
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
+  const data = (await ghRes.json().catch(() => null)) as {
+    type?: string;
+    path?: string;
+    sha?: string;
+    name?: string;
+    content?: string;
+    encoding?: string;
+  } | null;
+  if (!data || data.type !== 'file' || typeof data.sha !== 'string' || typeof data.path !== 'string') {
+    throw new ClientError('Expected a file', 400);
+  }
+  if (!data.path.toLowerCase().endsWith('.md')) throw new ClientError('Only markdown files can be shared', 400);
+
+  const token = createRepoFileShareToken(SHARE_TOKEN_SECRET, {
+    installationId,
+    owner,
+    repo,
+    path: data.path,
+    nowMs: Date.now(),
+    ttlSeconds: SHARE_TOKEN_TTL_SECONDS,
+  });
+  const expiresAt = new Date(Date.now() + SHARE_TOKEN_TTL_SECONDS * 1000).toISOString();
+  json(ctx.res, 200, {
+    token,
+    url: `${requestBaseUrl(ctx.req)}/s/${encodeURIComponent(token)}`,
+    expiresAt,
+  });
+}
+
+async function handleGetSharedRepoFile(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  if (!SHARE_TOKEN_SECRET) {
+    json(ctx.res, 503, { error: 'Share links are not configured' });
+    return;
+  }
+
+  const token = decodeURIComponent(ctx.match[1]);
+  const payload = verifyRepoFileShareToken(SHARE_TOKEN_SECRET, token, Date.now());
+  if (!payload) {
+    json(ctx.res, 401, { error: 'Invalid or expired share token' });
+    return;
+  }
+
+  const ghPath = `/repos/${encodeURIComponent(payload.owner)}/${encodeURIComponent(payload.repo)}/contents/${encodePathPreserveSlashes(payload.path)}`;
+  const ghRes = await githubFetchWithInstallationToken(payload.installationId, ghPath);
+  const data = (await ghRes.json().catch(() => null)) as {
+    type?: string;
+    path?: string;
+    sha?: string;
+    name?: string;
+    content?: string;
+    encoding?: string;
+  } | null;
+  if (!data || data.type !== 'file' || typeof data.sha !== 'string' || typeof data.path !== 'string') {
+    throw new ClientError('Expected a file', 400);
+  }
+  if (!data.path.toLowerCase().endsWith('.md')) {
+    json(ctx.res, 410, { error: 'Shared file is no longer a markdown file' });
+    return;
+  }
+  if (typeof data.content !== 'string' || data.encoding !== 'base64') {
+    throw new ClientError('Unexpected file payload from GitHub', 502);
+  }
+
+  json(ctx.res, 200, {
+    owner: payload.owner,
+    repo: payload.repo,
+    path: data.path,
+    name: data.name ?? data.path.split('/').pop() ?? data.path,
+    sha: data.sha,
+    content: data.content,
+    encoding: data.encoding,
+    expiresAt: new Date(payload.exp * 1000).toISOString(),
+  });
+}
+
 async function handleGetRawContent(ctx: RouteContext): Promise<void> {
   if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
@@ -652,6 +769,7 @@ const TREE_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)
 const PUBLIC_REPO_CONTENTS_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const PUBLIC_REPO_RAW_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const PUBLIC_REPO_TREE_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tree$/;
+const SHARE_REPO_FILE_PATTERN = /^\/api\/share\/repo-file\/([^/]+)$/;
 
 const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/auth\/github\/start$/, handler: handleAuthStart },
@@ -667,6 +785,8 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/github-app\/install-url$/, handler: handleInstallUrl },
   { method: 'POST', pattern: /^\/api\/github-app\/sessions$/, handler: handleCreateSession },
   { method: 'POST', pattern: /^\/api\/github-app\/disconnect$/, handler: handleDisconnectInstallation },
+  { method: 'POST', pattern: /^\/api\/share\/repo-file$/, handler: handleCreateRepoFileShare },
+  { method: 'GET', pattern: SHARE_REPO_FILE_PATTERN, handler: handleGetSharedRepoFile },
   { method: 'GET', pattern: /^\/api\/github-app\/installations\/([^/]+)\/repositories$/, handler: handleListRepos },
   { method: 'GET', pattern: CONTENTS_PATTERN, handler: handleGetContents },
   { method: 'PUT', pattern: CONTENTS_PATTERN, handler: handlePutContents },

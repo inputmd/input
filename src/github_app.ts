@@ -240,6 +240,23 @@ export interface PutFileResult {
   commit: { sha: string; html_url: string };
 }
 
+export interface RepoFileShareLink {
+  token: string;
+  url: string;
+  expiresAt: string;
+}
+
+export interface SharedRepoFile {
+  owner: string;
+  repo: string;
+  path: string;
+  name: string;
+  sha: string;
+  content: string;
+  encoding: 'base64';
+  expiresAt: string;
+}
+
 const repoContentsCache = new Map<string, CacheEntry<RepoContents>>();
 let repoContentsCacheChannel: BroadcastChannel | null = null;
 let repoContentsCacheTtlMs = readCacheTtlMs('VITE_REPO_CONTENTS_CACHE_TTL_MS', DEFAULT_REPO_CONTENTS_CACHE_TTL_MS);
@@ -553,4 +570,22 @@ export async function deleteRepoFile(
     body: JSON.stringify({ path, message, sha }),
   });
   clearRepoContentsCacheForRepo(installationId, repoFullName);
+}
+
+export async function createRepoFileShareLink(
+  installationId: string,
+  repoFullName: string,
+  path: string,
+): Promise<RepoFileShareLink> {
+  const res = await authFetch('/api/share/repo-file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ installationId, repoFullName, path }),
+  });
+  return (await res.json()) as RepoFileShareLink;
+}
+
+export async function getSharedRepoFile(token: string): Promise<SharedRepoFile> {
+  const res = await publicFetch(`/api/share/repo-file/${encodeURIComponent(token)}`);
+  return (await res.json()) as SharedRepoFile;
 }

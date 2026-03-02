@@ -9,6 +9,7 @@ export type Route =
   | { name: 'repofile'; params: { path: string } }
   | { name: 'reponew'; params: Record<string, never> }
   | { name: 'repoedit'; params: { path: string } }
+  | { name: 'sharefile'; params: { token: string } }
   | { name: 'new'; params: Record<string, never> }
   | { name: 'edit'; params: { id: string; filename?: string } }
   | { name: 'gist'; params: { id: string; filename?: string } };
@@ -32,6 +33,7 @@ const ROUTE_TABLE: RouteDef[] = [
   { pattern: /^repo\/file\/(.+)$/, build: (m) => ({ name: 'repofile', params: { path: m[1] } }) },
   { pattern: /^repo\/new$/, build: () => ({ name: 'reponew', params: {} }) },
   { pattern: /^repo\/edit\/(.+)$/, build: (m) => ({ name: 'repoedit', params: { path: m[1] } }) },
+  { pattern: /^s\/([^/]+)$/, build: (m) => ({ name: 'sharefile', params: { token: m[1] } }) },
   { pattern: /^gist\/new$/, build: () => ({ name: 'new', params: {} }) },
   {
     pattern: new RegExp(`^edit\\/(${GIST_ID_PATTERN})\\/(.+)$`, 'i'),
@@ -63,6 +65,7 @@ export const routePath = {
   repoFile: (path: string) => `repo/file/${encodeURIComponent(path)}`,
   repoNew: () => 'repo/new',
   repoEdit: (path: string) => `repo/edit/${encodeURIComponent(path)}`,
+  shareFile: (token: string) => `s/${encodeURIComponent(token)}`,
   freshDraft: () => 'gist/new',
   gistEdit: (id: string, filename?: string) => (filename ? `edit/${id}/${encodeURIComponent(filename)}` : `edit/${id}`),
   gistView: (id: string, filename?: string) => (filename ? `gist/${id}/${encodeURIComponent(filename)}` : `gist/${id}`),
