@@ -125,6 +125,16 @@
   gap: 8px;
 }
 
+.github-signin-btn {
+  background: #238636;
+  border-color: #2ea043;
+  color: #ffffff;
+}
+
+.github-signin-btn:hover {
+  background: #2ea043;
+}
+
 .action-buttons .preview-toggle-btn {
   display: inline-flex;
   align-items: center;

@@ -12,7 +12,6 @@ import './styles/sidebar.css';
 import './styles/editor.css';
 import './styles/markdown.css';
 import './styles/documents.css';
-import './styles/auth.css';
 import './styles/dialog.css';
 
 render(

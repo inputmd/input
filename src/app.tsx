@@ -60,7 +60,6 @@ import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import { type Route, routePath } from './routing';
 import { decodeBase64ToUtf8, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
-import { AuthView } from './views/AuthView';
 import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
@@ -80,6 +79,8 @@ const MAX_SIDEBAR_WIDTH_PX = 420;
 const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
 const PASTED_IMAGE_MAX_SIDE_PX = 1600;
 const PASTED_IMAGE_QUALITY = 0.82;
+const OAUTH_REDIRECT_GUARD_KEY = 'oauth_redirect_guard';
+const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
@@ -315,8 +316,6 @@ async function maybeResizePastedImage(file: File): Promise<{ bytes: Uint8Array; 
 
 function viewFromRoute(route: Route): ActiveView {
   switch (route.name) {
-    case 'login':
-      return 'login';
     case 'workspaces':
       return 'workspaces';
     case 'repofile':
@@ -414,17 +413,6 @@ export function App() {
     setSelectedRepoPrivate(selectedRepoState.private);
   }, [routeState]);
 
-  const handleSessionExpired = useCallback(() => {
-    clearInstallationId();
-    clearSelectedRepo();
-    setInstId(null);
-    setSelectedRepo(null);
-    setSelectedRepoPrivate(null);
-    setRepoAccessMode(null);
-    setPublicRepoRef(null);
-    navigate(routePath.login());
-  }, [navigate]);
-
   const showError = useCallback((msg: string) => {
     setErrorMessage(msg);
     setViewPhase('error');
@@ -437,6 +425,62 @@ export function App() {
     },
     [showFailureToast],
   );
+
+  const clearOAuthRedirectGuard = useCallback(() => {
+    try {
+      sessionStorage.removeItem(OAUTH_REDIRECT_GUARD_KEY);
+    } catch {}
+  }, []);
+
+  const startGitHubSignIn = useCallback(
+    (returnTo: string) => {
+      const normalizedReturnTo = returnTo.startsWith('/') ? returnTo : `/${returnTo}`;
+      const currentPath = `${window.location.pathname}${window.location.search}`;
+      try {
+        const raw = sessionStorage.getItem(OAUTH_REDIRECT_GUARD_KEY);
+        if (raw) {
+          const guard = JSON.parse(raw) as { at?: unknown; fromPath?: unknown; returnTo?: unknown };
+          if (
+            typeof guard.at === 'number' &&
+            typeof guard.fromPath === 'string' &&
+            typeof guard.returnTo === 'string' &&
+            guard.fromPath === currentPath &&
+            guard.returnTo === normalizedReturnTo &&
+            Date.now() - guard.at < OAUTH_REDIRECT_GUARD_WINDOW_MS
+          ) {
+            showError('Sign-in redirect loop detected. Please refresh and try again.');
+            return false;
+          }
+        }
+        sessionStorage.setItem(
+          OAUTH_REDIRECT_GUARD_KEY,
+          JSON.stringify({
+            at: Date.now(),
+            fromPath: currentPath,
+            returnTo: normalizedReturnTo,
+          }),
+        );
+      } catch {
+        // Best effort only; continue with OAuth redirect.
+      }
+      window.location.assign(`/api/auth/github/start?return_to=${encodeURIComponent(normalizedReturnTo)}`);
+      return true;
+    },
+    [showError],
+  );
+
+  const handleSessionExpired = useCallback(() => {
+    clearInstallationId();
+    clearSelectedRepo();
+    setUser(null);
+    setInstId(null);
+    setSelectedRepo(null);
+    setSelectedRepoPrivate(null);
+    setRepoAccessMode(null);
+    setPublicRepoRef(null);
+    setErrorMessage('Your session expired. Sign in with GitHub from the header to continue.');
+    setViewPhase('error');
+  }, []);
 
   const focusEditorSoon = useCallback(() => {
     requestAnimationFrame(() => {
@@ -584,6 +628,7 @@ export function App() {
         setSelectedRepoPrivate(null);
         return { authenticated: false, navigated: false };
       }
+      clearOAuthRedirectGuard();
       setUser(session.user);
       const pendingInstallationId = getPendingInstallationId();
       if (pendingInstallationId) {
@@ -592,11 +637,7 @@ export function App() {
           setInstallationId(pendingInstallationId);
           setInstId(pendingInstallationId);
           clearPendingInstallationId();
-          if (route.name === 'login') {
-            setWorkspaceNotice('GitHub App installation connected. Review your installation details below.');
-            navigate(routePath.workspaces());
-            return { authenticated: true, navigated: true };
-          }
+          setWorkspaceNotice('GitHub App installation connected. Review your installation details below.');
         } catch (err) {
           if (!(err instanceof Error && err.message === 'Unauthorized')) {
             clearPendingInstallationId();
@@ -612,20 +653,12 @@ export function App() {
         setInstallationRepos([]);
         setLoadedReposInstallationId(null);
       }
-      // Navigate away from auth page after successful session restore.
-      if (route.name === 'login') {
-        if (session.installationId) {
-          setWorkspaceNotice('Signed in with an active GitHub App installation. Review your installation details below.');
-        }
-        navigate(routePath.workspaces());
-        return { authenticated: true, navigated: true };
-      }
       return { authenticated: true, navigated: false };
     } catch {
       setUser(null);
       return { authenticated: false, navigated: false };
     }
-  }, [navigate, route.name]);
+  }, [clearOAuthRedirectGuard]);
 
   // --- GitHub App redirect ---
   const tryHandleGitHubAppSetupRedirect = useCallback(async (): Promise<boolean> => {
@@ -645,7 +678,7 @@ export function App() {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
-        navigate(routePath.login());
+        startGitHubSignIn(`/${routePath.workspaces()}`);
         return true;
       }
       await createSession(id);
@@ -655,7 +688,7 @@ export function App() {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
-        navigate(routePath.login());
+        startGitHubSignIn(`/${routePath.workspaces()}`);
         return true;
       }
       showError(err instanceof Error ? err.message : 'Failed to create session');
@@ -672,7 +705,7 @@ export function App() {
 
     navigate(routePath.workspaces());
     return true;
-  }, [navigate, showError]);
+  }, [navigate, showError, showRateLimitToastIfNeeded, startGitHubSignIn]);
 
   const onConnectInstallation = useCallback(async () => {
     try {
@@ -943,16 +976,9 @@ export function App() {
       }
 
       switch (r.name) {
-        case 'login':
-          if (isAuthenticated) {
-            navigate(routePath.workspaces(), { replace: true });
-            return;
-          }
-          setViewPhase(null);
-          return;
         case 'workspaces':
           if (!isAuthenticated) {
-            navigate(routePath.login());
+            startGitHubSignIn(`/${routePath.workspaces()}`);
             return;
           }
           setRepoAccessMode(null);
@@ -1088,7 +1114,7 @@ export function App() {
           return;
         case 'edit': {
           if (!isAuthenticated) {
-            navigate(routePath.login(), { replace: true });
+            startGitHubSignIn(`/${routePath.gistEdit(r.params.id, r.params.filename)}`);
             return;
           }
           setDraftMode(false);
@@ -1172,6 +1198,7 @@ export function App() {
       user,
       currentGistId,
       gistFiles,
+      startGitHubSignIn,
       handleSessionExpired,
       showRateLimitToastIfNeeded,
     ],
@@ -1783,15 +1810,13 @@ export function App() {
       setSelectedRepoPrivate(null);
       setInstallationRepos([]);
       setLoadedReposInstallationId(null);
-      navigate(routePath.login());
+      navigate(routePath.workspaces());
     }
   }, [navigate, showConfirm]);
 
   // --- Render active view ---
   const renderView = () => {
     switch (activeView) {
-      case 'login':
-        return <AuthView />;
       case 'workspaces': {
         const reposInitialLoaded = !installationId || loadedReposInstallationId === installationId;
         const gistsInitialLoaded = menuGistsLoaded;
@@ -1812,9 +1837,7 @@ export function App() {
             workspaceNotice={workspaceNotice}
             onDismissWorkspaceNotice={() => setWorkspaceNotice(null)}
           />
-        ) : (
-          <AuthView />
-        );
+        ) : null;
       }
       case 'content':
         return (
@@ -1992,6 +2015,9 @@ export function App() {
         saving={saving}
         canSave={hasUnsavedChanges}
         onSave={onSave}
+        onSignInWithGitHub={() => {
+          startGitHubSignIn(`/${routePath.workspaces()}`);
+        }}
       />
       <div
         class={showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}

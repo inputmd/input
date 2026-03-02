@@ -5,7 +5,7 @@ import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
 
-export type ActiveView = 'login' | 'workspaces' | 'loading' | 'error' | 'content' | 'edit';
+export type ActiveView = 'workspaces' | 'loading' | 'error' | 'content' | 'edit';
 
 interface ToolbarProps {
   view: ActiveView;
@@ -31,6 +31,7 @@ interface ToolbarProps {
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
+  onSignInWithGitHub: () => void;
   navigate: (route: string, options?: { replace?: boolean; state?: unknown }) => void;
   onOpenRepoMenu: () => void;
   onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void;
@@ -65,6 +66,7 @@ export function Toolbar({
   saving,
   canSave,
   onSave,
+  onSignInWithGitHub,
   navigate,
   onOpenRepoMenu,
   onSelectRepo,
@@ -237,8 +239,8 @@ export function Toolbar({
             </button>
           )}
           {showSignInToSave && (
-            <button type="button" onClick={() => navigate(routePath.login())}>
-              Sign in
+            <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
+              Sign in with GitHub
             </button>
           )}
         </div>
@@ -269,9 +271,11 @@ export function Toolbar({
                     </a>
                   </DropdownMenu.Label>
                   <DropdownMenu.Separator class="user-menu-separator" />
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.workspaces())}>
-                    Workspaces
-                  </DropdownMenu.Item>
+                  {view !== 'workspaces' ? (
+                    <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.workspaces())}>
+                      Workspaces
+                    </DropdownMenu.Item>
+                  ) : null}
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                     Toggle Theme
                   </DropdownMenu.Item>
@@ -283,9 +287,9 @@ export function Toolbar({
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           </Tooltip.Provider>
-        ) : !showSignInToSave && view !== 'login' ? (
-          <button type="button" onClick={() => navigate(routePath.login())}>
-            Sign In
+        ) : !showSignInToSave ? (
+          <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
+            Sign in with GitHub
           </button>
         ) : null}
       </div>

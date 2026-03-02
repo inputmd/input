@@ -1,6 +1,5 @@
 export type Route =
   | { name: 'home'; params: Record<string, never> }
-  | { name: 'login'; params: Record<string, never> }
   | { name: 'workspaces'; params: Record<string, never> }
   | { name: 'publicrepodocuments'; params: { owner: string; repo: string } }
   | { name: 'publicrepofile'; params: { owner: string; repo: string; path: string } }
@@ -22,7 +21,6 @@ interface RouteDef {
 const GIST_ID_PATTERN = '[a-f0-9]{8,}';
 
 const ROUTE_TABLE: RouteDef[] = [
-  { pattern: /^login$/, build: () => ({ name: 'login', params: {} }) },
   { pattern: /^workspaces$/, build: () => ({ name: 'workspaces', params: {} }) },
   {
     pattern: /^repo\/load\/([^/]+)\/([^/]+)$/,
@@ -52,7 +50,6 @@ const ROUTE_TABLE: RouteDef[] = [
 
 export const routePath = {
   home: () => '',
-  login: () => 'login',
   workspaces: () => 'workspaces',
   publicRepoDocuments: (owner: string, repo: string) => `repo/load/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
   publicRepoFile: (owner: string, repo: string, path: string) =>
