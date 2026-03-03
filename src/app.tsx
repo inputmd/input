@@ -2179,6 +2179,11 @@ export function App() {
     ],
   );
 
+  useEffect(() => {
+    if (!user || route.name === 'home') return;
+    onOpenRepoMenu('auto');
+  }, [user, route.name, onOpenRepoMenu]);
+
   const onDisconnect = useCallback(async () => {
     const confirmed = await showConfirm('Disconnect all repos?');
     if (!confirmed) return;
