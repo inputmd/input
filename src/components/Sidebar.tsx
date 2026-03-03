@@ -1,6 +1,6 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { ChevronRight, ExternalLink, File, FileCode, FileJson, FileText, FolderClosed, FolderOpen, Image } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
@@ -48,6 +48,58 @@ interface SidebarFolderNode {
 
 type SidebarTreeNode = SidebarFileNode | SidebarFolderNode;
 type RenameTarget = { kind: 'file' | 'folder'; path: string } | null;
+
+const INDENT_PX = 16;
+const ICON_SIZE = 15;
+const CHEVRON_SIZE = 14;
+
+function getFileIcon(name: string) {
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+  switch (ext) {
+    case '.md':
+    case '.mdx':
+    case '.txt':
+      return FileText;
+    case '.json':
+    case '.jsonc':
+      return FileJson;
+    case '.ts':
+    case '.tsx':
+    case '.js':
+    case '.jsx':
+    case '.mjs':
+    case '.cjs':
+    case '.css':
+    case '.scss':
+    case '.html':
+    case '.vue':
+    case '.svelte':
+    case '.py':
+    case '.rb':
+    case '.go':
+    case '.rs':
+    case '.java':
+    case '.c':
+    case '.cpp':
+    case '.h':
+    case '.sh':
+    case '.yaml':
+    case '.yml':
+    case '.toml':
+    case '.xml':
+      return FileCode;
+    case '.png':
+    case '.jpg':
+    case '.jpeg':
+    case '.gif':
+    case '.svg':
+    case '.webp':
+    case '.ico':
+      return Image;
+    default:
+      return File;
+  }
+}
 
 function sanitizePathInput(input: string): string {
   const normalized = input
@@ -156,6 +208,22 @@ function resolveRenamePath(oldPath: string, input: string): string {
   return `${oldPath.slice(0, slash + 1)}${next}`;
 }
 
+function IndentGuides({ depth }: { depth: number }) {
+  if (depth === 0) return null;
+  const guides = [];
+  for (let i = 0; i < depth; i++) {
+    guides.push(
+      <span
+        key={i}
+        class="sidebar-indent-guide"
+        style={{ left: `${12 + i * INDENT_PX}px` }}
+        aria-hidden="true"
+      />,
+    );
+  }
+  return <>{guides}</>;
+}
+
 export function Sidebar({
   files,
   fileFilter,
@@ -179,6 +247,7 @@ export function Sidebar({
   const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
   const [renameValue, setRenameValue] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>({});
+  const filesRef = useRef<HTMLDivElement>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const createInFlightRef = useRef(false);
@@ -285,6 +354,39 @@ export function Sidebar({
     });
   };
 
+  const handleFilesKeyDown = (e: KeyboardEvent) => {
+    const container = filesRef.current;
+    if (!container) return;
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('.sidebar-file'));
+    if (rows.length === 0) return;
+    const active = document.activeElement as HTMLElement | null;
+    const idx = active ? rows.indexOf(active) : -1;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = idx < rows.length - 1 ? idx + 1 : 0;
+      rows[next].focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prev = idx > 0 ? idx - 1 : rows.length - 1;
+      rows[prev].focus();
+    } else if (e.key === 'ArrowRight' && idx >= 0) {
+      const row = rows[idx];
+      const path = row.dataset.folderPath;
+      if (path && collapsedFolders[path]) {
+        e.preventDefault();
+        toggleFolder(path);
+      }
+    } else if (e.key === 'ArrowLeft' && idx >= 0) {
+      const row = rows[idx];
+      const path = row.dataset.folderPath;
+      if (path && !collapsedFolders[path]) {
+        e.preventDefault();
+        toggleFolder(path);
+      }
+    }
+  };
+
   const filterLabel = fileFilter === 'markdown' ? '.md files' : 'All files';
   const filterControl = (
     <DropdownMenu.Root>
@@ -314,12 +416,14 @@ export function Sidebar({
   const renderFolderRow = (folder: SidebarFolderNode, depth: number) => {
     const collapsed = Boolean(collapsedFolders[folder.path]);
     const isRenaming = renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
+    const FolderIcon = collapsed ? FolderClosed : FolderOpen;
     const folderRow = (
       <div
-        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' active' : ''}${isRenaming ? ' renaming' : ''}`}
+        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}`}
         tabIndex={0}
         role="button"
-        style={{ paddingLeft: `${8 + depth * 10}px` }}
+        data-folder-path={folder.path}
+        style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
         onClick={() => toggleFolder(folder.path)}
         onKeyDown={(e) => {
           if (isRenaming) return;
@@ -332,9 +436,11 @@ export function Sidebar({
           }
         }}
       >
-        <span class="sidebar-folder-caret" aria-hidden="true">
-          {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+        <IndentGuides depth={depth} />
+        <span class={`sidebar-folder-caret${collapsed ? '' : ' open'}`} aria-hidden="true">
+          <ChevronRight size={CHEVRON_SIZE} />
         </span>
+        <FolderIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
         {isRenaming ? (
           <input
             ref={renameInputRef}
@@ -386,7 +492,7 @@ export function Sidebar({
             )}
             {canViewOnGitHub && (
               <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onViewFolderOnGitHub(folder.path)}>
-                View on GitHub
+                View on GitHub{' '}
                 <ExternalLink size={14} class="sidebar-context-menu-item-icon" aria-hidden="true" />
               </ContextMenu.Item>
             )}
@@ -408,15 +514,15 @@ export function Sidebar({
   };
 
   const renderFileRow = (file: SidebarFileNode, depth: number) => {
-    const fileDepth = depth > 0 ? depth - 1 : 0;
     const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
+    const FileIcon = getFileIcon(file.name);
     const fileRow = (
       <div
         class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${!file.editable ? ' sidebar-file-readonly' : ''}`}
         tabIndex={0}
         role="button"
         aria-current={file.active ? 'true' : undefined}
-        style={{ paddingLeft: `${8 + fileDepth * 10}px` }}
+        style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6}px` }}
         onClick={() => !file.active && onSelectFile(file.path)}
         onDblClick={() => {
           if (!readOnly && file.editable) startRename({ kind: 'file', path: file.path });
@@ -432,9 +538,8 @@ export function Sidebar({
           }
         }}
       >
-        <span class="sidebar-folder-caret sidebar-folder-caret-placeholder" aria-hidden="true">
-          .
-        </span>
+        <IndentGuides depth={depth} />
+        <FileIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
         {isRenaming ? (
           <input
             ref={renameInputRef}
@@ -492,7 +597,7 @@ export function Sidebar({
             )}
             {canViewOnGitHub && (
               <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onViewOnGitHub(file.path)}>
-                View on GitHub
+                View on GitHub{' '}
                 <ExternalLink size={14} class="sidebar-context-menu-item-icon" aria-hidden="true" />
               </ContextMenu.Item>
             )}
@@ -520,7 +625,11 @@ export function Sidebar({
         return (
           <div key={`tree:${node.path}`}>
             {renderFolderRow(node, depth)}
-            {!collapsed && renderNodes(node.children, depth + 1)}
+            <div class={`sidebar-folder-children${collapsed ? ' collapsed' : ''}`}>
+              <div class="sidebar-folder-children-inner">
+                {renderNodes(node.children, depth + 1)}
+              </div>
+            </div>
           </div>
         );
       }
@@ -556,14 +665,16 @@ export function Sidebar({
           </button>
         )}
       </div>
-      <div class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}`}>
+      <div
+        ref={filesRef}
+        class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}`}
+        onKeyDown={handleFilesKeyDown}
+      >
         {renderNodes(tree.children, 0)}
         {files.length === 0 && !creatingNew && <p class="sidebar-empty-message">No files</p>}
         {!readOnly && creatingNew && (
-          <div class="sidebar-file renaming">
-            <span class="sidebar-folder-caret sidebar-folder-caret-placeholder" aria-hidden="true">
-              .
-            </span>
+          <div class="sidebar-file renaming" style={{ paddingLeft: `${8 + CHEVRON_SIZE + 6}px` }}>
+            <File size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
             <input
               ref={newInputRef}
               class="sidebar-rename-input"
