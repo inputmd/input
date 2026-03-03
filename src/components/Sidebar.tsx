@@ -1,6 +1,16 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronRight, ExternalLink, File, FileCode, FileJson, FileText, FolderClosed, FolderOpen, Image } from 'lucide-react';
+import {
+  ChevronRight,
+  ExternalLink,
+  File,
+  FileCode,
+  FileJson,
+  FileText,
+  FolderClosed,
+  FolderOpen,
+  Image,
+} from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
@@ -213,12 +223,7 @@ function IndentGuides({ depth }: { depth: number }) {
   const guides = [];
   for (let i = 0; i < depth; i++) {
     guides.push(
-      <span
-        key={i}
-        class="sidebar-indent-guide"
-        style={{ left: `${12 + i * INDENT_PX}px` }}
-        aria-hidden="true"
-      />,
+      <span key={i} class="sidebar-indent-guide" style={{ left: `${12 + i * INDENT_PX}px` }} aria-hidden="true" />,
     );
   }
   return <>{guides}</>;
@@ -492,8 +497,7 @@ export function Sidebar({
             )}
             {canViewOnGitHub && (
               <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onViewFolderOnGitHub(folder.path)}>
-                View on GitHub{' '}
-                <ExternalLink size={14} class="sidebar-context-menu-item-icon" aria-hidden="true" />
+                View on GitHub <ExternalLink size={14} className="sidebar-context-menu-item-icon" aria-hidden="true" />
               </ContextMenu.Item>
             )}
             {!readOnly && (
@@ -597,8 +601,7 @@ export function Sidebar({
             )}
             {canViewOnGitHub && (
               <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onViewOnGitHub(file.path)}>
-                View on GitHub{' '}
-                <ExternalLink size={14} class="sidebar-context-menu-item-icon" aria-hidden="true" />
+                View on GitHub <ExternalLink size={14} className="sidebar-context-menu-item-icon" aria-hidden="true" />
               </ContextMenu.Item>
             )}
             {showFileActions && (
@@ -626,9 +629,7 @@ export function Sidebar({
           <div key={`tree:${node.path}`}>
             {renderFolderRow(node, depth)}
             <div class={`sidebar-folder-children${collapsed ? ' collapsed' : ''}`}>
-              <div class="sidebar-folder-children-inner">
-                {renderNodes(node.children, depth + 1)}
-              </div>
+              <div class="sidebar-folder-children-inner">{renderNodes(node.children, depth + 1)}</div>
             </div>
           </div>
         );
