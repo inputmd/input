@@ -125,6 +125,11 @@
   gap: 8px;
 }
 
+.action-buttons > .button > .lucide {
+  margin-left: 1px;
+  transform: translateY(2px);
+}
+
 .edit-on-input-link {
   display: inline-flex;
   align-items: center;

@@ -1,6 +1,17 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Check, ChevronDown, ExternalLink, Eye, Globe, Link2, Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  Eye,
+  Globe,
+  Link2,
+  Lock,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from 'lucide-react';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
@@ -210,14 +221,14 @@ export function Toolbar({
       </div>
       <div class="toolbar-right">
         <div class="action-buttons">
-          {showShare && (
-            <button type="button" onClick={onShare}>
-              Share
-            </button>
-          )}
           {showEdit && (
             <button type="button" onClick={onEdit}>
               Edit
+            </button>
+          )}
+          {showShare && view !== 'edit' && (
+            <button type="button" class="button" onClick={onShare}>
+              Share <Copy size={14} aria-hidden="true" />
             </button>
           )}
           {editUrl && (
@@ -244,6 +255,11 @@ export function Toolbar({
           {showSave && (
             <button type="button" onClick={onSave} disabled={saving || !canSave}>
               {saving ? 'Saving...' : 'Save'}
+            </button>
+          )}
+          {showShare && view === 'edit' && (
+            <button type="button" class="button" onClick={onShare}>
+              Share <Copy size={14} aria-hidden="true" />
             </button>
           )}
           {showSignInToSave && (
