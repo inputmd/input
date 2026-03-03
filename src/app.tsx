@@ -45,6 +45,7 @@ import {
   listInstallationRepos,
   publicRepoRawFileUrl,
   putRepoFile,
+  type RepoContents,
   rememberInstallState,
   repoRawFileUrl,
   SessionExpiredError,
@@ -227,6 +228,7 @@ function createWikiLinkResolver(
 ): (targetPath: string) => WikiLinkResolver {
   const exactPaths = new Set<string>();
   const canonicalByLowerPath = new Map<string, string>();
+  const markdownDirectoryIndexByLowerPath = new Map<string, string>();
 
   for (const knownPath of knownPaths) {
     const normalized = normalizeRepoPath(safeDecodeURIComponent(knownPath).trim());
@@ -234,17 +236,38 @@ function createWikiLinkResolver(
     exactPaths.add(normalized);
     const lower = normalized.toLowerCase();
     if (!canonicalByLowerPath.has(lower)) canonicalByLowerPath.set(lower, normalized);
+    if (lower.endsWith('/index.md')) {
+      const parentPath = dirName(normalized);
+      if (isMarkdownFileName(parentPath) && !markdownDirectoryIndexByLowerPath.has(parentPath.toLowerCase())) {
+        markdownDirectoryIndexByLowerPath.set(parentPath.toLowerCase(), normalized);
+      }
+    }
   }
 
   return (targetPath: string) => {
     const resolvedTarget = resolveRelativeDocPath(currentDocPath, targetPath);
     if (!resolvedTarget) return { exists: false };
     if (exactPaths.has(resolvedTarget)) return { exists: true, resolvedHref: encodePathForHref(resolvedTarget) };
+    const markdownDirectoryIndex = markdownDirectoryIndexByLowerPath.get(resolvedTarget.toLowerCase());
+    if (markdownDirectoryIndex) return { exists: true, resolvedHref: encodePathForHref(markdownDirectoryIndex) };
 
     const canonical = canonicalByLowerPath.get(resolvedTarget.toLowerCase());
     if (!canonical) return { exists: false };
     return { exists: true, resolvedHref: encodePathForHref(canonical) };
   };
+}
+
+function findMarkdownDirectoryIndexPath(contents: RepoContents, requestedPath: string): string | null {
+  if (!Array.isArray(contents)) return null;
+  const normalizedRequestedPath = normalizeRepoPath(safeDecodeURIComponent(requestedPath).trim());
+  if (!normalizedRequestedPath || !isMarkdownFileName(normalizedRequestedPath)) return null;
+  const expectedIndexLower = `${normalizedRequestedPath}/index.md`.toLowerCase();
+  for (const entry of contents) {
+    if (entry.type !== 'file') continue;
+    const normalizedEntryPath = normalizeRepoPath(entry.path) ?? entry.path;
+    if (normalizedEntryPath.toLowerCase() === expectedIndexLower) return entry.path;
+  }
+  return null;
 }
 
 interface PublicRepoRef {
@@ -929,7 +952,11 @@ export function App() {
         setViewPhase('loading');
       }
       try {
-        const contents = await getRepoContents(instId, repoName, path);
+        let contents = await getRepoContents(instId, repoName, path);
+        if (!isRepoFile(contents)) {
+          const markdownDirectoryIndex = findMarkdownDirectoryIndexPath(contents, path);
+          if (markdownDirectoryIndex) contents = await getRepoContents(instId, repoName, markdownDirectoryIndex);
+        }
         if (!isRepoFile(contents)) throw new Error('Expected a file');
         const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
         setRepoAccessMode('installed');
@@ -1004,7 +1031,11 @@ export function App() {
         setViewPhase('loading');
       }
       try {
-        const contents = await getPublicRepoContents(owner, repo, path);
+        let contents = await getPublicRepoContents(owner, repo, path);
+        if (!isRepoFile(contents)) {
+          const markdownDirectoryIndex = findMarkdownDirectoryIndexPath(contents, path);
+          if (markdownDirectoryIndex) contents = await getPublicRepoContents(owner, repo, markdownDirectoryIndex);
+        }
         if (!isRepoFile(contents)) throw new Error('Expected a file');
         const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
         const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
