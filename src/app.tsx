@@ -1737,6 +1737,38 @@ export function App() {
     [getActiveDocumentStore, currentGistId, navigate, showAlert, showRateLimitToastIfNeeded],
   );
 
+  const handleCreateDirectory = useCallback(
+    async (directoryPath: string) => {
+      try {
+        const store = getActiveDocumentStore();
+        if (!store) return;
+
+        const seedFilePath = `${directoryPath}/index.md`;
+        if (store.kind === 'gist') {
+          const gist = await store.createFile(seedFilePath);
+          setGistFiles(gist.files);
+          setHasUnsavedChanges(false);
+        } else {
+          const result = await store.createFile(seedFilePath);
+          const createdFile = {
+            name: fileNameFromPath(seedFilePath),
+            path: result.content.path,
+            sha: result.content.sha,
+          };
+          if (isMarkdownFileName(createdFile.path)) {
+            setRepoFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
+          }
+          setRepoSidebarFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
+          setHasUnsavedChanges(false);
+        }
+      } catch (err) {
+        showRateLimitToastIfNeeded(err);
+        void showAlert(err instanceof Error ? err.message : 'Failed to create directory');
+      }
+    },
+    [getActiveDocumentStore, showAlert, showRateLimitToastIfNeeded],
+  );
+
   const handleEditFile = useCallback(
     async (filePath: string) => {
       if (!isMarkdownFileName(filePath)) return;
@@ -2461,6 +2493,7 @@ export function App() {
               disabled={sidebarDisabled}
               readOnly={repoAccessMode === 'public'}
               onCreateFile={handleCreateFile}
+              onCreateDirectory={handleCreateDirectory}
               onDeleteFile={handleDeleteFile}
               onDeleteFolder={handleDeleteFolder}
               onRenameFile={handleRenameFile}

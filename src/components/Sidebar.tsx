@@ -35,6 +35,7 @@ interface SidebarProps {
   onViewFolderOnGitHub: (path: string) => void;
   canViewOnGitHub: boolean;
   onCreateFile: (path: string) => void | Promise<void>;
+  onCreateDirectory: (path: string) => void | Promise<void>;
   onDeleteFile: (path: string) => void;
   onDeleteFolder: (path: string) => void;
   onRenameFile: (oldPath: string, newPath: string) => void | Promise<void>;
@@ -59,6 +60,7 @@ interface SidebarFolderNode {
 
 type SidebarTreeNode = SidebarFileNode | SidebarFolderNode;
 type RenameTarget = { kind: 'file' | 'folder'; path: string } | null;
+type CreateKind = 'file' | 'directory';
 
 const INDENT_PX = 16;
 const ICON_SIZE = 15;
@@ -242,12 +244,14 @@ export function Sidebar({
   onViewFolderOnGitHub,
   canViewOnGitHub,
   onCreateFile,
+  onCreateDirectory,
   onDeleteFile,
   onDeleteFolder,
   onRenameFile,
   onRenameFolder,
 }: SidebarProps) {
   const [creatingNew, setCreatingNew] = useState(false);
+  const [createKind, setCreateKind] = useState<CreateKind>('file');
   const [creatingFile, setCreatingFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
@@ -312,13 +316,20 @@ export function Sidebar({
     createInFlightRef.current = true;
     setCreatingFile(true);
     try {
-      await onCreateFile(path);
+      if (createKind === 'directory') await onCreateDirectory(path);
+      else await onCreateFile(path);
       setNewFileName('');
       setCreatingNew(false);
     } finally {
       createInFlightRef.current = false;
       setCreatingFile(false);
     }
+  };
+
+  const startCreate = (kind: CreateKind) => {
+    setCreateKind(kind);
+    setCreatingNew(true);
+    setNewFileName('');
   };
 
   const handleRenameSubmit = async () => {
@@ -655,17 +666,23 @@ export function Sidebar({
       <div class="sidebar-header">
         {filterControl}
         {!readOnly && (
-          <button
-            type="button"
-            class="sidebar-add-btn"
-            title="New file"
-            onClick={() => {
-              setCreatingNew(true);
-              setNewFileName('');
-            }}
-          >
-            +
-          </button>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button type="button" class="sidebar-add-btn" title="Add">
+                +
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content class="sidebar-filter-menu" sideOffset={6} align="end">
+                <DropdownMenu.Item class="sidebar-filter-menu-item" onSelect={() => startCreate('file')}>
+                  Add file
+                </DropdownMenu.Item>
+                <DropdownMenu.Item class="sidebar-filter-menu-item" onSelect={() => startCreate('directory')}>
+                  Add directory
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         )}
       </div>
       <div
@@ -677,12 +694,16 @@ export function Sidebar({
         {files.length === 0 && !creatingNew && <p class="sidebar-empty-message">No files</p>}
         {!readOnly && creatingNew && (
           <div class="sidebar-file renaming" style={{ paddingLeft: `${8 + CHEVRON_SIZE + 6}px` }}>
-            <File size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+            {createKind === 'directory' ? (
+              <FolderClosed size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+            ) : (
+              <File size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+            )}
             <input
               ref={newInputRef}
               class="sidebar-rename-input"
               type="text"
-              placeholder="notes/file.md"
+              placeholder={createKind === 'directory' ? 'notes' : 'notes/file.md'}
               value={newFileName}
               disabled={creatingFile}
               onInput={(e) => setNewFileName((e.target as HTMLInputElement).value)}
