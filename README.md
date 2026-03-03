@@ -20,6 +20,16 @@ Multi-file markdown documents, backed by Gists & repos.
 - Node.js (v18+)
 - npm
 
+## Quickstart
+
+```
+npm i
+
+# In two separate terminals:
+npm run dev
+npm run server
+```
+
 ## Running locally
 
 ```
