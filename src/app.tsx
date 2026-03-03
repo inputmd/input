@@ -1421,7 +1421,12 @@ export function App() {
   }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepo, navigate]);
 
   const onShareLink = useCallback(async () => {
-    if (
+    const isGistRoute = route.name === 'gist' || route.name === 'edit';
+    let sharePath: string | null = null;
+
+    if (isGistRoute && currentGistId) {
+      sharePath = routePath.gistView(currentGistId, currentFileName ?? undefined);
+    } else if (
       repoAccessMode !== 'installed' ||
       (route.name !== 'repoedit' && route.name !== 'repofile') ||
       selectedRepoPrivate !== false ||
@@ -1430,16 +1435,17 @@ export function App() {
     ) {
       showFailureToast('Sharing is not available for this file');
       return;
-    }
-
-    try {
+    } else {
       const [owner, repo] = selectedRepo.split('/');
       if (!owner || !repo) {
         showFailureToast('Failed to build public link');
         return;
       }
-      const publicPath = routePath.publicRepoFile(owner, repo, currentRepoDocPath);
-      const url = `${window.location.origin}/${publicPath}`;
+      sharePath = routePath.publicRepoFile(owner, repo, currentRepoDocPath);
+    }
+
+    try {
+      const url = `${window.location.origin}/${sharePath}`;
 
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
@@ -1454,11 +1460,13 @@ export function App() {
         document.execCommand('copy');
         input.remove();
       }
-      showSuccessToast('Copied public read-only link');
+      showSuccessToast('Copied share link');
     } catch {
       showFailureToast('Failed to copy share link');
     }
   }, [
+    currentGistId,
+    currentFileName,
     repoAccessMode,
     route.name,
     selectedRepoPrivate,
@@ -2097,11 +2105,15 @@ export function App() {
   const showHeaderEdit =
     activeView === 'content' &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
-  const showHeaderShare =
+  const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
+  const showInstalledRepoHeaderShare =
     repoAccessMode === 'installed' &&
-    selectedRepoPrivate === false &&
     currentRepoDocPath !== null &&
     (route.name === 'repoedit' || (route.name === 'repofile' && Boolean(user)));
+  const showPrivateRepoShareHint = showInstalledRepoHeaderShare && selectedRepoPrivate === true;
+  const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
+  const shareDisabled = showPrivateRepoShareHint;
+  const shareTooltip = showPrivateRepoShareHint ? 'Public repos only' : null;
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
     repoAccessMode === 'installed' &&
@@ -2123,6 +2135,8 @@ export function App() {
         draftMode={draftMode}
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
+        shareDisabled={shareDisabled}
+        shareTooltip={shareTooltip}
         onShare={() => {
           void onShareLink();
         }}

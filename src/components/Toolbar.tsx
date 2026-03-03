@@ -31,6 +31,8 @@ interface ToolbarProps {
   draftMode: boolean;
   sidebarVisible: boolean;
   showShare: boolean;
+  shareDisabled: boolean;
+  shareTooltip: string | null;
   onShare: () => void;
   showEdit: boolean;
   editUrl: string | null;
@@ -67,6 +69,8 @@ export function Toolbar({
   draftMode,
   sidebarVisible,
   showShare,
+  shareDisabled,
+  shareTooltip,
   onShare,
   showEdit,
   editUrl,
@@ -95,6 +99,22 @@ export function Toolbar({
   const showSidebarToggle = view === 'content' || view === 'edit';
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
+  const shareButton = (
+    <button
+      type="button"
+      data-share-button="true"
+      disabled={shareDisabled}
+      onClick={(event) => {
+        // Keep this to stop anchor-like navigation behavior from parent UI wrappers.
+        event.preventDefault();
+        event.stopPropagation();
+        if (shareDisabled) return;
+        onShare();
+      }}
+    >
+      Share <Copy size={14} aria-hidden="true" />
+    </button>
+  );
 
   return (
     <header class="toolbar">
@@ -226,19 +246,21 @@ export function Toolbar({
               Edit
             </button>
           )}
-          {showShare && view !== 'edit' && (
-            <button
-              type="button"
-              data-share-button="true"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onShare();
-              }}
-            >
-              Share <Copy size={14} aria-hidden="true" />
-            </button>
-          )}
+          {showShare &&
+            view !== 'edit' &&
+            (shareTooltip ? (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>{shareButton}</Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content class="toolbar-tooltip" side="bottom" align="center" sideOffset={6}>
+                    {shareTooltip}
+                    <Tooltip.Arrow class="toolbar-tooltip-arrow" />
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            ) : (
+              shareButton
+            ))}
           {editUrl && (
             <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
               Edit <ExternalLink size={14} aria-hidden="true" />
@@ -265,19 +287,21 @@ export function Toolbar({
               {saving ? 'Saving...' : 'Save'}
             </button>
           )}
-          {showShare && view === 'edit' && (
-            <button
-              type="button"
-              data-share-button="true"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onShare();
-              }}
-            >
-              Share <Copy size={14} aria-hidden="true" />
-            </button>
-          )}
+          {showShare &&
+            view === 'edit' &&
+            (shareTooltip ? (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>{shareButton}</Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content class="toolbar-tooltip" side="bottom" align="center" sideOffset={6}>
+                    {shareTooltip}
+                    <Tooltip.Arrow class="toolbar-tooltip-arrow" />
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            ) : (
+              shareButton
+            ))}
           {showSignInToSave && (
             <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
               Sign in with GitHub
