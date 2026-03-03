@@ -227,7 +227,15 @@ export function Toolbar({
             </button>
           )}
           {showShare && view !== 'edit' && (
-            <button type="button" class="button" onClick={onShare}>
+            <button
+              type="button"
+              data-share-button="true"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onShare();
+              }}
+            >
               Share <Copy size={14} aria-hidden="true" />
             </button>
           )}
@@ -258,7 +266,15 @@ export function Toolbar({
             </button>
           )}
           {showShare && view === 'edit' && (
-            <button type="button" class="button" onClick={onShare}>
+            <button
+              type="button"
+              data-share-button="true"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onShare();
+              }}
+            >
               Share <Copy size={14} aria-hidden="true" />
             </button>
           )}
