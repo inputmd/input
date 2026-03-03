@@ -2377,6 +2377,25 @@ export function App() {
     route.name === 'new' && activeView === 'edit' && !user && editContent.trim().length === 0;
   const showEditorCancel = activeView === 'edit' && !draftMode && repoAccessMode !== 'public';
   const showEditorSave = activeView === 'edit' && !(draftMode && !user) && repoAccessMode !== 'public';
+  const editPreviewWikiLinkResolver = useMemo(() => {
+    if (!editPreviewEnabled) return undefined;
+
+    if (editingBackend === 'repo') {
+      if (!currentRepoDocPath) return undefined;
+      const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
+      const wikiPaths = knownMarkdownPaths.includes(currentRepoDocPath)
+        ? knownMarkdownPaths
+        : [...knownMarkdownPaths, currentRepoDocPath];
+      return createWikiLinkResolver(currentRepoDocPath, wikiPaths);
+    }
+
+    if (!currentFileName) return undefined;
+    const knownMarkdownPaths = Object.keys(gistFiles ?? {}).filter((path) => isMarkdownFileName(path));
+    const wikiPaths = knownMarkdownPaths.includes(currentFileName)
+      ? knownMarkdownPaths
+      : [...knownMarkdownPaths, currentFileName];
+    return createWikiLinkResolver(currentFileName, wikiPaths);
+  }, [editPreviewEnabled, editingBackend, currentRepoDocPath, repoFiles, currentFileName, gistFiles]);
   const editPreviewHtml = useMemo(
     () =>
       editPreviewEnabled
@@ -2385,6 +2404,7 @@ export function App() {
             {
               resolveImageSrc: (src) =>
                 resolveMarkdownImageSrc(src, editingBackend === 'repo' ? currentRepoDocPath : null),
+              resolveWikiLinkMeta: editPreviewWikiLinkResolver,
             },
           )
         : '',
@@ -2392,6 +2412,7 @@ export function App() {
       currentRepoDocPath,
       editPreviewEnabled,
       editContent,
+      editPreviewWikiLinkResolver,
       editingBackend,
       resolveMarkdownImageSrc,
       showLoggedOutNewDocPreviewDescription,
