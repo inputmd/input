@@ -140,6 +140,16 @@ function fileNameFromPath(path: string): string {
   return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
 }
 
+function isPathInFolder(path: string, folderPath: string): boolean {
+  return path === folderPath || path.startsWith(`${folderPath}/`);
+}
+
+function renamePathWithNewFolder(path: string, oldFolderPath: string, newFolderPath: string): string {
+  if (!isPathInFolder(path, oldFolderPath)) return path;
+  if (path === oldFolderPath) return newFolderPath;
+  return `${newFolderPath}/${path.slice(oldFolderPath.length + 1)}`;
+}
+
 function dirName(path: string): string {
   const lastSlash = path.lastIndexOf('/');
   return lastSlash >= 0 ? path.slice(0, lastSlash) : '';
@@ -1787,6 +1797,28 @@ export function App() {
     [currentGistId, repoAccessMode, selectedRepo, publicRepoRef],
   );
 
+  const handleViewFolderOnGitHub = useCallback(
+    (folderPath: string) => {
+      if (currentGistId) {
+        window.open(`https://gist.github.com/${currentGistId}`, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      const repoFullName =
+        repoAccessMode === 'installed'
+          ? selectedRepo
+          : repoAccessMode === 'public' && publicRepoRef
+            ? `${publicRepoRef.owner}/${publicRepoRef.repo}`
+            : null;
+      if (!repoFullName) return;
+      const repoPath = folderPath
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
+      window.open(`https://github.com/${repoFullName}/tree/HEAD/${repoPath}`, '_blank', 'noopener,noreferrer');
+    },
+    [currentGistId, repoAccessMode, selectedRepo, publicRepoRef],
+  );
+
   const handleDeleteFile = useCallback(
     async (filePath: string) => {
       if (!(await showConfirm(`Delete "${filePath}"?`))) return;
@@ -1845,6 +1877,76 @@ export function App() {
       showAlert,
       showRateLimitToastIfNeeded,
       currentGistId,
+    ],
+  );
+
+  const handleDeleteFolder = useCallback(
+    async (folderPath: string) => {
+      const gistTargets = Object.keys(gistFiles ?? {}).filter((path) => isPathInFolder(path, folderPath));
+      const repoTargets = repoSidebarFiles.filter((file) => isPathInFolder(file.path, folderPath));
+      const deleteCount = currentGistId ? gistTargets.length : repoTargets.length;
+      if (deleteCount === 0) return;
+      if (!(await showConfirm(`Delete folder "${folderPath}" and ${deleteCount} file(s)?`))) return;
+      try {
+        const store = getActiveDocumentStore();
+        if (!store) return;
+
+        if (store.kind === 'gist') {
+          if (!currentGistId) return;
+          let gist = null;
+          for (const path of gistTargets) {
+            gist = await store.deleteFile({ name: path });
+          }
+          if (!gist) return;
+          setGistFiles(gist.files);
+          const deletedCurrent = currentFileName ? isPathInFolder(currentFileName, folderPath) : false;
+          if (deletedCurrent) {
+            const remaining = Object.keys(gist.files);
+            if (remaining.length > 0) {
+              navigate(routePath.gistView(currentGistId, remaining[0]));
+            } else {
+              navigate(routePath.workspaces());
+            }
+          }
+        } else {
+          for (const file of repoTargets) {
+            await store.deleteFile(file);
+          }
+          const remaining = repoFiles.filter((file) => !isPathInFolder(file.path, folderPath));
+          const remainingSidebar = repoSidebarFiles.filter((file) => !isPathInFolder(file.path, folderPath));
+          setRepoFiles(remaining);
+          setRepoSidebarFiles(remainingSidebar);
+          const deletedCurrent = currentRepoDocPath ? isPathInFolder(currentRepoDocPath, folderPath) : false;
+          if (deletedCurrent) {
+            if (remainingSidebar.length > 0) {
+              navigate(routePath.repoFile(remainingSidebar[0].path));
+            } else {
+              navigate(routePath.repoDocuments());
+            }
+          }
+        }
+      } catch (err) {
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+          return;
+        }
+        showRateLimitToastIfNeeded(err);
+        void showAlert(err instanceof Error ? err.message : 'Failed to delete folder');
+      }
+    },
+    [
+      getActiveDocumentStore,
+      gistFiles,
+      repoSidebarFiles,
+      currentGistId,
+      showConfirm,
+      currentFileName,
+      navigate,
+      repoFiles,
+      currentRepoDocPath,
+      handleSessionExpired,
+      showAlert,
+      showRateLimitToastIfNeeded,
     ],
   );
 
@@ -1912,6 +2014,70 @@ export function App() {
       repoFiles,
       repoSidebarFiles,
       navigate,
+      handleSessionExpired,
+      showAlert,
+      showRateLimitToastIfNeeded,
+    ],
+  );
+
+  const handleRenameFolder = useCallback(
+    async (oldPath: string, newPath: string) => {
+      try {
+        const store = getActiveDocumentStore();
+        if (!store) return;
+
+        if (store.kind === 'gist') {
+          if (!currentGistId) return;
+          const paths = Object.keys(gistFiles ?? {}).filter((path) => isPathInFolder(path, oldPath));
+          if (paths.length === 0) return;
+          let gist = null;
+          for (const path of paths) {
+            const nextPath = renamePathWithNewFolder(path, oldPath, newPath);
+            gist = await store.renameFile({ name: path }, nextPath);
+          }
+          if (!gist) return;
+          setGistFiles(gist.files);
+          if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
+            navigate(routePath.gistView(currentGistId, renamePathWithNewFolder(currentFileName, oldPath, newPath)));
+          }
+        } else {
+          const paths = repoSidebarFiles.filter((file) => isPathInFolder(file.path, oldPath));
+          if (paths.length === 0) return;
+          const renamed = new Map<string, RepoDocFile>();
+          for (const file of paths) {
+            const nextPath = renamePathWithNewFolder(file.path, oldPath, newPath);
+            const created = await store.renameFile(file, nextPath);
+            renamed.set(file.path, {
+              name: fileNameFromPath(nextPath),
+              path: created.content.path,
+              sha: created.content.sha,
+            });
+          }
+          const updatedSidebarFiles = repoSidebarFiles
+            .map((file) => renamed.get(file.path) ?? file)
+            .sort((a, b) => a.path.localeCompare(b.path));
+          setRepoSidebarFiles(updatedSidebarFiles);
+          setRepoFiles(updatedSidebarFiles.filter((file) => isMarkdownFileName(file.path)));
+          if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
+            navigate(routePath.repoFile(renamePathWithNewFolder(currentFileName, oldPath, newPath)));
+          }
+        }
+      } catch (err) {
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+          return;
+        }
+        showRateLimitToastIfNeeded(err);
+        void showAlert(err instanceof Error ? err.message : 'Failed to rename folder');
+      }
+    },
+    [
+      getActiveDocumentStore,
+      currentGistId,
+      gistFiles,
+      currentFileName,
+      navigate,
+      repoSidebarFiles,
       handleSessionExpired,
       showAlert,
       showRateLimitToastIfNeeded,
@@ -2285,12 +2451,15 @@ export function App() {
               onSelectFile={handleSelectFile}
               onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}
+              onViewFolderOnGitHub={handleViewFolderOnGitHub}
               canViewOnGitHub={currentGistId !== null || selectedRepo !== null || publicRepoRef !== null}
               disabled={sidebarDisabled}
               readOnly={repoAccessMode === 'public'}
               onCreateFile={handleCreateFile}
               onDeleteFile={handleDeleteFile}
+              onDeleteFolder={handleDeleteFolder}
               onRenameFile={handleRenameFile}
+              onRenameFolder={handleRenameFolder}
             />
             <div
               class="sidebar-splitter"

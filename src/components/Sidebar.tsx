@@ -1,7 +1,8 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ExternalLink } from 'lucide-react';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import type { ComponentChildren } from 'preact';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 export interface SidebarFile {
   path: string;
@@ -20,11 +21,33 @@ interface SidebarProps {
   onSelectFile: (path: string) => void;
   onEditFile: (path: string) => void;
   onViewOnGitHub: (path: string) => void;
+  onViewFolderOnGitHub: (path: string) => void;
   canViewOnGitHub: boolean;
   onCreateFile: (path: string) => void | Promise<void>;
   onDeleteFile: (path: string) => void;
+  onDeleteFolder: (path: string) => void;
   onRenameFile: (oldPath: string, newPath: string) => void | Promise<void>;
+  onRenameFolder: (oldPath: string, newPath: string) => void | Promise<void>;
 }
+
+interface SidebarFileNode {
+  kind: 'file';
+  path: string;
+  name: string;
+  active: boolean;
+  editable: boolean;
+}
+
+interface SidebarFolderNode {
+  kind: 'folder';
+  path: string;
+  name: string;
+  hasActiveDescendant: boolean;
+  children: SidebarTreeNode[];
+}
+
+type SidebarTreeNode = SidebarFileNode | SidebarFolderNode;
+type RenameTarget = { kind: 'file' | 'folder'; path: string } | null;
 
 function sanitizePathInput(input: string): string {
   const normalized = input
@@ -38,6 +61,101 @@ function sanitizePathInput(input: string): string {
   return normalized;
 }
 
+function sortNodes(nodes: SidebarTreeNode[]): void {
+  nodes.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  for (const node of nodes) {
+    if (node.kind === 'folder') sortNodes(node.children);
+  }
+}
+
+function buildTree(files: SidebarFile[]): SidebarFolderNode {
+  const root: SidebarFolderNode = {
+    kind: 'folder',
+    path: '',
+    name: '',
+    hasActiveDescendant: false,
+    children: [],
+  };
+  const folderMap = new Map<string, SidebarFolderNode>();
+  folderMap.set('', root);
+  const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
+
+  for (const file of sortedFiles) {
+    const parts = file.path.split('/').filter(Boolean);
+    if (parts.length === 0) continue;
+    let parent = root;
+    let currentPath = '';
+    const ancestors: SidebarFolderNode[] = [];
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const segment = parts[i];
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      let folder = folderMap.get(currentPath);
+      if (!folder) {
+        folder = {
+          kind: 'folder',
+          path: currentPath,
+          name: segment,
+          hasActiveDescendant: false,
+          children: [],
+        };
+        folderMap.set(currentPath, folder);
+        parent.children.push(folder);
+      }
+      ancestors.push(folder);
+      parent = folder;
+    }
+
+    if (file.active) {
+      for (const folder of ancestors) {
+        folder.hasActiveDescendant = true;
+      }
+    }
+
+    parent.children.push({
+      kind: 'file',
+      path: file.path,
+      name: parts[parts.length - 1],
+      active: file.active,
+      editable: file.editable,
+    });
+  }
+
+  sortNodes(root.children);
+  return root;
+}
+
+function collectFolderPaths(node: SidebarFolderNode, out: Set<string>): void {
+  for (const child of node.children) {
+    if (child.kind !== 'folder') continue;
+    out.add(child.path);
+    collectFolderPaths(child, out);
+  }
+}
+
+function folderAncestors(path: string): string[] {
+  const parts = path.split('/').filter(Boolean);
+  const ancestors: string[] = [];
+  let acc = '';
+  for (let i = 0; i < parts.length - 1; i++) {
+    acc = acc ? `${acc}/${parts[i]}` : parts[i];
+    ancestors.push(acc);
+  }
+  return ancestors;
+}
+
+function resolveRenamePath(oldPath: string, input: string): string {
+  const next = sanitizePathInput(input);
+  if (!next) return '';
+  if (next.includes('/')) return next;
+  const slash = oldPath.lastIndexOf('/');
+  if (slash === -1) return next;
+  return `${oldPath.slice(0, slash + 1)}${next}`;
+}
+
 export function Sidebar({
   files,
   fileFilter,
@@ -47,29 +165,69 @@ export function Sidebar({
   onSelectFile,
   onEditFile,
   onViewOnGitHub,
+  onViewFolderOnGitHub,
   canViewOnGitHub,
   onCreateFile,
   onDeleteFile,
+  onDeleteFolder,
   onRenameFile,
+  onRenameFolder,
 }: SidebarProps) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [creatingFile, setCreatingFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
-  const [renamingFile, setRenamingFile] = useState<string | null>(null);
+  const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>({});
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const createInFlightRef = useRef(false);
   const renameInFlightRef = useRef(false);
   const cancelRenameOnBlurRef = useRef(false);
 
+  const tree = useMemo(() => buildTree(files), [files]);
+  const folderPaths = useMemo(() => {
+    const paths = new Set<string>();
+    collectFolderPaths(tree, paths);
+    return paths;
+  }, [tree]);
+  const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
+  const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
+
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
   }, [creatingNew]);
 
   useEffect(() => {
-    if (renamingFile) renameInputRef.current?.focus();
-  }, [renamingFile]);
+    if (renamingTarget) renameInputRef.current?.focus();
+  }, [renamingTarget]);
+
+  useEffect(() => {
+    setCollapsedFolders((prev) => {
+      const next: Record<string, true> = {};
+      let changed = false;
+      for (const [path, collapsed] of Object.entries(prev)) {
+        if (collapsed && folderPaths.has(path)) next[path] = true;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [folderPaths]);
+
+  useEffect(() => {
+    if (activeAncestors.length === 0) return;
+    setCollapsedFolders((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const path of activeAncestors) {
+        if (next[path]) {
+          delete next[path];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [activeAncestors]);
 
   const handleCreateSubmit = async () => {
     if (createInFlightRef.current) return;
@@ -89,26 +247,42 @@ export function Sidebar({
   };
 
   const handleRenameSubmit = async () => {
-    if (!renamingFile || renameInFlightRef.current) return;
+    if (!renamingTarget || renameInFlightRef.current) return;
     cancelRenameOnBlurRef.current = false;
     renameInFlightRef.current = true;
-    const oldPath = renamingFile;
-    const newPath = sanitizePathInput(renameValue);
-    setRenamingFile(null);
+    const target = renamingTarget;
+    const oldPath = target.path;
+    const newPath = resolveRenamePath(oldPath, renameValue);
+    setRenamingTarget(null);
     setRenameValue('');
     try {
       if (newPath && newPath !== oldPath) {
-        await onRenameFile(oldPath, newPath);
+        if (target.kind === 'file') {
+          await onRenameFile(oldPath, newPath);
+        } else {
+          await onRenameFolder(oldPath, newPath);
+        }
       }
     } finally {
       renameInFlightRef.current = false;
     }
   };
 
-  const startRename = (path: string) => {
+  const startRename = (target: Exclude<RenameTarget, null>) => {
     cancelRenameOnBlurRef.current = false;
-    setRenamingFile(path);
-    setRenameValue(path);
+    setRenamingTarget(target);
+    setRenameValue(target.path);
+  };
+
+  const toggleFolder = (path: string) => {
+    setCollapsedFolders((prev) => {
+      if (prev[path]) {
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      }
+      return { ...prev, [path]: true };
+    });
   };
 
   const filterLabel = fileFilter === 'markdown' ? '.md files' : 'All files';
@@ -136,6 +310,222 @@ export function Sidebar({
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
+
+  const renderFolderRow = (folder: SidebarFolderNode, depth: number) => {
+    const collapsed = Boolean(collapsedFolders[folder.path]);
+    const isRenaming = renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
+    const folderRow = (
+      <div
+        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' active' : ''}${isRenaming ? ' renaming' : ''}`}
+        tabIndex={0}
+        role="button"
+        style={{ paddingLeft: `${8 + depth * 10}px` }}
+        onClick={() => toggleFolder(folder.path)}
+        onKeyDown={(e) => {
+          if (isRenaming) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleFolder(folder.path);
+          } else if (!readOnly && e.key === 'F2') {
+            e.preventDefault();
+            startRename({ kind: 'folder', path: folder.path });
+          }
+        }}
+      >
+        <span class="sidebar-folder-caret" aria-hidden="true">
+          {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+        </span>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            class="sidebar-rename-input"
+            type="text"
+            value={renameValue}
+            onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleRenameSubmit();
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelRenameOnBlurRef.current = true;
+                setRenamingTarget(null);
+                setRenameValue('');
+              }
+            }}
+            onBlur={() => {
+              if (cancelRenameOnBlurRef.current) {
+                cancelRenameOnBlurRef.current = false;
+                return;
+              }
+              void handleRenameSubmit();
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span class="sidebar-folder-name">{folder.name}</span>
+        )}
+      </div>
+    );
+
+    const showViewOnlyContext = readOnly && canViewOnGitHub;
+    if (readOnly && !showViewOnlyContext) {
+      return <div key={`folder:${folder.path}`}>{folderRow}</div>;
+    }
+
+    return (
+      <ContextMenu.Root key={`folder:${folder.path}`}>
+        <ContextMenu.Trigger asChild>{folderRow}</ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
+            {!readOnly && (
+              <ContextMenu.Item
+                class="sidebar-context-menu-item"
+                onSelect={() => startRename({ kind: 'folder', path: folder.path })}
+              >
+                Rename
+              </ContextMenu.Item>
+            )}
+            {canViewOnGitHub && (
+              <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onViewFolderOnGitHub(folder.path)}>
+                View on GitHub
+                <ExternalLink size={14} class="sidebar-context-menu-item-icon" aria-hidden="true" />
+              </ContextMenu.Item>
+            )}
+            {!readOnly && (
+              <>
+                <ContextMenu.Separator class="sidebar-context-menu-separator" />
+                <ContextMenu.Item
+                  class="sidebar-context-menu-item sidebar-context-menu-item-danger"
+                  onSelect={() => onDeleteFolder(folder.path)}
+                >
+                  Delete
+                </ContextMenu.Item>
+              </>
+            )}
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+    );
+  };
+
+  const renderFileRow = (file: SidebarFileNode, depth: number) => {
+    const fileDepth = depth > 0 ? depth - 1 : 0;
+    const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
+    const fileRow = (
+      <div
+        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${!file.editable ? ' sidebar-file-readonly' : ''}`}
+        tabIndex={0}
+        role="button"
+        aria-current={file.active ? 'true' : undefined}
+        style={{ paddingLeft: `${8 + fileDepth * 10}px` }}
+        onClick={() => !file.active && onSelectFile(file.path)}
+        onDblClick={() => {
+          if (!readOnly && file.editable) startRename({ kind: 'file', path: file.path });
+        }}
+        onKeyDown={(e) => {
+          if (isRenaming) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (!file.active) onSelectFile(file.path);
+          } else if (!readOnly && file.editable && e.key === 'F2') {
+            e.preventDefault();
+            startRename({ kind: 'file', path: file.path });
+          }
+        }}
+      >
+        <span class="sidebar-folder-caret sidebar-folder-caret-placeholder" aria-hidden="true">
+          .
+        </span>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            class="sidebar-rename-input"
+            type="text"
+            value={renameValue}
+            onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleRenameSubmit();
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelRenameOnBlurRef.current = true;
+                setRenamingTarget(null);
+                setRenameValue('');
+              }
+            }}
+            onBlur={() => {
+              if (cancelRenameOnBlurRef.current) {
+                cancelRenameOnBlurRef.current = false;
+                return;
+              }
+              void handleRenameSubmit();
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span class="sidebar-file-name">{file.name}</span>
+        )}
+      </div>
+    );
+
+    const showFileActions = !readOnly && file.editable;
+    const showViewOnlyContext = readOnly && canViewOnGitHub;
+    if (!showFileActions && !showViewOnlyContext) {
+      return <div key={`file:${file.path}`}>{fileRow}</div>;
+    }
+
+    return (
+      <ContextMenu.Root key={`file:${file.path}`}>
+        <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
+            {showFileActions && (
+              <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onEditFile(file.path)}>
+                Edit
+              </ContextMenu.Item>
+            )}
+            {showFileActions && (
+              <ContextMenu.Item
+                class="sidebar-context-menu-item"
+                onSelect={() => startRename({ kind: 'file', path: file.path })}
+              >
+                Rename
+              </ContextMenu.Item>
+            )}
+            {canViewOnGitHub && (
+              <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onViewOnGitHub(file.path)}>
+                View on GitHub
+                <ExternalLink size={14} class="sidebar-context-menu-item-icon" aria-hidden="true" />
+              </ContextMenu.Item>
+            )}
+            {showFileActions && (
+              <>
+                <ContextMenu.Separator class="sidebar-context-menu-separator" />
+                <ContextMenu.Item
+                  class="sidebar-context-menu-item sidebar-context-menu-item-danger"
+                  onSelect={() => onDeleteFile(file.path)}
+                >
+                  Delete
+                </ContextMenu.Item>
+              </>
+            )}
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+    );
+  };
+
+  const renderNodes = (nodes: SidebarTreeNode[], depth: number): ComponentChildren =>
+    nodes.map((node) => {
+      if (node.kind === 'folder') {
+        const collapsed = Boolean(collapsedFolders[node.path]);
+        return (
+          <div key={`tree:${node.path}`}>
+            {renderFolderRow(node, depth)}
+            {!collapsed && renderNodes(node.children, depth + 1)}
+          </div>
+        );
+      }
+      return renderFileRow(node, depth);
+    });
 
   if (disabled) {
     return (
@@ -167,103 +557,13 @@ export function Sidebar({
         )}
       </div>
       <div class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}`}>
-        {files.map((f) => {
-          const fileRow = (
-            <div
-              class={`sidebar-file${f.active ? ' active' : ''}${renamingFile === f.path ? ' renaming' : ''}${!f.editable ? ' sidebar-file-readonly' : ''}`}
-              tabIndex={0}
-              role="button"
-              aria-current={f.active ? 'true' : undefined}
-              onClick={() => !f.active && onSelectFile(f.path)}
-              onDblClick={() => {
-                if (!readOnly && f.editable) startRename(f.path);
-              }}
-              onKeyDown={(e) => {
-                if (renamingFile === f.path) return;
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  if (!f.active) onSelectFile(f.path);
-                } else if (!readOnly && f.editable && e.key === 'F2') {
-                  e.preventDefault();
-                  startRename(f.path);
-                }
-              }}
-            >
-              {renamingFile === f.path ? (
-                <input
-                  ref={renameInputRef}
-                  class="sidebar-rename-input"
-                  type="text"
-                  value={renameValue}
-                  onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void handleRenameSubmit();
-                    if (e.key === 'Escape') {
-                      e.preventDefault();
-                      cancelRenameOnBlurRef.current = true;
-                      setRenamingFile(null);
-                      setRenameValue('');
-                    }
-                  }}
-                  onBlur={() => {
-                    if (cancelRenameOnBlurRef.current) {
-                      cancelRenameOnBlurRef.current = false;
-                      return;
-                    }
-                    void handleRenameSubmit();
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : (
-                <span class="sidebar-file-name">{f.path}</span>
-              )}
-            </div>
-          );
-
-          if (renamingFile === f.path) {
-            return <div key={f.path}>{fileRow}</div>;
-          }
-
-          if (readOnly) {
-            return <div key={f.path}>{fileRow}</div>;
-          }
-
-          if (!f.editable) {
-            return <div key={f.path}>{fileRow}</div>;
-          }
-
-          return (
-            <ContextMenu.Root key={f.path}>
-              <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
-              <ContextMenu.Portal>
-                <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
-                  <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onEditFile(f.path)}>
-                    Edit
-                  </ContextMenu.Item>
-                  <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => startRename(f.path)}>
-                    Rename
-                  </ContextMenu.Item>
-                  {canViewOnGitHub && (
-                    <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onViewOnGitHub(f.path)}>
-                      View on GitHub
-                      <ExternalLink size={14} className="sidebar-context-menu-item-icon" aria-hidden="true" />
-                    </ContextMenu.Item>
-                  )}
-                  <ContextMenu.Separator class="sidebar-context-menu-separator" />
-                  <ContextMenu.Item
-                    class="sidebar-context-menu-item sidebar-context-menu-item-danger"
-                    onSelect={() => onDeleteFile(f.path)}
-                  >
-                    Delete
-                  </ContextMenu.Item>
-                </ContextMenu.Content>
-              </ContextMenu.Portal>
-            </ContextMenu.Root>
-          );
-        })}
+        {renderNodes(tree.children, 0)}
         {files.length === 0 && !creatingNew && <p class="sidebar-empty-message">No files</p>}
         {!readOnly && creatingNew && (
           <div class="sidebar-file renaming">
+            <span class="sidebar-folder-caret sidebar-folder-caret-placeholder" aria-hidden="true">
+              .
+            </span>
             <input
               ref={newInputRef}
               class="sidebar-rename-input"

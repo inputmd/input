@@ -143,8 +143,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
+  gap: 4px;
+  padding: 5px 10px;
   cursor: pointer;
+  user-select: none;
   font-size: 15px;
   border-left: 3px solid transparent;
   transition: background 0.1s;
@@ -177,6 +179,30 @@
   min-width: 0;
   font-family: var(--font-mono);
   font-size: 14px;
+}
+
+.sidebar-folder-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.sidebar-folder-caret {
+  width: 9px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.sidebar-folder-caret-placeholder {
+  visibility: hidden;
 }
 
 .sidebar-context-menu {
@@ -238,6 +264,7 @@
   background: transparent;
   color: var(--text);
   outline: none;
+  user-select: text;
 }
 
 .sidebar-backdrop {
