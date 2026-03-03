@@ -1,6 +1,7 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
+  ChevronDown,
   ChevronRight,
   ExternalLink,
   File,
@@ -397,6 +398,7 @@ export function Sidebar({
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button type="button" class="sidebar-filter-trigger" title={filterLabel} aria-label="Sidebar file filter">
+          <ChevronDown size={12} class="sidebar-filter-trigger-icon" aria-hidden="true" />
           {filterLabel}
         </button>
       </DropdownMenu.Trigger>

@@ -40,6 +40,9 @@
 }
 
 .sidebar-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 0;
   background: transparent;
   color: var(--text-secondary);
@@ -51,6 +54,14 @@
   padding: 0 2px;
   cursor: pointer;
   text-align: left;
+}
+
+.sidebar-filter-trigger-icon {
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  min-height: 12px;
+  flex: 0 0 12px;
 }
 
 .sidebar-filter-trigger:focus-visible {
