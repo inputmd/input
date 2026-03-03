@@ -240,76 +240,76 @@ export function Toolbar({
         )}
       </div>
       <div class="toolbar-right">
-        <div class="action-buttons">
-          {showEdit && (
-            <button type="button" onClick={onEdit}>
-              Edit
-            </button>
-          )}
-          {showShare &&
-            view !== 'edit' &&
-            (shareTooltip ? (
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>{shareButton}</Tooltip.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content class="toolbar-tooltip" side="bottom" align="center" sideOffset={6}>
-                    {shareTooltip}
-                    <Tooltip.Arrow class="toolbar-tooltip-arrow" />
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
-            ) : (
-              shareButton
-            ))}
-          {editUrl && (
-            <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
-              Edit <ExternalLink size={14} aria-hidden="true" />
-            </a>
-          )}
-          {showPreviewToggle && (
-            <button
-              type="button"
-              class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
-              title={previewVisible ? 'Hide preview' : 'Show preview'}
-              aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
-              onClick={onTogglePreview}
-            >
-              <Eye size={16} />
-            </button>
-          )}
-          {showCancel && (
-            <button type="button" onClick={onCancel}>
-              Cancel
-            </button>
-          )}
-          {showSave && (
-            <button type="button" onClick={onSave} disabled={saving || !canSave}>
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          )}
-          {showShare &&
-            view === 'edit' &&
-            (shareTooltip ? (
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>{shareButton}</Tooltip.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content class="toolbar-tooltip" side="bottom" align="center" sideOffset={6}>
-                    {shareTooltip}
-                    <Tooltip.Arrow class="toolbar-tooltip-arrow" />
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
-            ) : (
-              shareButton
-            ))}
-          {showSignInToSave && (
-            <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
-              Sign in with GitHub
-            </button>
-          )}
-        </div>
-        {user ? (
-          <Tooltip.Provider delayDuration={250}>
+        <Tooltip.Provider delayDuration={250}>
+          <div class="action-buttons">
+            {showEdit && (
+              <button type="button" onClick={onEdit}>
+                Edit
+              </button>
+            )}
+            {showShare &&
+              view !== 'edit' &&
+              (shareTooltip ? (
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>{shareButton}</Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content class="toolbar-tooltip" side="bottom" align="center" sideOffset={6}>
+                      {shareTooltip}
+                      <Tooltip.Arrow class="toolbar-tooltip-arrow" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              ) : (
+                shareButton
+              ))}
+            {editUrl && (
+              <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
+                Edit <ExternalLink size={14} aria-hidden="true" />
+              </a>
+            )}
+            {showPreviewToggle && (
+              <button
+                type="button"
+                class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
+                title={previewVisible ? 'Hide preview' : 'Show preview'}
+                aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
+                onClick={onTogglePreview}
+              >
+                <Eye size={16} />
+              </button>
+            )}
+            {showCancel && (
+              <button type="button" onClick={onCancel}>
+                Cancel
+              </button>
+            )}
+            {showSave && (
+              <button type="button" onClick={onSave} disabled={saving || !canSave}>
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            )}
+            {showShare &&
+              view === 'edit' &&
+              (shareTooltip ? (
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>{shareButton}</Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content class="toolbar-tooltip" side="bottom" align="center" sideOffset={6}>
+                      {shareTooltip}
+                      <Tooltip.Arrow class="toolbar-tooltip-arrow" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              ) : (
+                shareButton
+              ))}
+            {showSignInToSave && (
+              <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
+                Sign in with GitHub
+              </button>
+            )}
+          </div>
+          {user ? (
             <DropdownMenu.Root>
               <Tooltip.Root>
                 <DropdownMenu.Trigger asChild>
@@ -350,12 +350,12 @@ export function Toolbar({
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
-          </Tooltip.Provider>
-        ) : !showSignInToSave ? (
-          <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
-            Sign in with GitHub
-          </button>
-        ) : null}
+          ) : !showSignInToSave ? (
+            <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
+              Sign in with GitHub
+            </button>
+          ) : null}
+        </Tooltip.Provider>
       </div>
     </header>
   );
