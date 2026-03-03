@@ -54,6 +54,17 @@
   gap: 6px;
 }
 
+.repo-menu-icon {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  min-height: 14px;
+  max-width: 14px;
+  max-height: 14px;
+  flex: 0 0 14px;
+  flex-shrink: 0;
+}
+
 .repo-menu-trigger:focus,
 .repo-menu-trigger:focus-visible {
   outline: none;

@@ -150,13 +150,13 @@ export function Toolbar({
                   <button type="button" class="repo-menu-trigger" aria-label="Navigation menu">
                     {inRepoContext && selectedRepo ? (
                       <>
-                        <RepoPrivacyIcon size={14} aria-hidden="true" />
+                        <RepoPrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
                         {selectedRepo}
                       </>
                     ) : (
                       'My Workspaces'
                     )}
-                    <ChevronDown size={14} aria-hidden="true" />
+                    <ChevronDown size={14} class="repo-menu-icon" aria-hidden="true" />
                   </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
@@ -192,10 +192,12 @@ export function Toolbar({
                             }}
                           >
                             <span class="repo-menu-item-main">
-                              <PrivacyIcon size={14} aria-hidden="true" />
+                              <PrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
                               <span>{repo.full_name}</span>
                             </span>
-                            {isSelected && inRepoContext ? <Check size={14} aria-hidden="true" /> : null}
+                            {isSelected && inRepoContext ? (
+                              <Check size={14} class="repo-menu-icon" aria-hidden="true" />
+                            ) : null}
                           </DropdownMenu.Item>
                         );
                       })
@@ -219,9 +221,9 @@ export function Toolbar({
                         >
                           <span class="repo-menu-item-main">
                             {gist.public ? (
-                              <Globe size={14} aria-hidden="true" />
+                              <Globe size={14} class="repo-menu-icon" aria-hidden="true" />
                             ) : (
-                              <Link2 size={14} aria-hidden="true" />
+                              <Link2 size={14} class="repo-menu-icon" aria-hidden="true" />
                             )}
                             <span>{gist.description || 'Untitled'}</span>
                           </span>
