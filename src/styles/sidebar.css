@@ -11,7 +11,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .sidebar-splitter {
@@ -78,7 +78,7 @@
   background: transparent;
   color: var(--text);
   text-align: left;
-  font-size: 13px;
+  font-size: 14px;
   font-family: inherit;
   cursor: pointer;
   display: flex;
@@ -129,14 +129,14 @@
 .sidebar-disabled-message {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   text-align: center;
 }
 
 .sidebar-empty-message {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   text-align: center;
 }
 
@@ -150,7 +150,7 @@
   padding: 3px 8px 3px 8px;
   cursor: pointer;
   user-select: none;
-  font-size: 13px;
+  font-size: 14px;
   transition: background 0.1s;
 }
 
@@ -230,7 +230,7 @@
   width: 100%;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .sidebar-folder-name {
@@ -240,7 +240,7 @@
   width: 100%;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -316,7 +316,7 @@
 .sidebar-rename-input {
   width: 100%;
   padding: 1.5px 0;
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--font-mono);
   border: 0;
   border-radius: 3px;
