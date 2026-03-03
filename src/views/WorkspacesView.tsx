@@ -1,5 +1,5 @@
 import { ExternalLink } from 'lucide-react';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { DocumentsView } from './DocumentsView';
@@ -8,7 +8,11 @@ interface WorkspacesViewProps {
   installationId: string | null;
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
-  onLoadRepos: () => void;
+  reposLoadError: string | null;
+  gistsLoadError: string | null;
+  onLoadRepos: (mode: 'auto' | 'manual') => void;
+  onRetryRepos: () => void;
+  onRetryGists: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
   onOpenRepo: (fullName: string, id: number, isPrivate: boolean) => void;
@@ -29,7 +33,11 @@ export function WorkspacesView({
   installationId,
   availableRepos,
   repoListLoading,
+  reposLoadError,
+  gistsLoadError,
   onLoadRepos,
+  onRetryRepos,
+  onRetryGists,
   onConnect,
   onDisconnect,
   onOpenRepo,
@@ -41,11 +49,12 @@ export function WorkspacesView({
   workspaceNotice,
   onDismissWorkspaceNotice,
 }: WorkspacesViewProps) {
+  const didAutoLoadRef = useRef(false);
   useEffect(() => {
-    onLoadRepos();
+    if (didAutoLoadRef.current) return;
+    didAutoLoadRef.current = true;
+    onLoadRepos('auto');
   }, [onLoadRepos]);
-
-  const sectionsReady = reposInitialLoaded && gistsInitialLoaded;
 
   return (
     <div class="account-view">
@@ -62,67 +71,89 @@ export function WorkspacesView({
           </button>
         </div>
       ) : null}
-      {sectionsReady ? (
-        <>
-          <div class="workspaces-repos-header">
-            <div class="workspaces-repos-header-copy">
-              <h2 class="workspaces-repos-title">My Repos</h2>
-              <p class="hint workspaces-repos-subtitle">Workspaces stored as repos on GitHub</p>
+      <div class="workspaces-repos-header">
+        <div class="workspaces-repos-header-copy">
+          <h2 class="workspaces-repos-title">My Repos</h2>
+          <p class="hint workspaces-repos-subtitle">Workspaces stored as repos on GitHub</p>
+        </div>
+        <div class="workspaces-actions">
+          <button type="button" class="workspaces-connect-btn" onClick={() => void onConnect()}>
+            Configure
+          </button>
+          <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
+            Disconnect
+          </button>
+        </div>
+      </div>
+      {repoListLoading ? (
+        <p class="loading-hint">Loading repos...</p>
+      ) : reposLoadError ? (
+        <div class="empty-state workspaces-empty-state">
+          <p>Failed to load repos.</p>
+          <p class="hint">{reposLoadError}</p>
+          <button type="button" onClick={() => void onRetryRepos()}>
+            Retry Repos
+          </button>
+        </div>
+      ) : installationId && !reposInitialLoaded ? (
+        <div class="empty-state workspaces-empty-state">
+          <p>Repos are not loaded yet.</p>
+          <button type="button" onClick={() => void onRetryRepos()}>
+            Load Repos
+          </button>
+        </div>
+      ) : availableRepos.length > 0 ? (
+        <div class="workspaces-repo-list">
+          {availableRepos.map((repo) => (
+            <div class="workspaces-repo-card" key={repo.id}>
+              <div class="workspaces-repo-info">
+                <div class="workspaces-repo-title">{repo.full_name}</div>
+                <div class="workspaces-repo-meta">{formatRepoMeta(repo)}</div>
+              </div>
+              <div class="workspaces-repo-actions">
+                <button type="button" onClick={() => onOpenRepo(repo.full_name, repo.id, repo.private)}>
+                  Open
+                </button>
+                <button
+                  type="button"
+                  class="workspaces-repo-open-github-btn"
+                  aria-label={`Open ${repo.full_name} on GitHub`}
+                  title="Open on GitHub"
+                  onClick={() => window.open(`https://github.com/${repo.full_name}`, '_blank', 'noopener,noreferrer')}
+                >
+                  <ExternalLink size={15} aria-hidden="true" />
+                </button>
+              </div>
             </div>
-            <div class="workspaces-actions">
-              <button type="button" class="workspaces-connect-btn" onClick={() => void onConnect()}>
-                Configure
-              </button>
-              <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
-                Disconnect
-              </button>
-            </div>
-          </div>
-          {repoListLoading ? (
-            <p class="loading-hint">Loading repos...</p>
-          ) : availableRepos.length > 0 ? (
-            <div class="workspaces-repo-list">
-              {availableRepos.map((repo) => (
-                <div class="workspaces-repo-card" key={repo.id}>
-                  <div class="workspaces-repo-info">
-                    <div class="workspaces-repo-title">{repo.full_name}</div>
-                    <div class="workspaces-repo-meta">{formatRepoMeta(repo)}</div>
-                  </div>
-                  <div class="workspaces-repo-actions">
-                    <button type="button" onClick={() => onOpenRepo(repo.full_name, repo.id, repo.private)}>
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      class="workspaces-repo-open-github-btn"
-                      aria-label={`Open ${repo.full_name} on GitHub`}
-                      title="Open on GitHub"
-                      onClick={() =>
-                        window.open(`https://github.com/${repo.full_name}`, '_blank', 'noopener,noreferrer')
-                      }
-                    >
-                      <ExternalLink size={15} aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div class="empty-state workspaces-empty-state">
-              <p>No connected repos yet.</p>
-              <p>
-                <a href="https://github.com/new" target="_blank" rel="noopener noreferrer">
-                  Create a repo
-                </a>{' '}
-                and select "Configure" to get started.
-              </p>
-            </div>
-          )}
-          <DocumentsView navigate={navigate} userLogin={userLogin} embedded initialGists={initialGists} initialLoaded />
-        </>
+          ))}
+        </div>
       ) : (
-        <p class="loading-hint">Loading repos and gists...</p>
+        <div class="empty-state workspaces-empty-state">
+          <p>No connected repos yet.</p>
+          <p>
+            <a href="https://github.com/new" target="_blank" rel="noopener noreferrer">
+              Create a repo
+            </a>{' '}
+            and select "Configure" to get started.
+          </p>
+        </div>
       )}
+      {gistsLoadError ? (
+        <div class="empty-state workspaces-empty-state">
+          <p>Failed to load gists.</p>
+          <p class="hint">{gistsLoadError}</p>
+          <button type="button" onClick={() => void onRetryGists()}>
+            Retry Gists
+          </button>
+        </div>
+      ) : null}
+      <DocumentsView
+        navigate={navigate}
+        userLogin={userLogin}
+        embedded
+        initialGists={initialGists}
+        initialLoaded={gistsInitialLoaded}
+      />
     </div>
   );
 }

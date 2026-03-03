@@ -78,6 +78,7 @@ const PASTED_IMAGE_MAX_SIDE_PX = 1600;
 const PASTED_IMAGE_QUALITY = 0.82;
 const OAUTH_REDIRECT_GUARD_KEY = 'oauth_redirect_guard';
 const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
+const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
@@ -86,6 +87,26 @@ An experimental Markdown editor, where all content is stored on GitHub.
 Input supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own repos or gists as files.
 
 Input is privacy preserving. We do not log your data.`;
+
+function autoOnceGuardStorageKey(key: string): string {
+  return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
+}
+
+function hasAutoOnceGuard(key: string): boolean {
+  try {
+    return sessionStorage.getItem(autoOnceGuardStorageKey(key)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markAutoOnceGuard(key: string): void {
+  try {
+    sessionStorage.setItem(autoOnceGuardStorageKey(key), '1');
+  } catch {
+    // Best effort only.
+  }
+}
 
 function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
@@ -340,9 +361,11 @@ export function App() {
   const [installationRepos, setInstallationRepos] = useState<InstallationRepo[]>([]);
   const [installationReposLoading, setInstallationReposLoading] = useState(false);
   const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
+  const [reposLoadError, setReposLoadError] = useState<string | null>(null);
   const [menuGists, setMenuGists] = useState<GistSummary[]>([]);
   const [menuGistsLoading, setMenuGistsLoading] = useState(false);
   const [menuGistsLoaded, setMenuGistsLoaded] = useState(false);
+  const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
 
@@ -431,23 +454,29 @@ export function App() {
   }, []);
 
   const startGitHubSignIn = useCallback(
-    (returnTo: string) => {
+    (returnTo: string, options?: { force?: boolean; guardKey?: string }) => {
       const normalizedReturnTo = returnTo.startsWith('/') ? returnTo : `/${returnTo}`;
-      const currentPath = `${window.location.pathname}${window.location.search}`;
+      const currentPath = window.location.pathname;
       try {
-        const raw = sessionStorage.getItem(OAUTH_REDIRECT_GUARD_KEY);
-        if (raw) {
-          const guard = JSON.parse(raw) as { at?: unknown; fromPath?: unknown; returnTo?: unknown };
-          if (
-            typeof guard.at === 'number' &&
-            typeof guard.fromPath === 'string' &&
-            typeof guard.returnTo === 'string' &&
-            guard.fromPath === currentPath &&
-            guard.returnTo === normalizedReturnTo &&
-            Date.now() - guard.at < OAUTH_REDIRECT_GUARD_WINDOW_MS
-          ) {
-            showError('Sign-in redirect loop detected. Please refresh and try again.');
-            return false;
+        if (!options?.force && options?.guardKey) {
+          if (hasAutoOnceGuard(options.guardKey)) return false;
+          markAutoOnceGuard(options.guardKey);
+        }
+        if (!options?.force) {
+          const raw = sessionStorage.getItem(OAUTH_REDIRECT_GUARD_KEY);
+          if (raw) {
+            const guard = JSON.parse(raw) as { at?: unknown; fromPath?: unknown; returnTo?: unknown };
+            if (
+              typeof guard.at === 'number' &&
+              typeof guard.fromPath === 'string' &&
+              typeof guard.returnTo === 'string' &&
+              guard.fromPath === currentPath &&
+              guard.returnTo === normalizedReturnTo &&
+              Date.now() - guard.at < OAUTH_REDIRECT_GUARD_WINDOW_MS
+            ) {
+              showError('Sign-in redirect loop detected. Please refresh and try again.');
+              return false;
+            }
           }
         }
         sessionStorage.setItem(
@@ -676,7 +705,12 @@ export function App() {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
-        startGitHubSignIn(`/${routePath.workspaces()}`);
+        const started = startGitHubSignIn(`/${routePath.workspaces()}`, { guardKey: `oauth_install_setup:${id}` });
+        if (!started) {
+          showError(
+            'Automatic sign-in retry was blocked after a failed install setup. Use Sign in with GitHub to retry.',
+          );
+        }
         return true;
       }
       await createSession(id);
@@ -686,7 +720,12 @@ export function App() {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
-        startGitHubSignIn(`/${routePath.workspaces()}`);
+        const started = startGitHubSignIn(`/${routePath.workspaces()}`, { guardKey: `oauth_install_setup:${id}` });
+        if (!started) {
+          showError(
+            'Automatic sign-in retry was blocked after a failed install setup. Use Sign in with GitHub to retry.',
+          );
+        }
         return true;
       }
       showError(err instanceof Error ? err.message : 'Failed to create session');
@@ -1020,7 +1059,10 @@ export function App() {
       switch (r.name) {
         case 'workspaces':
           if (!isAuthenticated) {
-            startGitHubSignIn(`/${routePath.workspaces()}`);
+            const started = startGitHubSignIn(`/${routePath.workspaces()}`, { guardKey: 'oauth_workspaces' });
+            if (!started) {
+              showError('Automatic sign-in was already attempted. Use Sign in with GitHub to retry.');
+            }
             return;
           }
           setRepoAccessMode(null);
@@ -1163,7 +1205,12 @@ export function App() {
           return;
         case 'edit': {
           if (!isAuthenticated) {
-            startGitHubSignIn(`/${routePath.gistEdit(r.params.id, r.params.filename)}`);
+            const started = startGitHubSignIn(`/${routePath.gistEdit(r.params.id, r.params.filename)}`, {
+              guardKey: `oauth_edit:${r.params.id}:${r.params.filename ?? ''}`,
+            });
+            if (!started) {
+              showError('Automatic sign-in was already attempted for this gist. Use Sign in with GitHub to retry.');
+            }
             return;
           }
           setDraftMode(false);
@@ -1302,6 +1349,11 @@ export function App() {
     setInstallationRepos([]);
     setInstallationReposLoading(false);
     setLoadedReposInstallationId(null);
+    setReposLoadError(null);
+    setGistsLoadError(null);
+    setMenuGistsLoaded(false);
+    setMenuGists([]);
+    setMenuGistsLoading(false);
   }, [installationId, user?.login]);
 
   // --- Theme toggle ---
@@ -1781,70 +1833,77 @@ export function App() {
     [navigate, onSelectRepo],
   );
 
-  const onOpenRepoMenu = useCallback(() => {
-    if (!user) return;
+  const onOpenRepoMenu = useCallback(
+    (_mode: 'auto' | 'manual' = 'manual') => {
+      if (!user) return;
 
-    const shouldLoadRepos =
-      Boolean(installationId) && !installationReposLoading && loadedReposInstallationId !== installationId;
-    const shouldLoadGists = !menuGistsLoading && !menuGistsLoaded;
-    if (!shouldLoadRepos && !shouldLoadGists) return;
+      const shouldLoadRepos =
+        Boolean(installationId) && !installationReposLoading && loadedReposInstallationId !== installationId;
+      const shouldLoadGists = !menuGistsLoading && !menuGistsLoaded;
+      if (!shouldLoadRepos && !shouldLoadGists) return;
 
-    if (shouldLoadRepos) setInstallationReposLoading(true);
-    if (shouldLoadGists) setMenuGistsLoading(true);
+      if (shouldLoadRepos) setInstallationReposLoading(true);
+      if (shouldLoadGists) setMenuGistsLoading(true);
 
-    void (async () => {
-      const tasks: Promise<void>[] = [];
+      void (async () => {
+        const tasks: Promise<void>[] = [];
 
-      if (shouldLoadRepos && installationId) {
-        tasks.push(
-          (async () => {
-            try {
-              const repos = await listInstallationRepos(installationId);
-              setInstallationRepos(repos.repositories);
-              setLoadedReposInstallationId(installationId);
-            } catch (err) {
-              if (err instanceof SessionExpiredError) {
-                handleSessionExpired();
-                return;
+        if (shouldLoadRepos && installationId) {
+          tasks.push(
+            (async () => {
+              try {
+                const repos = await listInstallationRepos(installationId);
+                setInstallationRepos(repos.repositories);
+                setLoadedReposInstallationId(installationId);
+                setReposLoadError(null);
+              } catch (err) {
+                if (err instanceof SessionExpiredError) {
+                  handleSessionExpired();
+                  return;
+                }
+                showRateLimitToastIfNeeded(err);
+                setInstallationRepos([]);
+                setReposLoadError(err instanceof Error ? err.message : 'Failed to load repos');
+              } finally {
+                setInstallationReposLoading(false);
               }
-              showRateLimitToastIfNeeded(err);
-              setInstallationRepos([]);
-            } finally {
-              setInstallationReposLoading(false);
-            }
-          })(),
-        );
-      }
+            })(),
+          );
+        }
 
-      if (shouldLoadGists) {
-        tasks.push(
-          (async () => {
-            try {
-              const gists = await listGists(1, 30);
-              setMenuGists(gists);
-              setMenuGistsLoaded(true);
-            } catch (err) {
-              showRateLimitToastIfNeeded(err);
-              setMenuGists([]);
-            } finally {
-              setMenuGistsLoading(false);
-            }
-          })(),
-        );
-      }
+        if (shouldLoadGists) {
+          tasks.push(
+            (async () => {
+              try {
+                const gists = await listGists(1, 30);
+                setMenuGists(gists);
+                setMenuGistsLoaded(true);
+                setGistsLoadError(null);
+              } catch (err) {
+                showRateLimitToastIfNeeded(err);
+                setMenuGists([]);
+                setGistsLoadError(err instanceof Error ? err.message : 'Failed to load gists');
+              } finally {
+                setMenuGistsLoading(false);
+              }
+            })(),
+          );
+        }
 
-      await Promise.all(tasks);
-    })();
-  }, [
-    user,
-    installationId,
-    installationReposLoading,
-    loadedReposInstallationId,
-    handleSessionExpired,
-    menuGistsLoading,
-    menuGistsLoaded,
-    showRateLimitToastIfNeeded,
-  ]);
+        await Promise.all(tasks);
+      })();
+    },
+    [
+      user,
+      installationId,
+      installationReposLoading,
+      loadedReposInstallationId,
+      handleSessionExpired,
+      menuGistsLoading,
+      menuGistsLoaded,
+      showRateLimitToastIfNeeded,
+    ],
+  );
 
   const onDisconnect = useCallback(async () => {
     const confirmed = await showConfirm('Disconnect all repos?');
@@ -1877,7 +1936,11 @@ export function App() {
             installationId={installationId}
             availableRepos={installationRepos}
             repoListLoading={installationReposLoading}
-            onLoadRepos={onOpenRepoMenu}
+            reposLoadError={reposLoadError}
+            gistsLoadError={gistsLoadError}
+            onLoadRepos={(mode) => onOpenRepoMenu(mode)}
+            onRetryRepos={() => onOpenRepoMenu('manual')}
+            onRetryGists={() => onOpenRepoMenu('manual')}
             onConnect={onConnectInstallation}
             onDisconnect={onDisconnect}
             onOpenRepo={onOpenRepoFromWorkspaces}
@@ -2029,7 +2092,7 @@ export function App() {
       window.location.assign(`${protocol}//${apexHost}/input.md`);
       return;
     }
-    startGitHubSignIn(`/${routePath.workspaces()}`);
+    startGitHubSignIn(`/${routePath.workspaces()}`, { force: true });
   }, [startGitHubSignIn]);
   const showHeaderEdit =
     activeView === 'content' &&
