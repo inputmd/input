@@ -1,4 +1,5 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ExternalLink } from 'lucide-react';
 import { useEffect, useRef, useState } from 'preact/hooks';
 
@@ -111,24 +112,35 @@ export function Sidebar({
   };
 
   const filterLabel = fileFilter === 'markdown' ? '.md files' : 'All files';
+  const filterControl = (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button type="button" class="sidebar-filter-trigger" title={filterLabel} aria-label="Sidebar file filter">
+          {filterLabel}
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content class="sidebar-filter-menu" sideOffset={6} align="start">
+          <DropdownMenu.RadioGroup
+            value={fileFilter}
+            onValueChange={(value: string) => onFileFilterChange(value as SidebarFileFilter)}
+          >
+            <DropdownMenu.RadioItem class="sidebar-filter-menu-item" value="markdown">
+              .md files
+            </DropdownMenu.RadioItem>
+            <DropdownMenu.RadioItem class="sidebar-filter-menu-item" value="all">
+              All files
+            </DropdownMenu.RadioItem>
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
 
   if (disabled) {
     return (
       <aside class="sidebar">
-        <div class="sidebar-header">
-          <label class="sidebar-filter-label">
-            <span class="sr-only">Sidebar file filter</span>
-            <select
-              class="sidebar-filter-select"
-              value={fileFilter}
-              onChange={(e) => onFileFilterChange((e.currentTarget as HTMLSelectElement).value as SidebarFileFilter)}
-              aria-label="Sidebar file filter"
-            >
-              <option value="markdown">.md files</option>
-              <option value="all">All files</option>
-            </select>
-          </label>
-        </div>
+        <div class="sidebar-header">{filterControl}</div>
         <div class="sidebar-files sidebar-files-disabled">
           <p class="sidebar-disabled-message">Empty workspace</p>
         </div>
@@ -139,18 +151,7 @@ export function Sidebar({
   return (
     <aside class="sidebar">
       <div class="sidebar-header">
-        <label class="sidebar-filter-label" title={filterLabel}>
-          <span class="sr-only">Sidebar file filter</span>
-          <select
-            class="sidebar-filter-select"
-            value={fileFilter}
-            onChange={(e) => onFileFilterChange((e.currentTarget as HTMLSelectElement).value as SidebarFileFilter)}
-            aria-label="Sidebar file filter"
-          >
-            <option value="markdown">.md files</option>
-            <option value="all">All files</option>
-          </select>
-        </label>
+        {filterControl}
         {!readOnly && (
           <button
             type="button"
