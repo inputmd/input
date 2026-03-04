@@ -624,11 +624,23 @@
   color: var(--text-secondary);
 }
 
+.rendered-markdown .claude-chat-message-body > :last-child em:only-child {
+  font-size: 0.94em;
+  display: inline-block;
+  line-height: 1.5;
+}
+
 .rendered-markdown .claude-chat-message--assistant.claude-chat-message--collapsed .claude-chat-message-body {
   position: relative;
   max-height: 120px;
   overflow: hidden;
   padding-bottom: 0;
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent);
+}
+
+.rendered-markdown .claude-chat-message--assistant {
+  padding-bottom: 14px;
 }
 
 .rendered-markdown .claude-chat-message--assistant.claude-chat-message--collapsed {
