@@ -17,6 +17,15 @@
   color: var(--text-secondary);
 }
 
+.content-alert-link {
+  color: var(--focus-border);
+  text-decoration: none;
+}
+
+.content-alert-link:hover {
+  text-decoration: underline;
+}
+
 .content-view--markdown {
   max-width: 720px;
 }

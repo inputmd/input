@@ -5,11 +5,21 @@ interface ContentViewProps {
   html: string;
   markdown: boolean;
   alertMessage?: string | null;
+  alertDownloadHref?: string | null;
+  alertDownloadName?: string | null;
   onInternalLinkNavigate?: (route: string) => void;
   onImageClick?: (src: string, alt: string) => void;
 }
 
-export function ContentView({ html, markdown, alertMessage, onInternalLinkNavigate, onImageClick }: ContentViewProps) {
+export function ContentView({
+  html,
+  markdown,
+  alertMessage,
+  alertDownloadHref,
+  alertDownloadName,
+  onInternalLinkNavigate,
+  onImageClick,
+}: ContentViewProps) {
   const onRenderedMarkdownClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
     const image = target?.closest('img');
@@ -44,7 +54,16 @@ export function ContentView({ html, markdown, alertMessage, onInternalLinkNaviga
 
   return (
     <div class={`content-view ${markdown ? 'content-view--markdown' : 'content-view--plain'}`}>
-      {alertMessage ? <ContentAlert>{alertMessage}</ContentAlert> : null}
+      {alertMessage ? (
+        <ContentAlert>
+          <span>{alertMessage}</span>
+          {alertDownloadHref ? (
+            <a href={alertDownloadHref} download={alertDownloadName ?? undefined} class="content-alert-link">
+              Download
+            </a>
+          ) : null}
+        </ContentAlert>
+      ) : null}
       {markdown ? (
         <div class="rendered-markdown" onClick={onRenderedMarkdownClick} dangerouslySetInnerHTML={{ __html: html }} />
       ) : (

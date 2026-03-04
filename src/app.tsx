@@ -446,6 +446,8 @@ export function App() {
   const [renderedHtml, setRenderedHtml] = useState('');
   const [renderMode, setRenderMode] = useState<'ansi' | 'markdown'>('ansi');
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
+  const [contentAlertDownloadHref, setContentAlertDownloadHref] = useState<string | null>(null);
+  const [contentAlertDownloadName, setContentAlertDownloadName] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -644,6 +646,8 @@ export function App() {
     ) => {
       if (isMarkdownFileName(fileName)) {
         setContentAlertMessage(null);
+        setContentAlertDownloadHref(null);
+        setContentAlertDownloadName(null);
         const wikiLinkResolver =
           wikiLinkContext && wikiLinkContext.knownMarkdownPaths.length > 0
             ? createWikiLinkResolver(wikiLinkContext.currentDocPath, wikiLinkContext.knownMarkdownPaths)
@@ -664,21 +668,38 @@ export function App() {
         setRenderedHtml(parseMarkdownToHtml(markdown, { breaks: false }));
         setRenderMode('markdown');
         setContentAlertMessage('Detected a Claude Code export.');
+        setContentAlertDownloadHref(null);
+        setContentAlertDownloadName(null);
         return;
       }
       setRenderedHtml(parseAnsiToHtml(content));
       setRenderMode('ansi');
       setContentAlertMessage(null);
+      setContentAlertDownloadHref(null);
+      setContentAlertDownloadName(null);
     },
     [resolveMarkdownImageSrc],
   );
 
-  const renderBinaryFileContent = useCallback((fileName: string | null | undefined) => {
-    const label = fileName || 'file';
-    setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
-    setRenderMode('ansi');
-    setContentAlertMessage('Binary file detected.');
-  }, []);
+  const renderBinaryFileContent = useCallback(
+    (fileName: string | null | undefined, downloadHref: string | null = null) => {
+      const label = fileName || 'file';
+      setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
+      setRenderMode('ansi');
+      setContentAlertMessage('Binary file detected.');
+      setContentAlertDownloadHref(downloadHref);
+      setContentAlertDownloadName(fileName ?? null);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (contentAlertDownloadHref?.startsWith('blob:')) {
+        URL.revokeObjectURL(contentAlertDownloadHref);
+      }
+    };
+  }, [contentAlertDownloadHref]);
 
   const handleEditorPaste = useCallback(
     async (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => {
@@ -1042,7 +1063,7 @@ export function App() {
           setEditTitle(contents.name.replace(/\.md$/i, ''));
           setEditContent(decoded);
         } else if (binary) {
-          renderBinaryFileContent(contents.name);
+          renderBinaryFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
         } else {
           const wikiPaths = knownMarkdownPaths.includes(contents.path)
             ? knownMarkdownPaths
@@ -1116,7 +1137,7 @@ export function App() {
         setCurrentFileName(contents.path);
         setEditingBackend(null);
         if (binary) {
-          renderBinaryFileContent(contents.name);
+          renderBinaryFileContent(contents.name, publicRepoRawFileUrl(owner, repo, contents.path));
         } else {
           renderDocumentContent(
             decoded,
@@ -1172,8 +1193,14 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(shared.path);
         setEditingBackend(null);
-        if (binary) renderBinaryFileContent(shared.name);
-        else renderDocumentContent(decoded, shared.name, shared.path);
+        if (binary) {
+          const blobBytes = new Uint8Array(contentBytes);
+          const blob = new Blob([blobBytes], { type: 'application/octet-stream' });
+          const blobUrl = URL.createObjectURL(blob);
+          renderBinaryFileContent(shared.name, blobUrl);
+        } else {
+          renderDocumentContent(decoded, shared.name, shared.path);
+        }
         setViewPhase(null);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
@@ -2392,6 +2419,8 @@ export function App() {
             html={renderedHtml}
             markdown={renderMode === 'markdown'}
             alertMessage={contentAlertMessage}
+            alertDownloadHref={contentAlertDownloadHref}
+            alertDownloadName={contentAlertDownloadName}
             onImageClick={onOpenLightbox}
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');
