@@ -209,13 +209,11 @@
 }
 
 .user-menu-trigger {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
   min-height: 35px;
-  min-width: 40px;
-  max-width: 200px;
-  padding: 4px 10px;
+  min-width: 35px;
+  padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--btn-bg);
@@ -315,18 +313,4 @@
 
 .user-avatar {
   border-radius: 50%;
-}
-
-.user-name {
-  font-size: 14px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@media (max-width: 768px) {
-  .user-name {
-    display: none;
-  }
 }

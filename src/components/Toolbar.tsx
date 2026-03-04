@@ -318,7 +318,6 @@ export function Toolbar({
                   <Tooltip.Trigger asChild>
                     <button type="button" class="user-menu-trigger" aria-label="User menu">
                       <img class="user-avatar" src={user.avatar_url} alt="" width={24} height={24} />
-                      <span class="user-name">{user.name ?? user.login}</span>
                     </button>
                   </Tooltip.Trigger>
                 </DropdownMenu.Trigger>
