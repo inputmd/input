@@ -24,33 +24,66 @@ interface ToastEntry {
   message: string;
   variant: 'default' | 'success' | 'failure' | 'loading';
   duration?: number;
+  createdAt: number;
 }
 
 let nextId = 0;
+const TOAST_DEDUPE_WINDOW_MS = 4_000;
 
 export function ToastProvider({ children }: { children: ComponentChildren }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
 
-  const showToast = useCallback((message: string) => {
-    const id = nextId++;
-    setToasts((prev) => [...prev, { id, message, variant: 'default' }]);
-  }, []);
+  const enqueueToast = useCallback(
+    (message: string, variant: ToastEntry['variant'], duration?: number): number | null => {
+      const now = Date.now();
+      let createdId: number | null = null;
+      setToasts((prev) => {
+        const duplicate =
+          variant === 'loading'
+            ? false
+            : prev.some((toast) => {
+                if (toast.variant !== variant) return false;
+                if (toast.message !== message) return false;
+                return now - toast.createdAt <= TOAST_DEDUPE_WINDOW_MS;
+              });
+        if (duplicate) return prev;
+        const id = nextId++;
+        createdId = id;
+        return [...prev, { id, message, variant, duration, createdAt: now }];
+      });
+      return createdId;
+    },
+    [],
+  );
 
-  const showSuccessToast = useCallback((message: string) => {
-    const id = nextId++;
-    setToasts((prev) => [...prev, { id, message, variant: 'success' }]);
-  }, []);
+  const showToast = useCallback(
+    (message: string) => {
+      void enqueueToast(message, 'default');
+    },
+    [enqueueToast],
+  );
 
-  const showFailureToast = useCallback((message: string) => {
-    const id = nextId++;
-    setToasts((prev) => [...prev, { id, message, variant: 'failure' }]);
-  }, []);
+  const showSuccessToast = useCallback(
+    (message: string) => {
+      void enqueueToast(message, 'success');
+    },
+    [enqueueToast],
+  );
 
-  const showLoadingToast = useCallback((message: string) => {
-    const id = nextId++;
-    setToasts((prev) => [...prev, { id, message, variant: 'loading', duration: 60_000 }]);
-    return id;
-  }, []);
+  const showFailureToast = useCallback(
+    (message: string) => {
+      void enqueueToast(message, 'failure');
+    },
+    [enqueueToast],
+  );
+
+  const showLoadingToast = useCallback(
+    (message: string) => {
+      const id = enqueueToast(message, 'loading', 60_000);
+      return id ?? -1;
+    },
+    [enqueueToast],
+  );
 
   const removeToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
