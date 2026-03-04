@@ -39,6 +39,7 @@ interface SidebarProps {
   onCreateDirectory: (path: string) => void | Promise<void>;
   onDeleteFile: (path: string) => void;
   onDeleteFolder: (path: string) => void;
+  onBeforeRenameFile?: (path: string) => boolean | Promise<boolean>;
   onRenameFile: (oldPath: string, newPath: string) => void | Promise<void>;
   onRenameFolder: (oldPath: string, newPath: string) => void | Promise<void>;
 }
@@ -270,6 +271,7 @@ export function Sidebar({
   onCreateDirectory,
   onDeleteFile,
   onDeleteFolder,
+  onBeforeRenameFile,
   onRenameFile,
   onRenameFolder,
 }: SidebarProps) {
@@ -393,7 +395,11 @@ export function Sidebar({
     }
   };
 
-  const startRename = (target: Exclude<RenameTarget, null>) => {
+  const startRename = async (target: Exclude<RenameTarget, null>) => {
+    if (target.kind === 'file' && onBeforeRenameFile) {
+      const allowed = await onBeforeRenameFile(target.path);
+      if (!allowed) return;
+    }
     cancelRenameOnBlurRef.current = false;
     setRenamingTarget(target);
     setRenameValue(target.path);
@@ -489,7 +495,7 @@ export function Sidebar({
             toggleFolder(folder.path);
           } else if (!readOnly && e.key === 'F2') {
             e.preventDefault();
-            startRename({ kind: 'folder', path: folder.path });
+            void startRename({ kind: 'folder', path: folder.path });
           }
         }}
       >
@@ -542,7 +548,7 @@ export function Sidebar({
             {!readOnly && (
               <ContextMenu.Item
                 class="sidebar-context-menu-item"
-                onSelect={() => startRename({ kind: 'folder', path: folder.path })}
+                onSelect={() => void startRename({ kind: 'folder', path: folder.path })}
               >
                 Rename
               </ContextMenu.Item>
@@ -582,7 +588,7 @@ export function Sidebar({
         style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
         onClick={() => !file.active && onSelectFile(file.path)}
         onDblClick={() => {
-          if (!readOnly && file.editable) startRename({ kind: 'file', path: file.path });
+          if (!readOnly && file.editable) void startRename({ kind: 'file', path: file.path });
         }}
         onKeyDown={(e) => {
           if (isRenaming) return;
@@ -591,7 +597,7 @@ export function Sidebar({
             if (!file.active) onSelectFile(file.path);
           } else if (!readOnly && file.editable && e.key === 'F2') {
             e.preventDefault();
-            startRename({ kind: 'file', path: file.path });
+            void startRename({ kind: 'file', path: file.path });
           }
         }}
       >
@@ -648,7 +654,7 @@ export function Sidebar({
             {showFileModifyActions && (
               <ContextMenu.Item
                 class="sidebar-context-menu-item"
-                onSelect={() => startRename({ kind: 'file', path: file.path })}
+                onSelect={() => void startRename({ kind: 'file', path: file.path })}
               >
                 Rename
               </ContextMenu.Item>

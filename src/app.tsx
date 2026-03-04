@@ -2398,6 +2398,27 @@ export function App() {
     ],
   );
 
+  const handleBeforeRenameFile = useCallback(
+    async (path: string): Promise<boolean> => {
+      if (!isMarkdownFileName(path)) return true;
+      if (activeView !== 'edit' || !hasUnsavedChanges) return true;
+
+      const currentEditingPath = editingBackend === 'repo' ? currentRepoDocPath : currentFileName;
+      if (currentEditingPath !== path) return true;
+
+      const shouldSave = await showConfirm('Save this Markdown file before renaming?', {
+        title: 'Unsaved changes',
+        confirmLabel: 'Save',
+        cancelLabel: 'Cancel',
+        defaultFocus: 'action',
+      });
+      if (!shouldSave) return false;
+      await onSave();
+      return true;
+    },
+    [activeView, hasUnsavedChanges, editingBackend, currentRepoDocPath, currentFileName, showConfirm, onSave],
+  );
+
   const handleRenameFolder = useCallback(
     async (oldPath: string, newPath: string) => {
       try {
@@ -2903,6 +2924,7 @@ export function App() {
               onCreateDirectory={handleCreateDirectory}
               onDeleteFile={handleDeleteFile}
               onDeleteFolder={handleDeleteFolder}
+              onBeforeRenameFile={handleBeforeRenameFile}
               onRenameFile={handleRenameFile}
               onRenameFolder={handleRenameFolder}
             />
