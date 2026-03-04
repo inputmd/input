@@ -1,13 +1,15 @@
+import { ContentAlert } from '../components/ContentAlert';
 import { isExternalHttpHref } from '../util';
 
 interface ContentViewProps {
   html: string;
   markdown: boolean;
+  alertMessage?: string | null;
   onInternalLinkNavigate?: (route: string) => void;
   onImageClick?: (src: string, alt: string) => void;
 }
 
-export function ContentView({ html, markdown, onInternalLinkNavigate, onImageClick }: ContentViewProps) {
+export function ContentView({ html, markdown, alertMessage, onInternalLinkNavigate, onImageClick }: ContentViewProps) {
   const onRenderedMarkdownClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
     const image = target?.closest('img');
@@ -42,6 +44,7 @@ export function ContentView({ html, markdown, onInternalLinkNavigate, onImageCli
 
   return (
     <div class={`content-view ${markdown ? 'content-view--markdown' : 'content-view--plain'}`}>
+      {alertMessage ? <ContentAlert>{alertMessage}</ContentAlert> : null}
       {markdown ? (
         <div class="rendered-markdown" onClick={onRenderedMarkdownClick} dangerouslySetInnerHTML={{ __html: html }} />
       ) : (

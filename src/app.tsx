@@ -2,6 +2,7 @@ import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
+import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMarkdown } from './claude_trace';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageLightbox } from './components/ImageLightbox';
@@ -117,6 +118,10 @@ function repoNewDraftKey(installationId: string, repoFullName: string, field: 't
 function isMarkdownFileName(name: string | null | undefined): boolean {
   if (!name) return false;
   return /\.md(?:own|wn)?$/i.test(name) || /\.markdown$/i.test(name);
+}
+
+function isTxtFileName(name: string | null | undefined): boolean {
+  return Boolean(name && /\.txt$/i.test(name));
 }
 
 function isSidebarTextFileName(name: string | null | undefined): boolean {
@@ -426,6 +431,7 @@ export function App() {
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
   const [renderedHtml, setRenderedHtml] = useState('');
   const [renderMode, setRenderMode] = useState<'ansi' | 'markdown'>('ansi');
+  const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -623,6 +629,7 @@ export function App() {
       wikiLinkContext?: { currentDocPath: string; knownMarkdownPaths: string[] },
     ) => {
       if (isMarkdownFileName(fileName)) {
+        setContentAlertMessage(null);
         const wikiLinkResolver =
           wikiLinkContext && wikiLinkContext.knownMarkdownPaths.length > 0
             ? createWikiLinkResolver(wikiLinkContext.currentDocPath, wikiLinkContext.knownMarkdownPaths)
@@ -637,8 +644,17 @@ export function App() {
         setRenderMode('markdown');
         return;
       }
+      if (isTxtFileName(fileName) && looksLikeClaudeExportTrace(content)) {
+        const parsed = parseClaudeExportTrace(content, fileName ?? undefined);
+        const markdown = renderClaudeTraceMarkdown(parsed);
+        setRenderedHtml(parseMarkdownToHtml(markdown, { breaks: false }));
+        setRenderMode('markdown');
+        setContentAlertMessage('Detected a Claude Code export.');
+        return;
+      }
       setRenderedHtml(parseAnsiToHtml(content));
       setRenderMode('ansi');
+      setContentAlertMessage(null);
     },
     [resolveMarkdownImageSrc],
   );
@@ -2332,6 +2348,7 @@ export function App() {
           <ContentView
             html={renderedHtml}
             markdown={renderMode === 'markdown'}
+            alertMessage={contentAlertMessage}
             onImageClick={onOpenLightbox}
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');

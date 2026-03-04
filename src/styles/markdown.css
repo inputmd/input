@@ -4,6 +4,19 @@
   padding: 24px 16px;
 }
 
+.content-alert {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  margin-bottom: 20px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--btn-bg) 70%, transparent);
+  color: var(--text-secondary);
+}
+
 .content-view--markdown {
   max-width: 720px;
 }

@@ -5,7 +5,6 @@ import { isExternalHttpHref } from './util';
 
 marked.setOptions({
   gfm: true,
-  breaks: true,
 });
 
 const WEB_TLDS = new Set(['com', 'org', 'net', 'app', 'dev', 'xyz']);
@@ -134,6 +133,7 @@ function createQuestionLinkIndicator(className: string): HTMLSpanElement {
 }
 
 interface ParseMarkdownOptions {
+  breaks?: boolean;
   resolveImageSrc?: (src: string) => string | null;
   resolveWikiLinkMeta?: (targetPath: string) => { exists: boolean; resolvedHref?: string | null } | null;
 }
@@ -200,7 +200,7 @@ function applySmartPunctuation(root: ParentNode): void {
 
 export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
   const markdown = extractMarkdownBody(text);
-  const raw = marked.parse(markdown) as string;
+  const raw = marked.parse(markdown, { gfm: true, breaks: options?.breaks ?? true }) as string;
   const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
