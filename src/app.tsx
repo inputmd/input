@@ -85,11 +85,13 @@ const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
-An experimental Markdown editor, where all content is stored on GitHub.
+An experimental Markdown editor, and alternative GitHub frontend.
 
-Input supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own repos or gists as files.
+Input is a tool for editing and publishing workspaces of Markdown files. It's like Obsidian in your browser, or HackMD for Git repos.
 
-Input is privacy preserving. We do not log your data.`;
+It supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/) as files.
+
+We ask for minimal permissions, and do not log your data.`;
 
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
