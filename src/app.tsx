@@ -119,6 +119,15 @@ function isMarkdownFileName(name: string | null | undefined): boolean {
   return /\.md(?:own|wn)?$/i.test(name) || /\.markdown$/i.test(name);
 }
 
+function isSidebarTextFileName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return (
+    /\.md(?:own|wn)?$/i.test(name) ||
+    /\.markdown$/i.test(name) ||
+    /\.(txt|ts|js|py|tsx|jsx|json|jsonc|yml|yaml|toml|css|scss|html|sh|sql|xml|csv|mdx|rst)$/i.test(name)
+  );
+}
+
 function safeDecodeURIComponent(s: string): string {
   try {
     return decodeURIComponent(s);
@@ -433,11 +442,13 @@ export function App() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
   const [sidebarFileFilter, setSidebarFileFilter] = useState<SidebarFileFilter>(() => {
-    if (typeof window === 'undefined') return 'markdown';
+    if (typeof window === 'undefined') return 'text';
     try {
-      return localStorage.getItem(SIDEBAR_FILE_FILTER_KEY) === 'all' ? 'all' : 'markdown';
+      const saved = localStorage.getItem(SIDEBAR_FILE_FILTER_KEY);
+      if (saved === 'all') return 'all';
+      return 'text';
     } catch {
-      return 'markdown';
+      return 'text';
     }
   });
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -981,7 +992,7 @@ export function App() {
           try {
             const mdFiles = await loadRepoMarkdownFiles(instId, repoName);
             setRepoFiles(mdFiles);
-            if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
+            if (sidebarFileFilter === 'text') setRepoSidebarFiles(mdFiles);
             knownMarkdownPaths = mdFiles.map((file) => file.path);
           } catch {
             /* sidebar index is best-effort */
@@ -1051,7 +1062,7 @@ export function App() {
         const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
         const knownMarkdownPaths = mdFiles.map((file) => file.path);
         setRepoFiles(mdFiles);
-        if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
+        if (sidebarFileFilter === 'text') setRepoSidebarFiles(mdFiles);
         setRepoAccessMode('public');
         setPublicRepoRef({ owner, repo });
         setCurrentRepoDocPath(contents.path);
@@ -1166,7 +1177,7 @@ export function App() {
             setRepoAccessMode('public');
             setPublicRepoRef({ owner, repo });
             setRepoFiles(mdFiles);
-            if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
+            if (sidebarFileFilter === 'text') setRepoSidebarFiles(mdFiles);
             const target = pickPreferredRepoMarkdownFile(mdFiles);
             if (!target) {
               showError('No markdown files found in this repository');
@@ -1209,7 +1220,7 @@ export function App() {
               setRepoAccessMode('installed');
               setPublicRepoRef(null);
               setRepoFiles(mdFiles);
-              if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
+              if (sidebarFileFilter === 'text') setRepoSidebarFiles(mdFiles);
               const target = pickPreferredRepoMarkdownFile(mdFiles);
               if (!target) {
                 navigate(routePath.repoNew(), { replace: true });
@@ -1488,26 +1499,28 @@ export function App() {
   }, [sidebarFileFilter]);
 
   useEffect(() => {
-    if (sidebarFileFilter !== 'all') return;
-    let active = true;
-    void (async () => {
-      try {
-        if (repoAccessMode === 'installed' && installationId && selectedRepo) {
-          const files = await loadRepoAllFiles(installationId, selectedRepo);
-          if (active) setRepoSidebarFiles(files);
-          return;
+    if (sidebarFileFilter === 'all' || sidebarFileFilter === 'text') {
+      let active = true;
+      void (async () => {
+        try {
+          if (repoAccessMode === 'installed' && installationId && selectedRepo) {
+            const files = await loadRepoAllFiles(installationId, selectedRepo);
+            if (active) setRepoSidebarFiles(files);
+            return;
+          }
+          if (repoAccessMode === 'public' && publicRepoRef) {
+            const files = await loadPublicRepoAllFiles(publicRepoRef.owner, publicRepoRef.repo);
+            if (active) setRepoSidebarFiles(files);
+          }
+        } catch (err) {
+          showRateLimitToastIfNeeded(err);
         }
-        if (repoAccessMode === 'public' && publicRepoRef) {
-          const files = await loadPublicRepoAllFiles(publicRepoRef.owner, publicRepoRef.repo);
-          if (active) setRepoSidebarFiles(files);
-        }
-      } catch (err) {
-        showRateLimitToastIfNeeded(err);
-      }
-    })();
-    return () => {
-      active = false;
-    };
+      })();
+      return () => {
+        active = false;
+      };
+    }
+    return;
   }, [
     sidebarFileFilter,
     repoAccessMode,
@@ -2367,9 +2380,9 @@ export function App() {
           editable: isMarkdownFileName(path),
         }))
         .sort((a, b) => a.path.localeCompare(b.path));
-      return sidebarFileFilter === 'markdown' ? files.filter((file) => file.editable) : files;
+      return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextFileName(file.path)) : files;
     }
-    const sourceFiles = sidebarFileFilter === 'all' ? repoSidebarFiles : repoFiles;
+    const sourceFiles = repoSidebarFiles;
     if (sourceFiles.length > 0 && currentRepoDocPath) {
       const currentPath = currentRepoDocPath;
       const files = sourceFiles.map((f) => ({
@@ -2377,10 +2390,10 @@ export function App() {
         active: f.path === currentPath,
         editable: isMarkdownFileName(f.path),
       }));
-      return sidebarFileFilter === 'markdown' ? files.filter((file) => file.editable) : files;
+      return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextFileName(file.path)) : files;
     }
     return [];
-  }, [gistFiles, currentFileName, repoFiles, repoSidebarFiles, currentRepoDocPath, sidebarFileFilter]);
+  }, [gistFiles, currentFileName, repoSidebarFiles, currentRepoDocPath, sidebarFileFilter]);
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
   const sidebarDisabled = activeView === 'edit' && draftMode;

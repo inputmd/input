@@ -21,7 +21,7 @@ export interface SidebarFile {
   editable: boolean;
 }
 
-export type SidebarFileFilter = 'markdown' | 'all';
+export type SidebarFileFilter = 'text' | 'all';
 
 interface SidebarProps {
   files: SidebarFile[];
@@ -404,7 +404,7 @@ export function Sidebar({
     }
   };
 
-  const filterLabel = fileFilter === 'markdown' ? '.md files' : 'All files';
+  const filterLabel = fileFilter === 'text' ? 'Text files' : 'All files';
   const filterControl = (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -419,8 +419,8 @@ export function Sidebar({
             value={fileFilter}
             onValueChange={(value: string) => onFileFilterChange(value as SidebarFileFilter)}
           >
-            <DropdownMenu.RadioItem class="sidebar-filter-menu-item" value="markdown">
-              .md files
+            <DropdownMenu.RadioItem class="sidebar-filter-menu-item" value="text">
+              Text files
             </DropdownMenu.RadioItem>
             <DropdownMenu.RadioItem class="sidebar-filter-menu-item" value="all">
               All files
