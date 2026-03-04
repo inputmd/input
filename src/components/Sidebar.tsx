@@ -57,6 +57,7 @@ interface SidebarFolderNode {
   kind: 'folder';
   path: string;
   name: string;
+  deemphasized: boolean;
   hasActiveDescendant: boolean;
   children: SidebarTreeNode[];
 }
@@ -144,6 +145,7 @@ function buildTree(files: SidebarFile[]): SidebarFolderNode {
     kind: 'folder',
     path: '',
     name: '',
+    deemphasized: false,
     hasActiveDescendant: false,
     children: [],
   };
@@ -167,6 +169,7 @@ function buildTree(files: SidebarFile[]): SidebarFolderNode {
           kind: 'folder',
           path: currentPath,
           name: segment,
+          deemphasized: isHiddenFolderPath(currentPath),
           hasActiveDescendant: false,
           children: [],
         };
@@ -189,7 +192,7 @@ function buildTree(files: SidebarFile[]): SidebarFolderNode {
       name: parts[parts.length - 1],
       active: file.active,
       editable: file.editable,
-      deemphasized: file.deemphasized,
+      deemphasized: file.deemphasized || isHiddenFolderPath(file.path),
     });
   }
 
@@ -482,7 +485,7 @@ export function Sidebar({
     const FolderIcon = collapsed ? FolderClosed : FolderOpen;
     const folderRow = (
       <div
-        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}`}
+        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${folder.deemphasized ? ' sidebar-file-deemphasized' : ''}`}
         tabIndex={0}
         role="button"
         data-folder-path={folder.path}
