@@ -1,6 +1,7 @@
 import './env';
+import crypto from 'node:crypto';
 import http from 'node:http';
-import { PORT } from './config';
+import { GITHUB_TOKEN, PORT } from './config';
 import { applyCors } from './cors';
 import { ClientError } from './errors';
 import { startGistCacheCleanup } from './gist_cache';
@@ -17,6 +18,14 @@ function normalizeReturnTo(raw: string | null): string {
   if (!raw) return '/workspaces';
   if (!raw.startsWith('/') || raw.startsWith('//')) return '/workspaces';
   return raw;
+}
+
+function tokenSummary(token: string): string {
+  const trimmed = token.trim();
+  if (!trimmed) return '(none)';
+  const hash = crypto.createHash('sha256').update(trimmed).digest('hex').slice(0, 12);
+  if (trimmed.length <= 8) return `[len=${trimmed.length} sha256=${hash}]`;
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)} [len=${trimmed.length} sha256=${hash}]`;
 }
 
 startInstallationTokenCacheCleanup();
@@ -76,6 +85,7 @@ server.listen(PORT, '0.0.0.0', () => {
       process.env.GITHUB_CLIENT_SECRET,
   );
   console.log(`GitHub App auth server listening on http://0.0.0.0:${PORT} (configured=${configured})`);
+  console.log(`[github] Using GITHUB_TOKEN=${tokenSummary(GITHUB_TOKEN)}`);
 });
 
 function gracefulShutdown(signal: string): void {
