@@ -139,6 +139,87 @@ interface ParseMarkdownOptions {
   claudeTranscript?: boolean;
 }
 
+interface ExtractedFootnotes {
+  markdown: string;
+  definitions: Map<string, string>;
+}
+
+interface FootnoteReferences {
+  order: string[];
+  referenceIds: Map<string, string[]>;
+}
+
+function extractFootnotes(markdown: string): ExtractedFootnotes {
+  const lines = markdown.split(/\r?\n/);
+  const definitions = new Map<string, string>();
+  const body: string[] = [];
+
+  let inFence = false;
+  let fenceMarker = '';
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fenceMatch = /^ {0,3}(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      const markerChar = marker[0];
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = markerChar;
+      } else if (markerChar === fenceMarker) {
+        inFence = false;
+        fenceMarker = '';
+      }
+      body.push(line);
+      continue;
+    }
+
+    if (inFence) {
+      body.push(line);
+      continue;
+    }
+
+    const definitionMatch = /^ {0,3}\[\^([^\]\s]+)\]:[ \t]?(.*)$/.exec(line);
+    if (!definitionMatch) {
+      body.push(line);
+      continue;
+    }
+
+    const id = definitionMatch[1];
+    const contentLines = [definitionMatch[2]];
+
+    let lookahead = index + 1;
+    while (lookahead < lines.length) {
+      const continuation = lines[lookahead];
+      if (/^\s*$/.test(continuation)) {
+        contentLines.push('');
+        lookahead += 1;
+        continue;
+      }
+      if (/^(?: {2,}|\t)/.test(continuation)) {
+        contentLines.push(continuation.replace(/^(?: {1,4}|\t)/, ''));
+        lookahead += 1;
+        continue;
+      }
+      break;
+    }
+
+    definitions.set(id, contentLines.join('\n').trim());
+    index = lookahead - 1;
+  }
+
+  return { markdown: body.join('\n'), definitions };
+}
+
+function footnoteId(raw: string): string {
+  const normalized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'note';
+}
+
 function extractMarkdownBody(text: string): string {
   const normalized = text.replace(/^\uFEFF/, '');
   const candidate = normalized.replace(/^(?:[ \t]*\r?\n)+/, '');
@@ -197,6 +278,139 @@ function applySmartPunctuation(root: ParentNode): void {
     // Only convert either " -- " or tight "word--word", leaving mixed spacing untouched.
     node.textContent = (node.textContent ?? '').replace(/(?<= )--(?= )|(?<=\S)--(?=\S)/g, '—');
   }
+}
+
+function shouldSkipFootnoteReplacement(node: Node | null): boolean {
+  let current: Node | null = node;
+  while (current) {
+    if (current instanceof HTMLElement) {
+      const tagName = current.tagName;
+      if (tagName === 'CODE' || tagName === 'PRE' || tagName === 'KBD' || tagName === 'SAMP' || tagName === 'A') {
+        return true;
+      }
+    }
+    current = current.parentNode;
+  }
+  return false;
+}
+
+function applyFootnoteReferences(root: ParentNode, definitions: Map<string, string>): FootnoteReferences {
+  const order: string[] = [];
+  const orderById = new Map<string, number>();
+  const referenceIds = new Map<string, string[]>();
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+
+  let current = walker.nextNode();
+  while (current) {
+    if (current instanceof Text && !shouldSkipFootnoteReplacement(current.parentNode)) {
+      nodes.push(current);
+    }
+    current = walker.nextNode();
+  }
+
+  for (const node of nodes) {
+    const text = node.textContent ?? '';
+    if (!text.includes('[^')) continue;
+
+    const regex = /\[\^([^\]\s]+)\]/g;
+    let match: RegExpExecArray | null;
+    let cursor = 0;
+    const fragment = document.createDocumentFragment();
+    let changed = false;
+
+    while ((match = regex.exec(text))) {
+      const rawId = match[1];
+      if (!definitions.has(rawId)) continue;
+      changed = true;
+
+      const leading = text.slice(cursor, match.index);
+      if (leading) fragment.appendChild(document.createTextNode(leading));
+
+      let index = orderById.get(rawId);
+      if (index == null) {
+        order.push(rawId);
+        index = order.length;
+        orderById.set(rawId, index);
+      }
+      const refs = referenceIds.get(rawId) ?? [];
+      const domId = footnoteId(rawId);
+      const refId = `fnref-${index}-${refs.length + 1}-${domId}`;
+      refs.push(refId);
+      referenceIds.set(rawId, refs);
+
+      const sup = document.createElement('sup');
+      sup.className = 'footnote-ref';
+      sup.id = refId;
+      const anchor = document.createElement('a');
+      anchor.setAttribute('href', `#fn-${domId}`);
+      anchor.textContent = `${index}`;
+      sup.appendChild(anchor);
+      fragment.appendChild(sup);
+
+      cursor = match.index + match[0].length;
+    }
+
+    if (!changed) continue;
+    const trailing = text.slice(cursor);
+    if (trailing) fragment.appendChild(document.createTextNode(trailing));
+    node.replaceWith(fragment);
+  }
+
+  return { order, referenceIds };
+}
+
+function appendFootnotesSection(
+  root: DocumentFragment,
+  references: FootnoteReferences,
+  definitions: Map<string, string>,
+): void {
+  if (references.order.length === 0) return;
+
+  const section = document.createElement('section');
+  section.className = 'footnotes';
+  section.setAttribute('aria-label', 'Footnotes');
+
+  const list = document.createElement('ol');
+  section.appendChild(list);
+
+  for (const id of references.order) {
+    const domId = footnoteId(id);
+    const li = document.createElement('li');
+    li.id = `fn-${domId}`;
+
+    const definitionMarkdown = definitions.get(id) ?? '';
+    const rendered = marked.parse(definitionMarkdown, { gfm: true, breaks: false }) as string;
+    const sanitized = DOMPurify.sanitize(rendered, {
+      ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'],
+    });
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = sanitized;
+    li.append(...Array.from(wrapper.childNodes));
+
+    const refs = references.referenceIds.get(id) ?? [];
+    if (refs.length > 0) {
+      const backrefs = document.createElement('span');
+      backrefs.className = 'footnote-backrefs';
+      for (const refId of refs) {
+        const link = document.createElement('a');
+        link.className = 'footnote-backref';
+        link.setAttribute('href', `#${refId}`);
+        link.setAttribute('aria-label', 'Back to reference');
+        link.textContent = '↩';
+        backrefs.appendChild(link);
+      }
+      if (li.lastElementChild?.tagName === 'P') {
+        li.lastElementChild.append(' ', backrefs);
+      } else {
+        li.append(' ', backrefs);
+      }
+    }
+
+    list.appendChild(li);
+  }
+
+  root.appendChild(section);
 }
 
 function createLucideIcon(
@@ -296,10 +510,13 @@ function decorateClaudeTranscript(root: DocumentFragment): void {
 
 export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
   const markdown = extractMarkdownBody(text);
-  const raw = marked.parse(markdown, { gfm: true, breaks: options?.breaks ?? true }) as string;
+  const extractedFootnotes = extractFootnotes(markdown);
+  const raw = marked.parse(extractedFootnotes.markdown, { gfm: true, breaks: options?.breaks ?? true }) as string;
   const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
+  const footnoteReferences = applyFootnoteReferences(template.content, extractedFootnotes.definitions);
+  appendFootnotesSection(template.content, footnoteReferences, extractedFootnotes.definitions);
 
   template.content.querySelectorAll('a').forEach((anchor: HTMLAnchorElement) => {
     const href = sanitizeMarkdownHref(anchor.getAttribute('href') ?? '');
@@ -311,7 +528,10 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
     }
 
     anchor.setAttribute('href', href);
-    if (href.startsWith('#')) {
+    const isFootnoteLink =
+      anchor.classList.contains('footnote-backref') ||
+      anchor.parentElement?.classList.contains('footnote-ref') === true;
+    if (href.startsWith('#') && !isFootnoteLink) {
       anchor.insertAdjacentElement('afterend', createQuestionLinkIndicator('hash-link-indicator'));
     }
 

@@ -205,6 +205,49 @@
   text-decoration: underline;
 }
 
+.rendered-markdown sup.footnote-ref {
+  font-size: 0.78em;
+  line-height: 1;
+  vertical-align: super;
+}
+
+.rendered-markdown .footnote-ref a {
+  text-decoration: none;
+}
+
+.rendered-markdown .footnotes {
+  margin-top: 1.8em;
+  padding-top: 0.8em;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.rendered-markdown .footnotes ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+
+.rendered-markdown .footnotes li {
+  margin: 0.45em 0;
+}
+
+.rendered-markdown .footnotes li > :first-child {
+  margin-top: 0;
+}
+
+.rendered-markdown .footnotes li > :last-child {
+  margin-bottom: 0;
+}
+
+.rendered-markdown .footnote-backrefs {
+  white-space: nowrap;
+}
+
+.rendered-markdown .footnote-backref {
+  margin-left: 0.35em;
+  text-decoration: none;
+}
+
 .rendered-markdown .hash-link-indicator,
 .rendered-markdown .missing-wikilink-indicator {
   display: inline-block;
