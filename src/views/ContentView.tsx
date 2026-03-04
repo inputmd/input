@@ -30,6 +30,10 @@ interface LinkPreviewState {
   url: string | null;
 }
 
+const CLAUDE_CODE_ASCII_BANNER = ` ▐▛███▜▌
+▝▜█████▛▘
+  ▘▘ ▝▝`;
+
 function isMarkdownHref(href: string): boolean {
   return /\.md(?:own|wn)?(?:$|[?#])|\.markdown(?:$|[?#])/i.test(href);
 }
@@ -410,27 +414,34 @@ export function ContentView({
       class={`content-view ${imagePreview ? 'content-view--image' : markdown ? 'content-view--markdown' : 'content-view--plain'} ${claudeTranscript ? 'content-view--claude-chat' : ''}`}
     >
       {alertMessage ? (
-        <ContentAlert>
-          <span>{alertMessage}</span>
+        <ContentAlert className={claudeTranscript && markdown ? 'content-alert--claude' : undefined}>
+          {claudeTranscript && markdown ? (
+            <div class="content-alert-claude-banner-wrap">
+              <pre class="content-alert-claude-banner" aria-hidden="true">
+                {CLAUDE_CODE_ASCII_BANNER}
+              </pre>
+            </div>
+          ) : null}
+          <span class={`content-alert-caption ${claudeTranscript && markdown ? 'content-alert-caption--small' : ''}`}>
+            {alertMessage}
+          </span>
+          {claudeTranscript && markdown ? (
+            <label class="claude-chat-compact-toggle">
+              <input
+                type="checkbox"
+                class="claude-chat-compact-toggle-checkbox"
+                checked={collapseAssistantMessages}
+                onChange={(event) => setCollapseAssistantMessages((event.currentTarget as HTMLInputElement).checked)}
+              />
+              <span>Compact</span>
+            </label>
+          ) : null}
           {alertDownloadHref ? (
             <a href={alertDownloadHref} download={alertDownloadName ?? undefined} class="content-alert-link">
               Download
             </a>
           ) : null}
         </ContentAlert>
-      ) : null}
-      {claudeTranscript && markdown ? (
-        <div class="claude-chat-filter-row">
-          <label class="claude-chat-filter-label">
-            <input
-              type="checkbox"
-              class="claude-chat-filter-checkbox"
-              checked={collapseAssistantMessages}
-              onChange={(event) => setCollapseAssistantMessages((event.currentTarget as HTMLInputElement).checked)}
-            />
-            <span>Compact</span>
-          </label>
-        </div>
       ) : null}
       {isEmpty ? (
         <p class="content-empty-placeholder">This file is empty.</p>
