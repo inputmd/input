@@ -320,6 +320,11 @@ interface PublicRepoRef {
   repo: string;
 }
 
+interface GoToWorkspaceTarget {
+  filePath: string;
+  repo: InstallationRepo;
+}
+
 interface MarkdownRepoSourceContext {
   mode: 'installed' | 'public';
   installationId?: string | null;
@@ -2676,6 +2681,29 @@ export function App() {
     repoAccessMode === 'installed' &&
     (currentRepoDocPath !== null || (editingBackend === 'repo' && selectedRepo !== null));
   const showHeaderLeftLoading = activeView === 'loading' && Boolean(user);
+  const goToWorkspaceTarget = useMemo<GoToWorkspaceTarget | null>(() => {
+    if (route.name !== 'publicrepofile' || !user || !installationId) return null;
+    const owner = safeDecodeURIComponent(route.params.owner);
+    const repo = safeDecodeURIComponent(route.params.repo);
+    const filePath = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
+    const repoFullName = `${owner}/${repo}`.toLowerCase();
+    const matchedRepo = installationRepos.find((candidate) => candidate.full_name.toLowerCase() === repoFullName);
+    if (!matchedRepo) return null;
+    return { filePath, repo: matchedRepo };
+  }, [route, user, installationId, installationRepos]);
+  const onGoToWorkspace = useCallback(() => {
+    if (!goToWorkspaceTarget) return;
+    onSelectRepo(goToWorkspaceTarget.repo.full_name, goToWorkspaceTarget.repo.id, goToWorkspaceTarget.repo.private);
+    navigate(routePath.repoFile(goToWorkspaceTarget.filePath), {
+      state: {
+        selectedRepo: {
+          full_name: goToWorkspaceTarget.repo.full_name,
+          id: goToWorkspaceTarget.repo.id,
+          private: goToWorkspaceTarget.repo.private,
+        },
+      },
+    });
+  }, [goToWorkspaceTarget, navigate, onSelectRepo]);
 
   return (
     <>
@@ -2707,6 +2735,8 @@ export function App() {
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
         showLeftLoading={showHeaderLeftLoading}
+        showGoToWorkspace={Boolean(goToWorkspaceTarget)}
+        onGoToWorkspace={onGoToWorkspace}
         showPreviewToggle={activeView === 'edit' && editPreviewEnabled}
         previewVisible={previewVisible}
         onTogglePreview={onTogglePreview}

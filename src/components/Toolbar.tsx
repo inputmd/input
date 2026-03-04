@@ -54,6 +54,8 @@ interface ToolbarProps {
   onToggleSidebar: () => void;
   onEdit: () => void;
   showLeftLoading: boolean;
+  showGoToWorkspace: boolean;
+  onGoToWorkspace: () => void;
 }
 
 export function Toolbar({
@@ -92,6 +94,8 @@ export function Toolbar({
   onToggleSidebar,
   onEdit,
   showLeftLoading,
+  showGoToWorkspace,
+  onGoToWorkspace,
 }: ToolbarProps) {
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
@@ -244,6 +248,11 @@ export function Toolbar({
       <div class="toolbar-right">
         <Tooltip.Provider delayDuration={250}>
           <div class="action-buttons">
+            {showGoToWorkspace && (
+              <button type="button" onClick={onGoToWorkspace}>
+                Go to workspace
+              </button>
+            )}
             {showEdit && (
               <button type="button" onClick={onEdit}>
                 Edit
