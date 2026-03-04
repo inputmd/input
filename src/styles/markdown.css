@@ -45,7 +45,7 @@
 
 .rendered-content {
   font-family: var(--font-mono);
-  font-size: var(--reader-editor-font-size);
+  font-size: var(--reader-preformatted-font-size);
   line-height: var(--reader-editor-line-height);
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -54,7 +54,7 @@
 
 .rendered-markdown {
   font-family: var(--font-sans);
-  font-size: var(--reader-editor-font-size);
+  font-size: var(--reader-markdown-font-size);
   line-height: var(--reader-editor-line-height);
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -242,7 +242,7 @@
 }
 
 .rendered-markdown--claude-chat {
-  font-size: calc(var(--reader-editor-font-size) * 0.98);
+  font-size: var(--reader-claude-font-size);
 }
 
 .rendered-markdown .claude-chat-transcript {

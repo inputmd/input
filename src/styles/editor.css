@@ -33,7 +33,7 @@
 
 .doc-editor {
   font-family: var(--font-mono);
-  font-size: var(--reader-editor-font-size);
+  font-size: var(--editor-font-size);
   line-height: var(--reader-editor-line-height);
   flex: 1;
   min-height: calc(100vh - 128px);

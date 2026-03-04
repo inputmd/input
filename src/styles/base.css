@@ -19,7 +19,11 @@
   --danger-bg: #490202;
   --danger-border: #f85149;
   --sidebar-renaming-row-bg: #10151b;
-  --reader-editor-font-size: 15.5px;
+  --editor-font-size: 15.5px;
+  --reader-markdown-font-size: 15.5px;
+  --reader-preformatted-font-size: 14px;
+  --reader-claude-font-size: 15.25px;
+  --sidebar-font-size: 13.5px;
   --reader-editor-line-height: 1.6;
   --selection-bg: #123f88;
   --selection-color: #eef5ff;
@@ -62,7 +66,10 @@
   --danger-bg: #ffebe9;
   --danger-border: #cf222e;
   --sidebar-renaming-row-bg: #e2e5eb;
-  --reader-editor-font-size: 15.5px;
+  --editor-font-size: 15.5px;
+  --reader-markdown-font-size: 15.5px;
+  --reader-preformatted-font-size: 14px;
+  --reader-claude-font-size: 15.25px;
   --selection-bg: #2a70ff;
   --selection-color: #ffffff;
 
@@ -106,7 +113,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  font-size: 16px;
+  font-size: 15.5px;
   line-height: 1.5;
 }
 

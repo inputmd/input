@@ -11,7 +11,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
 }
 
 .sidebar-splitter {
@@ -89,7 +89,7 @@
   background: transparent;
   color: var(--text);
   text-align: left;
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
   font-family: inherit;
   cursor: pointer;
   display: flex;
@@ -140,14 +140,14 @@
 .sidebar-disabled-message {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
   text-align: center;
 }
 
 .sidebar-empty-message {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
   text-align: center;
 }
 
@@ -161,7 +161,7 @@
   padding: 4px 8px 4px 8px;
   cursor: pointer;
   user-select: none;
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
   transition: background 0.1s;
 }
 
@@ -241,7 +241,7 @@
   width: 100%;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
 }
 
 .sidebar-folder-name {
@@ -251,7 +251,7 @@
   width: 100%;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
   font-weight: 500;
 }
 
@@ -294,7 +294,7 @@
   background: transparent;
   color: var(--text);
   text-align: left;
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
   font-family: inherit;
   cursor: pointer;
   display: flex;
@@ -327,7 +327,7 @@
 .sidebar-rename-input {
   width: 100%;
   padding: 1.5px 0;
-  font-size: 13.5px;
+  font-size: var(--sidebar-font-size);
   font-family: var(--font-mono);
   border: 0;
   border-radius: 3px;
