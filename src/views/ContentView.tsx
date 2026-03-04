@@ -27,6 +27,7 @@ interface LinkPreviewState {
   left: number;
   title: string;
   html: string;
+  url: string | null;
 }
 
 function isMarkdownHref(href: string): boolean {
@@ -63,6 +64,7 @@ export function ContentView({
     left: 0,
     title: '',
     html: '',
+    url: null,
   });
   const isEmpty = html.trim().length === 0 && !imagePreview;
 
@@ -257,6 +259,7 @@ export function ContentView({
         left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
         title: lastPathSegment(route),
         html: '',
+        url: null,
       });
 
       void onRequestMarkdownLinkPreview(route)
@@ -272,6 +275,7 @@ export function ContentView({
             loading: false,
             title: result.title || prev.title,
             html: result.html,
+            url: null,
           }));
         })
         .catch(() => {
@@ -282,9 +286,34 @@ export function ContentView({
     [hidePreview, onRequestMarkdownLinkPreview, resolveInternalRoute],
   );
 
+  const showUrlOnlyPreviewForAnchor = useCallback(
+    (anchor: HTMLAnchorElement) => {
+      const href = (anchor.getAttribute('href') || '').trim();
+      if (!href || href.startsWith('#') || href.startsWith('?')) {
+        hidePreview();
+        return;
+      }
+      const rect = anchor.getBoundingClientRect();
+      const resolvedHref = anchor.href || href;
+      const requestId = hoverRequestIdRef.current + 1;
+      hoverRequestIdRef.current = requestId;
+      hoverAnchorRef.current = anchor;
+      setPreview({
+        visible: true,
+        loading: false,
+        top: Math.round(rect.bottom + 8),
+        left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
+        title: 'Link',
+        html: '',
+        url: resolvedHref,
+      });
+    },
+    [hidePreview],
+  );
+
   const onRenderedMarkdownMouseMove = useCallback(
     (event: MouseEvent) => {
-      if (!markdown || !onRequestMarkdownLinkPreview) return;
+      if (!markdown) return;
       const target = event.target as HTMLElement | null;
       const anchor = target?.closest('a') as HTMLAnchorElement | null;
       if (!anchor) {
@@ -295,10 +324,24 @@ export function ContentView({
       if (anchor === hoverAnchorRef.current && preview.visible) return;
       clearHoverDelay();
       hoverDelayTimerRef.current = window.setTimeout(() => {
-        showPreviewForAnchor(anchor);
+        const route = resolveInternalRoute(anchor);
+        if (route && isMarkdownHref(route) && onRequestMarkdownLinkPreview) {
+          showPreviewForAnchor(anchor);
+          return;
+        }
+        showUrlOnlyPreviewForAnchor(anchor);
       }, 120);
     },
-    [clearHoverDelay, hidePreview, markdown, onRequestMarkdownLinkPreview, preview.visible, showPreviewForAnchor],
+    [
+      clearHoverDelay,
+      hidePreview,
+      markdown,
+      onRequestMarkdownLinkPreview,
+      preview.visible,
+      resolveInternalRoute,
+      showPreviewForAnchor,
+      showUrlOnlyPreviewForAnchor,
+    ],
   );
 
   return (
@@ -340,16 +383,35 @@ export function ContentView({
       )}
       {preview.visible ? (
         <div
-          class="markdown-link-preview-popover"
+          class={`markdown-link-preview-popover${preview.url ? ' markdown-link-preview-popover--url' : ''}`}
           style={{
             top: `${preview.top}px`,
             left: `${preview.left}px`,
           }}
           aria-live="polite"
         >
-          <div class="markdown-link-preview-title">{preview.title}</div>
+          {preview.url ? null : <div class="markdown-link-preview-title">{preview.title}</div>}
           {preview.loading ? (
             <div class="markdown-link-preview-status">Loading preview...</div>
+          ) : preview.url ? (
+            <div class="markdown-link-preview-url">
+              <span>{preview.url}</span>
+              <span class="markdown-link-preview-url-icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <title>External link</title>
+                  <path d="M15 3h6v6" />
+                  <path d="M10 14 21 3" />
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                </svg>
+              </span>
+            </div>
           ) : (
             <div class="markdown-link-preview-body" dangerouslySetInnerHTML={{ __html: preview.html }} />
           )}
