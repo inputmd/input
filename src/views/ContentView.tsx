@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useRef } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { isExternalHttpHref } from '../util';
+
+interface MarkdownLinkPreview {
+  title: string;
+  html: string;
+}
 
 interface ContentViewProps {
   html: string;
@@ -11,7 +16,27 @@ interface ContentViewProps {
   alertDownloadHref?: string | null;
   alertDownloadName?: string | null;
   onInternalLinkNavigate?: (route: string) => void;
+  onRequestMarkdownLinkPreview?: (route: string) => Promise<MarkdownLinkPreview | null>;
   onImageClick?: (src: string, alt: string) => void;
+}
+
+interface LinkPreviewState {
+  visible: boolean;
+  loading: boolean;
+  top: number;
+  left: number;
+  title: string;
+  html: string;
+}
+
+function isMarkdownHref(href: string): boolean {
+  return /\.md(?:own|wn)?(?:$|[?#])|\.markdown(?:$|[?#])/i.test(href);
+}
+
+function lastPathSegment(path: string): string {
+  const withoutQuery = path.split(/[?#]/, 1)[0] ?? '';
+  const parts = withoutQuery.split('/').filter(Boolean);
+  return parts.at(-1) ?? path;
 }
 
 export function ContentView({
@@ -23,11 +48,42 @@ export function ContentView({
   alertDownloadHref,
   alertDownloadName,
   onInternalLinkNavigate,
+  onRequestMarkdownLinkPreview,
   onImageClick,
 }: ContentViewProps) {
   const renderedMarkdownRef = useRef<HTMLDivElement | null>(null);
   const selectedClaudeMessageIndexRef = useRef<number>(-1);
+  const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
+  const hoverRequestIdRef = useRef(0);
+  const hoverDelayTimerRef = useRef<number | null>(null);
+  const [preview, setPreview] = useState<LinkPreviewState>({
+    visible: false,
+    loading: false,
+    top: 0,
+    left: 0,
+    title: '',
+    html: '',
+  });
   const isEmpty = html.trim().length === 0 && !imagePreview;
+
+  const clearHoverDelay = useCallback(() => {
+    if (hoverDelayTimerRef.current == null) return;
+    window.clearTimeout(hoverDelayTimerRef.current);
+    hoverDelayTimerRef.current = null;
+  }, []);
+
+  const hidePreview = useCallback(() => {
+    clearHoverDelay();
+    hoverAnchorRef.current = null;
+    hoverRequestIdRef.current += 1;
+    setPreview((prev) => (prev.visible || prev.loading ? { ...prev, visible: false, loading: false } : prev));
+  }, [clearHoverDelay]);
+
+  useEffect(() => {
+    return () => {
+      clearHoverDelay();
+    };
+  }, [clearHoverDelay]);
 
   const updateSelectedClaudeMessage = useCallback(
     (messages: HTMLElement[], nextIndex: number, scrollMode: 'nearest' | 'vertical' = 'nearest') => {
@@ -117,6 +173,18 @@ export function ContentView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [claudeTranscript, html, markdown, updateSelectedClaudeMessage]);
 
+  useEffect(() => {
+    if (!preview.visible) return;
+
+    const dismiss = () => hidePreview();
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('resize', dismiss);
+    return () => {
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('resize', dismiss);
+    };
+  }, [hidePreview, preview.visible]);
+
   const onRenderedMarkdownClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
     if (claudeTranscript) {
@@ -159,6 +227,80 @@ export function ContentView({
     onInternalLinkNavigate(route);
   };
 
+  const resolveInternalRoute = useCallback((anchor: HTMLAnchorElement): string | null => {
+    if (anchor.hasAttribute('download')) return null;
+    const href = (anchor.getAttribute('href') || '').trim();
+    if (!href || href.startsWith('#') || href.startsWith('?')) return null;
+    if (isExternalHttpHref(href)) return null;
+    const resolved = new URL(href, window.location.href);
+    if (resolved.origin !== window.location.origin) return null;
+    return resolved.pathname.replace(/^\//, '');
+  }, []);
+
+  const showPreviewForAnchor = useCallback(
+    (anchor: HTMLAnchorElement) => {
+      if (!onRequestMarkdownLinkPreview) return;
+      const route = resolveInternalRoute(anchor);
+      if (!route || !isMarkdownHref(route)) {
+        hidePreview();
+        return;
+      }
+
+      const rect = anchor.getBoundingClientRect();
+      const requestId = hoverRequestIdRef.current + 1;
+      hoverRequestIdRef.current = requestId;
+      hoverAnchorRef.current = anchor;
+      setPreview({
+        visible: true,
+        loading: true,
+        top: Math.round(rect.bottom + 8),
+        left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
+        title: lastPathSegment(route),
+        html: '',
+      });
+
+      void onRequestMarkdownLinkPreview(route)
+        .then((result) => {
+          if (hoverRequestIdRef.current !== requestId) return;
+          if (!result) {
+            hidePreview();
+            return;
+          }
+          setPreview((prev) => ({
+            ...prev,
+            visible: true,
+            loading: false,
+            title: result.title || prev.title,
+            html: result.html,
+          }));
+        })
+        .catch(() => {
+          if (hoverRequestIdRef.current !== requestId) return;
+          hidePreview();
+        });
+    },
+    [hidePreview, onRequestMarkdownLinkPreview, resolveInternalRoute],
+  );
+
+  const onRenderedMarkdownMouseMove = useCallback(
+    (event: MouseEvent) => {
+      if (!markdown || !onRequestMarkdownLinkPreview) return;
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest('a') as HTMLAnchorElement | null;
+      if (!anchor) {
+        if (hoverAnchorRef.current) hidePreview();
+        return;
+      }
+
+      if (anchor === hoverAnchorRef.current && preview.visible) return;
+      clearHoverDelay();
+      hoverDelayTimerRef.current = window.setTimeout(() => {
+        showPreviewForAnchor(anchor);
+      }, 120);
+    },
+    [clearHoverDelay, hidePreview, markdown, onRequestMarkdownLinkPreview, preview.visible, showPreviewForAnchor],
+  );
+
   return (
     <div
       class={`content-view ${imagePreview ? 'content-view--image' : markdown ? 'content-view--markdown' : 'content-view--plain'} ${claudeTranscript ? 'content-view--claude-chat' : ''}`}
@@ -189,11 +331,30 @@ export function ContentView({
           ref={renderedMarkdownRef}
           class={`rendered-markdown ${claudeTranscript ? 'rendered-markdown--claude-chat' : ''}`}
           onClick={onRenderedMarkdownClick}
+          onMouseMove={onRenderedMarkdownMouseMove}
+          onMouseLeave={hidePreview}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ) : (
         <pre class="rendered-content" dangerouslySetInnerHTML={{ __html: html }} />
       )}
+      {preview.visible ? (
+        <div
+          class="markdown-link-preview-popover"
+          style={{
+            top: `${preview.top}px`,
+            left: `${preview.left}px`,
+          }}
+          aria-live="polite"
+        >
+          <div class="markdown-link-preview-title">{preview.title}</div>
+          {preview.loading ? (
+            <div class="markdown-link-preview-status">Loading preview...</div>
+          ) : (
+            <div class="markdown-link-preview-body" dangerouslySetInnerHTML={{ __html: preview.html }} />
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

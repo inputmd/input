@@ -56,7 +56,7 @@ import {
 } from './github_app';
 import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
-import { type Route, routePath } from './routing';
+import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
 import { decodeBase64ToBytes, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
 import { ContentView } from './views/ContentView';
@@ -82,6 +82,8 @@ const PASTED_IMAGE_QUALITY = 0.82;
 const OAUTH_REDIRECT_GUARD_KEY = 'oauth_redirect_guard';
 const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
 const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
+const MARKDOWN_LINK_PREVIEW_MAX_CHARS = 1800;
+const MARKDOWN_LINK_PREVIEW_MAX_LINES = 18;
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
@@ -219,6 +221,20 @@ function normalizeRepoPath(path: string): string | null {
     parts.push(part);
   }
   return parts.join('/');
+}
+
+function createMarkdownPreviewExcerpt(content: string): { text: string; truncated: boolean } {
+  if (!content) return { text: '', truncated: false };
+  const normalized = content.replace(/\r\n/g, '\n');
+  const allLines = normalized.split('\n');
+  const lines = allLines.slice(0, MARKDOWN_LINK_PREVIEW_MAX_LINES);
+  let text = lines.join('\n');
+  let truncated = lines.length < allLines.length;
+  if (text.length > MARKDOWN_LINK_PREVIEW_MAX_CHARS) {
+    text = text.slice(0, MARKDOWN_LINK_PREVIEW_MAX_CHARS);
+    truncated = true;
+  }
+  return { text: text.trimEnd(), truncated };
 }
 
 function clampSidebarWidth(width: number): number {
@@ -516,6 +532,8 @@ export function App() {
 
   // Track initialization
   const initialized = useRef(false);
+  const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string }>());
+  const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const activeView = viewPhase ?? viewFromRoute(route);
 
   // --- Helpers ---
@@ -725,6 +743,98 @@ export function App() {
       setContentAlertDownloadName(fileName ?? null);
     },
     [],
+  );
+
+  const onRequestMarkdownLinkPreview = useCallback(
+    async (rawRoute: string): Promise<{ title: string; html: string } | null> => {
+      const routePathname = rawRoute.replace(/^\/+/, '');
+      if (!routePathname) return null;
+
+      const cached = markdownLinkPreviewCacheRef.current.get(routePathname);
+      if (cached) return cached;
+      const pending = markdownLinkPreviewPendingRef.current.get(routePathname);
+      if (pending) return pending;
+
+      const load = (async (): Promise<{ title: string; html: string } | null> => {
+        const routeCandidate = matchRoute(routePathname);
+        let title = '';
+        let content = '';
+
+        if (routeCandidate.name === 'repofile' || routeCandidate.name === 'repoedit') {
+          const path = safeDecodeURIComponent(routeCandidate.params.path).replace(/^\/+/, '');
+          if (!isMarkdownFileName(path)) return null;
+          const instId = getInstallationId();
+          const repoName = getSelectedRepo()?.full_name ?? selectedRepo;
+          if (!instId || !repoName) return null;
+          const loaded = await getRepoContents(instId, repoName, path);
+          if (!isRepoFile(loaded) || typeof loaded.content !== 'string' || loaded.encoding !== 'base64') return null;
+          const bytes = decodeBase64ToBytes(loaded.content);
+          if (isLikelyBinaryBytes(bytes)) return null;
+          content = new TextDecoder().decode(bytes);
+          title = loaded.name ?? fileNameFromPath(loaded.path);
+        } else if (routeCandidate.name === 'publicrepofile') {
+          const owner = safeDecodeURIComponent(routeCandidate.params.owner);
+          const repo = safeDecodeURIComponent(routeCandidate.params.repo);
+          const path = safeDecodeURIComponent(routeCandidate.params.path).replace(/^\/+/, '');
+          if (!isMarkdownFileName(path)) return null;
+          const loaded = await getPublicRepoContents(owner, repo, path);
+          if (!isRepoFile(loaded) || typeof loaded.content !== 'string' || loaded.encoding !== 'base64') return null;
+          const bytes = decodeBase64ToBytes(loaded.content);
+          if (isLikelyBinaryBytes(bytes)) return null;
+          content = new TextDecoder().decode(bytes);
+          title = loaded.name ?? fileNameFromPath(loaded.path);
+        } else if (routeCandidate.name === 'gist') {
+          const gistId = routeCandidate.params.id;
+          const filename = routeCandidate.params.filename ? safeDecodeURIComponent(routeCandidate.params.filename) : '';
+          if (!filename || !isMarkdownFileName(filename)) return null;
+
+          let file = currentGistId === gistId ? gistFiles?.[filename] : undefined;
+          if (!file) {
+            if (user) {
+              const gist = await getGist(gistId);
+              file = gist.files[filename];
+            } else {
+              const res = await fetch(`/api/gists/${encodeURIComponent(gistId)}`);
+              if (!res.ok) return null;
+              const data = (await res.json()) as { files?: Record<string, GistFile> } | null;
+              file = data?.files?.[filename];
+            }
+          }
+          if (!file || isSafeImageFileName(file.filename)) return null;
+          content = file.content ?? '';
+          if (!content && file.raw_url) {
+            try {
+              const raw = await fetch(file.raw_url, { redirect: 'error' });
+              if (raw.ok) content = await raw.text();
+            } catch {
+              return null;
+            }
+          }
+          title = file.filename;
+        } else {
+          return null;
+        }
+
+        const excerpt = createMarkdownPreviewExcerpt(content);
+        if (!excerpt.text) return null;
+        const previewSource = excerpt.truncated ? `${excerpt.text}\n\n…` : excerpt.text;
+        const html = parseMarkdownToHtml(previewSource, {
+          breaks: false,
+          resolveImageSrc: () => null,
+        });
+        const preview = { title, html };
+        markdownLinkPreviewCacheRef.current.set(routePathname, preview);
+        return preview;
+      })();
+
+      markdownLinkPreviewPendingRef.current.set(routePathname, load);
+      try {
+        return await load;
+      } finally {
+        markdownLinkPreviewPendingRef.current.delete(routePathname);
+      }
+    },
+    [currentGistId, gistFiles, selectedRepo, user],
   );
 
   useEffect(() => {
@@ -2493,6 +2603,7 @@ export function App() {
             alertDownloadHref={contentAlertDownloadHref}
             alertDownloadName={contentAlertDownloadName}
             onImageClick={onOpenLightbox}
+            onRequestMarkdownLinkPreview={onRequestMarkdownLinkPreview}
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');
               navigate(routePathname);
