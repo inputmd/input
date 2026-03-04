@@ -166,6 +166,11 @@ export function ContentView({
       ) {
         return;
       }
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        setCollapseAssistantMessages((prev) => !prev);
+        return;
+      }
       if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
 
       const messages = getMessages();
@@ -433,7 +438,7 @@ export function ContentView({
                 checked={collapseAssistantMessages}
                 onChange={(event) => setCollapseAssistantMessages((event.currentTarget as HTMLInputElement).checked)}
               />
-              <span>Compact</span>
+              <span>Compact (c)</span>
             </label>
           ) : null}
           {alertDownloadHref ? (

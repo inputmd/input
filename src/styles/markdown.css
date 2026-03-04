@@ -21,6 +21,11 @@
 
 .content-alert--claude {
   position: relative;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  margin: 15px 0;
 }
 
 .content-alert-claude-banner-wrap {
@@ -50,7 +55,7 @@
   display: block;
   font-size: 14px;
   line-height: inherit;
-  padding-bottom: 4px;
+  padding-bottom: 9px;
 }
 
 .content-alert-link {
@@ -79,9 +84,10 @@
 }
 
 .claude-chat-compact-toggle {
-  position: absolute;
-  top: 8px;
-  right: 10px;
+  position: fixed;
+  top: calc(var(--toolbar-height) + 10px);
+  right: 13px;
+  z-index: 20;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -93,8 +99,8 @@
 
 .claude-chat-compact-toggle-checkbox {
   margin: 0;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   accent-color: color-mix(in srgb, var(--text-secondary) 65%, var(--border) 35%);
 }
 
