@@ -209,7 +209,7 @@
   position: fixed;
   z-index: 60;
   width: min(360px, calc(100vw - 24px));
-  max-height: min(420px, calc(100vh - 24px));
+  max-height: min(240px, calc(100vh - 24px));
   overflow: auto;
   pointer-events: none;
   padding: 10px 12px;
@@ -245,6 +245,118 @@
 
 .markdown-link-preview-body > :last-child {
   margin-bottom: 0;
+}
+
+.markdown-link-preview-body p,
+.markdown-link-preview-body ul,
+.markdown-link-preview-body ol,
+.markdown-link-preview-body blockquote,
+.markdown-link-preview-body pre,
+.markdown-link-preview-body table,
+.markdown-link-preview-body hr {
+  margin: 0.6em 0;
+}
+
+.markdown-link-preview-body h1,
+.markdown-link-preview-body h2,
+.markdown-link-preview-body h3,
+.markdown-link-preview-body h4,
+.markdown-link-preview-body h5,
+.markdown-link-preview-body h6 {
+  margin: 0.95em 0 0.45em;
+  line-height: 1.28;
+  font-weight: 700;
+}
+
+.markdown-link-preview-body h1 {
+  font-size: 1.25em;
+}
+
+.markdown-link-preview-body h2 {
+  font-size: 1.14em;
+}
+
+.markdown-link-preview-body h3 {
+  font-size: 1.05em;
+}
+
+.markdown-link-preview-body h4,
+.markdown-link-preview-body h5,
+.markdown-link-preview-body h6 {
+  font-size: 1em;
+}
+
+.markdown-link-preview-body ul,
+.markdown-link-preview-body ol {
+  padding-left: 1.25em;
+}
+
+.markdown-link-preview-body li + li {
+  margin-top: 0.18em;
+}
+
+.markdown-link-preview-body li > ul,
+.markdown-link-preview-body li > ol {
+  margin-top: 0.18em;
+  margin-bottom: 0.18em;
+}
+
+.markdown-link-preview-body blockquote {
+  margin-left: 0;
+  margin-right: 0;
+  padding: 0.08em 0.75em;
+  border-left: 3px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.markdown-link-preview-body code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.06em 0.28em;
+  border-radius: 4px;
+  background: var(--btn-bg);
+}
+
+.markdown-link-preview-body pre {
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  overflow: auto;
+}
+
+.markdown-link-preview-body pre code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.markdown-link-preview-body table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow: auto;
+}
+
+.markdown-link-preview-body th,
+.markdown-link-preview-body td {
+  border: 1px solid var(--border);
+  padding: 0.28em 0.45em;
+  text-align: left;
+}
+
+.markdown-link-preview-body th {
+  background: var(--btn-bg);
+}
+
+.markdown-link-preview-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.markdown-link-preview-body img {
+  max-width: 100%;
+  height: auto;
 }
 
 .rendered-markdown sup.footnote-ref {

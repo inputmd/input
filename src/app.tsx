@@ -237,6 +237,15 @@ function createMarkdownPreviewExcerpt(content: string): { text: string; truncate
   return { text: text.trimEnd(), truncated };
 }
 
+function removeImagesFromHtml(html: string): string {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  template.content.querySelectorAll('img').forEach((img) => {
+    img.remove();
+  });
+  return template.innerHTML;
+}
+
 function clampSidebarWidth(width: number): number {
   return Math.max(MIN_SIDEBAR_WIDTH_PX, Math.min(MAX_SIDEBAR_WIDTH_PX, width));
 }
@@ -822,7 +831,7 @@ export function App() {
           breaks: false,
           resolveImageSrc: () => null,
         });
-        const preview = { title, html };
+        const preview = { title, html: removeImagesFromHtml(html) };
         markdownLinkPreviewCacheRef.current.set(routePathname, preview);
         return preview;
       })();
