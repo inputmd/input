@@ -2490,6 +2490,12 @@ export function App() {
     }
     return [];
   }, [gistFiles, currentFileName, repoSidebarFiles, currentRepoDocPath, sidebarFileFilter]);
+  const sidebarWorkspaceKey = useMemo(() => {
+    if (currentGistId) return `gist:${currentGistId}`;
+    if (repoAccessMode === 'installed' && selectedRepo) return `repo:${selectedRepo}`;
+    if (repoAccessMode === 'public' && publicRepoRef) return `public:${publicRepoRef.owner}/${publicRepoRef.repo}`;
+    return 'none';
+  }, [currentGistId, publicRepoRef, repoAccessMode, selectedRepo]);
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
   const sidebarDisabled = activeView === 'edit' && draftMode;
@@ -2659,6 +2665,7 @@ export function App() {
           <>
             <div class="sidebar-backdrop" onClick={onToggleSidebar} />
             <Sidebar
+              key={sidebarWorkspaceKey}
               files={sidebarFiles}
               fileFilter={sidebarFileFilter}
               onFileFilterChange={setSidebarFileFilter}

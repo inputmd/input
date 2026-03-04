@@ -215,6 +215,10 @@ function folderAncestors(path: string): string[] {
   return ancestors;
 }
 
+function isHiddenFolderPath(path: string): boolean {
+  return path.split('/').some((segment) => segment.startsWith('.'));
+}
+
 function resolveRenamePath(oldPath: string, input: string): string {
   const next = sanitizePathInput(input);
   if (!next) return '';
@@ -260,6 +264,7 @@ export function Sidebar({
   const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
   const [renameValue, setRenameValue] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>({});
+  const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set());
   const filesRef = useRef<HTMLDivElement>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -292,6 +297,19 @@ export function Sidebar({
       for (const [path, collapsed] of Object.entries(prev)) {
         if (collapsed && folderPaths.has(path)) next[path] = true;
         else changed = true;
+      }
+      const collapseAllByDefault = folderPaths.size > 10;
+      for (const path of Array.from(autoCollapsedDefaultsRef.current)) {
+        if (!folderPaths.has(path)) autoCollapsedDefaultsRef.current.delete(path);
+      }
+      for (const path of folderPaths) {
+        if (!collapseAllByDefault && !isHiddenFolderPath(path)) continue;
+        if (autoCollapsedDefaultsRef.current.has(path)) continue;
+        autoCollapsedDefaultsRef.current.add(path);
+        if (!next[path]) {
+          next[path] = true;
+          changed = true;
+        }
       }
       return changed ? next : prev;
     });
