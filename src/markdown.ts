@@ -132,6 +132,37 @@ function createQuestionLinkIndicator(className: string): HTMLSpanElement {
   return span;
 }
 
+function createExternalLinkIndicator(className: string): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = className;
+  span.setAttribute('aria-hidden', 'true');
+
+  const svgNs = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNs, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+
+  const path1 = document.createElementNS(svgNs, 'path');
+  path1.setAttribute('d', 'M21 3h-6');
+
+  const path2 = document.createElementNS(svgNs, 'path');
+  path2.setAttribute('d', 'M21 3v6');
+
+  const path3 = document.createElementNS(svgNs, 'path');
+  path3.setAttribute('d', 'm21 3-7 7');
+
+  const path4 = document.createElementNS(svgNs, 'path');
+  path4.setAttribute('d', 'M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4');
+
+  svg.append(path1, path2, path3, path4);
+  span.append(svg);
+  return span;
+}
+
 interface ParseMarkdownOptions {
   breaks?: boolean;
   resolveImageSrc?: (src: string) => string | null;
@@ -555,6 +586,7 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
     if (isExternalHttpHref(href)) {
       anchor.setAttribute('target', '_blank');
       anchor.setAttribute('rel', 'noopener noreferrer');
+      anchor.insertAdjacentElement('afterend', createExternalLinkIndicator('external-link-indicator'));
       return;
     }
 

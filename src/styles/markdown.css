@@ -291,7 +291,8 @@
 }
 
 .rendered-markdown .hash-link-indicator,
-.rendered-markdown .missing-wikilink-indicator {
+.rendered-markdown .missing-wikilink-indicator,
+.rendered-markdown .external-link-indicator {
   display: inline-block;
   margin-left: 2px;
   color: var(--text-secondary);
@@ -301,7 +302,8 @@
 }
 
 .rendered-markdown .hash-link-indicator svg,
-.rendered-markdown .missing-wikilink-indicator svg {
+.rendered-markdown .missing-wikilink-indicator svg,
+.rendered-markdown .external-link-indicator svg {
   width: 0.78em;
   height: 0.78em;
 }
