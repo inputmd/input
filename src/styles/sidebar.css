@@ -326,7 +326,7 @@
 
 .sidebar-rename-input {
   width: 100%;
-  padding: 1.5px 0;
+  padding: 2px 0;
   font-size: var(--sidebar-font-size);
   font-family: var(--font-mono);
   border: 0;
