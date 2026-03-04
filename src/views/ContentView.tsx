@@ -57,6 +57,9 @@ export function ContentView({
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
   const hoverDelayTimerRef = useRef<number | null>(null);
+  const pointerDownRef = useRef(false);
+  const pointerDraggedRef = useRef(false);
+  const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
   const [preview, setPreview] = useState<LinkPreviewState>({
     visible: false,
     loading: false,
@@ -66,7 +69,12 @@ export function ContentView({
     html: '',
     url: null,
   });
+  const [collapseAssistantMessages, setCollapseAssistantMessages] = useState(true);
   const isEmpty = html.trim().length === 0 && !imagePreview;
+
+  useEffect(() => {
+    if (!claudeTranscript) setCollapseAssistantMessages(true);
+  }, [claudeTranscript]);
 
   const clearHoverDelay = useCallback(() => {
     if (hoverDelayTimerRef.current == null) return;
@@ -131,6 +139,15 @@ export function ContentView({
     const root = renderedMarkdownRef.current;
     if (!root) return;
 
+    const assistantMessages = Array.from(root.querySelectorAll<HTMLElement>('.claude-chat-message--assistant'));
+    assistantMessages.forEach((message) => {
+      if (collapseAssistantMessages) {
+        message.classList.add('claude-chat-message--collapsed');
+      } else {
+        message.classList.remove('claude-chat-message--collapsed');
+      }
+    });
+
     const getMessages = () => Array.from(root.querySelectorAll<HTMLElement>('.claude-chat-message'));
     selectedClaudeMessageIndexRef.current = -1;
     getMessages().forEach((message) => {
@@ -177,7 +194,7 @@ export function ContentView({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [claudeTranscript, html, markdown, updateSelectedClaudeMessage]);
+  }, [claudeTranscript, collapseAssistantMessages, html, markdown, updateSelectedClaudeMessage]);
 
   useEffect(() => {
     if (!preview.visible) return;
@@ -193,10 +210,32 @@ export function ContentView({
 
   const onRenderedMarkdownClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
+    const dragged = pointerDraggedRef.current;
+    pointerDraggedRef.current = false;
+    pointerDownRef.current = false;
+    pointerDownPositionRef.current = null;
     if (claudeTranscript) {
       const root = renderedMarkdownRef.current;
       const clickedMessage = target?.closest('.claude-chat-message');
       if (root && clickedMessage instanceof HTMLElement) {
+        const clickedInteractiveElement = target?.closest('a, button, input, textarea, select, label, img');
+        const selection = window.getSelection();
+        let hasSelectionInsideMessage = false;
+        if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+          const commonAncestor = selection.getRangeAt(0).commonAncestorContainer;
+          const commonElement =
+            commonAncestor.nodeType === Node.ELEMENT_NODE ? (commonAncestor as Element) : commonAncestor.parentElement;
+          hasSelectionInsideMessage = !!commonElement && clickedMessage.contains(commonElement);
+        }
+        if (
+          collapseAssistantMessages &&
+          clickedMessage.classList.contains('claude-chat-message--assistant') &&
+          !dragged &&
+          !hasSelectionInsideMessage &&
+          !clickedInteractiveElement
+        ) {
+          clickedMessage.classList.toggle('claude-chat-message--collapsed');
+        }
         const messages = Array.from(root.querySelectorAll<HTMLElement>('.claude-chat-message'));
         const clickedIndex = messages.indexOf(clickedMessage);
         if (clickedIndex >= 0) updateSelectedClaudeMessage(messages, clickedIndex);
@@ -318,6 +357,11 @@ export function ContentView({
 
   const onRenderedMarkdownMouseMove = useCallback(
     (event: MouseEvent) => {
+      if (pointerDownRef.current && pointerDownPositionRef.current) {
+        const dx = Math.abs(event.clientX - pointerDownPositionRef.current.x);
+        const dy = Math.abs(event.clientY - pointerDownPositionRef.current.y);
+        if (dx > 4 || dy > 4) pointerDraggedRef.current = true;
+      }
       if (!markdown) return;
       const target = event.target as HTMLElement | null;
       const anchor = target?.closest('a') as HTMLAnchorElement | null;
@@ -349,6 +393,18 @@ export function ContentView({
     ],
   );
 
+  const onRenderedMarkdownMouseDown = useCallback((event: MouseEvent) => {
+    if (event.button !== 0) return;
+    pointerDownRef.current = true;
+    pointerDraggedRef.current = false;
+    pointerDownPositionRef.current = { x: event.clientX, y: event.clientY };
+  }, []);
+
+  const onRenderedMarkdownMouseUp = useCallback(() => {
+    pointerDownRef.current = false;
+    pointerDownPositionRef.current = null;
+  }, []);
+
   return (
     <div
       class={`content-view ${imagePreview ? 'content-view--image' : markdown ? 'content-view--markdown' : 'content-view--plain'} ${claudeTranscript ? 'content-view--claude-chat' : ''}`}
@@ -362,6 +418,19 @@ export function ContentView({
             </a>
           ) : null}
         </ContentAlert>
+      ) : null}
+      {claudeTranscript && markdown ? (
+        <div class="claude-chat-filter-row">
+          <label class="claude-chat-filter-label">
+            <input
+              type="checkbox"
+              class="claude-chat-filter-checkbox"
+              checked={collapseAssistantMessages}
+              onChange={(event) => setCollapseAssistantMessages((event.currentTarget as HTMLInputElement).checked)}
+            />
+            <span>Compact</span>
+          </label>
+        </div>
       ) : null}
       {isEmpty ? (
         <p class="content-empty-placeholder">This file is empty.</p>
@@ -379,6 +448,8 @@ export function ContentView({
           ref={renderedMarkdownRef}
           class={`rendered-markdown ${claudeTranscript ? 'rendered-markdown--claude-chat' : ''}`}
           onClick={onRenderedMarkdownClick}
+          onMouseDown={onRenderedMarkdownMouseDown}
+          onMouseUp={onRenderedMarkdownMouseUp}
           onMouseMove={onRenderedMarkdownMouseMove}
           onMouseLeave={hidePreview}
           dangerouslySetInnerHTML={{ __html: html }}
