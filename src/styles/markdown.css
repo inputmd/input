@@ -95,6 +95,7 @@
   margin: 0;
   width: 14px;
   height: 14px;
+  accent-color: color-mix(in srgb, var(--text-secondary) 65%, var(--border) 35%);
 }
 
 .content-image-preview {
