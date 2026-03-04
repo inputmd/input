@@ -300,6 +300,14 @@
   color: #5a78a5;
 }
 
+.rendered-markdown .claude-chat-message--user .claude-chat-message-body {
+  font-family: var(--font-mono);
+  font-size: 14.5px;
+  line-height: 1.525;
+  padding-bottom: 4px;
+  margin-top: -1px;
+}
+
 .rendered-markdown .claude-chat-message-body > :first-child {
   margin-top: 0;
 }
