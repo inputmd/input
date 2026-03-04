@@ -47,6 +47,10 @@ const ROUTE_TABLE: RouteDef[] = [
   { pattern: new RegExp(`^gist\\/(${GIST_ID_PATTERN})$`, 'i'), build: (m) => ({ name: 'gist', params: { id: m[1] } }) },
   { pattern: new RegExp(`^(${GIST_ID_PATTERN})$`, 'i'), build: (m) => ({ name: 'gist', params: { id: m[1] } }) },
   {
+    pattern: /^([^/]+)\/([^/]+)$/,
+    build: (m) => ({ name: 'publicrepodocuments', params: { owner: m[1], repo: m[2] } }),
+  },
+  {
     pattern: /^([^/]+)\/([^/]+)\/(.+)$/,
     build: (m) => ({ name: 'publicrepofile', params: { owner: m[1], repo: m[2], path: m[3] } }),
   },
