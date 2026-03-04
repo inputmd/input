@@ -219,6 +219,7 @@ export function ContentView({
 
     const anchor = target?.closest('a');
     if (!anchor) return;
+    hidePreview();
     if (anchor.hasAttribute('download')) return;
 
     const href = (anchor.getAttribute('href') || '').trim();
