@@ -57,6 +57,27 @@
   gap: 8px;
 }
 
+.dialog-actions button:focus-visible {
+  outline: none;
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
+.dialog-action-danger {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--error-color);
+}
+
+.dialog-action-danger:hover {
+  filter: brightness(0.95);
+}
+
+.dialog-action-danger:focus-visible {
+  border-color: var(--danger-border);
+  box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
 .toast-viewport {
   position: fixed;
   bottom: 16px;

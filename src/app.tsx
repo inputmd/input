@@ -2187,7 +2187,13 @@ export function App() {
 
   const handleDeleteFile = useCallback(
     async (filePath: string) => {
-      if (!(await showConfirm(`Delete "${filePath}"?`))) return;
+      if (
+        !(await showConfirm(`Delete "${filePath}"?`, {
+          intent: 'danger',
+          confirmLabel: 'Delete',
+        }))
+      )
+        return;
       try {
         const store = getActiveDocumentStore();
         if (!store) return;
@@ -2252,7 +2258,13 @@ export function App() {
       const repoTargets = repoSidebarFiles.filter((file) => isPathInFolder(file.path, folderPath));
       const deleteCount = currentGistId ? gistTargets.length : repoTargets.length;
       if (deleteCount === 0) return;
-      if (!(await showConfirm(`Delete folder "${folderPath}" and ${deleteCount} file(s)?`))) return;
+      if (
+        !(await showConfirm(`Delete folder "${folderPath}" and ${deleteCount} file(s)?`, {
+          intent: 'danger',
+          confirmLabel: 'Delete',
+        }))
+      )
+        return;
       try {
         const store = getActiveDocumentStore();
         if (!store) return;

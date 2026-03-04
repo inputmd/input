@@ -6,8 +6,19 @@ import { useCallback, useContext, useRef, useState } from 'preact/hooks';
 
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;
-  showConfirm: (message: string) => Promise<boolean>;
+  showConfirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
   showPrompt: (message: string, defaultValue?: string) => Promise<string | null>;
+}
+
+type ConfirmDialogIntent = 'default' | 'danger';
+type ConfirmDialogFocus = 'cancel' | 'action';
+
+interface ConfirmDialogOptions {
+  intent?: ConfirmDialogIntent;
+  title?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  defaultFocus?: ConfirmDialogFocus;
 }
 
 const DialogContext = createContext<DialogContextValue | null>(null);
@@ -20,13 +31,20 @@ export function useDialogs(): DialogContextValue {
 
 type DialogState =
   | { type: 'alert'; message: string; resolve: () => void }
-  | { type: 'confirm'; message: string; resolve: (value: boolean) => void }
+  | {
+      type: 'confirm';
+      message: string;
+      resolve: (value: boolean) => void;
+      options: Required<ConfirmDialogOptions>;
+    }
   | { type: 'prompt'; message: string; defaultValue: string; resolve: (value: string | null) => void };
 
 export function DialogProvider({ children }: { children: ComponentChildren }) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [promptValue, setPromptValue] = useState('');
   const promptInputRef = useRef<HTMLInputElement>(null);
+  const confirmCancelRef = useRef<HTMLButtonElement>(null);
+  const confirmActionRef = useRef<HTMLButtonElement>(null);
 
   const close = useCallback(() => setDialog(null), []);
 
@@ -36,9 +54,21 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
     });
   }, []);
 
-  const showConfirm = useCallback((message: string): Promise<boolean> => {
+  const showConfirm = useCallback((message: string, options?: ConfirmDialogOptions): Promise<boolean> => {
     return new Promise((resolve) => {
-      setDialog({ type: 'confirm', message, resolve });
+      const intent = options?.intent ?? 'default';
+      setDialog({
+        type: 'confirm',
+        message,
+        resolve,
+        options: {
+          intent,
+          title: options?.title ?? 'Confirm',
+          confirmLabel: options?.confirmLabel ?? (intent === 'danger' ? 'Delete' : 'OK'),
+          cancelLabel: options?.cancelLabel ?? 'Cancel',
+          defaultFocus: options?.defaultFocus ?? (intent === 'danger' ? 'action' : 'cancel'),
+        },
+      });
     });
   }, []);
 
@@ -102,32 +132,45 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
         >
           <AlertDialogPrimitive.Portal>
             <AlertDialogPrimitive.Overlay class="dialog-overlay" />
-            <AlertDialogPrimitive.Content class="dialog-content">
-              <AlertDialogPrimitive.Title class="dialog-title">Confirm</AlertDialogPrimitive.Title>
+            <AlertDialogPrimitive.Content
+              class="dialog-content"
+              onOpenAutoFocus={(e: Event) => {
+                if (dialog.options.defaultFocus === 'action') {
+                  e.preventDefault();
+                  setTimeout(() => confirmActionRef.current?.focus(), 0);
+                  return;
+                }
+                setTimeout(() => confirmCancelRef.current?.focus(), 0);
+              }}
+            >
+              <AlertDialogPrimitive.Title class="dialog-title">{dialog.options.title}</AlertDialogPrimitive.Title>
               <AlertDialogPrimitive.Description class="dialog-message">
                 {dialog.message}
               </AlertDialogPrimitive.Description>
               <div class="dialog-actions">
                 <AlertDialogPrimitive.Cancel asChild>
                   <button
+                    ref={confirmCancelRef}
                     type="button"
                     onClick={() => {
                       dialog.resolve(false);
                       close();
                     }}
                   >
-                    Cancel
+                    {dialog.options.cancelLabel}
                   </button>
                 </AlertDialogPrimitive.Cancel>
                 <AlertDialogPrimitive.Action asChild>
                   <button
+                    ref={confirmActionRef}
+                    class={dialog.options.intent === 'danger' ? 'dialog-action-danger' : undefined}
                     type="button"
                     onClick={() => {
                       dialog.resolve(true);
                       close();
                     }}
                   >
-                    OK
+                    {dialog.options.confirmLabel}
                   </button>
                 </AlertDialogPrimitive.Action>
               </div>

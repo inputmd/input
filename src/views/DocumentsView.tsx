@@ -89,7 +89,13 @@ export function DocumentsView({
 
   const onDelete = async (gist: GistSummary) => {
     const title = gist.description || 'Untitled';
-    if (!(await showConfirm(`Delete "${title}"?`))) return;
+    if (
+      !(await showConfirm(`Delete "${title}"?`, {
+        intent: 'danger',
+        confirmLabel: 'Delete',
+      }))
+    )
+      return;
     try {
       await deleteGist(gist.id);
       markGistRecentlyDeleted(userLogin, gist.id);
