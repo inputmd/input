@@ -270,6 +270,16 @@ function findMarkdownDirectoryIndexPath(contents: RepoContents, requestedPath: s
   return null;
 }
 
+function pickPreferredRepoMarkdownFile(files: RepoDocFile[]): RepoDocFile | undefined {
+  if (files.length === 0) return undefined;
+  const preferredByName = ['index.md', 'readme.md'];
+  for (const preferredName of preferredByName) {
+    const preferred = files.find((file) => fileNameFromPath(file.path).toLowerCase() === preferredName);
+    if (preferred) return preferred;
+  }
+  return files[0];
+}
+
 interface PublicRepoRef {
   owner: string;
   repo: string;
@@ -1157,9 +1167,12 @@ export function App() {
             setPublicRepoRef({ owner, repo });
             setRepoFiles(mdFiles);
             if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
-            const indexFile = mdFiles.find((f) => f.path.toLowerCase() === 'index.md');
-            const target = indexFile ?? mdFiles[0];
-            if (isSubdomainMode() && indexFile && target.path === indexFile.path) {
+            const target = pickPreferredRepoMarkdownFile(mdFiles);
+            if (!target) {
+              showError('No markdown files found in this repository');
+              return;
+            }
+            if (isSubdomainMode() && fileNameFromPath(target.path).toLowerCase() === 'index.md') {
               await loadPublicRepoFile(owner, repo, target.path);
               return;
             }
@@ -1197,8 +1210,11 @@ export function App() {
               setPublicRepoRef(null);
               setRepoFiles(mdFiles);
               if (sidebarFileFilter === 'markdown') setRepoSidebarFiles(mdFiles);
-              const indexFile = mdFiles.find((f) => f.path.toLowerCase() === 'index.md');
-              const target = indexFile ?? mdFiles[0];
+              const target = pickPreferredRepoMarkdownFile(mdFiles);
+              if (!target) {
+                navigate(routePath.repoNew(), { replace: true });
+                return;
+              }
               navigate(routePath.repoFile(target.path), { replace: true });
               return;
             }
