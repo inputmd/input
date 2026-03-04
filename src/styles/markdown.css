@@ -240,9 +240,6 @@
 }
 
 .markdown-link-preview-url {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   max-width: 100%;
   white-space: pre-wrap;
   word-break: break-word;
@@ -250,17 +247,6 @@
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary);
-}
-
-.markdown-link-preview-url-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  color: var(--text-secondary);
-}
-
-.markdown-link-preview-url-icon svg {
-  width: 0.95em;
-  height: 0.95em;
 }
 
 .markdown-link-preview-body {
