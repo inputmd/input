@@ -51,19 +51,19 @@ export function isRateLimitError(err: unknown): boolean {
 }
 
 export function rateLimitToastMessage(err: unknown): string {
-  const base = 'GitHub API rate limit reached. Please wait a bit and try again.';
+  const base = 'GitHub API rate limit reached. Wait 60 seconds and try again.';
   if (!(err instanceof Error)) return base;
   if (err instanceof ApiError) {
     const resetAt = err.github?.rateLimit?.resetAt;
     if (typeof resetAt === 'string' && resetAt) {
       const parsedReset = new Date(resetAt);
       if (!Number.isNaN(parsedReset.valueOf())) {
-        return `GitHub API rate limit reached. Try again after ${parsedReset.toLocaleTimeString()}.`;
+        return `GitHub API rate limit reached. Wait 60 seconds and try again. (Reset at ${parsedReset.toLocaleTimeString()}.)`;
       }
     }
   }
   if (/secondary rate limit/i.test(err.message)) {
-    return 'GitHub secondary rate limit reached. Please slow down and try again shortly.';
+    return 'GitHub secondary rate limit reached. Wait 60 seconds and try again.';
   }
   return base;
 }

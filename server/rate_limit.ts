@@ -2,7 +2,7 @@ import type http from 'node:http';
 import { json } from './http_helpers';
 import type { RateLimitEntry } from './types';
 
-const RATE_LIMIT_MAX = 30;
+const RATE_LIMIT_MAX = 50;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
 
