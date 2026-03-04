@@ -54,6 +54,24 @@ type GitHubApiError = {
   message?: string;
 };
 
+interface GitHubRateLimitInfo {
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  reset: number | null;
+  resetAt: string | null;
+  resource: string | null;
+  retryAfterSeconds: number | null;
+}
+
+interface GitHubErrorInfo {
+  status: number;
+  requestId: string | null;
+  isRateLimited: boolean;
+  isBadCredentials: boolean;
+  rateLimit: GitHubRateLimitInfo;
+}
+
 interface ShareRepoFileCreateBody {
   installationId?: unknown;
   repoFullName?: unknown;
@@ -131,10 +149,57 @@ async function proxyGitHubJson(
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
     if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
-    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', path);
     return;
   }
   json(ctx.res, 200, data);
+}
+
+function readHeaderInt(headers: Headers, name: string): number | null {
+  const raw = headers.get(name);
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function githubErrorInfo(ghRes: Response, message: string): GitHubErrorInfo {
+  const limit = readHeaderInt(ghRes.headers, 'x-ratelimit-limit');
+  const remaining = readHeaderInt(ghRes.headers, 'x-ratelimit-remaining');
+  const used = readHeaderInt(ghRes.headers, 'x-ratelimit-used');
+  const reset = readHeaderInt(ghRes.headers, 'x-ratelimit-reset');
+  const resource = ghRes.headers.get('x-ratelimit-resource');
+  const retryAfterSeconds = readHeaderInt(ghRes.headers, 'retry-after');
+  const requestId = ghRes.headers.get('x-github-request-id');
+  const isRateLimited =
+    ghRes.status === 429 ||
+    /rate limit|secondary rate limit|abuse/i.test(message) ||
+    ((remaining ?? 1) <= 0 && ghRes.status >= 400);
+
+  return {
+    status: ghRes.status,
+    requestId,
+    isRateLimited,
+    isBadCredentials: ghRes.status === 401 && /bad credentials/i.test(message),
+    rateLimit: {
+      limit,
+      remaining,
+      used,
+      reset,
+      resetAt: reset ? new Date(reset * 1000).toISOString() : null,
+      resource,
+      retryAfterSeconds,
+    },
+  };
+}
+
+function respondGitHubError(res: http.ServerResponse, ghRes: Response, fallbackMessage: string, source: string): void {
+  const message = fallbackMessage || 'GitHub API error';
+  const info = githubErrorInfo(ghRes, message);
+  const rate = info.rateLimit;
+  console.warn(
+    `[github] ${source} -> ${info.status} "${message}" request_id=${info.requestId ?? '-'} rate_limited=${info.isRateLimited} remaining=${rate.remaining ?? '-'} reset=${rate.resetAt ?? '-'} retry_after=${rate.retryAfterSeconds ?? '-'}`,
+  );
+  json(res, ghRes.status, { error: message, github: info });
 }
 
 async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<Response> {
@@ -386,7 +451,12 @@ async function handleDeleteGist(ctx: RouteContext): Promise<void> {
   if (!ghRes.ok) {
     const data = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
     if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
-    json(ctx.res, ghRes.status, { error: data?.message ?? 'GitHub API error' });
+    respondGitHubError(
+      ctx.res,
+      ghRes,
+      data?.message ?? 'GitHub API error',
+      `/gists/${encodeURIComponent(ctx.match[1])} [DELETE]`,
+    );
     return;
   }
   json(ctx.res, 200, { ok: true });
@@ -433,7 +503,7 @@ async function handleGetContents(ctx: RouteContext): Promise<void> {
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
     if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
-    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghUrl);
     return;
   }
   json(ctx.res, 200, data);
@@ -615,7 +685,7 @@ async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
   const data = (await ghRes.json().catch(() => null)) as GitHubApiError | unknown;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
-    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghUrl);
     return;
   }
   json(ctx.res, 200, data);
@@ -643,7 +713,7 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
         message = text;
       }
     }
-    json(ctx.res, ghRes.status, { error: message });
+    respondGitHubError(ctx.res, ghRes, message, ghPath);
     return;
   }
 
@@ -706,7 +776,7 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
   } | null;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
-    json(ctx.res, ghRes.status, { error: err?.message ?? 'GitHub API error' });
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
     return;
   }
   json(ctx.res, 200, { files: filesFromTree(data?.tree ?? [], markdownOnly), truncated: data?.truncated ?? false });

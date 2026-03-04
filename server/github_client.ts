@@ -7,6 +7,7 @@ import type { TokenCacheRecord } from './types';
 
 const installationTokenCache = new Map<string, TokenCacheRecord>();
 const MAX_TOKEN_CACHE_SIZE = 1000;
+const RATE_LIMIT_RE = /rate limit|secondary rate limit|abuse/i;
 
 export function startInstallationTokenCacheCleanup(): void {
   setInterval(
@@ -45,6 +46,43 @@ function normalizeInlinePem(rawValue: string): string {
       ? trimmed.slice(1, -1)
       : trimmed;
   return withoutWrappingQuotes.replace(/\\n/g, '\n');
+}
+
+function readHeaderInt(headers: Headers, name: string): number | null {
+  const raw = headers.get(name);
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function parseGitHubErrorDetails(res: Response): Promise<{
+  message: string;
+  requestId: string | null;
+  remaining: number | null;
+  resetAt: string | null;
+  isRateLimited: boolean;
+}> {
+  const text = await res.text().catch(() => '');
+  let message = `GitHub API error: ${res.status}`;
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as { message?: unknown };
+      if (typeof parsed.message === 'string' && parsed.message.trim()) {
+        message = parsed.message.trim();
+      }
+    } catch {
+      message = text.trim() || message;
+    }
+  }
+
+  const requestId = res.headers.get('x-github-request-id');
+  const remaining = readHeaderInt(res.headers, 'x-ratelimit-remaining');
+  const reset = readHeaderInt(res.headers, 'x-ratelimit-reset');
+  const resetAt = reset ? new Date(reset * 1000).toISOString() : null;
+  const isRateLimited =
+    res.status === 429 || RATE_LIMIT_RE.test(message) || ((remaining ?? 1) <= 0 && res.status >= 400);
+
+  return { message, requestId, remaining, resetAt, isRateLimited };
 }
 
 export async function createAppJwt(): Promise<string> {
@@ -93,9 +131,11 @@ async function getInstallationToken(installationId: string, repositoryIds?: numb
   );
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    console.error(`Failed to mint installation token: ${res.status} ${res.statusText}`, body);
-    throw new ClientError(`GitHub API error: ${res.status}`, 502);
+    const details = await parseGitHubErrorDetails(res);
+    console.error(
+      `Failed to mint installation token: ${res.status} ${details.message} request_id=${details.requestId ?? '-'} rate_limited=${details.isRateLimited} remaining=${details.remaining ?? '-'} reset=${details.resetAt ?? '-'}`,
+    );
+    throw new ClientError(details.message, 502);
   }
 
   const data = (await res.json()) as { token: string; expires_at: string };
@@ -132,10 +172,12 @@ export async function githubFetchWithInstallationToken(
   });
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    console.error(`GitHub API error on ${ghPath}: ${res.status} ${res.statusText}`, body);
+    const details = await parseGitHubErrorDetails(res);
+    console.error(
+      `GitHub API error on ${ghPath}: ${res.status} ${details.message} request_id=${details.requestId ?? '-'} rate_limited=${details.isRateLimited} remaining=${details.remaining ?? '-'} reset=${details.resetAt ?? '-'}`,
+    );
     const statusCode = res.status >= 400 && res.status < 500 ? res.status : 502;
-    throw new ClientError(`GitHub API error: ${res.status}`, statusCode);
+    throw new ClientError(details.message, statusCode);
   }
 
   return res;
