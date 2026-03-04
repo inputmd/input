@@ -267,6 +267,14 @@
   text-decoration: underline;
 }
 
+.rendered-markdown a.missing-wikilink {
+  color: var(--missing-link-color);
+}
+
+.rendered-markdown a.missing-wikilink:hover {
+  color: var(--missing-link-color);
+}
+
 .markdown-link-preview-popover {
   position: fixed;
   z-index: 60;
@@ -480,7 +488,6 @@
 }
 
 .rendered-markdown .hash-link-indicator,
-.rendered-markdown .missing-wikilink-indicator,
 .rendered-markdown .external-link-indicator {
   display: inline-block;
   margin-left: 2px;
@@ -491,7 +498,6 @@
 }
 
 .rendered-markdown .hash-link-indicator svg,
-.rendered-markdown .missing-wikilink-indicator svg,
 .rendered-markdown .external-link-indicator svg {
   width: 0.78em;
   height: 0.78em;

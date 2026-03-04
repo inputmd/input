@@ -12,6 +12,7 @@
   --btn-hover: #30363d;
   --focus-border: #58a6ff;
   --focus-shadow: rgba(88, 166, 255, 0.4);
+  --missing-link-color: #c48888;
   --error-color: #f85149;
   --success-color: #3fb950;
   --success-bg: rgba(63, 185, 80, 0.18);
@@ -59,6 +60,7 @@
   --btn-hover: #eaeef2;
   --focus-border: #0969da;
   --focus-shadow: rgba(9, 105, 218, 0.3);
+  --missing-link-color: #ab4d4d;
   --error-color: #cf222e;
   --success-color: #1a7f37;
   --success-bg: #dafbe1;

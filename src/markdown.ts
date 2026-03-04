@@ -578,7 +578,9 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
           }
         }
         if (wikiMeta && !wikiMeta.exists) {
-          anchor.insertAdjacentElement('afterend', createQuestionLinkIndicator('missing-wikilink-indicator'));
+          anchor.classList.add('missing-wikilink');
+        } else {
+          anchor.classList.remove('missing-wikilink');
         }
       }
     }
