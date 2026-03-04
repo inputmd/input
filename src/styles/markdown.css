@@ -276,6 +276,14 @@
   border-radius: 12px;
   padding: 11px 13px;
   background: color-mix(in srgb, var(--btn-bg) 36%, transparent);
+  transition:
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+.rendered-markdown .claude-chat-message--active {
+  border-color: color-mix(in srgb, var(--link) 52%, var(--border) 48%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 34%, transparent);
 }
 
 .rendered-markdown .claude-chat-message-header {

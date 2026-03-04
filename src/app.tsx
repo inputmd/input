@@ -680,7 +680,9 @@ export function App() {
         setRenderMode('markdown');
         setIsClaudeTranscript(true);
         setContentImagePreview(null);
-        setContentAlertMessage('Detected a Claude Code export.');
+        setContentAlertMessage(
+          'Detected a Claude Code export. Use ↑/↓ to move between messages and ←/→ to jump between user messages.',
+        );
         setContentAlertDownloadHref(null);
         setContentAlertDownloadName(null);
         return;

@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { isExternalHttpHref } from '../util';
 
@@ -24,10 +25,110 @@ export function ContentView({
   onInternalLinkNavigate,
   onImageClick,
 }: ContentViewProps) {
+  const renderedMarkdownRef = useRef<HTMLDivElement | null>(null);
+  const selectedClaudeMessageIndexRef = useRef<number>(-1);
   const isEmpty = html.trim().length === 0 && !imagePreview;
+
+  const updateSelectedClaudeMessage = useCallback(
+    (messages: HTMLElement[], nextIndex: number, scrollMode: 'nearest' | 'vertical' = 'nearest') => {
+      if (messages.length === 0) {
+        selectedClaudeMessageIndexRef.current = -1;
+        return;
+      }
+      const boundedIndex = Math.max(0, Math.min(nextIndex, messages.length - 1));
+      messages.forEach((message, idx) => {
+        message.classList.toggle('claude-chat-message--active', idx === boundedIndex);
+      });
+      selectedClaudeMessageIndexRef.current = boundedIndex;
+
+      const selectedMessage = messages[boundedIndex];
+      if (!selectedMessage) return;
+      if (scrollMode === 'vertical') {
+        const viewportHeight = window.innerHeight;
+        const messageHeight = selectedMessage.getBoundingClientRect().height;
+        const canCenter = messageHeight <= viewportHeight * 0.75;
+        if (canCenter) {
+          selectedMessage.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          });
+          return;
+        }
+        const toolbar = document.querySelector<HTMLElement>('.toolbar');
+        const headerBottom = toolbar?.getBoundingClientRect().bottom ?? 0;
+        const topGap = 8;
+        const messageTopInViewport = selectedMessage.getBoundingClientRect().top;
+        const targetTop = window.scrollY + messageTopInViewport - headerBottom - topGap;
+        window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+        return;
+      }
+      selectedMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!claudeTranscript || !markdown) return;
+    if (html.length === 0) return;
+    const root = renderedMarkdownRef.current;
+    if (!root) return;
+
+    const getMessages = () => Array.from(root.querySelectorAll<HTMLElement>('.claude-chat-message'));
+    updateSelectedClaudeMessage(getMessages(), 0);
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof HTMLElement &&
+        (event.target.isContentEditable ||
+          event.target.closest('input, textarea, select, [contenteditable="true"]') !== null)
+      ) {
+        return;
+      }
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+
+      const messages = getMessages();
+      if (messages.length === 0) return;
+      const currentIndex = selectedClaudeMessageIndexRef.current >= 0 ? selectedClaudeMessageIndexRef.current : 0;
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        updateSelectedClaudeMessage(messages, currentIndex - 1, 'vertical');
+        return;
+      }
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        updateSelectedClaudeMessage(messages, currentIndex + 1, 'vertical');
+        return;
+      }
+
+      const direction = event.key === 'ArrowRight' ? 1 : -1;
+      let nextIndex = currentIndex + direction;
+      while (nextIndex >= 0 && nextIndex < messages.length) {
+        if (messages[nextIndex]?.classList.contains('claude-chat-message--user')) {
+          event.preventDefault();
+          updateSelectedClaudeMessage(messages, nextIndex, 'vertical');
+          return;
+        }
+        nextIndex += direction;
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [claudeTranscript, html, markdown, updateSelectedClaudeMessage]);
 
   const onRenderedMarkdownClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
+    if (claudeTranscript) {
+      const root = renderedMarkdownRef.current;
+      const clickedMessage = target?.closest('.claude-chat-message');
+      if (root && clickedMessage instanceof HTMLElement) {
+        const messages = Array.from(root.querySelectorAll<HTMLElement>('.claude-chat-message'));
+        const clickedIndex = messages.indexOf(clickedMessage);
+        if (clickedIndex >= 0) updateSelectedClaudeMessage(messages, clickedIndex);
+      }
+    }
+
     const image = target?.closest('img');
     if (image && onImageClick) {
       const imageSrc = image.getAttribute('src')?.trim();
@@ -85,6 +186,7 @@ export function ContentView({
         </div>
       ) : markdown ? (
         <div
+          ref={renderedMarkdownRef}
           class={`rendered-markdown ${claudeTranscript ? 'rendered-markdown--claude-chat' : ''}`}
           onClick={onRenderedMarkdownClick}
           dangerouslySetInnerHTML={{ __html: html }}
