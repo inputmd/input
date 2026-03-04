@@ -41,7 +41,7 @@ export function ContentView({ html, markdown, onInternalLinkNavigate, onImageCli
   };
 
   return (
-    <div class="content-view">
+    <div class={`content-view ${markdown ? 'content-view--markdown' : 'content-view--plain'}`}>
       {markdown ? (
         <div class="rendered-markdown" onClick={onRenderedMarkdownClick} dangerouslySetInnerHTML={{ __html: html }} />
       ) : (

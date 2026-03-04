@@ -1,8 +1,15 @@
 .content-view {
-  max-width: 640px;
   width: 100%;
   margin: 0 auto;
   padding: 24px 16px;
+}
+
+.content-view--markdown {
+  max-width: 720px;
+}
+
+.content-view--plain {
+  max-width: 800px;
 }
 
 .rendered-content {
