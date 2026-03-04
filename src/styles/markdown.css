@@ -510,8 +510,8 @@
 }
 
 .rendered-markdown .claude-chat-message--active {
-  border-color: color-mix(in srgb, var(--link) 52%, var(--border) 48%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 34%, transparent);
+  border-color: color-mix(in srgb, var(--focus-border) 42%, var(--border) 58%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--focus-border) 22%, transparent);
 }
 
 .rendered-markdown .claude-chat-message-header {

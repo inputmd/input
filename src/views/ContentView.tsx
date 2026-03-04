@@ -132,7 +132,10 @@ export function ContentView({
     if (!root) return;
 
     const getMessages = () => Array.from(root.querySelectorAll<HTMLElement>('.claude-chat-message'));
-    updateSelectedClaudeMessage(getMessages(), 0);
+    selectedClaudeMessageIndexRef.current = -1;
+    getMessages().forEach((message) => {
+      message.classList.remove('claude-chat-message--active');
+    });
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (
@@ -146,21 +149,22 @@ export function ContentView({
 
       const messages = getMessages();
       if (messages.length === 0) return;
-      const currentIndex = selectedClaudeMessageIndexRef.current >= 0 ? selectedClaudeMessageIndexRef.current : 0;
+      const currentIndex = selectedClaudeMessageIndexRef.current;
 
       if (event.key === 'ArrowUp') {
         event.preventDefault();
-        updateSelectedClaudeMessage(messages, currentIndex - 1, 'vertical');
+        updateSelectedClaudeMessage(messages, currentIndex >= 0 ? currentIndex - 1 : messages.length - 1, 'vertical');
         return;
       }
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        updateSelectedClaudeMessage(messages, currentIndex + 1, 'vertical');
+        updateSelectedClaudeMessage(messages, currentIndex >= 0 ? currentIndex + 1 : 0, 'vertical');
         return;
       }
 
       const direction = event.key === 'ArrowRight' ? 1 : -1;
-      let nextIndex = currentIndex + direction;
+      let nextIndex =
+        currentIndex >= 0 ? currentIndex + direction : event.key === 'ArrowRight' ? 0 : messages.length - 1;
       while (nextIndex >= 0 && nextIndex < messages.length) {
         if (messages[nextIndex]?.classList.contains('claude-chat-message--user')) {
           event.preventDefault();
