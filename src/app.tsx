@@ -1238,10 +1238,7 @@ export function App() {
       switch (r.name) {
         case 'workspaces':
           if (!isAuthenticated) {
-            const started = startGitHubSignIn(`/${routePath.workspaces()}`, { guardKey: 'oauth_workspaces' });
-            if (!started) {
-              showError('Automatic sign-in was already attempted. Use Sign in with GitHub to retry.');
-            }
+            navigate(routePath.freshDraft(), { replace: true });
             return;
           }
           setRepoAccessMode(null);
