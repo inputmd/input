@@ -4,6 +4,7 @@ import { isExternalHttpHref } from '../util';
 interface ContentViewProps {
   html: string;
   markdown: boolean;
+  imagePreview?: { src: string; alt: string } | null;
   claudeTranscript?: boolean;
   alertMessage?: string | null;
   alertDownloadHref?: string | null;
@@ -15,6 +16,7 @@ interface ContentViewProps {
 export function ContentView({
   html,
   markdown,
+  imagePreview,
   claudeTranscript,
   alertMessage,
   alertDownloadHref,
@@ -22,7 +24,7 @@ export function ContentView({
   onInternalLinkNavigate,
   onImageClick,
 }: ContentViewProps) {
-  const isEmpty = html.trim().length === 0;
+  const isEmpty = html.trim().length === 0 && !imagePreview;
 
   const onRenderedMarkdownClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
@@ -58,7 +60,7 @@ export function ContentView({
 
   return (
     <div
-      class={`content-view ${markdown ? 'content-view--markdown' : 'content-view--plain'} ${claudeTranscript ? 'content-view--claude-chat' : ''}`}
+      class={`content-view ${imagePreview ? 'content-view--image' : markdown ? 'content-view--markdown' : 'content-view--plain'} ${claudeTranscript ? 'content-view--claude-chat' : ''}`}
     >
       {alertMessage ? (
         <ContentAlert>
@@ -72,6 +74,15 @@ export function ContentView({
       ) : null}
       {isEmpty ? (
         <p class="content-empty-placeholder">This file is empty.</p>
+      ) : imagePreview ? (
+        <div class="content-image-preview">
+          <img
+            class="content-image-preview-image"
+            src={imagePreview.src}
+            alt={imagePreview.alt}
+            onClick={() => onImageClick?.(imagePreview.src, imagePreview.alt)}
+          />
+        </div>
       ) : markdown ? (
         <div
           class={`rendered-markdown ${claudeTranscript ? 'rendered-markdown--claude-chat' : ''}`}

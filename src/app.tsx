@@ -135,6 +135,11 @@ function isSidebarTextFileName(name: string | null | undefined): boolean {
   );
 }
 
+function isSafeImageFileName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(name);
+}
+
 function isLikelyBinaryBytes(bytes: Uint8Array): boolean {
   const length = Math.min(bytes.length, 4096);
   if (length === 0) return false;
@@ -446,7 +451,8 @@ export function App() {
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
   const [renderedHtml, setRenderedHtml] = useState('');
-  const [renderMode, setRenderMode] = useState<'ansi' | 'markdown'>('ansi');
+  const [renderMode, setRenderMode] = useState<'ansi' | 'markdown' | 'image'>('ansi');
+  const [contentImagePreview, setContentImagePreview] = useState<{ src: string; alt: string } | null>(null);
   const [isClaudeTranscript, setIsClaudeTranscript] = useState(false);
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
   const [contentAlertDownloadHref, setContentAlertDownloadHref] = useState<string | null>(null);
@@ -649,6 +655,7 @@ export function App() {
     ) => {
       if (isMarkdownFileName(fileName)) {
         setIsClaudeTranscript(false);
+        setContentImagePreview(null);
         setContentAlertMessage(null);
         setContentAlertDownloadHref(null);
         setContentAlertDownloadName(null);
@@ -672,6 +679,7 @@ export function App() {
         setRenderedHtml(parseMarkdownToHtml(markdown, { breaks: false, claudeTranscript: true }));
         setRenderMode('markdown');
         setIsClaudeTranscript(true);
+        setContentImagePreview(null);
         setContentAlertMessage('Detected a Claude Code export.');
         setContentAlertDownloadHref(null);
         setContentAlertDownloadName(null);
@@ -680,6 +688,7 @@ export function App() {
       setRenderedHtml(parseAnsiToHtml(content));
       setRenderMode('ansi');
       setIsClaudeTranscript(false);
+      setContentImagePreview(null);
       setContentAlertMessage(null);
       setContentAlertDownloadHref(null);
       setContentAlertDownloadName(null);
@@ -687,12 +696,23 @@ export function App() {
     [resolveMarkdownImageSrc],
   );
 
+  const renderImageFileContent = useCallback((fileName: string | null | undefined, imageSrc: string) => {
+    setRenderedHtml('');
+    setRenderMode('image');
+    setIsClaudeTranscript(false);
+    setContentImagePreview({ src: imageSrc, alt: fileName ?? 'Image' });
+    setContentAlertMessage(null);
+    setContentAlertDownloadHref(null);
+    setContentAlertDownloadName(null);
+  }, []);
+
   const renderBinaryFileContent = useCallback(
     (fileName: string | null | undefined, downloadHref: string | null = null) => {
       const label = fileName || 'file';
       setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
       setRenderMode('ansi');
       setIsClaudeTranscript(false);
+      setContentImagePreview(null);
       setContentAlertMessage('Binary file detected.');
       setContentAlertDownloadHref(downloadHref);
       setContentAlertDownloadName(fileName ?? null);
@@ -707,6 +727,14 @@ export function App() {
       }
     };
   }, [contentAlertDownloadHref]);
+
+  useEffect(() => {
+    return () => {
+      if (contentImagePreview?.src.startsWith('blob:')) {
+        URL.revokeObjectURL(contentImagePreview.src);
+      }
+    };
+  }, [contentImagePreview]);
 
   const handleEditorPaste = useCallback(
     async (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => {
@@ -919,10 +947,14 @@ export function App() {
         const cacheFile = cacheName ? cached[cacheName] : null;
         if (cacheFile && (!anonymous || cacheFile.content != null)) {
           setCurrentFileName(cacheFile.filename);
-          renderDocumentContent(cacheFile.content ?? '', cacheFile.filename, null, undefined, {
-            currentDocPath: cacheFile.filename,
-            knownMarkdownPaths: cacheKeys,
-          });
+          if (isSafeImageFileName(cacheFile.filename)) {
+            renderImageFileContent(cacheFile.filename, cacheFile.raw_url);
+          } else {
+            renderDocumentContent(cacheFile.content ?? '', cacheFile.filename, null, undefined, {
+              currentDocPath: cacheFile.filename,
+              knownMarkdownPaths: cacheKeys,
+            });
+          }
           setCurrentGistId(id);
           setRepoAccessMode(null);
           setPublicRepoRef(null);
@@ -960,7 +992,12 @@ export function App() {
           }
 
           let content = file.content;
-          if (content == null && file.raw_url && new URL(file.raw_url).hostname === 'gist.githubusercontent.com') {
+          if (
+            !isSafeImageFileName(file.filename) &&
+            content == null &&
+            file.raw_url &&
+            new URL(file.raw_url).hostname === 'gist.githubusercontent.com'
+          ) {
             const raw = await fetch(file.raw_url, { redirect: 'error' });
             if (raw.ok) content = await raw.text();
             if (content != null) {
@@ -970,10 +1007,14 @@ export function App() {
           }
 
           setCurrentFileName(file.filename);
-          renderDocumentContent(content ?? '', file.filename, null, undefined, {
-            currentDocPath: file.filename,
-            knownMarkdownPaths: fileKeys,
-          });
+          if (isSafeImageFileName(file.filename)) {
+            renderImageFileContent(file.filename, file.raw_url);
+          } else {
+            renderDocumentContent(content ?? '', file.filename, null, undefined, {
+              currentDocPath: file.filename,
+              knownMarkdownPaths: fileKeys,
+            });
+          }
           setCurrentGistId(id);
           setRepoAccessMode(null);
           setPublicRepoRef(null);
@@ -1004,10 +1045,14 @@ export function App() {
         setCurrentRepoDocSha(null);
         setRepoFiles([]);
         setRepoSidebarFiles([]);
-        renderDocumentContent(file.content ?? '', file.filename, null, undefined, {
-          currentDocPath: file.filename,
-          knownMarkdownPaths: fileKeys,
-        });
+        if (isSafeImageFileName(file.filename)) {
+          renderImageFileContent(file.filename, file.raw_url);
+        } else {
+          renderDocumentContent(file.content ?? '', file.filename, null, undefined, {
+            currentDocPath: file.filename,
+            knownMarkdownPaths: fileKeys,
+          });
+        }
         setViewPhase(null);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
@@ -1019,6 +1064,7 @@ export function App() {
       currentGistId,
       gistFiles,
       renderDocumentContent,
+      renderImageFileContent,
       activeView,
       currentFileName,
       showRateLimitToastIfNeeded,
@@ -1069,6 +1115,8 @@ export function App() {
           setEditingBackend('repo');
           setEditTitle(contents.name.replace(/\.md$/i, ''));
           setEditContent(decoded);
+        } else if (binary && isSafeImageFileName(contents.name)) {
+          renderImageFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
         } else if (binary) {
           renderBinaryFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
         } else {
@@ -1107,6 +1155,7 @@ export function App() {
       repoFiles,
       loadRepoMarkdownFiles,
       renderDocumentContent,
+      renderImageFileContent,
       renderBinaryFileContent,
       activeView,
       currentFileName,
@@ -1143,7 +1192,9 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(contents.path);
         setEditingBackend(null);
-        if (binary) {
+        if (binary && isSafeImageFileName(contents.name)) {
+          renderImageFileContent(contents.name, publicRepoRawFileUrl(owner, repo, contents.path));
+        } else if (binary) {
           renderBinaryFileContent(contents.name, publicRepoRawFileUrl(owner, repo, contents.path));
         } else {
           renderDocumentContent(
@@ -1173,6 +1224,7 @@ export function App() {
       currentFileName,
       loadPublicRepoMarkdownFiles,
       renderDocumentContent,
+      renderImageFileContent,
       renderBinaryFileContent,
       sidebarFileFilter,
       showError,
@@ -1200,7 +1252,12 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(shared.path);
         setEditingBackend(null);
-        if (binary) {
+        if (binary && isSafeImageFileName(shared.name)) {
+          const imageBlobBytes = new Uint8Array(contentBytes);
+          const imageBlob = new Blob([imageBlobBytes], { type: 'application/octet-stream' });
+          const imageBlobUrl = URL.createObjectURL(imageBlob);
+          renderImageFileContent(shared.name, imageBlobUrl);
+        } else if (binary) {
           const blobBytes = new Uint8Array(contentBytes);
           const blob = new Blob([blobBytes], { type: 'application/octet-stream' });
           const blobUrl = URL.createObjectURL(blob);
@@ -1217,6 +1274,7 @@ export function App() {
     [
       activeView,
       currentFileName,
+      renderImageFileContent,
       renderBinaryFileContent,
       renderDocumentContent,
       showError,
@@ -2421,7 +2479,8 @@ export function App() {
         return (
           <ContentView
             html={renderedHtml}
-            markdown={renderMode === 'markdown'}
+            markdown={renderMode === 'markdown' || renderMode === 'image'}
+            imagePreview={contentImagePreview}
             claudeTranscript={isClaudeTranscript}
             alertMessage={contentAlertMessage}
             alertDownloadHref={contentAlertDownloadHref}

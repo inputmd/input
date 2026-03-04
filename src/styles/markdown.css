@@ -38,6 +38,26 @@
   max-width: 800px;
 }
 
+.content-view--image {
+  max-width: none;
+}
+
+.content-image-preview {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(100vh - 220px);
+}
+
+.content-image-preview-image {
+  display: block;
+  max-width: min(1200px, 100%);
+  max-height: calc(100vh - 170px);
+  height: auto;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
 .content-empty-placeholder {
   color: var(--text-secondary);
   font-style: italic;
