@@ -219,6 +219,22 @@ function isHiddenFolderPath(path: string): boolean {
   return path.split('/').some((segment) => segment.startsWith('.'));
 }
 
+function defaultCollapsedFolderPaths(folderPaths: Set<string>): Set<string> {
+  const collapseAllByDefault = folderPaths.size > 10;
+  const defaults = new Set<string>();
+  for (const path of folderPaths) {
+    if (!collapseAllByDefault && !isHiddenFolderPath(path)) continue;
+    defaults.add(path);
+  }
+  return defaults;
+}
+
+function collapsedFolderRecord(paths: Iterable<string>): Record<string, true> {
+  const record: Record<string, true> = {};
+  for (const path of paths) record[path] = true;
+  return record;
+}
+
 function resolveRenamePath(oldPath: string, input: string): string {
   const next = sanitizePathInput(input);
   if (!next) return '';
@@ -263,8 +279,6 @@ export function Sidebar({
   const [newFileName, setNewFileName] = useState('');
   const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>({});
-  const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set());
   const filesRef = useRef<HTMLDivElement>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -278,6 +292,11 @@ export function Sidebar({
     collectFolderPaths(tree, paths);
     return paths;
   }, [tree]);
+  const defaultCollapsedPaths = useMemo(() => defaultCollapsedFolderPaths(folderPaths), [folderPaths]);
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>(() =>
+    collapsedFolderRecord(defaultCollapsedPaths),
+  );
+  const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set(defaultCollapsedPaths));
   const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
   const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
   const hasFolders = folderPaths.size > 0;
@@ -298,12 +317,10 @@ export function Sidebar({
         if (collapsed && folderPaths.has(path)) next[path] = true;
         else changed = true;
       }
-      const collapseAllByDefault = folderPaths.size > 10;
       for (const path of Array.from(autoCollapsedDefaultsRef.current)) {
         if (!folderPaths.has(path)) autoCollapsedDefaultsRef.current.delete(path);
       }
-      for (const path of folderPaths) {
-        if (!collapseAllByDefault && !isHiddenFolderPath(path)) continue;
+      for (const path of defaultCollapsedPaths) {
         if (autoCollapsedDefaultsRef.current.has(path)) continue;
         autoCollapsedDefaultsRef.current.add(path);
         if (!next[path]) {
@@ -313,7 +330,7 @@ export function Sidebar({
       }
       return changed ? next : prev;
     });
-  }, [folderPaths]);
+  }, [defaultCollapsedPaths, folderPaths]);
 
   useEffect(() => {
     if (activeAncestors.length === 0) return;
@@ -665,9 +682,11 @@ export function Sidebar({
         return (
           <div key={`tree:${node.path}`}>
             {renderFolderRow(node, depth)}
-            <div class={`sidebar-folder-children${collapsed ? ' collapsed' : ''}`}>
-              <div class="sidebar-folder-children-inner">{renderNodes(node.children, depth + 1)}</div>
-            </div>
+            {collapsed ? null : (
+              <div class="sidebar-folder-children">
+                <div class="sidebar-folder-children-inner">{renderNodes(node.children, depth + 1)}</div>
+              </div>
+            )}
           </div>
         );
       }
