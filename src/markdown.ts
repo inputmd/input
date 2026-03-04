@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import matter from 'gray-matter';
 import { marked } from 'marked';
 import { isExternalHttpHref } from './util';
 
@@ -137,8 +138,69 @@ interface ParseMarkdownOptions {
   resolveWikiLinkMeta?: (targetPath: string) => { exists: boolean; resolvedHref?: string | null } | null;
 }
 
+function extractMarkdownBody(text: string): string {
+  const normalized = text.replace(/^\uFEFF/, '');
+  const candidate = normalized.replace(/^(?:[ \t]*\r?\n)+/, '');
+  const fallbackStrip = (source: string): string => {
+    const lines = source.split(/\r?\n/);
+    if (lines.length < 3) return source;
+    const opening = lines[0].trim();
+    if (opening !== '---' && opening !== '+++') return source;
+    for (let i = 1; i < lines.length; i += 1) {
+      const line = lines[i].trim();
+      if (line === opening || line === '...') {
+        return lines.slice(i + 1).join('\n');
+      }
+    }
+    return source;
+  };
+
+  try {
+    const parsed = matter(candidate);
+    if (parsed.matter) return parsed.content;
+    // Belt-and-suspenders fallback: still strip obvious fenced front matter if parser detection misses.
+    return fallbackStrip(candidate);
+  } catch {
+    // Keep rendering content if gray-matter fails at runtime, without showing front matter to users.
+    return fallbackStrip(candidate);
+  }
+}
+
+function shouldSkipSmartPunctuation(node: Node | null): boolean {
+  let current: Node | null = node;
+  while (current) {
+    if (current instanceof HTMLElement) {
+      const tagName = current.tagName;
+      if (tagName === 'CODE' || tagName === 'PRE' || tagName === 'KBD' || tagName === 'SAMP') {
+        return true;
+      }
+    }
+    current = current.parentNode;
+  }
+  return false;
+}
+
+function applySmartPunctuation(root: ParentNode): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+
+  let current = walker.nextNode();
+  while (current) {
+    if (current instanceof Text && !shouldSkipSmartPunctuation(current.parentNode)) {
+      textNodes.push(current);
+    }
+    current = walker.nextNode();
+  }
+
+  for (const node of textNodes) {
+    // Only convert either " -- " or tight "word--word", leaving mixed spacing untouched.
+    node.textContent = (node.textContent ?? '').replace(/(?<= )--(?= )|(?<=\S)--(?=\S)/g, '—');
+  }
+}
+
 export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
-  const raw = marked.parse(text) as string;
+  const markdown = extractMarkdownBody(text);
+  const raw = marked.parse(markdown) as string;
   const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
@@ -194,6 +256,8 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
     }
     img.setAttribute('src', resolvedSrc);
   });
+
+  applySmartPunctuation(template.content);
 
   return template.innerHTML;
 }
