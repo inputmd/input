@@ -34,6 +34,11 @@
   max-width: 800px;
 }
 
+.content-empty-placeholder {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 .rendered-content {
   font-family: var(--font-mono);
   font-size: var(--reader-editor-font-size);

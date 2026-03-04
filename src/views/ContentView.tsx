@@ -20,6 +20,8 @@ export function ContentView({
   onInternalLinkNavigate,
   onImageClick,
 }: ContentViewProps) {
+  const isEmpty = html.trim().length === 0;
+
   const onRenderedMarkdownClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
     const image = target?.closest('img');
@@ -64,7 +66,9 @@ export function ContentView({
           ) : null}
         </ContentAlert>
       ) : null}
-      {markdown ? (
+      {isEmpty ? (
+        <p class="content-empty-placeholder">This file is empty.</p>
+      ) : markdown ? (
         <div class="rendered-markdown" onClick={onRenderedMarkdownClick} dangerouslySetInnerHTML={{ __html: html }} />
       ) : (
         <pre class="rendered-content" dangerouslySetInnerHTML={{ __html: html }} />
