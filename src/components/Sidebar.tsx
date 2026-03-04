@@ -19,6 +19,7 @@ export interface SidebarFile {
   path: string;
   active: boolean;
   editable: boolean;
+  deemphasized: boolean;
 }
 
 export type SidebarFileFilter = 'text' | 'all';
@@ -48,6 +49,7 @@ interface SidebarFileNode {
   name: string;
   active: boolean;
   editable: boolean;
+  deemphasized: boolean;
 }
 
 interface SidebarFolderNode {
@@ -186,6 +188,7 @@ function buildTree(files: SidebarFile[]): SidebarFolderNode {
       name: parts[parts.length - 1],
       active: file.active,
       editable: file.editable,
+      deemphasized: file.deemphasized,
     });
   }
 
@@ -272,6 +275,7 @@ export function Sidebar({
   }, [tree]);
   const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
   const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
+  const hasFolders = folderPaths.size > 0;
 
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
@@ -533,13 +537,14 @@ export function Sidebar({
   const renderFileRow = (file: SidebarFileNode, depth: number) => {
     const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
     const FileIcon = getFileIcon(file.name);
+    const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     const fileRow = (
       <div
-        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${!file.editable ? ' sidebar-file-readonly' : ''}`}
+        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}`}
         tabIndex={0}
         role="button"
         aria-current={file.active ? 'true' : undefined}
-        style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6}px` }}
+        style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
         onClick={() => !file.active && onSelectFile(file.path)}
         onDblClick={() => {
           if (!readOnly && file.editable) startRename({ kind: 'file', path: file.path });
@@ -588,9 +593,10 @@ export function Sidebar({
       </div>
     );
 
-    const showFileActions = !readOnly && file.editable;
+    const showFileModifyActions = !readOnly;
+    const showEditAction = !readOnly && file.editable;
     const showViewOnlyContext = readOnly && canViewOnGitHub;
-    if (!showFileActions && !showViewOnlyContext) {
+    if (!showFileModifyActions && !showViewOnlyContext) {
       return <div key={`file:${file.path}`}>{fileRow}</div>;
     }
 
@@ -599,12 +605,12 @@ export function Sidebar({
         <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
-            {showFileActions && (
+            {showEditAction && (
               <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onEditFile(file.path)}>
                 Edit
               </ContextMenu.Item>
             )}
-            {showFileActions && (
+            {showFileModifyActions && (
               <ContextMenu.Item
                 class="sidebar-context-menu-item"
                 onSelect={() => startRename({ kind: 'file', path: file.path })}
@@ -617,7 +623,7 @@ export function Sidebar({
                 View on GitHub <ExternalLink size={14} className="sidebar-context-menu-item-icon" aria-hidden="true" />
               </ContextMenu.Item>
             )}
-            {showFileActions && (
+            {showFileModifyActions && (
               <>
                 <ContextMenu.Separator class="sidebar-context-menu-separator" />
                 <ContextMenu.Item
@@ -693,7 +699,10 @@ export function Sidebar({
         {renderNodes(tree.children, 0)}
         {files.length === 0 && !creatingNew && <p class="sidebar-empty-message">No files</p>}
         {!readOnly && creatingNew && (
-          <div class="sidebar-file renaming" style={{ paddingLeft: `${8 + CHEVRON_SIZE + 6}px` }}>
+          <div
+            class="sidebar-file renaming"
+            style={{ paddingLeft: `${8 + CHEVRON_SIZE + 6 + (hasFolders ? 0 : -12)}px` }}
+          >
             {createKind === 'directory' ? (
               <FolderClosed size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
             ) : (

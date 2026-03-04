@@ -105,7 +105,7 @@
   font-weight: 600;
 }
 
-.sidebar-file-readonly .sidebar-file-name {
+.sidebar-file-deemphasized .sidebar-file-name {
   color: var(--text-secondary);
 }
 

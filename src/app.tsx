@@ -58,7 +58,7 @@ import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import { type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
-import { decodeBase64ToUtf8, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
+import { decodeBase64ToBytes, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
 import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
@@ -131,6 +131,20 @@ function isSidebarTextFileName(name: string | null | undefined): boolean {
     /\.markdown$/i.test(name) ||
     /\.(txt|ts|js|py|tsx|jsx|json|jsonc|yml|yaml|toml|css|scss|html|sh|sql|xml|csv|mdx|rst)$/i.test(name)
   );
+}
+
+function isLikelyBinaryBytes(bytes: Uint8Array): boolean {
+  const length = Math.min(bytes.length, 4096);
+  if (length === 0) return false;
+  let suspicious = 0;
+  for (let i = 0; i < length; i++) {
+    const byte = bytes[i];
+    if (byte === 0) return true;
+    const isAsciiControl = byte < 32 && byte !== 9 && byte !== 10 && byte !== 13;
+    const isDel = byte === 127;
+    if (isAsciiControl || isDel) suspicious++;
+  }
+  return suspicious / length > 0.2;
 }
 
 function safeDecodeURIComponent(s: string): string {
@@ -659,6 +673,13 @@ export function App() {
     [resolveMarkdownImageSrc],
   );
 
+  const renderBinaryFileContent = useCallback((fileName: string | null | undefined) => {
+    const label = fileName || 'file';
+    setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
+    setRenderMode('ansi');
+    setContentAlertMessage('Binary file detected.');
+  }, []);
+
   const handleEditorPaste = useCallback(
     async (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => {
       const editor = event.currentTarget;
@@ -995,7 +1016,9 @@ export function App() {
           if (markdownDirectoryIndex) contents = await getRepoContents(instId, repoName, markdownDirectoryIndex);
         }
         if (!isRepoFile(contents)) throw new Error('Expected a file');
-        const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
+        const contentBytes = contents.content ? decodeBase64ToBytes(contents.content) : new Uint8Array();
+        const binary = isLikelyBinaryBytes(contentBytes);
+        const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
         setRepoAccessMode('installed');
         setPublicRepoRef(null);
         setCurrentRepoDocPath(contents.path);
@@ -1018,6 +1041,8 @@ export function App() {
           setEditingBackend('repo');
           setEditTitle(contents.name.replace(/\.md$/i, ''));
           setEditContent(decoded);
+        } else if (binary) {
+          renderBinaryFileContent(contents.name);
         } else {
           const wikiPaths = knownMarkdownPaths.includes(contents.path)
             ? knownMarkdownPaths
@@ -1054,6 +1079,7 @@ export function App() {
       repoFiles,
       loadRepoMarkdownFiles,
       renderDocumentContent,
+      renderBinaryFileContent,
       activeView,
       currentFileName,
       sidebarFileFilter,
@@ -1074,7 +1100,9 @@ export function App() {
           if (markdownDirectoryIndex) contents = await getPublicRepoContents(owner, repo, markdownDirectoryIndex);
         }
         if (!isRepoFile(contents)) throw new Error('Expected a file');
-        const decoded = contents.content ? decodeBase64ToUtf8(contents.content) : '';
+        const contentBytes = contents.content ? decodeBase64ToBytes(contents.content) : new Uint8Array();
+        const binary = isLikelyBinaryBytes(contentBytes);
+        const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
         const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
         const knownMarkdownPaths = mdFiles.map((file) => file.path);
         setRepoFiles(mdFiles);
@@ -1087,21 +1115,25 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(contents.path);
         setEditingBackend(null);
-        renderDocumentContent(
-          decoded,
-          contents.name,
-          contents.path,
-          {
-            mode: 'public',
-            publicRepoRef: { owner, repo },
-          },
-          {
-            currentDocPath: contents.path,
-            knownMarkdownPaths: knownMarkdownPaths.includes(contents.path)
-              ? knownMarkdownPaths
-              : [...knownMarkdownPaths, contents.path],
-          },
-        );
+        if (binary) {
+          renderBinaryFileContent(contents.name);
+        } else {
+          renderDocumentContent(
+            decoded,
+            contents.name,
+            contents.path,
+            {
+              mode: 'public',
+              publicRepoRef: { owner, repo },
+            },
+            {
+              currentDocPath: contents.path,
+              knownMarkdownPaths: knownMarkdownPaths.includes(contents.path)
+                ? knownMarkdownPaths
+                : [...knownMarkdownPaths, contents.path],
+            },
+          );
+        }
         setViewPhase(null);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
@@ -1113,6 +1145,7 @@ export function App() {
       currentFileName,
       loadPublicRepoMarkdownFiles,
       renderDocumentContent,
+      renderBinaryFileContent,
       sidebarFileFilter,
       showError,
       showRateLimitToastIfNeeded,
@@ -1127,7 +1160,9 @@ export function App() {
       }
       try {
         const shared = await getSharedRepoFile(token);
-        const decoded = decodeBase64ToUtf8(shared.content);
+        const contentBytes = decodeBase64ToBytes(shared.content);
+        const binary = isLikelyBinaryBytes(contentBytes);
+        const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
         setRepoAccessMode(null);
         setPublicRepoRef(null);
         setRepoFiles([]);
@@ -1137,14 +1172,22 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(shared.path);
         setEditingBackend(null);
-        renderDocumentContent(decoded, shared.name, shared.path);
+        if (binary) renderBinaryFileContent(shared.name);
+        else renderDocumentContent(decoded, shared.name, shared.path);
         setViewPhase(null);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
         showError(err instanceof Error ? err.message : 'Failed to load shared file');
       }
     },
-    [activeView, currentFileName, renderDocumentContent, showError, showRateLimitToastIfNeeded],
+    [
+      activeView,
+      currentFileName,
+      renderBinaryFileContent,
+      renderDocumentContent,
+      showError,
+      showRateLimitToastIfNeeded,
+    ],
   );
 
   // --- Route handler ---
@@ -2395,6 +2438,7 @@ export function App() {
           path,
           active: path === currentFileName,
           editable: isMarkdownFileName(path),
+          deemphasized: !isSidebarTextFileName(path),
         }))
         .sort((a, b) => a.path.localeCompare(b.path));
       return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextFileName(file.path)) : files;
@@ -2406,6 +2450,7 @@ export function App() {
         path: f.path,
         active: f.path === currentPath,
         editable: isMarkdownFileName(f.path),
+        deemphasized: !isSidebarTextFileName(f.path),
       }));
       return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextFileName(file.path)) : files;
     }
