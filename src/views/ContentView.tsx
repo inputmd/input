@@ -159,6 +159,8 @@ export function ContentView({
     });
 
     const onKeyDown = (event: KeyboardEvent) => {
+      // Respect other focused UI regions (e.g., sidebar) that already consumed the event.
+      if (event.defaultPrevented) return;
       if (
         event.target instanceof HTMLElement &&
         (event.target.isContentEditable ||

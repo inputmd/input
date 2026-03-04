@@ -170,7 +170,7 @@
 }
 
 .sidebar-file:focus-visible {
-  outline: 1px solid var(--focus-border);
+  outline: 1px solid color-mix(in srgb, var(--focus-border) 10%, transparent);
   outline-offset: -1px;
 }
 
