@@ -4,6 +4,7 @@ import { isExternalHttpHref } from '../util';
 interface ContentViewProps {
   html: string;
   markdown: boolean;
+  claudeTranscript?: boolean;
   alertMessage?: string | null;
   alertDownloadHref?: string | null;
   alertDownloadName?: string | null;
@@ -14,6 +15,7 @@ interface ContentViewProps {
 export function ContentView({
   html,
   markdown,
+  claudeTranscript,
   alertMessage,
   alertDownloadHref,
   alertDownloadName,
@@ -55,7 +57,9 @@ export function ContentView({
   };
 
   return (
-    <div class={`content-view ${markdown ? 'content-view--markdown' : 'content-view--plain'}`}>
+    <div
+      class={`content-view ${markdown ? 'content-view--markdown' : 'content-view--plain'} ${claudeTranscript ? 'content-view--claude-chat' : ''}`}
+    >
       {alertMessage ? (
         <ContentAlert>
           <span>{alertMessage}</span>
@@ -69,7 +73,11 @@ export function ContentView({
       {isEmpty ? (
         <p class="content-empty-placeholder">This file is empty.</p>
       ) : markdown ? (
-        <div class="rendered-markdown" onClick={onRenderedMarkdownClick} dangerouslySetInnerHTML={{ __html: html }} />
+        <div
+          class={`rendered-markdown ${claudeTranscript ? 'rendered-markdown--claude-chat' : ''}`}
+          onClick={onRenderedMarkdownClick}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       ) : (
         <pre class="rendered-content" dangerouslySetInnerHTML={{ __html: html }} />
       )}

@@ -447,6 +447,7 @@ export function App() {
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
   const [renderedHtml, setRenderedHtml] = useState('');
   const [renderMode, setRenderMode] = useState<'ansi' | 'markdown'>('ansi');
+  const [isClaudeTranscript, setIsClaudeTranscript] = useState(false);
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
   const [contentAlertDownloadHref, setContentAlertDownloadHref] = useState<string | null>(null);
   const [contentAlertDownloadName, setContentAlertDownloadName] = useState<string | null>(null);
@@ -647,6 +648,7 @@ export function App() {
       wikiLinkContext?: { currentDocPath: string; knownMarkdownPaths: string[] },
     ) => {
       if (isMarkdownFileName(fileName)) {
+        setIsClaudeTranscript(false);
         setContentAlertMessage(null);
         setContentAlertDownloadHref(null);
         setContentAlertDownloadName(null);
@@ -667,8 +669,9 @@ export function App() {
       if (isTxtFileName(fileName) && looksLikeClaudeExportTrace(content)) {
         const parsed = parseClaudeExportTrace(content, fileName ?? undefined);
         const markdown = renderClaudeTraceMarkdown(parsed);
-        setRenderedHtml(parseMarkdownToHtml(markdown, { breaks: false }));
+        setRenderedHtml(parseMarkdownToHtml(markdown, { breaks: false, claudeTranscript: true }));
         setRenderMode('markdown');
+        setIsClaudeTranscript(true);
         setContentAlertMessage('Detected a Claude Code export.');
         setContentAlertDownloadHref(null);
         setContentAlertDownloadName(null);
@@ -676,6 +679,7 @@ export function App() {
       }
       setRenderedHtml(parseAnsiToHtml(content));
       setRenderMode('ansi');
+      setIsClaudeTranscript(false);
       setContentAlertMessage(null);
       setContentAlertDownloadHref(null);
       setContentAlertDownloadName(null);
@@ -688,6 +692,7 @@ export function App() {
       const label = fileName || 'file';
       setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
       setRenderMode('ansi');
+      setIsClaudeTranscript(false);
       setContentAlertMessage('Binary file detected.');
       setContentAlertDownloadHref(downloadHref);
       setContentAlertDownloadName(fileName ?? null);
@@ -2417,6 +2422,7 @@ export function App() {
           <ContentView
             html={renderedHtml}
             markdown={renderMode === 'markdown'}
+            claudeTranscript={isClaudeTranscript}
             alertMessage={contentAlertMessage}
             alertDownloadHref={contentAlertDownloadHref}
             alertDownloadName={contentAlertDownloadName}
