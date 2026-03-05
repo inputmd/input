@@ -13,6 +13,21 @@ function wikiSlug(raw: string): string {
   return raw.trim().toLowerCase().replace(/[/\\]/g, '-').replace(/\s+/g, '-');
 }
 
+function normalizeWikiTargetPath(raw: string): string {
+  const trimmed = raw.trim();
+  const hasExplicitPathSeparators = /[/\\]/.test(trimmed);
+  const basePath = hasExplicitPathSeparators ? trimmed.replace(/\\/g, '/') : wikiSlug(trimmed);
+  if (/\.(?:md|markdown)$/i.test(basePath)) return basePath;
+  return `${basePath}.md`;
+}
+
+function encodePathForHref(path: string): string {
+  return path
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+}
+
 function escapeHtmlAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -31,13 +46,13 @@ marked.use({
         const target = match[1].trim();
         if (!target) return undefined;
         const label = (match[2] ?? target).trim();
-        const slug = wikiSlug(target);
-        const href = `${encodeURIComponent(slug)}.md`;
+        const wikiTargetPath = normalizeWikiTargetPath(target);
+        const href = encodePathForHref(wikiTargetPath);
         return {
           type: 'wikilink',
           raw: match[0],
           href,
-          wikiTargetPath: `${slug}.md`,
+          wikiTargetPath,
           text: label,
           tokens: this.lexer.inlineTokens(label),
         };
