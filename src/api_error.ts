@@ -1,11 +1,13 @@
 export class ApiError extends Error {
   status: number;
+  code?: string;
   github?: GitHubErrorInfo;
 
-  constructor(status: number, message: string, github?: GitHubErrorInfo) {
+  constructor(status: number, message: string, code?: string, github?: GitHubErrorInfo) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
     this.github = github;
   }
 }
@@ -31,13 +33,14 @@ interface GitHubErrorInfo {
 type ErrorBody = {
   error?: string;
   message?: string;
+  code?: string;
   github?: GitHubErrorInfo;
 };
 
 export async function responseToApiError(res: Response): Promise<ApiError> {
   const body = (await res.json().catch(() => null)) as ErrorBody | null;
   const message = body?.error ?? body?.message ?? `${res.status} ${res.statusText}`;
-  return new ApiError(res.status, message, body?.github);
+  return new ApiError(res.status, message, body?.code, body?.github);
 }
 
 export function isRateLimitError(err: unknown): boolean {

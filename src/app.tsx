@@ -1983,6 +1983,10 @@ export function App() {
         handleSessionExpired();
         return;
       }
+      if (err instanceof ApiError && err.code === 'share_links_not_configured') {
+        showFailureToast(err.message);
+        return;
+      }
       showRateLimitToastIfNeeded(err);
       showFailureToast(err instanceof Error ? err.message : 'Failed to copy share link');
     }

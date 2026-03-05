@@ -78,6 +78,11 @@ interface ShareRepoFileCreateBody {
   path?: unknown;
 }
 
+const SHARE_LINKS_NOT_CONFIGURED_ERROR = {
+  error: 'Private sharing is unavailable: SHARE_TOKEN_SECRET is not configured on the server',
+  code: 'share_links_not_configured',
+} as const;
+
 function redirect(res: http.ServerResponse, location: string): void {
   res.statusCode = 302;
   res.setHeader('Location', location);
@@ -579,7 +584,7 @@ async function handleDeleteContents(ctx: RouteContext): Promise<void> {
 async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
   if (!checkRateLimit(ctx.req, ctx.res)) return;
   if (!SHARE_TOKEN_SECRET) {
-    json(ctx.res, 503, { error: 'Share links are not configured' });
+    json(ctx.res, 503, SHARE_LINKS_NOT_CONFIGURED_ERROR);
     return;
   }
 
@@ -628,7 +633,7 @@ async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
 async function handleGetSharedRepoFile(ctx: RouteContext): Promise<void> {
   if (!checkRateLimit(ctx.req, ctx.res)) return;
   if (!SHARE_TOKEN_SECRET) {
-    json(ctx.res, 503, { error: 'Share links are not configured' });
+    json(ctx.res, 503, SHARE_LINKS_NOT_CONFIGURED_ERROR);
     return;
   }
 
