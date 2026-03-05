@@ -2283,6 +2283,15 @@ export function App() {
     [currentGistId, repoAccessMode, selectedRepo, publicRepoRef],
   );
 
+  const onHeaderViewInGitHub = useCallback(() => {
+    if (currentGistId) {
+      handleViewOnGitHub(currentFileName ?? '');
+      return;
+    }
+    if (!currentRepoDocPath) return;
+    handleViewOnGitHub(currentRepoDocPath);
+  }, [currentGistId, currentFileName, currentRepoDocPath, handleViewOnGitHub]);
+
   const handleDeleteFile = useCallback(
     async (filePath: string) => {
       if (
@@ -3086,7 +3095,6 @@ export function App() {
   const showPrivateRepoShareHint = showInstalledRepoHeaderShare && selectedRepoPrivate === true;
   const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
   const shareDisabled = showPrivateRepoShareHint;
-  const shareTooltip = showPrivateRepoShareHint ? 'Public repos only' : null;
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
     repoAccessMode === 'installed' &&
@@ -3132,10 +3140,10 @@ export function App() {
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
         shareDisabled={shareDisabled}
-        shareTooltip={shareTooltip}
         onShare={() => {
           void onShareLink();
         }}
+        onViewInGitHub={onHeaderViewInGitHub}
         showEdit={showHeaderEdit}
         editUrl={null}
         navigate={navigate}

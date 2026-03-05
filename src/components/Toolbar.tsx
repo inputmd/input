@@ -3,12 +3,12 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   Check,
   ChevronDown,
-  Copy,
   ExternalLink,
   Eye,
   Globe,
   Link2,
   Lock,
+  MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
@@ -32,8 +32,8 @@ interface ToolbarProps {
   sidebarVisible: boolean;
   showShare: boolean;
   shareDisabled: boolean;
-  shareTooltip: string | null;
   onShare: () => void;
+  onViewInGitHub: () => void;
   showEdit: boolean;
   editUrl: string | null;
   showPreviewToggle: boolean;
@@ -72,8 +72,8 @@ export function Toolbar({
   sidebarVisible,
   showShare,
   shareDisabled,
-  shareTooltip,
   onShare,
+  onViewInGitHub,
   showEdit,
   editUrl,
   showPreviewToggle,
@@ -103,21 +103,31 @@ export function Toolbar({
   const showSidebarToggle = view === 'content' || view === 'edit';
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
-  const shareButton = (
-    <button
-      type="button"
-      data-share-button="true"
-      disabled={shareDisabled}
-      onClick={(event) => {
-        // Keep this to stop anchor-like navigation behavior from parent UI wrappers.
-        event.preventDefault();
-        event.stopPropagation();
-        if (shareDisabled) return;
-        onShare();
-      }}
-    >
-      Share <Copy size={14} aria-hidden="true" />
-    </button>
+  const authorMenu = (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button type="button" class="author-menu-trigger" aria-label="Author menu" title="Author menu">
+          <MoreVertical size={16} aria-hidden="true" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content class="author-menu-content" sideOffset={6} align="end">
+          <DropdownMenu.Item
+            class="author-menu-item"
+            disabled={shareDisabled}
+            onSelect={() => {
+              if (shareDisabled) return;
+              onShare();
+            }}
+          >
+            {shareDisabled ? 'Cannot share private documents' : 'Share'}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item class="author-menu-item" onSelect={() => onViewInGitHub()}>
+            View in GitHub <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 
   return (
@@ -258,21 +268,7 @@ export function Toolbar({
                 Edit
               </button>
             )}
-            {showShare &&
-              view !== 'edit' &&
-              (shareTooltip ? (
-                <Tooltip.Root>
-                  <Tooltip.Trigger asChild>{shareButton}</Tooltip.Trigger>
-                  <Tooltip.Portal>
-                    <Tooltip.Content class="toolbar-tooltip" side="bottom" align="center" sideOffset={6}>
-                      {shareTooltip}
-                      <Tooltip.Arrow class="toolbar-tooltip-arrow" />
-                    </Tooltip.Content>
-                  </Tooltip.Portal>
-                </Tooltip.Root>
-              ) : (
-                shareButton
-              ))}
+            {showShare && view !== 'edit' && authorMenu}
             {editUrl && (
               <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
                 Edit <ExternalLink size={14} aria-hidden="true" />
@@ -299,21 +295,7 @@ export function Toolbar({
                 {saving ? 'Saving...' : 'Save'}
               </button>
             )}
-            {showShare &&
-              view === 'edit' &&
-              (shareTooltip ? (
-                <Tooltip.Root>
-                  <Tooltip.Trigger asChild>{shareButton}</Tooltip.Trigger>
-                  <Tooltip.Portal>
-                    <Tooltip.Content class="toolbar-tooltip" side="bottom" align="center" sideOffset={6}>
-                      {shareTooltip}
-                      <Tooltip.Arrow class="toolbar-tooltip-arrow" />
-                    </Tooltip.Content>
-                  </Tooltip.Portal>
-                </Tooltip.Root>
-              ) : (
-                shareButton
-              ))}
+            {showShare && view === 'edit' && authorMenu}
             {showSignInToSave && (
               <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
                 Sign in with GitHub

@@ -136,9 +136,57 @@
   gap: 8px;
 }
 
-.action-buttons > button[data-share-button="true"] > .lucide {
-  margin-left: 1px;
-  transform: translateY(2px);
+.author-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  min-width: 35px;
+  height: 35px;
+  min-height: 35px;
+  padding: 0;
+}
+
+.author-menu-content {
+  min-width: 165px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 20;
+}
+
+.author-menu-item {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+
+.author-menu-item:hover,
+.author-menu-item[data-highlighted] {
+  background: var(--btn-hover);
+}
+
+.author-menu-item[data-disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.author-menu-item-icon {
+  margin-left: 4px;
+  flex: none;
 }
 
 .edit-on-input-link {
