@@ -5,6 +5,8 @@ import {
   GITHUB_CLIENT_SECRET,
   GITHUB_FETCH_TIMEOUT_MS,
   GITHUB_TOKEN,
+  OPENROUTER_API_KEY,
+  READER_AI_TIMEOUT_MS,
   SHARE_TOKEN_SECRET,
   SHARE_TOKEN_TTL_SECONDS,
 } from './config';
@@ -76,6 +78,30 @@ interface ShareRepoFileCreateBody {
   installationId?: unknown;
   repoFullName?: unknown;
   path?: unknown;
+}
+
+interface ReaderAiModelEntry {
+  id: string;
+  name: string;
+}
+
+interface ReaderAiChatBody {
+  model?: unknown;
+  source?: unknown;
+  messages?: unknown;
+}
+
+interface ReaderAiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+interface OpenRouterModelsResponse {
+  data?: Array<{
+    id?: unknown;
+    name?: unknown;
+    description?: unknown;
+  }>;
 }
 
 const SHARE_LINKS_NOT_CONFIGURED_ERROR = {
@@ -225,6 +251,114 @@ async function readGitHubErrorMessage(ghRes: Response, fallback = 'GitHub API er
     const trimmed = text.trim();
     return trimmed || fallback;
   }
+}
+
+const READER_AI_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
+const READER_AI_MAX_SOURCE_CHARS = 140_000;
+const READER_AI_MAX_MESSAGES = 24;
+const READER_AI_MAX_MESSAGE_CHARS = 16_000;
+const READER_AI_MIN_MODEL_PARAMS_B = 15;
+let readerAiModelsCache: { value: ReaderAiModelEntry[]; expiresAt: number } | null = null;
+
+function modelParamsEstimateBillions(entry: { id?: unknown; name?: unknown; description?: unknown }): number | null {
+  const text = [
+    typeof entry.name === 'string' ? entry.name : '',
+    typeof entry.id === 'string' ? entry.id : '',
+    typeof entry.description === 'string' ? entry.description : '',
+  ]
+    .join(' ')
+    .toLowerCase();
+  if (!text) return null;
+
+  let best = 0;
+  const mixtureMatches = text.matchAll(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*b\b/g);
+  for (const match of mixtureMatches) {
+    const experts = Number(match[1]);
+    const perExpert = Number(match[2]);
+    if (!Number.isFinite(experts) || !Number.isFinite(perExpert)) continue;
+    best = Math.max(best, experts * perExpert);
+  }
+
+  const billionMatches = text.matchAll(/(\d+(?:\.\d+)?)\s*b\b/g);
+  for (const match of billionMatches) {
+    const billions = Number(match[1]);
+    if (!Number.isFinite(billions)) continue;
+    best = Math.max(best, billions);
+  }
+
+  const millionMatches = text.matchAll(/(\d+(?:\.\d+)?)\s*m\b/g);
+  for (const match of millionMatches) {
+    const millions = Number(match[1]);
+    if (!Number.isFinite(millions)) continue;
+    best = Math.max(best, millions / 1000);
+  }
+
+  return best > 0 ? best : null;
+}
+
+function ensureOpenRouterConfigured(): void {
+  if (!OPENROUTER_API_KEY) {
+    throw new ClientError('Reader AI is not configured on this server', 503);
+  }
+}
+
+function normalizeReaderAiMessages(raw: unknown): ReaderAiChatMessage[] {
+  if (!Array.isArray(raw)) throw new ClientError('messages must be an array', 400);
+  if (raw.length === 0) throw new ClientError('messages cannot be empty', 400);
+  if (raw.length > READER_AI_MAX_MESSAGES) throw new ClientError('Too many messages', 400);
+  const messages: ReaderAiChatMessage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') throw new ClientError('Invalid message payload', 400);
+    const role = (item as { role?: unknown }).role;
+    const content = (item as { content?: unknown }).content;
+    if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') {
+      throw new ClientError('Invalid message payload', 400);
+    }
+    const trimmed = content.trim();
+    if (!trimmed) throw new ClientError('Message content cannot be empty', 400);
+    messages.push({
+      role,
+      content: trimmed.slice(0, READER_AI_MAX_MESSAGE_CHARS),
+    });
+  }
+  return messages;
+}
+
+async function fetchReaderAiModels(req: http.IncomingMessage): Promise<ReaderAiModelEntry[]> {
+  const now = Date.now();
+  if (readerAiModelsCache && readerAiModelsCache.expiresAt > now) return readerAiModelsCache.value;
+
+  const upstream = await fetch('https://openrouter.ai/api/v1/models', {
+    headers: {
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': APP_URL || requestBaseUrl(req),
+      'X-Title': 'Input Reader AI',
+    },
+    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+  });
+
+  const payload = (await upstream.json().catch(() => null)) as OpenRouterModelsResponse | null;
+  if (!upstream.ok) {
+    const message = `OpenRouter model listing failed (${upstream.status})`;
+    throw new ClientError(message, 502);
+  }
+
+  const data = Array.isArray(payload?.data) ? payload.data : [];
+  const models = data
+    .map((entry) => {
+      const id = typeof entry.id === 'string' ? entry.id : '';
+      const name = typeof entry.name === 'string' ? entry.name : id;
+      if (!id.endsWith(':free')) return null;
+      const paramsBillions = modelParamsEstimateBillions(entry);
+      if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) return null;
+      return { id, name };
+    })
+    .filter((entry): entry is ReaderAiModelEntry => Boolean(entry))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  readerAiModelsCache = { value: models, expiresAt: now + READER_AI_MODELS_CACHE_TTL_MS };
+  return models;
 }
 
 async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<Response> {
@@ -885,6 +1019,98 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
   }
 }
 
+async function handleReaderAiModels(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  ensureOpenRouterConfigured();
+  const models = await fetchReaderAiModels(ctx.req);
+  json(ctx.res, 200, { models });
+}
+
+async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  ensureOpenRouterConfigured();
+
+  const body = (await readJson(ctx.req)) as ReaderAiChatBody | null;
+  const model = typeof body?.model === 'string' ? body.model.trim() : '';
+  const source = typeof body?.source === 'string' ? body.source.trim() : '';
+  if (!model) throw new ClientError('model is required', 400);
+  if (!source) throw new ClientError('source is required', 400);
+  const messages = normalizeReaderAiMessages(body?.messages);
+
+  try {
+    const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': APP_URL || requestBaseUrl(ctx.req),
+        'X-Title': 'Input Reader AI',
+      },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a helpful assistant. Answer questions about the provided markdown document. Cite specific details from the document when possible. If the document lacks the answer, say so plainly.',
+          },
+          {
+            role: 'user',
+            content: `Markdown document:\n\n${source.slice(-READER_AI_MAX_SOURCE_CHARS)}`,
+          },
+          ...messages,
+        ],
+      }),
+      signal: AbortSignal.timeout(READER_AI_TIMEOUT_MS),
+    });
+
+    if (!upstream.ok) {
+      const payload = (await upstream.json().catch(() => null)) as unknown;
+      const fallback = `OpenRouter request failed (${upstream.status})`;
+      const errorObj =
+        payload && typeof payload === 'object' && 'error' in payload ? (payload as { error?: unknown }).error : null;
+      const upstreamError =
+        errorObj && typeof errorObj === 'object' ? (errorObj as { message?: unknown }).message : null;
+      throw new ClientError(typeof upstreamError === 'string' && upstreamError ? upstreamError : fallback, 502);
+    }
+
+    if (!upstream.body) {
+      throw new ClientError('OpenRouter did not return a stream', 502);
+    }
+
+    ctx.res.statusCode = 200;
+    ctx.res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    ctx.res.setHeader('Cache-Control', 'no-cache');
+    ctx.res.setHeader('Connection', 'keep-alive');
+
+    const reader = upstream.body.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) ctx.res.write(Buffer.from(value));
+      }
+    } finally {
+      if (!ctx.res.writableEnded) ctx.res.end();
+    }
+  } catch (err) {
+    if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      if (!ctx.res.headersSent) throw new ClientError('Reader AI request timed out', 504);
+      if (!ctx.res.writableEnded) ctx.res.end();
+      return;
+    }
+    if (ctx.res.headersSent) {
+      console.warn('Reader AI stream failed after response start:', err);
+      if (!ctx.res.writableEnded) ctx.res.end();
+      return;
+    }
+    throw err;
+  }
+}
+
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const RAW_CONTENT_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const TREE_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tree$/;
@@ -919,6 +1145,8 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: PUBLIC_REPO_RAW_PATTERN, handler: handleGetPublicRepoRaw },
   { method: 'GET', pattern: PUBLIC_REPO_TREE_PATTERN, handler: handleGetPublicTree },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
+  { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
+  { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },
 ];
 
 export async function handleApiRequest(

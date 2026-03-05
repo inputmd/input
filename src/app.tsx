@@ -6,6 +6,7 @@ import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMa
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageLightbox } from './components/ImageLightbox';
+import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
@@ -59,6 +60,7 @@ import {
 } from './github_app';
 import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
+import { askReaderAiStream, listReaderAiModels, type ReaderAiModel, readerAiModelPriorityRank } from './reader_ai';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
 import {
@@ -75,6 +77,9 @@ import { LoadingView } from './views/LoadingView';
 import { WorkspacesView } from './views/WorkspacesView';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
+const READER_AI_VISIBLE_KEY = 'reader_ai_visible';
+const READER_AI_MODEL_KEY = 'reader_ai_model';
+const READER_AI_WIDTH_KEY = 'reader_ai_width_px';
 const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const DRAFT_TITLE_KEY = 'draft_title';
@@ -84,6 +89,9 @@ const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
 const DEFAULT_SIDEBAR_WIDTH_PX = 220;
 const MIN_SIDEBAR_WIDTH_PX = 180;
 const MAX_SIDEBAR_WIDTH_PX = 420;
+const DEFAULT_READER_AI_WIDTH_PX = 360;
+const MIN_READER_AI_WIDTH_PX = 280;
+const MAX_READER_AI_WIDTH_PX = 640;
 const SIDEBAR_FILE_FILTER_KEY = 'sidebar_file_filter';
 const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
 const PASTED_IMAGE_MAX_SIDE_PX = 1600;
@@ -93,6 +101,7 @@ const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
 const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
 const MARKDOWN_LINK_PREVIEW_MAX_CHARS = 1800;
 const MARKDOWN_LINK_PREVIEW_MAX_LINES = 18;
+const READER_AI_SOURCE_MAX_CHARS = 140_000;
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
@@ -268,8 +277,31 @@ function removeImagesFromHtml(html: string): string {
   return template.innerHTML;
 }
 
+function trimReaderAiSource(source: string): string {
+  if (source.length <= READER_AI_SOURCE_MAX_CHARS) return source;
+  return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
+}
+
 function clampSidebarWidth(width: number): number {
   return Math.max(MIN_SIDEBAR_WIDTH_PX, Math.min(MAX_SIDEBAR_WIDTH_PX, width));
+}
+
+function clampReaderAiWidth(width: number): number {
+  return Math.max(MIN_READER_AI_WIDTH_PX, Math.min(MAX_READER_AI_WIDTH_PX, width));
+}
+
+function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
+  return models
+    .map((model, originalIndex) => ({ model, originalIndex, rank: readerAiModelPriorityRank(model) }))
+    .sort((a, b) => {
+      if (a.rank !== b.rank) {
+        if (a.rank === -1) return 1;
+        if (b.rank === -1) return -1;
+        return a.rank - b.rank;
+      }
+      return a.originalIndex - b.originalIndex;
+    })
+    .map(({ model }) => model);
 }
 
 function resolveRepoAssetPath(currentDocPath: string, src: string): string | null {
@@ -513,6 +545,37 @@ export function App() {
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
   const [contentAlertDownloadHref, setContentAlertDownloadHref] = useState<string | null>(null);
   const [contentAlertDownloadName, setContentAlertDownloadName] = useState<string | null>(null);
+  const [readerAiVisible, setReaderAiVisible] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem(READER_AI_VISIBLE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [readerAiSource, setReaderAiSource] = useState('');
+  const [readerAiModels, setReaderAiModels] = useState<ReaderAiModel[]>([]);
+  const [readerAiModelsLoading, setReaderAiModelsLoading] = useState(false);
+  const [readerAiModelsError, setReaderAiModelsError] = useState<string | null>(null);
+  const [readerAiSelectedModel, setReaderAiSelectedModel] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return localStorage.getItem(READER_AI_MODEL_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [readerAiWidth, setReaderAiWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return DEFAULT_READER_AI_WIDTH_PX;
+    try {
+      const raw = Number(localStorage.getItem(READER_AI_WIDTH_KEY));
+      if (Number.isFinite(raw)) return clampReaderAiWidth(raw);
+    } catch {}
+    return DEFAULT_READER_AI_WIDTH_PX;
+  });
+  const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
+  const [readerAiSending, setReaderAiSending] = useState(false);
+  const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -570,6 +633,8 @@ export function App() {
   const initialized = useRef(false);
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
+  const readerAiAbortRef = useRef<AbortController | null>(null);
+  const readerAiPrevSourceRef = useRef('');
   const activeView = viewPhase ?? viewFromRoute(route);
   const isContentRoute = useCallback((nextRoute: Route) => {
     return nextRoute.name === 'gist' || nextRoute.name === 'repofile' || nextRoute.name === 'sharefile';
@@ -718,6 +783,8 @@ export function App() {
     ) => {
       if (isMarkdownFileName(fileName)) {
         setIsClaudeTranscript(false);
+        setReaderAiSource(content);
+
         setContentImagePreview(null);
         setContentAlertMessage(null);
         setContentAlertDownloadHref(null);
@@ -743,6 +810,8 @@ export function App() {
         setRenderedHtml(parseMarkdownToHtml(markdown, { breaks: false, claudeTranscript: true }));
         setRenderMode('markdown');
         setIsClaudeTranscript(true);
+        setReaderAiSource(content);
+
         setContentImagePreview(null);
         setContentAlertMessage(
           'This is a Claude Code export. Use ↑/↓ to move between messages and ←/→ to jump between user messages.',
@@ -755,6 +824,7 @@ export function App() {
       setRenderedHtml(parseAnsiToHtml(content));
       setRenderMode('ansi');
       setIsClaudeTranscript(false);
+      setReaderAiSource('');
       setContentImagePreview(null);
       setContentAlertMessage(null);
       setContentAlertDownloadHref(null);
@@ -768,6 +838,7 @@ export function App() {
     setRenderedHtml('');
     setRenderMode('image');
     setIsClaudeTranscript(false);
+    setReaderAiSource('');
     setContentImagePreview({ src: imageSrc, alt: fileName ?? 'Image' });
     setContentAlertMessage(null);
     setContentAlertDownloadHref(null);
@@ -781,6 +852,7 @@ export function App() {
       setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
       setRenderMode('ansi');
       setIsClaudeTranscript(false);
+      setReaderAiSource('');
       setContentImagePreview(null);
       setContentAlertMessage('Binary file detected.');
       setContentAlertDownloadHref(downloadHref);
@@ -1841,6 +1913,24 @@ export function App() {
 
   useLayoutEffect(() => {
     try {
+      localStorage.setItem(READER_AI_VISIBLE_KEY, readerAiVisible ? 'true' : 'false');
+    } catch {}
+  }, [readerAiVisible]);
+
+  useLayoutEffect(() => {
+    try {
+      localStorage.setItem(READER_AI_MODEL_KEY, readerAiSelectedModel);
+    } catch {}
+  }, [readerAiSelectedModel]);
+
+  useLayoutEffect(() => {
+    try {
+      localStorage.setItem(READER_AI_WIDTH_KEY, String(readerAiWidth));
+    } catch {}
+  }, [readerAiWidth]);
+
+  useLayoutEffect(() => {
+    try {
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
     } catch {}
   }, [sidebarWidth]);
@@ -1887,6 +1977,187 @@ export function App() {
 
   const onTogglePreview = useCallback(() => {
     setPreviewVisible((v) => !v);
+  }, []);
+
+  const onToggleReaderAi = useCallback(() => {
+    setReaderAiVisible((visible) => !visible);
+  }, []);
+
+  const loadReaderAiModels = useCallback(async () => {
+    setReaderAiModelsLoading(true);
+    setReaderAiModelsError(null);
+    try {
+      const models = prioritizeReaderAiModels(await listReaderAiModels());
+      setReaderAiModels(models);
+      setReaderAiSelectedModel((current) => {
+        if (current && models.some((model) => model.id === current)) return current;
+        return models[0]?.id ?? '';
+      });
+    } catch (err) {
+      setReaderAiModels([]);
+      setReaderAiModelsError(err instanceof Error ? err.message : 'Failed to load Reader AI models');
+    } finally {
+      setReaderAiModelsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const prevSource = readerAiPrevSourceRef.current;
+    readerAiPrevSourceRef.current = readerAiSource;
+    if (activeView === 'content' && renderMode === 'markdown' && readerAiSource) {
+      if (prevSource && prevSource !== readerAiSource) {
+        readerAiAbortRef.current?.abort();
+        readerAiAbortRef.current = null;
+        setReaderAiSending(false);
+        setReaderAiMessages([]);
+        setReaderAiError(null);
+      }
+      return;
+    }
+    readerAiAbortRef.current?.abort();
+    readerAiAbortRef.current = null;
+    setReaderAiSending(false);
+    setReaderAiMessages([]);
+    setReaderAiError(null);
+  }, [activeView, renderMode, readerAiSource]);
+
+  useEffect(() => {
+    return () => {
+      readerAiAbortRef.current?.abort();
+      readerAiAbortRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!readerAiVisible || readerAiModelsLoading || readerAiModels.length > 0 || readerAiModelsError) return;
+    void loadReaderAiModels();
+  }, [loadReaderAiModels, readerAiModels.length, readerAiModelsError, readerAiModelsLoading, readerAiVisible]);
+
+  const streamReaderAiAssistant = useCallback(
+    async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
+      const model = readerAiSelectedModel;
+      const source = trimReaderAiSource(readerAiSource);
+      if (!model || !source) return false;
+      const assistantEdited = options?.edited === true;
+      readerAiAbortRef.current?.abort();
+      const controller = new AbortController();
+      readerAiAbortRef.current = controller;
+      setReaderAiMessages([
+        ...baseMessages,
+        assistantEdited ? { role: 'assistant', content: '', edited: true } : { role: 'assistant', content: '' },
+      ]);
+      setReaderAiSending(true);
+      setReaderAiError(null);
+      let received = false;
+      try {
+        await askReaderAiStream(
+          model,
+          source,
+          baseMessages.map((message) => ({ role: message.role, content: message.content })),
+          {
+            signal: controller.signal,
+            onDelta: (delta) => {
+              if (!delta) return;
+              received = true;
+              setReaderAiMessages((current) => {
+                if (current.length === 0) {
+                  return assistantEdited
+                    ? [{ role: 'assistant', content: delta, edited: true }]
+                    : [{ role: 'assistant', content: delta }];
+                }
+                const updated = [...current];
+                const lastIndex = updated.length - 1;
+                const last = updated[lastIndex];
+                if (last.role !== 'assistant') {
+                  updated.push(
+                    assistantEdited
+                      ? { role: 'assistant', content: delta, edited: true }
+                      : { role: 'assistant', content: delta },
+                  );
+                  return updated;
+                }
+                updated[lastIndex] = { ...last, content: `${last.content}${delta}` };
+                return updated;
+              });
+            },
+          },
+        );
+        if (!received) {
+          setReaderAiMessages((current) => {
+            if (current.length === 0) {
+              return assistantEdited
+                ? [{ role: 'assistant', content: 'No response.', edited: true }]
+                : [{ role: 'assistant', content: 'No response.' }];
+            }
+            const updated = [...current];
+            const lastIndex = updated.length - 1;
+            const last = updated[lastIndex];
+            if (last.role !== 'assistant') {
+              updated.push(
+                assistantEdited
+                  ? { role: 'assistant', content: 'No response.', edited: true }
+                  : { role: 'assistant', content: 'No response.' },
+              );
+              return updated;
+            }
+            if (!last.content.trim()) updated[lastIndex] = { ...last, content: 'No response.' };
+            return updated;
+          });
+        }
+        return true;
+      } catch (err) {
+        setReaderAiMessages((current) => {
+          if (current.length === 0) return current;
+          const last = current[current.length - 1];
+          if (last.role === 'assistant' && !last.content.trim()) return current.slice(0, -1);
+          return current;
+        });
+        if (err instanceof DOMException && err.name === 'AbortError') return true;
+        setReaderAiError(err instanceof Error ? err.message : 'Reader AI request failed');
+        return false;
+      } finally {
+        if (readerAiAbortRef.current === controller) readerAiAbortRef.current = null;
+        setReaderAiSending(false);
+      }
+    },
+    [readerAiSelectedModel, readerAiSource],
+  );
+
+  const onReaderAiSend = useCallback(
+    async (prompt: string) => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt) return true;
+      return streamReaderAiAssistant([...readerAiMessages, { role: 'user', content: trimmedPrompt }]);
+    },
+    [readerAiMessages, streamReaderAiAssistant],
+  );
+
+  const onReaderAiEditMessage = useCallback(
+    async (index: number, nextContent: string) => {
+      const trimmedContent = nextContent.trim();
+      if (!trimmedContent) return;
+      if (index < 0 || index >= readerAiMessages.length) return;
+      const target = readerAiMessages[index];
+      if (!target || target.role !== 'user' || target.content === trimmedContent) return;
+      const updated = readerAiMessages
+        .slice(0, index + 1)
+        .map((message, messageIndex) =>
+          messageIndex === index ? { ...message, content: trimmedContent, edited: false } : message,
+        );
+      await streamReaderAiAssistant(updated, { edited: true });
+    },
+    [readerAiMessages, streamReaderAiAssistant],
+  );
+
+  const onReaderAiStop = useCallback(() => {
+    readerAiAbortRef.current?.abort();
+    readerAiAbortRef.current = null;
+    setReaderAiSending(false);
+  }, []);
+
+  const onReaderAiClear = useCallback(() => {
+    setReaderAiMessages([]);
+    setReaderAiError(null);
   }, []);
 
   // --- Sign out ---
@@ -3193,6 +3464,23 @@ export function App() {
     },
     [isDesktopWidth],
   );
+  const onReaderAiSplitPointerDown = useCallback(
+    (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
+      if (!isDesktopWidth) return;
+      const onMove = (moveEvent: globalThis.PointerEvent) => {
+        setReaderAiWidth(clampReaderAiWidth(window.innerWidth - moveEvent.clientX));
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      event.preventDefault();
+    },
+    [isDesktopWidth],
+  );
   const onOpenLightbox = useCallback((src: string, alt: string) => {
     setLightboxImage({ src, alt });
   }, []);
@@ -3222,6 +3510,8 @@ export function App() {
     activeView === 'content' &&
     isMarkdownFileName(currentFileName) &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
+  const showReaderAiToggle = activeView === 'content' && renderMode === 'markdown' && Boolean(readerAiSource);
+  const showReaderAiPanel = showReaderAiToggle && readerAiVisible;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
     repoAccessMode === 'installed' &&
@@ -3296,6 +3586,9 @@ export function App() {
         showPreviewToggle={activeView === 'edit' && editPreviewEnabled}
         previewVisible={previewVisible}
         onTogglePreview={onTogglePreview}
+        showAiToggle={showReaderAiToggle}
+        aiVisible={showReaderAiPanel}
+        onToggleAi={onToggleReaderAi}
         showCancel={showEditorCancel}
         onCancel={onCancel}
         showSave={showEditorSave}
@@ -3305,8 +3598,15 @@ export function App() {
         onSignInWithGitHub={handleSignInWithGitHub}
       />
       <div
-        class={showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}
-        style={showSidebar ? ({ '--sidebar-width': `${sidebarWidth}px` } as JSX.CSSProperties) : undefined}
+        class={`${showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}${showReaderAiPanel ? ' app-body--with-reader-ai' : ''}`}
+        style={
+          showSidebar || showReaderAiPanel
+            ? ({
+                ...(showSidebar ? { '--sidebar-width': `${sidebarWidth}px` } : {}),
+                ...(showReaderAiPanel ? { '--reader-ai-width': `${readerAiWidth}px` } : {}),
+              } as JSX.CSSProperties)
+            : undefined
+        }
       >
         {showSidebar && (
           <>
@@ -3348,6 +3648,30 @@ export function App() {
         >
           <main>{renderView()}</main>
         </ErrorBoundary>
+        {showReaderAiPanel ? (
+          <>
+            <div
+              class="reader-ai-splitter"
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={onReaderAiSplitPointerDown}
+            />
+            <ReaderAiPanel
+              models={readerAiModels}
+              modelsLoading={readerAiModelsLoading}
+              modelsError={readerAiModelsError}
+              selectedModel={readerAiSelectedModel}
+              onSelectModel={setReaderAiSelectedModel}
+              messages={readerAiMessages}
+              sending={readerAiSending}
+              error={readerAiError}
+              onSend={onReaderAiSend}
+              onEditMessage={onReaderAiEditMessage}
+              onStop={onReaderAiStop}
+              onClear={onReaderAiClear}
+            />
+          </>
+        ) : null}
       </div>
       {lightboxImage && <ImageLightbox src={lightboxImage.src} alt={lightboxImage.alt} onClose={onCloseLightbox} />}
     </>

@@ -11,6 +11,7 @@ import './styles/toolbar.css';
 import './styles/sidebar.css';
 import './styles/editor.css';
 import './styles/markdown.css';
+import './styles/reader_ai.css';
 import './styles/documents.css';
 import './styles/dialog.css';
 

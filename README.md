@@ -14,6 +14,9 @@ Multi-file markdown documents, backed by Gists & repos.
     one or more `.md` files.
 - **Connect to repos** — Connects to your GitHub repos as an installed
     application, to read/write Markdown files from the repo root.
+- **Reader AI for markdown** — In rendered markdown view, toggle a
+    right-side AI panel to ask questions about the current document using
+    free OpenRouter models.
 
 ## Prerequisites
 
@@ -91,6 +94,13 @@ Optional frontend cache tuning:
 - `VITE_REPO_CONTENTS_CACHE_TTL_MS` controls client-side cache TTL for
   `GET /api/github-app/installations/:id/repos/:owner/:repo/contents`.
 
+Optional Reader AI setup:
+
+- Set `OPENROUTER_API_KEY` in `.env` to enable markdown Q&A in the Reader
+  AI panel.
+- Reader AI requests are proxied through the backend (`/api/ai/*`) and
+  do not call OpenRouter directly from the browser.
+
 ## Building for production
 
 ```
@@ -122,6 +132,7 @@ fly secrets set GITHUB_CLIENT_SECRET=...
 fly secrets set GITHUB_APP_ID=...
 fly secrets set GITHUB_APP_SLUG=...
 fly secrets set GITHUB_APP_PRIVATE_KEY="$(cat path/to/private-key.pem)"
+fly secrets set OPENROUTER_API_KEY=...
 fly deploy
 ```
 
