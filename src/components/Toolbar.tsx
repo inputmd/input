@@ -112,6 +112,11 @@ export function Toolbar({
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
+  const runAuthorMenuAction = (event: Event, action: () => void): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  };
   const authorMenu = (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -121,10 +126,20 @@ export function Toolbar({
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content class="author-menu-content" sideOffset={6} align="end">
-          <DropdownMenu.Item class="author-menu-item" onSelect={() => onShare()}>
+          <DropdownMenu.Item
+            class="author-menu-item"
+            onSelect={(event: Event) => {
+              runAuthorMenuAction(event, onShare);
+            }}
+          >
             Share
           </DropdownMenu.Item>
-          <DropdownMenu.Item class="author-menu-item" onSelect={() => onViewInGitHub()}>
+          <DropdownMenu.Item
+            class="author-menu-item"
+            onSelect={(event: Event) => {
+              runAuthorMenuAction(event, onViewInGitHub);
+            }}
+          >
             View in GitHub <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
           </DropdownMenu.Item>
           {openInInputMdUrl ? (
@@ -132,8 +147,10 @@ export function Toolbar({
               <DropdownMenu.Separator class="user-menu-separator" />
               <DropdownMenu.Item
                 class="author-menu-item"
-                onSelect={() => {
-                  window.open(openInInputMdUrl, '_blank', 'noopener,noreferrer');
+                onSelect={(event: Event) => {
+                  runAuthorMenuAction(event, () => {
+                    window.open(openInInputMdUrl, '_blank', 'noopener,noreferrer');
+                  });
                 }}
               >
                 Open in input.md <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
