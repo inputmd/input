@@ -28,3 +28,23 @@ export function decodeBase64ToBytes(b64: string): Uint8Array {
 export function decodeBase64ToUtf8(b64: string): string {
   return new TextDecoder().decode(decodeBase64ToBytes(b64));
 }
+
+export interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+export function readCacheTtlMs(envVar: string, fallback: number): number {
+  const raw = import.meta.env[envVar];
+  if (raw == null || raw === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.floor(parsed);
+}
+
+export function encodePathForHref(path: string): string {
+  return path
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+}

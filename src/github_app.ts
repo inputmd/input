@@ -1,4 +1,5 @@
 import { responseToApiError } from './api_error';
+import { type CacheEntry, readCacheTtlMs } from './util';
 
 const INSTALLATION_ID_KEY = 'github_app_installation_id';
 const SELECTED_REPO_KEY = 'github_app_selected_repo';
@@ -9,11 +10,6 @@ const INSTALL_STATE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_REPO_CONTENTS_CACHE_TTL_MS = 30_000;
 const REPO_CONTENTS_CACHE_KEY_PREFIX = 'input_cache_v2:repo_contents:';
 const REPO_CONTENTS_CACHE_CHANNEL = 'input_cache_sync_v1';
-
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
 
 export function getInstallationId(): string | null {
   return localStorage.getItem(INSTALLATION_ID_KEY);
@@ -260,14 +256,6 @@ export interface SharedRepoFile {
 const repoContentsCache = new Map<string, CacheEntry<RepoContents>>();
 let repoContentsCacheChannel: BroadcastChannel | null = null;
 let repoContentsCacheTtlMs = readCacheTtlMs('VITE_REPO_CONTENTS_CACHE_TTL_MS', DEFAULT_REPO_CONTENTS_CACHE_TTL_MS);
-
-function readCacheTtlMs(envVar: string, fallback: number): number {
-  const raw = import.meta.env[envVar];
-  if (raw == null || raw === '') return fallback;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
-  return Math.floor(parsed);
-}
 
 function repoContentsCacheKey(installationId: string, repoFullName: string, path: string, ref?: string): string {
   return `${installationId}|${repoFullName}|${ref ?? ''}|${path}`;

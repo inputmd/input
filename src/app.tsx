@@ -59,7 +59,7 @@ import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
-import { decodeBase64ToBytes, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
+import { decodeBase64ToBytes, encodePathForHref, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
 import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
@@ -288,13 +288,6 @@ function resolveRelativeDocPath(currentDocPath: string, targetPath: string): str
     ? pathWithoutSuffix.slice(1)
     : `${dirName(currentDocPath)}/${pathWithoutSuffix}`;
   return normalizeRepoPath(pathWithBase);
-}
-
-function encodePathForHref(path: string): string {
-  return path
-    .split('/')
-    .map((part) => encodeURIComponent(part))
-    .join('/');
 }
 
 interface WikiLinkResolver {

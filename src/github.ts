@@ -1,4 +1,5 @@
 import { responseToApiError } from './api_error';
+import { type CacheEntry, readCacheTtlMs } from './util';
 
 const API_BASE = '/api/github';
 const DEFAULT_GISTS_CACHE_TTL_MS = 120_000;
@@ -7,25 +8,12 @@ const GISTS_CACHE_KEY_PREFIX = 'input_cache_v1:gists:';
 const GIST_DETAIL_CACHE_KEY_PREFIX = 'input_cache_v1:gist:';
 const GISTS_CACHE_CHANNEL = 'input_cache_sync_v1';
 
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-
 const gistListCache = new Map<string, CacheEntry<GistSummary[]>>();
 const gistDetailCache = new Map<string, CacheEntry<GistDetail>>();
 let gistsCacheChannel: BroadcastChannel | null = null;
 
 let gistsCacheTtlMs = readCacheTtlMs('VITE_GISTS_CACHE_TTL_MS', DEFAULT_GISTS_CACHE_TTL_MS);
 let gistDetailCacheTtlMs = readCacheTtlMs('VITE_GIST_DETAIL_CACHE_TTL_MS', DEFAULT_GIST_DETAIL_CACHE_TTL_MS);
-
-function readCacheTtlMs(envVar: string, fallback: number): number {
-  const raw = import.meta.env[envVar];
-  if (raw == null || raw === '') return fallback;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
-  return Math.floor(parsed);
-}
 
 function gistListCacheKey(page: number, perPage: number): string {
   return `${page}:${perPage}`;

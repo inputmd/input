@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import matter from 'gray-matter';
 import { marked } from 'marked';
-import { isExternalHttpHref } from './util';
+import { encodePathForHref, isExternalHttpHref } from './util';
 
 marked.setOptions({
   gfm: true,
@@ -19,13 +19,6 @@ function normalizeWikiTargetPath(raw: string): string {
   const basePath = hasExplicitPathSeparators ? trimmed.replace(/\\/g, '/') : wikiSlug(trimmed);
   if (/\.(?:md|markdown)$/i.test(basePath)) return basePath;
   return `${basePath}.md`;
-}
-
-function encodePathForHref(path: string): string {
-  return path
-    .split('/')
-    .map((part) => encodeURIComponent(part))
-    .join('/');
 }
 
 function escapeHtmlAttr(value: string): string {
