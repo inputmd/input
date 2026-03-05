@@ -44,6 +44,12 @@ function lastPathSegment(path: string): string {
   return parts.at(-1) ?? path;
 }
 
+function footnoteTargetIdFromAnchor(anchor: HTMLAnchorElement): string | null {
+  const href = (anchor.getAttribute('href') || '').trim();
+  if (!href.startsWith('#fn-')) return null;
+  return href.slice(1);
+}
+
 export function ContentView({
   html,
   markdown,
@@ -366,6 +372,58 @@ export function ContentView({
     [hidePreview],
   );
 
+  const showCitationPreviewForAnchor = useCallback(
+    (anchor: HTMLAnchorElement) => {
+      const targetId = footnoteTargetIdFromAnchor(anchor);
+      if (!targetId) {
+        hidePreview();
+        return;
+      }
+
+      const root = renderedMarkdownRef.current;
+      if (!root) {
+        hidePreview();
+        return;
+      }
+
+      const target = root.querySelector<HTMLElement>(`#${CSS.escape(targetId)}`);
+      if (!target) {
+        hidePreview();
+        return;
+      }
+
+      const clone = target.cloneNode(true);
+      if (!(clone instanceof HTMLElement)) {
+        hidePreview();
+        return;
+      }
+
+      clone.querySelectorAll('.footnote-backrefs').forEach((backrefs) => {
+        backrefs.remove();
+      });
+      const htmlContent = clone.innerHTML.trim();
+      if (!htmlContent) {
+        hidePreview();
+        return;
+      }
+
+      const rect = anchor.getBoundingClientRect();
+      const requestId = hoverRequestIdRef.current + 1;
+      hoverRequestIdRef.current = requestId;
+      hoverAnchorRef.current = anchor;
+      setPreview({
+        visible: true,
+        loading: false,
+        top: Math.round(rect.bottom + 8),
+        left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
+        title: `Citation ${anchor.textContent?.trim() || ''}`.trim(),
+        html: htmlContent,
+        url: null,
+      });
+    },
+    [hidePreview],
+  );
+
   const onRenderedMarkdownMouseMove = useCallback(
     (event: MouseEvent) => {
       if (pointerDownRef.current && pointerDownPositionRef.current) {
@@ -384,6 +442,10 @@ export function ContentView({
       if (anchor === hoverAnchorRef.current && preview.visible) return;
       clearHoverDelay();
       hoverDelayTimerRef.current = window.setTimeout(() => {
+        if (footnoteTargetIdFromAnchor(anchor)) {
+          showCitationPreviewForAnchor(anchor);
+          return;
+        }
         const route = resolveInternalRoute(anchor);
         if (route && isMarkdownHref(route) && onRequestMarkdownLinkPreview) {
           showPreviewForAnchor(anchor);
@@ -399,6 +461,7 @@ export function ContentView({
       onRequestMarkdownLinkPreview,
       preview.visible,
       resolveInternalRoute,
+      showCitationPreviewForAnchor,
       showPreviewForAnchor,
       showUrlOnlyPreviewForAnchor,
     ],
