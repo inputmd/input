@@ -202,6 +202,19 @@ function respondGitHubError(res: http.ServerResponse, ghRes: Response, fallbackM
   json(res, ghRes.status, { error: message, github: info });
 }
 
+async function readGitHubErrorMessage(ghRes: Response, fallback = 'GitHub API error'): Promise<string> {
+  const text = await ghRes.text().catch(() => '');
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text) as GitHubApiError;
+    const message = typeof parsed.message === 'string' ? parsed.message.trim() : '';
+    return message || fallback;
+  } catch {
+    const trimmed = text.trim();
+    return trimmed || fallback;
+  }
+}
+
 async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<Response> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
@@ -821,9 +834,8 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
         json(ctx.res, 200, cached.data);
         return;
       }
-      json(ctx.res, ghRes.status === 404 ? 404 : 502, {
-        error: ghRes.status === 404 ? 'Gist not found' : 'GitHub API error',
-      });
+      const message = await readGitHubErrorMessage(ghRes, 'GitHub API error');
+      respondGitHubError(ctx.res, ghRes, message, `/gists/${encodeURIComponent(gistId)} [public]`);
       return;
     }
 
