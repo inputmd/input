@@ -16,6 +16,16 @@ import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
 
+function isLocalhostHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function getOpenInInputMdUrl(): string | null {
+  const { hostname, pathname, search, hash } = window.location;
+  if (!isLocalhostHostname(hostname)) return null;
+  return `https://input.md${pathname}${search}${hash}`;
+}
+
 export type ActiveView = 'workspaces' | 'loading' | 'error' | 'content' | 'edit';
 
 interface ToolbarProps {
@@ -101,6 +111,7 @@ export function Toolbar({
   const showSidebarToggle = view === 'content' || view === 'edit';
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
+  const openInInputMdUrl = getOpenInInputMdUrl();
   const authorMenu = (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -116,6 +127,19 @@ export function Toolbar({
           <DropdownMenu.Item class="author-menu-item" onSelect={() => onViewInGitHub()}>
             View in GitHub <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
           </DropdownMenu.Item>
+          {openInInputMdUrl ? (
+            <>
+              <DropdownMenu.Separator class="user-menu-separator" />
+              <DropdownMenu.Item
+                class="author-menu-item"
+                onSelect={() => {
+                  window.open(openInInputMdUrl, '_blank', 'noopener,noreferrer');
+                }}
+              >
+                Open in input.md <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
+              </DropdownMenu.Item>
+            </>
+          ) : null}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
