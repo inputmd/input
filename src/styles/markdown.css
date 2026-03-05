@@ -42,7 +42,7 @@
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: 17px;
-  line-height: 1.25;
+  line-height: 1;
   text-align: left;
   color: #b66b3a;
 }
