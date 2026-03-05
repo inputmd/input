@@ -60,7 +60,14 @@ export function createRepoDocumentStore(installationId: string, repoFullName: st
         `Rename ${file.path} to ${newPath}`,
         contents.content ?? '',
       );
-      await deleteRepoFile(installationId, repoFullName, file.path, `Delete ${file.name} (renamed)`, file.sha);
+      try {
+        await deleteRepoFile(installationId, repoFullName, file.path, `Delete ${file.name} (renamed)`, file.sha);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        throw new Error(
+          `Rename partially completed. Created "${normalizedNewPath}", but failed to delete "${file.path}": ${message}`,
+        );
+      }
       return created;
     },
   };

@@ -8,6 +8,38 @@
   gap: 12px;
 }
 
+.editor-inline-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--btn-bg) 72%, transparent);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.editor-inline-alert-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.editor-inline-alert-actions button {
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.editor-inline-alert-actions button:hover {
+  background: var(--btn-hover);
+}
+
 .editor-workspace {
   flex: 1;
   min-height: 0;

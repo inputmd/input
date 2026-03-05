@@ -13,6 +13,11 @@ interface EditViewProps {
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
+  imageUploadIssue?: {
+    message: string;
+    onRetry: () => void;
+    onRemovePlaceholder: () => void;
+  } | null;
 }
 
 export function EditView({
@@ -27,6 +32,7 @@ export function EditView({
   saving,
   canSave,
   onSave,
+  imageUploadIssue,
 }: EditViewProps) {
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
@@ -155,6 +161,19 @@ export function EditView({
 
   return (
     <div class="edit-view">
+      {imageUploadIssue ? (
+        <div class="editor-inline-alert" role="status" aria-live="polite">
+          <span>{imageUploadIssue.message}</span>
+          <div class="editor-inline-alert-actions">
+            <button type="button" onClick={imageUploadIssue.onRetry}>
+              Retry Upload
+            </button>
+            <button type="button" onClick={imageUploadIssue.onRemovePlaceholder}>
+              Remove Placeholder
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div class="editor-workspace" ref={splitRef} style={layoutStyle}>
         <textarea
           class="doc-editor"

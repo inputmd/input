@@ -121,6 +121,11 @@ function isRepoWriteConflictError(err: unknown): boolean {
   return /does not match|sha/i.test(err.message);
 }
 
+function isPartialRepoRenameError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /rename partially completed/i.test(err.message);
+}
+
 function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
 }
@@ -363,6 +368,19 @@ interface MarkdownRepoSourceContext {
   publicRepoRef?: PublicRepoRef | null;
 }
 
+interface PendingImageUpload {
+  id: string;
+  installationId: string;
+  repoFullName: string;
+  imageName: string;
+  imageRepoPath: string;
+  contentB64: string;
+  resized: boolean;
+  uploadingToken: string;
+  failedToken: string;
+  finalMarkdown: string;
+}
+
 interface HistorySelectedRepo {
   full_name: string;
   id: number;
@@ -447,6 +465,12 @@ async function maybeResizePastedImage(file: File): Promise<{ bytes: Uint8Array; 
   }
 }
 
+function replaceFirst(source: string, needle: string, replacement: string): string {
+  const index = source.indexOf(needle);
+  if (index === -1) return source;
+  return `${source.slice(0, index)}${replacement}${source.slice(index + needle.length)}`;
+}
+
 function viewFromRoute(route: Route): ActiveView {
   switch (route.name) {
     case 'workspaces':
@@ -507,6 +531,7 @@ export function App() {
   const [repoFiles, setRepoFiles] = useState<RepoDocFile[]>([]);
   const [repoSidebarFiles, setRepoSidebarFiles] = useState<RepoDocFile[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [failedImageUpload, setFailedImageUpload] = useState<PendingImageUpload | null>(null);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
   const [sidebarFileFilter, setSidebarFileFilter] = useState<SidebarFileFilter>(() => {
     if (typeof window === 'undefined') return 'text';
@@ -868,6 +893,64 @@ export function App() {
     };
   }, [contentImagePreview]);
 
+  const runPendingImageUpload = useCallback(
+    async (upload: PendingImageUpload) => {
+      const uploadToastId = showLoadingToast('Uploading image...');
+      try {
+        await putRepoFile(
+          upload.installationId,
+          upload.repoFullName,
+          upload.imageRepoPath,
+          `Add image ${upload.imageName}`,
+          upload.contentB64,
+        );
+        setEditContent((prev) => {
+          let next = replaceFirst(prev, upload.uploadingToken, upload.finalMarkdown);
+          next = replaceFirst(next, upload.failedToken, upload.finalMarkdown);
+          return next;
+        });
+        setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
+        setHasUnsavedChanges(true);
+        showSuccessToast(upload.resized ? 'Image resized and uploaded' : 'Image uploaded');
+      } catch (err) {
+        setEditContent((prev) => replaceFirst(prev, upload.uploadingToken, upload.failedToken));
+        setFailedImageUpload(upload);
+        if (isRateLimitError(err)) {
+          showFailureToast(rateLimitToastMessage(err));
+          return;
+        }
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        showFailureToast(`Image upload failed: ${message}`);
+      } finally {
+        dismissToast(uploadToastId);
+      }
+    },
+    [dismissToast, showFailureToast, showLoadingToast, showSuccessToast],
+  );
+
+  const onRetryFailedImageUpload = useCallback(() => {
+    if (!failedImageUpload) return;
+    let replaced = false;
+    setEditContent((prev) => {
+      const next = replaceFirst(prev, failedImageUpload.failedToken, failedImageUpload.uploadingToken);
+      replaced = next !== prev;
+      return next;
+    });
+    if (!replaced) {
+      showFailureToast('Could not find failed upload placeholder in the editor.');
+      return;
+    }
+    setFailedImageUpload(null);
+    void runPendingImageUpload(failedImageUpload);
+  }, [failedImageUpload, runPendingImageUpload, showFailureToast]);
+
+  const onRemoveFailedImageUploadPlaceholder = useCallback(() => {
+    if (!failedImageUpload) return;
+    setEditContent((prev) => replaceFirst(prev, failedImageUpload.failedToken, ''));
+    setFailedImageUpload(null);
+    setHasUnsavedChanges(true);
+  }, [failedImageUpload]);
+
   const handleEditorPaste = useCallback(
     async (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => {
       const editor = event.currentTarget;
@@ -887,8 +970,6 @@ export function App() {
         showFailureToast('Failed to read pasted image.');
         return;
       }
-
-      const uploadToastId = showLoadingToast('Uploading image...');
       try {
         const processed = await maybeResizePastedImage(file);
         const now = new Date();
@@ -897,39 +978,38 @@ export function App() {
         const docDir = dirName(currentRepoDocPath);
         const assetDir = docDir ? `${docDir}/.assets` : '.assets';
         const imageRepoPath = `${assetDir}/${imageName}`;
-
-        const contentB64 = encodeBytesToBase64(processed.bytes);
-        await putRepoFile(installationId, selectedRepo, imageRepoPath, `Add image ${imageName}`, contentB64);
+        const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const uploadingToken = `[image-upload:${uploadId}:pending:${imageName}]`;
+        const failedToken = `[image-upload:${uploadId}:failed:${imageName}]`;
+        const finalMarkdown = `![${imageName}](./.assets/${imageName})`;
 
         const currentValue = editor.value;
         const start = editor.selectionStart;
         const end = editor.selectionEnd;
-        const insertion = `![${imageName}](./.assets/${imageName})`;
-        const next = `${currentValue.slice(0, start)}${insertion}${currentValue.slice(end)}`;
+        const next = `${currentValue.slice(0, start)}${uploadingToken}${currentValue.slice(end)}`;
         setEditContent(next);
         setHasUnsavedChanges(true);
-        dismissToast(uploadToastId);
-        showSuccessToast(processed.resized ? 'Image resized and uploaded' : 'Image uploaded');
+
+        const upload: PendingImageUpload = {
+          id: uploadId,
+          installationId,
+          repoFullName: selectedRepo,
+          imageName,
+          imageRepoPath,
+          contentB64: encodeBytesToBase64(processed.bytes),
+          resized: processed.resized,
+          uploadingToken,
+          failedToken,
+          finalMarkdown,
+        };
+        setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
+        void runPendingImageUpload(upload);
       } catch (err) {
-        dismissToast(uploadToastId);
-        if (isRateLimitError(err)) {
-          showFailureToast(rateLimitToastMessage(err));
-          return;
-        }
-        const message = err instanceof Error ? err.message : 'Upload failed';
-        showFailureToast(`Image upload failed: ${message}`);
+        const message = err instanceof Error ? err.message : 'Failed to process pasted image.';
+        showFailureToast(message);
       }
     },
-    [
-      currentRepoDocPath,
-      dismissToast,
-      editingBackend,
-      installationId,
-      selectedRepo,
-      showFailureToast,
-      showLoadingToast,
-      showSuccessToast,
-    ],
+    [currentRepoDocPath, editingBackend, installationId, runPendingImageUpload, selectedRepo, showFailureToast],
   );
 
   // --- Auth ---
@@ -2283,36 +2363,57 @@ export function App() {
         }))
       )
         return;
+      let deleteToastId = -1;
       try {
         const store = getActiveDocumentStore();
         if (!store) return;
+        if (store.kind === 'gist' && !currentGistId) return;
+        deleteToastId = showLoadingToast(`Deleting ${deleteCount} file${deleteCount === 1 ? '' : 's'}...`);
+        let completedCount = 0;
+        let batchError: unknown = null;
 
         if (store.kind === 'gist') {
-          if (!currentGistId) return;
+          const gistId = currentGistId;
+          if (!gistId) return;
           let gist = null;
           for (const path of gistTargets) {
-            gist = await store.deleteFile({ name: path });
+            try {
+              gist = await store.deleteFile({ name: path });
+              completedCount += 1;
+            } catch (err) {
+              batchError = err;
+              break;
+            }
           }
-          if (!gist) return;
-          setGistFiles(gist.files);
-          const deletedCurrent = currentFileName ? isPathInFolder(currentFileName, folderPath) : false;
-          if (deletedCurrent) {
-            const remaining = Object.keys(gist.files);
-            if (remaining.length > 0) {
-              navigate(routePath.gistView(currentGistId, remaining[0]));
-            } else {
-              navigate(routePath.workspaces());
+          if (gist) {
+            setGistFiles(gist.files);
+            const deletedCurrent = currentFileName ? isPathInFolder(currentFileName, folderPath) : false;
+            if (deletedCurrent) {
+              const remaining = Object.keys(gist.files);
+              if (remaining.length > 0) {
+                navigate(routePath.gistView(gistId, remaining[0]));
+              } else {
+                navigate(routePath.workspaces());
+              }
             }
           }
         } else {
+          const completedPaths = new Set<string>();
           for (const file of repoTargets) {
-            await store.deleteFile(file);
+            try {
+              await store.deleteFile(file);
+              completedPaths.add(file.path);
+              completedCount += 1;
+            } catch (err) {
+              batchError = err;
+              break;
+            }
           }
-          const remaining = repoFiles.filter((file) => !isPathInFolder(file.path, folderPath));
-          const remainingSidebar = repoSidebarFiles.filter((file) => !isPathInFolder(file.path, folderPath));
+          const remaining = repoFiles.filter((file) => !completedPaths.has(file.path));
+          const remainingSidebar = repoSidebarFiles.filter((file) => !completedPaths.has(file.path));
           setRepoFiles(remaining);
           setRepoSidebarFiles(remainingSidebar);
-          const deletedCurrent = currentRepoDocPath ? isPathInFolder(currentRepoDocPath, folderPath) : false;
+          const deletedCurrent = currentRepoDocPath ? completedPaths.has(currentRepoDocPath) : false;
           if (deletedCurrent) {
             if (remainingSidebar.length > 0) {
               navigate(routePath.repoFile(remainingSidebar[0].path));
@@ -2321,7 +2422,20 @@ export function App() {
             }
           }
         }
+        dismissToast(deleteToastId);
+        if (batchError) {
+          showRateLimitToastIfNeeded(batchError);
+          const remainingCount = Math.max(0, deleteCount - completedCount);
+          void showAlert(
+            `Folder delete partially completed (${completedCount}/${deleteCount}). ${remainingCount} file(s) remain. Run the same delete action again to resume.`,
+          );
+          return;
+        }
+        if (deleteCount > 1) {
+          showSuccessToast(`Deleted ${completedCount} files`);
+        }
       } catch (err) {
+        if (deleteToastId >= 0) dismissToast(deleteToastId);
         if (err instanceof SessionExpiredError) {
           handleSessionExpired();
           return;
@@ -2342,7 +2456,10 @@ export function App() {
       currentRepoDocPath,
       handleSessionExpired,
       showAlert,
+      showLoadingToast,
       showRateLimitToastIfNeeded,
+      showSuccessToast,
+      dismissToast,
     ],
   );
 
@@ -2400,6 +2517,12 @@ export function App() {
           return;
         }
         showRateLimitToastIfNeeded(err);
+        if (isPartialRepoRenameError(err)) {
+          void showAlert(
+            `${err instanceof Error ? err.message : 'Rename partially completed.'} Refresh the workspace and verify both paths before retrying.`,
+          );
+          return;
+        }
         void showAlert(err instanceof Error ? err.message : 'Failed to rename file');
       }
     },
@@ -2439,36 +2562,71 @@ export function App() {
 
   const handleRenameFolder = useCallback(
     async (oldPath: string, newPath: string) => {
+      let renameToastId = -1;
       try {
         const store = getActiveDocumentStore();
         if (!store) return;
+        if (store.kind === 'gist' && !currentGistId) return;
+        renameToastId = showLoadingToast(`Renaming folder "${oldPath}"...`);
+        let completedCount = 0;
+        let batchError: unknown = null;
 
         if (store.kind === 'gist') {
-          if (!currentGistId) return;
+          const gistId = currentGistId;
+          if (!gistId) return;
           const paths = Object.keys(gistFiles ?? {}).filter((path) => isPathInFolder(path, oldPath));
-          if (paths.length === 0) return;
+          if (paths.length === 0) {
+            dismissToast(renameToastId);
+            return;
+          }
           let gist = null;
           for (const path of paths) {
             const nextPath = renamePathWithNewFolder(path, oldPath, newPath);
-            gist = await store.renameFile({ name: path }, nextPath);
+            try {
+              gist = await store.renameFile({ name: path }, nextPath);
+              completedCount += 1;
+            } catch (err) {
+              batchError = err;
+              break;
+            }
           }
-          if (!gist) return;
-          setGistFiles(gist.files);
-          if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
-            navigate(routePath.gistView(currentGistId, renamePathWithNewFolder(currentFileName, oldPath, newPath)));
+          if (gist) {
+            setGistFiles(gist.files);
+            if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
+              navigate(routePath.gistView(gistId, renamePathWithNewFolder(currentFileName, oldPath, newPath)));
+            }
+          }
+          if (batchError) {
+            showRateLimitToastIfNeeded(batchError);
+            const total = paths.length;
+            const remainingCount = Math.max(0, total - completedCount);
+            dismissToast(renameToastId);
+            void showAlert(
+              `Folder rename partially completed (${completedCount}/${total}). ${remainingCount} file(s) remain at the old path. Run rename again to resume.`,
+            );
+            return;
           }
         } else {
           const paths = repoSidebarFiles.filter((file) => isPathInFolder(file.path, oldPath));
-          if (paths.length === 0) return;
+          if (paths.length === 0) {
+            dismissToast(renameToastId);
+            return;
+          }
           const renamed = new Map<string, RepoDocFile>();
           for (const file of paths) {
             const nextPath = renamePathWithNewFolder(file.path, oldPath, newPath);
-            const created = await store.renameFile(file, nextPath);
-            renamed.set(file.path, {
-              name: fileNameFromPath(nextPath),
-              path: created.content.path,
-              sha: created.content.sha,
-            });
+            try {
+              const created = await store.renameFile(file, nextPath);
+              renamed.set(file.path, {
+                name: fileNameFromPath(nextPath),
+                path: created.content.path,
+                sha: created.content.sha,
+              });
+              completedCount += 1;
+            } catch (err) {
+              batchError = err;
+              break;
+            }
           }
           const updatedSidebarFiles = repoSidebarFiles
             .map((file) => renamed.get(file.path) ?? file)
@@ -2478,13 +2636,35 @@ export function App() {
           if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
             navigate(routePath.repoFile(renamePathWithNewFolder(currentFileName, oldPath, newPath)));
           }
+          if (batchError) {
+            showRateLimitToastIfNeeded(batchError);
+            const total = paths.length;
+            const remainingCount = Math.max(0, total - completedCount);
+            const message = isPartialRepoRenameError(batchError)
+              ? `${batchError instanceof Error ? batchError.message : 'Rename partially completed.'} Refresh the workspace and verify both old/new paths before continuing.`
+              : `Folder rename partially completed (${completedCount}/${total}). ${remainingCount} file(s) remain at the old path. Run rename again to resume.`;
+            dismissToast(renameToastId);
+            void showAlert(message);
+            return;
+          }
+        }
+        dismissToast(renameToastId);
+        if (completedCount > 1) {
+          showSuccessToast(`Renamed ${completedCount} files`);
         }
       } catch (err) {
+        if (renameToastId >= 0) dismissToast(renameToastId);
         if (err instanceof SessionExpiredError) {
           handleSessionExpired();
           return;
         }
         showRateLimitToastIfNeeded(err);
+        if (isPartialRepoRenameError(err)) {
+          void showAlert(
+            `${err instanceof Error ? err.message : 'Rename partially completed.'} Refresh the workspace and verify both old/new paths before retrying.`,
+          );
+          return;
+        }
         void showAlert(err instanceof Error ? err.message : 'Failed to rename folder');
       }
     },
@@ -2497,7 +2677,10 @@ export function App() {
       repoSidebarFiles,
       handleSessionExpired,
       showAlert,
+      showLoadingToast,
       showRateLimitToastIfNeeded,
+      showSuccessToast,
+      dismissToast,
     ],
   );
 
@@ -2684,6 +2867,15 @@ export function App() {
             saving={saving}
             canSave={hasUnsavedChanges}
             onSave={onSave}
+            imageUploadIssue={
+              failedImageUpload
+                ? {
+                    message: `Image upload failed for ${failedImageUpload.imageName}.`,
+                    onRetry: onRetryFailedImageUpload,
+                    onRemovePlaceholder: onRemoveFailedImageUploadPlaceholder,
+                  }
+                : null
+            }
           />
         );
       case 'loading':
