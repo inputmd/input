@@ -190,6 +190,14 @@ function fileNameFromPath(path: string): string {
   return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
 }
 
+function upsertRepoFile(files: RepoDocFile[], next: RepoDocFile): RepoDocFile[] {
+  const existingIndex = files.findIndex((file) => file.path === next.path);
+  if (existingIndex === -1) return [...files, next].sort((a, b) => a.path.localeCompare(b.path));
+  const updated = [...files];
+  updated[existingIndex] = next;
+  return updated;
+}
+
 function isPathInFolder(path: string, folderPath: string): boolean {
   return path === folderPath || path.startsWith(`${folderPath}/`);
 }
@@ -2024,7 +2032,20 @@ export function App() {
           contentB64,
           currentRepoDocSha ?? undefined,
         );
+        const contentSize = new TextEncoder().encode(content).length;
         setCurrentRepoDocSha(result.content.sha);
+        setRepoSidebarFiles((prev) =>
+          prev.map((file) =>
+            file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
+          ),
+        );
+        if (isMarkdownFileName(currentRepoDocPath)) {
+          setRepoFiles((prev) =>
+            prev.map((file) =>
+              file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
+            ),
+          );
+        }
 
         const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
         renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath, undefined, {
@@ -2038,20 +2059,31 @@ export function App() {
         const filename = sanitizeTitleToFileName(title);
         const path = filename;
         const contentB64 = encodeUtf8ToBase64(content);
-        await putRepoFile(instId, repoName, path, `Create ${filename}`, contentB64);
+        const result = await putRepoFile(instId, repoName, path, `Create ${filename}`, contentB64);
+        const createdFile: RepoDocFile = {
+          name: fileNameFromPath(result.content.path),
+          path: result.content.path,
+          sha: result.content.sha,
+          size: new TextEncoder().encode(content).length,
+        };
+        setRepoSidebarFiles((prev) => upsertRepoFile(prev, createdFile));
+        if (isMarkdownFileName(createdFile.path)) {
+          setRepoFiles((prev) => upsertRepoFile(prev, createdFile));
+        }
         localStorage.removeItem(repoNewDraftKey(instId, repoName, 'title'));
         localStorage.removeItem(repoNewDraftKey(instId, repoName, 'content'));
-        setCurrentRepoDocPath(path);
-        setCurrentRepoDocSha(null);
+        setCurrentRepoDocPath(result.content.path);
+        setCurrentRepoDocSha(result.content.sha);
 
         const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
-        renderDocumentContent(content, filename, path, undefined, {
-          currentDocPath: filename,
-          knownMarkdownPaths: knownMarkdownPaths.includes(filename)
+        const createdPath = result.content.path;
+        renderDocumentContent(content, fileNameFromPath(createdPath), createdPath, undefined, {
+          currentDocPath: createdPath,
+          knownMarkdownPaths: knownMarkdownPaths.includes(createdPath)
             ? knownMarkdownPaths
-            : [...knownMarkdownPaths, filename],
+            : [...knownMarkdownPaths, createdPath],
         });
-        navigate(routePath.repoFile(path));
+        navigate(routePath.repoFile(createdPath));
       } else {
         let gist: GistDetail;
         const filename = currentFileName ?? sanitizeTitleToFileName(title);
