@@ -153,7 +153,7 @@
   }
 
   .editor-preview-pane .rendered-markdown {
-    padding: 24px 27px;
+    padding: 24px 27px 40px;
     min-height: 100%;
   }
 }

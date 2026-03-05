@@ -140,6 +140,7 @@
   line-height: var(--reader-editor-line-height);
   word-wrap: break-word;
   overflow-wrap: break-word;
+  padding-bottom: 10px;
 }
 
 .rendered-markdown > :first-child {
@@ -233,6 +234,7 @@
 }
 
 .rendered-markdown hr {
+  margin: calc(0.75em + 3px) 0 calc(0.75em + 3px);
   border: 0;
   border-top: 1px solid var(--border);
 }
@@ -435,6 +437,7 @@
 }
 
 .markdown-link-preview-body hr {
+  margin: calc(0.6em + 3px) 0 calc(0.6em + 3px);
   border: 0;
   border-top: 1px solid var(--border);
 }
@@ -475,6 +478,7 @@
   padding-top: 0.8em;
   border-top: 1px solid var(--border);
   color: var(--text-secondary);
+  font-size: var(--reader-metadata-font-size);
 }
 
 .rendered-markdown .footnotes ol {
@@ -651,7 +655,7 @@
 }
 
 .rendered-markdown .claude-chat-message-body > :last-child em:only-child {
-  font-size: 0.94em;
+  font-size: var(--reader-metadata-font-size);
   display: inline-block;
   line-height: 1.5;
 }
