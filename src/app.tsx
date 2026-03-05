@@ -1,7 +1,7 @@
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
-import { isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
+import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMarkdown } from './claude_trace';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -113,6 +113,12 @@ function markAutoOnceGuard(key: string): void {
   } catch {
     // Best effort only.
   }
+}
+
+function isRepoWriteConflictError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err instanceof ApiError && err.status === 409) return true;
+  return /does not match|sha/i.test(err.message);
 }
 
 function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
@@ -1976,7 +1982,13 @@ export function App() {
         return;
       }
       showRateLimitToastIfNeeded(err);
-      void showAlert(err instanceof Error ? err.message : 'Failed to save');
+      const staleRepoWrite = editingBackend === 'repo' && isRepoWriteConflictError(err);
+      const message = staleRepoWrite
+        ? "Save failed: your write wasn't persisted because the file changed upstream. Copy your edits, reload, merge, and save again."
+        : err instanceof Error
+          ? err.message
+          : 'Failed to save';
+      void showAlert(message);
     } finally {
       setSaving(false);
       if (saved) setHasUnsavedChanges(false);
