@@ -289,6 +289,7 @@ export function Sidebar({
   const renameInputRef = useRef<HTMLInputElement>(null);
   const createInFlightRef = useRef(false);
   const renameInFlightRef = useRef(false);
+  const cancelCreateOnBlurRef = useRef(false);
   const cancelRenameOnBlurRef = useRef(false);
 
   const tree = useMemo(() => buildTree(files), [files]);
@@ -371,6 +372,7 @@ export function Sidebar({
   };
 
   const startCreate = (kind: CreateKind) => {
+    cancelCreateOnBlurRef.current = false;
     setCreateKind(kind);
     setCreatingNew(true);
     setNewFileName('');
@@ -768,11 +770,17 @@ export function Sidebar({
                   void handleCreateSubmit();
                 }
                 if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelCreateOnBlurRef.current = true;
                   setCreatingNew(false);
                   setNewFileName('');
                 }
               }}
               onBlur={() => {
+                if (cancelCreateOnBlurRef.current) {
+                  cancelCreateOnBlurRef.current = false;
+                  return;
+                }
                 if (newFileName.trim()) void handleCreateSubmit();
                 else setCreatingNew(false);
               }}
