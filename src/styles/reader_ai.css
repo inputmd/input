@@ -1,0 +1,411 @@
+.app-body--with-reader-ai main {
+  margin-right: var(--reader-ai-width, 360px);
+}
+
+.reader-ai-panel {
+  --reader-ai-active-border: color-mix(in srgb, var(--focus-border) 45%, var(--border) 55%);
+  --reader-ai-active-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-shadow) 50%, transparent);
+  position: fixed;
+  top: var(--toolbar-height);
+  right: 0;
+  bottom: 0;
+  width: var(--reader-ai-width, 360px);
+  border-left: 1px solid var(--border);
+  background: var(--toolbar-bg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overscroll-behavior: contain;
+  z-index: 15;
+}
+
+.reader-ai-splitter {
+  position: fixed;
+  top: var(--toolbar-height);
+  right: calc(var(--reader-ai-width, 360px) - 3px);
+  bottom: 0;
+  z-index: 16;
+  width: 6px;
+  cursor: col-resize;
+  background: var(--toolbar-bg);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.reader-ai-splitter:hover {
+  background: var(--btn-hover);
+}
+
+.reader-ai-model-trigger {
+  width: 100%;
+  min-height: 30px;
+  max-width: 210px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+
+.reader-ai-model-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-ai-model-trigger-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--text-secondary);
+}
+
+.reader-ai-model-trigger:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.reader-ai-model-trigger:focus,
+.reader-ai-model-trigger:focus-visible {
+  outline: none;
+  border-color: var(--reader-ai-active-border);
+}
+
+.reader-ai-model-trigger--composer {
+  position: absolute;
+  left: 8px;
+  bottom: 14px;
+  width: calc(100% - 62px);
+  max-width: 190px;
+  z-index: 1;
+}
+
+.reader-ai-model-menu {
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(300px, calc(100vh - 24px));
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 30;
+}
+
+.reader-ai-model-menu-item {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  user-select: none;
+  outline: none;
+}
+
+.reader-ai-model-menu-item[data-highlighted] {
+  background: var(--btn-hover);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.reader-ai-model-menu-item[data-state="checked"] {
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--btn-bg) 65%, transparent);
+}
+
+.reader-ai-model-menu-separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--border);
+}
+
+.reader-ai-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.reader-ai-empty {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.reader-ai-message {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reader-ai-message--user {
+  background: color-mix(in srgb, var(--btn-bg) 80%, transparent);
+}
+
+.reader-ai-message--assistant {
+  background: color-mix(in srgb, var(--bg) 75%, transparent);
+}
+
+.reader-ai-message-role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reader-ai-message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reader-ai-message-action-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0;
+  cursor: pointer;
+}
+
+.reader-ai-message-action-btn:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.reader-ai-message-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reader-ai-message-edited {
+  font-size: 11px;
+}
+
+.reader-ai-inline-edit-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.reader-ai-inline-edit-input:focus,
+.reader-ai-inline-edit-input:focus-visible {
+  outline: none;
+  border-color: var(--reader-ai-active-border);
+  box-shadow: var(--reader-ai-active-shadow);
+}
+
+.reader-ai-message-content {
+  font-size: 13.5px;
+}
+
+.reader-ai-message-content.rendered-markdown {
+  font-size: 13.5px;
+  line-height: 1.5;
+  padding-bottom: 0;
+  white-space: normal;
+}
+
+.reader-ai-message-content.rendered-markdown > :first-child {
+  margin-top: 0;
+}
+
+.reader-ai-message-content.rendered-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.reader-ai-message-content.rendered-markdown pre {
+  font-size: 12px;
+}
+
+.reader-ai-message-content.rendered-markdown li > p {
+  margin: 0;
+}
+
+.reader-ai-status,
+.reader-ai-error {
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+.reader-ai-status {
+  color: var(--text-secondary);
+}
+
+.reader-ai-error {
+  color: var(--error-color);
+}
+
+.reader-ai-input-wrap {
+  position: relative;
+}
+
+.reader-ai-composer-menu-trigger {
+  position: absolute;
+  top: 10px;
+  right: 11px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.reader-ai-composer-menu-trigger:focus,
+.reader-ai-composer-menu-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+  color: var(--text);
+}
+
+.reader-ai-composer-menu-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.reader-ai-composer-menu {
+  min-width: 140px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 30;
+}
+
+.reader-ai-composer-menu-item {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  outline: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+}
+
+.reader-ai-composer-menu-item[data-highlighted] {
+  background: var(--btn-hover);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.reader-ai-composer-menu-item[data-disabled] {
+  opacity: 0.6;
+}
+
+.reader-ai-input {
+  width: 100%;
+  min-height: 78px;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 10px 44px 46px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.reader-ai-input:focus,
+.reader-ai-input:focus-visible {
+  outline: none;
+  border-color: var(--reader-ai-active-border);
+}
+
+.reader-ai-send-btn {
+  position: absolute;
+  right: 9px;
+  bottom: 14px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--focus-border) 86%, transparent);
+  border-radius: 6px;
+  background: var(--focus-border);
+  color: #ffffff;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.reader-ai-send-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--focus-border) 86%, #000000 14%);
+  border-color: color-mix(in srgb, var(--focus-border) 78%, transparent);
+}
+
+.reader-ai-send-btn:disabled {
+  background: color-mix(in srgb, var(--focus-border) 50%, transparent);
+  border-color: color-mix(in srgb, var(--focus-border) 55%, transparent);
+}
+
+.reader-ai-send-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.reader-ai-send-btn .reader-ai-stop-icon {
+  width: 13px;
+  height: 13px;
+}
+
+@media (max-width: 1023px) {
+  .app-body--with-reader-ai main {
+    margin-right: 0;
+  }
+
+  .reader-ai-panel {
+    width: min(92vw, 420px);
+    box-shadow: -8px 0 20px rgba(0, 0, 0, 0.25);
+    z-index: 30;
+  }
+
+  .reader-ai-splitter {
+    display: none;
+  }
+}

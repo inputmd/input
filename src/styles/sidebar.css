@@ -17,10 +17,10 @@
 .sidebar-splitter {
   position: fixed;
   top: var(--toolbar-height);
-  left: calc(var(--sidebar-width, 220px) - 4px);
+  left: calc(var(--sidebar-width, 220px) - 3px);
   bottom: 0;
   z-index: 6;
-  width: 8px;
+  width: 6px;
   cursor: col-resize;
   background: var(--toolbar-bg);
   border-left: 1px solid var(--border);

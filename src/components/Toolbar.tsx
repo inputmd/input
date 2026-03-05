@@ -12,6 +12,7 @@ import {
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
+  Sparkles,
 } from 'lucide-react';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
@@ -51,6 +52,9 @@ interface ToolbarProps {
   showPreviewToggle: boolean;
   previewVisible: boolean;
   onTogglePreview: () => void;
+  showAiToggle: boolean;
+  aiVisible: boolean;
+  onToggleAi: () => void;
   showCancel: boolean;
   onCancel: () => void;
   showSave: boolean;
@@ -95,6 +99,9 @@ export function Toolbar({
   showPreviewToggle,
   previewVisible,
   onTogglePreview,
+  showAiToggle,
+  aiVisible,
+  onToggleAi,
   showCancel,
   onCancel,
   showSave,
@@ -340,6 +347,17 @@ export function Toolbar({
                 onClick={onTogglePreview}
               >
                 <Eye size={16} />
+              </button>
+            )}
+            {showAiToggle && (
+              <button
+                type="button"
+                class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
+                title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                onClick={onToggleAi}
+              >
+                <Sparkles size={16} />
               </button>
             )}
             {showCancel && (

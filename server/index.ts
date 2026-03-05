@@ -67,11 +67,19 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     json(res, 404, { error: 'Not found' });
   } catch (err) {
     if (err instanceof ClientError) {
+      if (res.headersSent || res.writableEnded) {
+        if (!res.writableEnded) res.end();
+        return;
+      }
       json(res, err.statusCode, { error: err.message });
       return;
     }
 
     console.error('Unhandled server error:', err);
+    if (res.headersSent || res.writableEnded) {
+      if (!res.writableEnded) res.end();
+      return;
+    }
     json(res, 500, { error: 'Internal server error' });
   }
 });
