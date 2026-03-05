@@ -470,7 +470,7 @@ export async function getPublicRepoContents(
 }
 
 export interface RepoTreeResult {
-  files: Array<{ name: string; path: string; sha: string }>;
+  files: Array<{ name: string; path: string; sha: string; size?: number }>;
   truncated: boolean;
 }
 

@@ -752,15 +752,23 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
   ctx.res.end(body);
 }
 
-type GitTreeEntry = { path: string; type: string; sha: string };
+type GitTreeEntry = { path: string; type: string; sha: string; size?: number };
 
-function filesFromTree(tree: GitTreeEntry[], markdownOnly: boolean): { name: string; path: string; sha: string }[] {
-  const files: { name: string; path: string; sha: string }[] = [];
+function filesFromTree(
+  tree: GitTreeEntry[],
+  markdownOnly: boolean,
+): { name: string; path: string; sha: string; size?: number }[] {
+  const files: { name: string; path: string; sha: string; size?: number }[] = [];
   for (const entry of tree) {
     if (entry.type !== 'blob') continue;
     if (markdownOnly && !entry.path.toLowerCase().endsWith('.md')) continue;
     const slash = entry.path.lastIndexOf('/');
-    files.push({ name: slash === -1 ? entry.path : entry.path.slice(slash + 1), path: entry.path, sha: entry.sha });
+    files.push({
+      name: slash === -1 ? entry.path : entry.path.slice(slash + 1),
+      path: entry.path,
+      sha: entry.sha,
+      size: typeof entry.size === 'number' ? entry.size : undefined,
+    });
   }
   files.sort((a, b) => a.path.localeCompare(b.path));
   return files;

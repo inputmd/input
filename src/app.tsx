@@ -2170,7 +2170,12 @@ export function App() {
           navigate(routePath.gistEdit(currentGistId, filePath));
         } else {
           const result = await store.createFile(filePath);
-          const createdFile = { name: fileNameFromPath(filePath), path: result.content.path, sha: result.content.sha };
+          const createdFile = {
+            name: fileNameFromPath(filePath),
+            path: result.content.path,
+            sha: result.content.sha,
+            size: 0,
+          };
           if (isMarkdownFileName(createdFile.path)) {
             setRepoFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
           }
@@ -2207,6 +2212,7 @@ export function App() {
             name: fileNameFromPath(seedFilePath),
             path: result.content.path,
             sha: result.content.sha,
+            size: 0,
           };
           if (isMarkdownFileName(createdFile.path)) {
             setRepoFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
@@ -2518,6 +2524,7 @@ export function App() {
                     name: fileNameFromPath(newPath),
                     path: created.content.path,
                     sha: created.content.sha,
+                    size: f.size,
                   }
                 : f,
             )
@@ -2530,6 +2537,7 @@ export function App() {
                         name: fileNameFromPath(newPath),
                         path: created.content.path,
                         sha: created.content.sha,
+                        size: f.size,
                       }
                     : f,
                 )
@@ -2651,6 +2659,7 @@ export function App() {
                 name: fileNameFromPath(nextPath),
                 path: created.content.path,
                 sha: created.content.sha,
+                size: file.size,
               });
               completedCount += 1;
             } catch (err) {
@@ -2932,6 +2941,7 @@ export function App() {
           active: path === currentFileName,
           editable: isMarkdownFileName(path),
           deemphasized: !isSidebarTextFileName(path),
+          size: gistFiles[path]?.size,
         }))
         .sort((a, b) => a.path.localeCompare(b.path));
       return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextFileName(file.path)) : files;
@@ -2944,6 +2954,7 @@ export function App() {
         active: f.path === currentPath,
         editable: isMarkdownFileName(f.path),
         deemphasized: !isSidebarTextFileName(f.path),
+        size: f.size,
       }));
       return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextFileName(file.path)) : files;
     }

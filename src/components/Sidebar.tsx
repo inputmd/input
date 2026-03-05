@@ -20,6 +20,7 @@ export interface SidebarFile {
   active: boolean;
   editable: boolean;
   deemphasized: boolean;
+  size?: number;
 }
 
 export type SidebarFileFilter = 'text' | 'all';
@@ -51,6 +52,7 @@ interface SidebarFileNode {
   active: boolean;
   editable: boolean;
   deemphasized: boolean;
+  size?: number;
 }
 
 interface SidebarFolderNode {
@@ -70,7 +72,8 @@ const INDENT_PX = 16;
 const ICON_SIZE = 15;
 const CHEVRON_SIZE = 14;
 
-function getFileIcon(name: string) {
+function getFileIcon(name: string, size?: number) {
+  if (size === 0) return File;
   const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
   switch (ext) {
     case '.md':
@@ -193,6 +196,7 @@ function buildTree(files: SidebarFile[]): SidebarFolderNode {
       active: file.active,
       editable: file.editable,
       deemphasized: file.deemphasized || isHiddenFolderPath(file.path),
+      size: file.size,
     });
   }
 
@@ -582,7 +586,7 @@ export function Sidebar({
 
   const renderFileRow = (file: SidebarFileNode, depth: number) => {
     const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
-    const FileIcon = getFileIcon(file.name);
+    const FileIcon = getFileIcon(file.name, file.size);
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     const fileRow = (
       <div

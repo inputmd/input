@@ -6,6 +6,7 @@ export interface RepoDocFile {
   name: string;
   path: string;
   sha: string;
+  size?: number;
 }
 
 export interface GistStore {
