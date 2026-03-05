@@ -180,7 +180,7 @@ export function Toolbar({
                     {inRepoContext && selectedRepo ? (
                       <>
                         <RepoPrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
-                        {selectedRepo}
+                        <span class="repo-menu-current-name">{selectedRepo}</span>
                       </>
                     ) : (
                       'My Workspaces'

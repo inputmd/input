@@ -54,6 +54,13 @@
   gap: 6px;
 }
 
+.repo-menu-current-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .repo-menu-icon {
   width: 14px;
   height: 14px;
@@ -356,4 +363,10 @@
 
 .user-avatar {
   border-radius: 50%;
+}
+
+@media (max-width: 768px) {
+  .repo-menu-current-name {
+    display: none;
+  }
 }
