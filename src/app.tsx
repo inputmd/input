@@ -1900,6 +1900,7 @@ export function App() {
   const onSave = useCallback(async () => {
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
     const content = editContent;
+    let saved = false;
     setSaving(true);
 
     try {
@@ -1968,6 +1969,7 @@ export function App() {
         navigate(routePath.gistView(gist.id, filename));
       }
       showSuccessToast('Saved');
+      saved = true;
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         handleSessionExpired();
@@ -1977,7 +1979,7 @@ export function App() {
       void showAlert(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSaving(false);
-      setHasUnsavedChanges(false);
+      if (saved) setHasUnsavedChanges(false);
     }
   }, [
     editTitle,

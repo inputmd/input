@@ -542,6 +542,11 @@ async function handlePutContents(ctx: RouteContext): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, content, sha, branch }),
   });
+  if (!ghRes.ok) {
+    const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
+    return;
+  }
   json(ctx.res, 200, await ghRes.json());
 }
 
@@ -563,6 +568,11 @@ async function handleDeleteContents(ctx: RouteContext): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, sha, branch }),
   });
+  if (!ghRes.ok) {
+    const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
+    return;
+  }
   json(ctx.res, 200, await ghRes.json());
 }
 
