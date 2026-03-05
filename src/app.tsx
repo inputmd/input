@@ -340,7 +340,7 @@ function createWikiLinkResolver(
 function findMarkdownDirectoryIndexPath(contents: RepoContents, requestedPath: string): string | null {
   if (!Array.isArray(contents)) return null;
   const normalizedRequestedPath = normalizeRepoPath(safeDecodeURIComponent(requestedPath).trim());
-  if (!normalizedRequestedPath || !isMarkdownFileName(normalizedRequestedPath)) return null;
+  if (!normalizedRequestedPath) return null;
   const expectedIndexLower = `${normalizedRequestedPath}/index.md`.toLowerCase();
   for (const entry of contents) {
     if (entry.type !== 'file') continue;
