@@ -50,6 +50,10 @@ function footnoteTargetIdFromAnchor(anchor: HTMLAnchorElement): string | null {
   return href.slice(1);
 }
 
+function isMissingWikiLink(anchor: HTMLAnchorElement): boolean {
+  return anchor.classList.contains('missing-wikilink');
+}
+
 export function ContentView({
   html,
   markdown,
@@ -303,6 +307,10 @@ export function ContentView({
   const showPreviewForAnchor = useCallback(
     (anchor: HTMLAnchorElement) => {
       if (!onRequestMarkdownLinkPreview) return;
+      if (isMissingWikiLink(anchor)) {
+        hidePreview();
+        return;
+      }
       const route = resolveInternalRoute(anchor);
       if (!route || !isMarkdownHref(route)) {
         hidePreview();
@@ -442,6 +450,10 @@ export function ContentView({
       if (anchor === hoverAnchorRef.current && preview.visible) return;
       clearHoverDelay();
       hoverDelayTimerRef.current = window.setTimeout(() => {
+        if (isMissingWikiLink(anchor)) {
+          hidePreview();
+          return;
+        }
         if (footnoteTargetIdFromAnchor(anchor)) {
           showCitationPreviewForAnchor(anchor);
           return;
