@@ -444,6 +444,22 @@
   height: auto;
 }
 
+.markdown-link-preview-body a {
+  color: var(--focus-border);
+}
+
+.markdown-link-preview-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-link-preview-body a.missing-wikilink {
+  color: var(--missing-link-color);
+}
+
+.markdown-link-preview-body a.missing-wikilink:hover {
+  color: var(--missing-link-color);
+}
+
 .rendered-markdown sup.footnote-ref {
   font-size: 0.78em;
   line-height: 1;
@@ -488,7 +504,9 @@
 }
 
 .rendered-markdown .hash-link-indicator,
-.rendered-markdown .external-link-indicator {
+.rendered-markdown .external-link-indicator,
+.markdown-link-preview-body .hash-link-indicator,
+.markdown-link-preview-body .external-link-indicator {
   display: inline-block;
   margin-left: 2px;
   color: var(--text-secondary);
@@ -498,7 +516,9 @@
 }
 
 .rendered-markdown .hash-link-indicator svg,
-.rendered-markdown .external-link-indicator svg {
+.rendered-markdown .external-link-indicator svg,
+.markdown-link-preview-body .hash-link-indicator svg,
+.markdown-link-preview-body .external-link-indicator svg {
   width: 0.78em;
   height: 0.78em;
 }
