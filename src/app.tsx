@@ -2014,27 +2014,30 @@ export function App() {
   }, [currentGistId, repoAccessMode, selectedRepo]);
 
   // --- Sidebar actions ---
+  const navigateToSidebarFile = useCallback(
+    (filePath: string) => {
+      setHasUnsavedChanges(false);
+      if (currentGistId) {
+        navigate(routePath.gistView(currentGistId, filePath));
+      } else if (repoAccessMode === 'installed' && selectedRepo) {
+        navigate(routePath.repoFile(filePath));
+      } else if (repoAccessMode === 'public' && publicRepoRef) {
+        navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath));
+      }
+    },
+    [currentGistId, repoAccessMode, selectedRepo, publicRepoRef, navigate],
+  );
+
   const handleSelectFile = useCallback(
     async (filePath: string) => {
-      const doNavigate = () => {
-        setHasUnsavedChanges(false);
-        if (currentGistId) {
-          navigate(routePath.gistView(currentGistId, filePath));
-        } else if (repoAccessMode === 'installed' && selectedRepo) {
-          navigate(routePath.repoFile(filePath));
-        } else if (repoAccessMode === 'public' && publicRepoRef) {
-          navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath));
-        }
-      };
-
       if (activeView === 'edit' && hasUnsavedChanges) {
         const action = await showConfirm('You have unsaved changes. Discard and switch files?');
-        if (action) doNavigate();
+        if (action) navigateToSidebarFile(filePath);
         return;
       }
-      doNavigate();
+      navigateToSidebarFile(filePath);
     },
-    [currentGistId, repoAccessMode, selectedRepo, publicRepoRef, activeView, hasUnsavedChanges, navigate, showConfirm],
+    [activeView, hasUnsavedChanges, navigateToSidebarFile, showConfirm],
   );
 
   const handleCreateFile = useCallback(
@@ -2720,6 +2723,54 @@ export function App() {
   const sidebarDisabled = activeView === 'edit' && draftMode;
   const defaultShowSidebar = isDesktopWidth && !sidebarDisabled && (!!user || repoAccessMode === 'public');
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
+  const handleSidebarDocumentStep = useCallback(
+    async (direction: -1 | 1) => {
+      if (!showSidebar || sidebarFiles.length < 2) return;
+      const activeIndex = sidebarFiles.findIndex((file) => file.active);
+      if (activeIndex < 0) return;
+      const nextIndex = activeIndex + direction;
+      if (nextIndex < 0 || nextIndex >= sidebarFiles.length) return;
+      const nextFile = sidebarFiles[nextIndex];
+      if (!nextFile) return;
+
+      if (activeView === 'edit' && hasUnsavedChanges) {
+        const shouldSave = await showConfirm('Save this document before switching files?', {
+          title: 'Unsaved changes',
+          confirmLabel: 'Save',
+          cancelLabel: 'Cancel',
+          defaultFocus: 'action',
+        });
+        if (!shouldSave) return;
+        await onSave();
+      }
+
+      navigateToSidebarFile(nextFile.path);
+    },
+    [activeView, hasUnsavedChanges, navigateToSidebarFile, onSave, showConfirm, showSidebar, sidebarFiles],
+  );
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (!event.metaKey || !event.ctrlKey || event.altKey) return;
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.closest('input, select, [contenteditable="true"]') !== null ||
+          (target.closest('textarea') !== null && target.closest('textarea.doc-editor') === null))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      void handleSidebarDocumentStep(event.key === 'ArrowUp' ? -1 : 1);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleSidebarDocumentStep]);
   const editingFileName = currentFileName ?? editTitle;
   const editPreviewEnabled = isMarkdownFileName(editingFileName);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
