@@ -2,7 +2,23 @@ import type http from 'node:http';
 import { MAX_BODY_BYTES } from './config';
 import { ClientError } from './errors';
 
+function appendVary(current: string | number | string[] | undefined, value: string): string {
+  const existing = (Array.isArray(current) ? current.join(',') : String(current ?? ''))
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  if (existing.includes(value.toLowerCase())) {
+    return Array.from(new Set(existing)).join(', ');
+  }
+  return [...existing, value.toLowerCase()].join(', ');
+}
+
 export function json(res: http.ServerResponse, statusCode: number, data: unknown): void {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Vary', appendVary(res.getHeader('Vary'), 'Cookie'));
+  res.setHeader('Vary', appendVary(res.getHeader('Vary'), 'Authorization'));
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
 }
