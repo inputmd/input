@@ -1915,7 +1915,7 @@ export function App() {
 
       if (editingBackend === 'repo' && currentRepoDocPath && instId && repoName) {
         const contentB64 = encodeUtf8ToBase64(content);
-        await putRepoFile(
+        const result = await putRepoFile(
           instId,
           repoName,
           currentRepoDocPath,
@@ -1923,6 +1923,7 @@ export function App() {
           contentB64,
           currentRepoDocSha ?? undefined,
         );
+        setCurrentRepoDocSha(result.content.sha);
 
         const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
         renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath, undefined, {
