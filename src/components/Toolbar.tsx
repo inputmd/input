@@ -31,7 +31,6 @@ interface ToolbarProps {
   draftMode: boolean;
   sidebarVisible: boolean;
   showShare: boolean;
-  shareDisabled: boolean;
   onShare: () => void;
   onViewInGitHub: () => void;
   showEdit: boolean;
@@ -71,7 +70,6 @@ export function Toolbar({
   draftMode,
   sidebarVisible,
   showShare,
-  shareDisabled,
   onShare,
   onViewInGitHub,
   showEdit,
@@ -112,15 +110,8 @@ export function Toolbar({
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content class="author-menu-content" sideOffset={6} align="end">
-          <DropdownMenu.Item
-            class="author-menu-item"
-            disabled={shareDisabled}
-            onSelect={() => {
-              if (shareDisabled) return;
-              onShare();
-            }}
-          >
-            {shareDisabled ? 'Cannot share private documents' : 'Share'}
+          <DropdownMenu.Item class="author-menu-item" onSelect={() => onShare()}>
+            Share
           </DropdownMenu.Item>
           <DropdownMenu.Item class="author-menu-item" onSelect={() => onViewInGitHub()}>
             View in GitHub <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />

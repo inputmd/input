@@ -29,6 +29,7 @@ import {
   clearSelectedRepo,
   consumeInstallState,
   createInstallState,
+  createRepoFileShareLink,
   createSession,
   disconnectInstallation,
   getInstallationId,
@@ -1929,30 +1930,39 @@ export function App() {
 
   const onShareLink = useCallback(async () => {
     const isGistRoute = route.name === 'gist' || route.name === 'edit';
-    let sharePath: string | null = null;
-
-    if (isGistRoute && currentGistId) {
-      sharePath = routePath.gistView(currentGistId, currentFileName ?? undefined);
-    } else if (
-      repoAccessMode !== 'installed' ||
-      (route.name !== 'repoedit' && route.name !== 'repofile') ||
-      selectedRepoPrivate !== false ||
-      !selectedRepo ||
-      !currentRepoDocPath
-    ) {
-      showFailureToast('Sharing is not available for this file');
-      return;
-    } else {
-      const [owner, repo] = selectedRepo.split('/');
-      if (!owner || !repo) {
-        showFailureToast('Failed to build public link');
-        return;
-      }
-      sharePath = routePath.publicRepoFile(owner, repo, currentRepoDocPath);
-    }
 
     try {
-      const url = `${window.location.origin}/${sharePath}`;
+      let url: string;
+      if (isGistRoute && currentGistId) {
+        const sharePath = routePath.gistView(currentGistId, currentFileName ?? undefined);
+        url = `${window.location.origin}/${sharePath}`;
+      } else if (
+        repoAccessMode === 'installed' &&
+        (route.name === 'repoedit' || route.name === 'repofile') &&
+        selectedRepo &&
+        currentRepoDocPath
+      ) {
+        if (selectedRepoPrivate === true) {
+          const installationId = getInstallationId();
+          if (!installationId) {
+            showFailureToast('Sharing is not available for this file');
+            return;
+          }
+          const shareLink = await createRepoFileShareLink(installationId, selectedRepo, currentRepoDocPath);
+          url = shareLink.url;
+        } else {
+          const [owner, repo] = selectedRepo.split('/');
+          if (!owner || !repo) {
+            showFailureToast('Failed to build public link');
+            return;
+          }
+          const sharePath = routePath.publicRepoFile(owner, repo, currentRepoDocPath);
+          url = `${window.location.origin}/${sharePath}`;
+        }
+      } else {
+        showFailureToast('Sharing is not available for this file');
+        return;
+      }
 
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
@@ -1968,8 +1978,13 @@ export function App() {
         input.remove();
       }
       showSuccessToast('Copied share link');
-    } catch {
-      showFailureToast('Failed to copy share link');
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        handleSessionExpired();
+        return;
+      }
+      showRateLimitToastIfNeeded(err);
+      showFailureToast(err instanceof Error ? err.message : 'Failed to copy share link');
     }
   }, [
     currentGistId,
@@ -1979,6 +1994,8 @@ export function App() {
     selectedRepoPrivate,
     selectedRepo,
     currentRepoDocPath,
+    handleSessionExpired,
+    showRateLimitToastIfNeeded,
     showSuccessToast,
     showFailureToast,
   ]);
@@ -3092,9 +3109,7 @@ export function App() {
     repoAccessMode === 'installed' &&
     currentRepoDocPath !== null &&
     (route.name === 'repoedit' || (route.name === 'repofile' && Boolean(user)));
-  const showPrivateRepoShareHint = showInstalledRepoHeaderShare && selectedRepoPrivate === true;
   const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
-  const shareDisabled = showPrivateRepoShareHint;
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
     repoAccessMode === 'installed' &&
@@ -3139,7 +3154,6 @@ export function App() {
         draftMode={draftMode}
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
-        shareDisabled={shareDisabled}
         onShare={() => {
           void onShareLink();
         }}

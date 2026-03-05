@@ -179,11 +179,6 @@
   background: var(--btn-hover);
 }
 
-.author-menu-item[data-disabled] {
-  opacity: 0.6;
-  cursor: default;
-}
-
 .author-menu-item-icon {
   margin-left: 4px;
   flex: none;
