@@ -59,7 +59,13 @@ import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
-import { decodeBase64ToBytes, encodePathForHref, encodeBytesToBase64, encodeUtf8ToBase64, isMarkdownFileName } from './util';
+import {
+  decodeBase64ToBytes,
+  encodeBytesToBase64,
+  encodePathForHref,
+  encodeUtf8ToBase64,
+  isMarkdownFileName,
+} from './util';
 import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
@@ -568,7 +574,7 @@ export function App() {
 
   // Track initialization
   const initialized = useRef(false);
-  const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string }>());
+  const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const activeView = viewPhase ?? viewFromRoute(route);
 
@@ -786,8 +792,9 @@ export function App() {
       const routePathname = rawRoute.replace(/^\/+/, '');
       if (!routePathname) return null;
 
-      const cached = markdownLinkPreviewCacheRef.current.get(routePathname);
-      if (cached) return cached;
+      if (markdownLinkPreviewCacheRef.current.has(routePathname)) {
+        return markdownLinkPreviewCacheRef.current.get(routePathname) ?? null;
+      }
       const pending = markdownLinkPreviewPendingRef.current.get(routePathname);
       if (pending) return pending;
 
@@ -865,7 +872,14 @@ export function App() {
 
       markdownLinkPreviewPendingRef.current.set(routePathname, load);
       try {
-        return await load;
+        const result = await load;
+        if (!result) {
+          markdownLinkPreviewCacheRef.current.set(routePathname, null);
+        }
+        return result;
+      } catch {
+        markdownLinkPreviewCacheRef.current.set(routePathname, null);
+        return null;
       } finally {
         markdownLinkPreviewPendingRef.current.delete(routePathname);
       }
