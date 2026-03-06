@@ -172,12 +172,6 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.doc-delete-btn {
-  background: var(--danger-bg);
-  border-color: var(--danger-border);
-  color: var(--error-color);
-}
-
 .hint {
   font-size: 13px;
   text-align: center;

@@ -1,4 +1,4 @@
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Globe, Lock } from 'lucide-react';
 import { useEffect, useRef } from 'preact/hooks';
 import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
@@ -107,7 +107,14 @@ export function WorkspacesView({
           {availableRepos.map((repo) => (
             <div class="workspaces-repo-card" key={repo.id}>
               <div class="workspaces-repo-info">
-                <div class="workspaces-repo-title">{repo.full_name}</div>
+                <div class="workspaces-repo-title">
+                  {repo.private ? (
+                    <Lock size={14} class="workspaces-repo-visibility-icon" aria-hidden="true" />
+                  ) : (
+                    <Globe size={14} class="workspaces-repo-visibility-icon" aria-hidden="true" />
+                  )}
+                  <span>{repo.full_name}</span>
+                </div>
                 <div class="workspaces-repo-meta">{formatRepoMeta(repo)}</div>
               </div>
               <div class="workspaces-repo-actions">

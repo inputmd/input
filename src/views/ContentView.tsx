@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
-import { MARKDOWN_EXT_RE, isExternalHttpHref } from '../util';
+import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 
 interface MarkdownLinkPreview {
   title: string;

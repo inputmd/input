@@ -1,8 +1,9 @@
-import { Pencil, Trash2 } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { Ellipsis } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 
 interface DocumentCardProps {
-  title: string;
+  title: ComponentChildren;
   meta: ComponentChildren;
   onOpen: () => void;
   onRename?: () => void;
@@ -21,22 +22,25 @@ export function DocumentCard({ title, meta, onOpen, onRename, onDelete, pending 
         <button type="button" onClick={onOpen}>
           Open
         </button>
-        {onRename && (
-          <button type="button" class="doc-action-rename-btn" aria-label="Rename" title="Rename" onClick={onRename}>
-            <span class="doc-action-label">Rename</span>
-            <Pencil className="doc-action-icon" size={15} aria-hidden="true" />
-          </button>
-        )}
-        <button
-          type="button"
-          class="doc-delete-btn doc-action-delete-btn"
-          aria-label="Delete"
-          title="Delete"
-          onClick={onDelete}
-        >
-          <span class="doc-action-label">Delete</span>
-          <Trash2 className="doc-action-icon" size={15} aria-hidden="true" />
-        </button>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button type="button" class="doc-actions-menu-trigger" aria-label="More actions" title="More actions">
+              <Ellipsis size={16} aria-hidden="true" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content class="doc-actions-menu-content" sideOffset={6} align="end">
+              {onRename ? (
+                <DropdownMenu.Item class="doc-actions-menu-item" onSelect={() => onRename()}>
+                  Rename
+                </DropdownMenu.Item>
+              ) : null}
+              <DropdownMenu.Item class="doc-actions-menu-item doc-actions-menu-item-danger" onSelect={onDelete}>
+                Delete
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
     </div>
   );

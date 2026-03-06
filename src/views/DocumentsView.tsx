@@ -1,3 +1,4 @@
+import { Globe, Link2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { isRateLimitError, rateLimitToastMessage } from '../api_error';
 import { useDialogs } from '../components/DialogProvider';
@@ -170,7 +171,16 @@ export function DocumentsView({
             return (
               <DocumentCard
                 key={gist.id}
-                title={title}
+                title={
+                  <span class="doc-title-main">
+                    {gist.public ? (
+                      <Globe size={14} class="doc-visibility-icon" aria-hidden="true" />
+                    ) : (
+                      <Link2 size={14} class="doc-visibility-icon" aria-hidden="true" />
+                    )}
+                    <span>{title}</span>
+                  </span>
+                }
                 pending={pending}
                 meta={
                   <>
