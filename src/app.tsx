@@ -502,10 +502,12 @@ export function App() {
   const [installationRepos, setInstallationRepos] = useState<InstallationRepo[]>([]);
   const [installationReposLoading, setInstallationReposLoading] = useState(false);
   const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
+  const [autoLoadAttemptedReposInstallationId, setAutoLoadAttemptedReposInstallationId] = useState<string | null>(null);
   const [reposLoadError, setReposLoadError] = useState<string | null>(null);
   const [menuGists, setMenuGists] = useState<GistSummary[]>([]);
   const [menuGistsLoading, setMenuGistsLoading] = useState(false);
   const [menuGistsLoaded, setMenuGistsLoaded] = useState(false);
+  const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
@@ -1824,11 +1826,13 @@ export function App() {
     setInstallationRepos([]);
     setInstallationReposLoading(false);
     setLoadedReposInstallationId(null);
+    setAutoLoadAttemptedReposInstallationId(null);
     setReposLoadError(null);
     setGistsLoadError(null);
     setMenuGistsLoaded(false);
     setMenuGists([]);
     setMenuGistsLoading(false);
+    setAutoLoadAttemptedGists(false);
   }, [installationId, user?.login]);
 
   // --- Theme toggle ---
@@ -2782,12 +2786,22 @@ export function App() {
   const onOpenRepoMenu = useCallback(
     (_mode: 'auto' | 'manual' = 'manual') => {
       if (!user) return;
+      const isAutoMode = _mode === 'auto';
 
       const shouldLoadRepos =
-        Boolean(installationId) && !installationReposLoading && loadedReposInstallationId !== installationId;
-      const shouldLoadGists = !menuGistsLoading && !menuGistsLoaded;
+        Boolean(installationId) &&
+        !installationReposLoading &&
+        loadedReposInstallationId !== installationId &&
+        (!isAutoMode || autoLoadAttemptedReposInstallationId !== installationId);
+      const shouldLoadGists = !menuGistsLoading && !menuGistsLoaded && (!isAutoMode || !autoLoadAttemptedGists);
       if (!shouldLoadRepos && !shouldLoadGists) return;
 
+      if (shouldLoadRepos && isAutoMode && installationId) {
+        setAutoLoadAttemptedReposInstallationId(installationId);
+      }
+      if (shouldLoadGists && isAutoMode) {
+        setAutoLoadAttemptedGists(true);
+      }
       if (shouldLoadRepos) setInstallationReposLoading(true);
       if (shouldLoadGists) setMenuGistsLoading(true);
 
@@ -2844,9 +2858,11 @@ export function App() {
       installationId,
       installationReposLoading,
       loadedReposInstallationId,
+      autoLoadAttemptedReposInstallationId,
       handleSessionExpired,
       menuGistsLoading,
       menuGistsLoaded,
+      autoLoadAttemptedGists,
       showRateLimitToastIfNeeded,
     ],
   );
@@ -3197,8 +3213,10 @@ export function App() {
         inRepoContext={inRepoContext}
         availableRepos={installationRepos}
         repoListLoading={installationReposLoading}
+        reposLoadError={reposLoadError}
         menuGists={menuGists.slice(0, 6)}
         menuGistsLoading={menuGistsLoading}
+        gistsLoadError={gistsLoadError}
         draftMode={draftMode}
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
@@ -3210,6 +3228,8 @@ export function App() {
         editUrl={null}
         navigate={navigate}
         onOpenRepoMenu={onOpenRepoMenu}
+        onRetryRepos={() => onOpenRepoMenu('manual')}
+        onRetryGists={() => onOpenRepoMenu('manual')}
         onSelectRepo={onSelectRepo}
         onSignOut={signOut}
         onToggleTheme={toggleTheme}

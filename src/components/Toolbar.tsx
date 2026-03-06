@@ -36,8 +36,10 @@ interface ToolbarProps {
   inRepoContext: boolean;
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
+  reposLoadError: string | null;
   menuGists: GistSummary[];
   menuGistsLoading: boolean;
+  gistsLoadError: string | null;
   draftMode: boolean;
   sidebarVisible: boolean;
   showShare: boolean;
@@ -57,6 +59,8 @@ interface ToolbarProps {
   onSignInWithGitHub: () => void;
   navigate: (route: string, options?: { replace?: boolean; state?: unknown }) => void;
   onOpenRepoMenu: () => void;
+  onRetryRepos: () => void;
+  onRetryGists: () => void;
   onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void;
   onSignOut: () => void;
   onToggleTheme: () => void;
@@ -75,8 +79,10 @@ export function Toolbar({
   inRepoContext,
   availableRepos,
   repoListLoading,
+  reposLoadError,
   menuGists,
   menuGistsLoading,
+  gistsLoadError,
   draftMode,
   sidebarVisible,
   showShare,
@@ -96,6 +102,8 @@ export function Toolbar({
   onSignInWithGitHub,
   navigate,
   onOpenRepoMenu,
+  onRetryRepos,
+  onRetryGists,
   onSelectRepo,
   onSignOut,
   onToggleTheme,
@@ -212,6 +220,15 @@ export function Toolbar({
                       <DropdownMenu.Item class="repo-menu-item" disabled>
                         Loading repos...
                       </DropdownMenu.Item>
+                    ) : reposLoadError ? (
+                      <>
+                        <DropdownMenu.Item class="repo-menu-item" disabled>
+                          Failed to load repos
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item class="repo-menu-item" onSelect={() => onRetryRepos()}>
+                          Retry Repos
+                        </DropdownMenu.Item>
+                      </>
                     ) : availableRepos.length === 0 ? (
                       <DropdownMenu.Item class="repo-menu-item" disabled>
                         No connected repos
@@ -254,6 +271,15 @@ export function Toolbar({
                       <DropdownMenu.Item class="repo-menu-item" disabled>
                         Loading gists...
                       </DropdownMenu.Item>
+                    ) : gistsLoadError ? (
+                      <>
+                        <DropdownMenu.Item class="repo-menu-item" disabled>
+                          Failed to load gists
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item class="repo-menu-item" onSelect={() => onRetryGists()}>
+                          Retry Gists
+                        </DropdownMenu.Item>
+                      </>
                     ) : menuGists.length === 0 ? (
                       <DropdownMenu.Item class="repo-menu-item" disabled>
                         No gists
