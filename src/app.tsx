@@ -1327,7 +1327,7 @@ export function App() {
         }
         if (forEdit) {
           setEditingBackend('repo');
-          setEditTitle(contents.name.replace(/\.md$/i, ''));
+          setEditTitle(contents.name.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
           setEditContent(decoded);
         } else if (binary && isSafeImageFileName(contents.name)) {
           renderImageFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
@@ -1694,7 +1694,7 @@ export function App() {
               setCurrentRepoDocSha(null);
               setRepoFiles([]);
               setRepoSidebarFiles([]);
-              setEditTitle(cacheFile.filename.replace(/\.md$/i, ''));
+              setEditTitle(cacheFile.filename.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
               setEditContent(cacheFile.content ?? '');
               setHasUnsavedChanges(false);
               setViewPhase(null);
@@ -1721,7 +1721,7 @@ export function App() {
             setCurrentRepoDocSha(null);
             setRepoFiles([]);
             setRepoSidebarFiles([]);
-            setEditTitle(file.filename.replace(/\.md$/i, ''));
+            setEditTitle(file.filename.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
             setEditContent(file.content ?? '');
             setViewPhase(null);
           } catch (err) {
