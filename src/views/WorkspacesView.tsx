@@ -86,7 +86,7 @@ export function WorkspacesView({
         </div>
       </div>
       {repoListLoading ? (
-        <p class="loading-hint">Loading repos...</p>
+        <p class="loading-hint">Loading...</p>
       ) : reposLoadError ? (
         <div class="empty-state workspaces-empty-state">
           <p>Failed to load repos.</p>

@@ -243,15 +243,12 @@ export function Toolbar({
                             class="repo-menu-item"
                             onSelect={() => {
                               onSelectRepo(repo.full_name, repo.id, repo.private);
-                              navigate(routePath.repoDocuments(), {
-                                state: {
-                                  selectedRepo: {
-                                    full_name: repo.full_name,
-                                    id: repo.id,
-                                    private: repo.private,
-                                  },
-                                },
-                              });
+                              const [owner, name] = repo.full_name.split('/');
+                              if (!owner || !name) {
+                                navigate(routePath.workspaces());
+                                return;
+                              }
+                              navigate(routePath.repoDocuments(owner, name));
                             }}
                           >
                             <span class="repo-menu-item-main">
