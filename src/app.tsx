@@ -1163,34 +1163,6 @@ export function App() {
   // --- Data loaders ---
   const loadGist = useCallback(
     async (id: string, filename: string | undefined, anonymous: boolean) => {
-      // Serve from cache if available. Anonymous mode skips truncated files with null content.
-      const cached = currentGistId === id ? gistFiles : null;
-      if (cached) {
-        const cacheKeys = Object.keys(cached);
-        const cacheName = filename ? safeDecodeURIComponent(filename) : cacheKeys[0];
-        const cacheFile = cacheName ? cached[cacheName] : null;
-        if (cacheFile && (!anonymous || cacheFile.content != null)) {
-          setCurrentFileName(cacheFile.filename);
-          if (isSafeImageFileName(cacheFile.filename)) {
-            renderImageFileContent(cacheFile.filename, cacheFile.raw_url);
-          } else {
-            renderDocumentContent(cacheFile.content ?? '', cacheFile.filename, null, undefined, {
-              currentDocPath: cacheFile.filename,
-              knownMarkdownPaths: cacheKeys,
-            });
-          }
-          setCurrentGistId(id);
-          setRepoAccessMode(null);
-          setPublicRepoRef(null);
-          setCurrentRepoDocPath(null);
-          setCurrentRepoDocSha(null);
-          setRepoFiles([]);
-          setRepoSidebarFiles([]);
-          setViewPhase(null);
-          return;
-        }
-      }
-
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
       if (shouldShowLoading) {
         setViewPhase('loading');
@@ -1283,16 +1255,7 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Unknown error');
       }
     },
-    [
-      showError,
-      currentGistId,
-      gistFiles,
-      renderDocumentContent,
-      renderImageFileContent,
-      activeView,
-      currentFileName,
-      showRateLimitToastIfNeeded,
-    ],
+    [showError, renderDocumentContent, renderImageFileContent, activeView, currentFileName, showRateLimitToastIfNeeded],
   );
 
   const loadRepoFile = useCallback(
