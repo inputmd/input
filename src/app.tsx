@@ -3227,7 +3227,10 @@ export function App() {
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
         showLeftLoading={showHeaderLeftLoading}
-        showGoToWorkspace={Boolean(goToWorkspaceTarget)}
+        // Show only when a public repo file can be switched into an installed workspace:
+        // route is a repo file, user is signed in with an installation, and the URL repo
+        // matches one of the user's installation repos.
+        showGoToWorkspace={repoAccessMode === 'public' && Boolean(goToWorkspaceTarget)}
         onGoToWorkspace={onGoToWorkspace}
         showPreviewToggle={activeView === 'edit' && editPreviewEnabled}
         previewVisible={previewVisible}
