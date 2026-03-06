@@ -669,7 +669,7 @@ export function App() {
     setPublicRepoRef(null);
     setRepoFiles([]);
     setRepoSidebarFiles([]);
-    setErrorMessage('Your session expired. Sign in with GitHub from the header to continue.');
+    setErrorMessage('Session expired. Sign in with GitHub from the header to continue.');
     setViewPhase('error');
   }, []);
 
