@@ -1,4 +1,5 @@
 import { responseToApiError } from './api_error';
+import { SyncedCache } from './synced_cache';
 import { type CacheEntry, readCacheTtlMs } from './util';
 
 const INSTALLATION_ID_KEY = 'github_app_installation_id';
@@ -7,9 +8,6 @@ const PENDING_INSTALLATION_ID_KEY = 'github_app_pending_installation_id';
 const INSTALL_STATE_KEY = 'github_app_install_state';
 const INSTALL_STATES_FALLBACK_KEY = 'github_app_install_states';
 const INSTALL_STATE_TTL_MS = 15 * 60 * 1000;
-const DEFAULT_REPO_CONTENTS_CACHE_TTL_MS = 30_000;
-const REPO_CONTENTS_CACHE_KEY_PREFIX = 'input_cache_v2:repo_contents:';
-const REPO_CONTENTS_CACHE_CHANNEL = 'input_cache_sync_v1';
 
 export function getInstallationId(): string | null {
   return localStorage.getItem(INSTALLATION_ID_KEY);
@@ -253,9 +251,22 @@ export interface SharedRepoFile {
   expiresAt: string;
 }
 
-const repoContentsCache = new Map<string, CacheEntry<RepoContents>>();
-let repoContentsCacheChannel: BroadcastChannel | null = null;
-let repoContentsCacheTtlMs = readCacheTtlMs('VITE_REPO_CONTENTS_CACHE_TTL_MS', DEFAULT_REPO_CONTENTS_CACHE_TTL_MS);
+function cloneRepoContents(contents: RepoContents): RepoContents {
+  if (Array.isArray(contents)) {
+    return contents.map((item) => ({ ...item }));
+  }
+  return { ...contents };
+}
+
+const repoContentsCacheTtlMs = readCacheTtlMs('VITE_REPO_CONTENTS_CACHE_TTL_MS', 30_000);
+
+const repoContentsCache = new SyncedCache<RepoContents>({
+  storageKeyPrefix: 'input_cache_v2:repo_contents:',
+  channelName: 'input_cache_sync_v1',
+  messagePrefix: 'repo',
+  clone: cloneRepoContents,
+  ttlMs: repoContentsCacheTtlMs,
+});
 
 function repoContentsCacheKey(installationId: string, repoFullName: string, path: string, ref?: string): string {
   return `${installationId}|${repoFullName}|${ref ?? ''}|${path}`;
@@ -265,86 +276,9 @@ function publicRepoContentsCacheIdentity(owner: string, repo: string): string {
   return `public:${owner.toLowerCase()}/${repo.toLowerCase()}`;
 }
 
-function repoContentsStorageKey(cacheKey: string): string {
-  return `${REPO_CONTENTS_CACHE_KEY_PREFIX}${cacheKey}`;
-}
-
-function readStoredRepoContents(cacheKey: string): CacheEntry<RepoContents> | null {
-  if (typeof window === 'undefined') return null;
-  const raw = localStorage.getItem(repoContentsStorageKey(cacheKey));
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as CacheEntry<RepoContents>;
-    if (!Number.isFinite(parsed.expiresAt)) return null;
-    if (Date.now() > parsed.expiresAt) {
-      localStorage.removeItem(repoContentsStorageKey(cacheKey));
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredRepoContents(cacheKey: string, entry: CacheEntry<RepoContents>): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(repoContentsStorageKey(cacheKey), JSON.stringify(entry));
-  } catch {
-    // Ignore storage quota and serialization failures.
-  }
-}
-
-function removeStoredRepoContentsByPrefix(cacheKeyPrefix: string): void {
-  if (typeof window === 'undefined') return;
-  const storagePrefix = `${REPO_CONTENTS_CACHE_KEY_PREFIX}${cacheKeyPrefix}`;
-  const keysToRemove: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key?.startsWith(storagePrefix)) keysToRemove.push(key);
-  }
-  for (const key of keysToRemove) localStorage.removeItem(key);
-}
-
-function cloneRepoContents(contents: RepoContents): RepoContents {
-  if (Array.isArray(contents)) {
-    return contents.map((item) => ({ ...item }));
-  }
-  return { ...contents };
-}
-
-function getCachedRepoContents(key: string): RepoContents | null {
-  const cached = repoContentsCache.get(key);
-  if (cached) {
-    if (Date.now() > cached.expiresAt) {
-      repoContentsCache.delete(key);
-    } else {
-      return cloneRepoContents(cached.value);
-    }
-  }
-  const stored = readStoredRepoContents(key);
-  if (!stored) return null;
-  repoContentsCache.set(key, { value: cloneRepoContents(stored.value), expiresAt: stored.expiresAt });
-  return cloneRepoContents(stored.value);
-}
-
-function setCachedRepoContents(key: string, value: RepoContents): void {
-  const entry = {
-    value: cloneRepoContents(value),
-    expiresAt: Date.now() + repoContentsCacheTtlMs,
-  };
-  repoContentsCache.set(key, entry);
-  writeStoredRepoContents(key, entry);
-  repoContentsCacheChannel?.postMessage({ type: 'repo-key-updated', cacheKey: key });
-}
-
 function clearRepoContentsCacheForRepo(installationId: string, repoFullName: string): void {
   const keyPrefix = `${installationId}|${repoFullName}|`;
-  for (const key of repoContentsCache.keys()) {
-    if (key.startsWith(keyPrefix)) repoContentsCache.delete(key);
-  }
-  removeStoredRepoContentsByPrefix(keyPrefix);
-  repoContentsCacheChannel?.postMessage({ type: 'repo-prefix-cleared', cacheKeyPrefix: keyPrefix });
+  repoContentsCache.clearByPrefix(keyPrefix);
 
   const treeKeyPrefix = `tree|${installationId}|${repoFullName}|`;
   for (const key of repoTreeCache.keys()) {
@@ -353,51 +287,8 @@ function clearRepoContentsCacheForRepo(installationId: string, repoFullName: str
 }
 
 export function setRepoContentsCacheTtlMs(ttlMs: number): void {
-  if (!Number.isFinite(ttlMs) || ttlMs < 0) {
-    throw new Error('Repo contents cache TTL must be a non-negative number');
-  }
-  repoContentsCacheTtlMs = Math.floor(ttlMs);
+  repoContentsCache.setTtlMs(ttlMs);
 }
-
-function setupRepoContentsCacheSync(): void {
-  if (typeof window === 'undefined') return;
-
-  window.addEventListener('storage', (event) => {
-    if (!event.key || !event.key.startsWith(REPO_CONTENTS_CACHE_KEY_PREFIX)) return;
-    const cacheKey = event.key.slice(REPO_CONTENTS_CACHE_KEY_PREFIX.length);
-    if (!cacheKey) return;
-    const stored = readStoredRepoContents(cacheKey);
-    if (!stored) {
-      repoContentsCache.delete(cacheKey);
-      return;
-    }
-    repoContentsCache.set(cacheKey, { value: cloneRepoContents(stored.value), expiresAt: stored.expiresAt });
-  });
-
-  if ('BroadcastChannel' in window) {
-    repoContentsCacheChannel = new BroadcastChannel(REPO_CONTENTS_CACHE_CHANNEL);
-    repoContentsCacheChannel.addEventListener('message', (event: MessageEvent<unknown>) => {
-      const msg = event.data as { type?: string; cacheKey?: string; cacheKeyPrefix?: string } | null;
-      if (!msg) return;
-      if (msg.type === 'repo-prefix-cleared' && msg.cacheKeyPrefix) {
-        for (const key of repoContentsCache.keys()) {
-          if (key.startsWith(msg.cacheKeyPrefix)) repoContentsCache.delete(key);
-        }
-        return;
-      }
-      if (msg.type === 'repo-key-updated' && msg.cacheKey) {
-        const stored = readStoredRepoContents(msg.cacheKey);
-        if (!stored) {
-          repoContentsCache.delete(msg.cacheKey);
-          return;
-        }
-        repoContentsCache.set(msg.cacheKey, { value: cloneRepoContents(stored.value), expiresAt: stored.expiresAt });
-      }
-    });
-  }
-}
-
-setupRepoContentsCacheSync();
 
 // --- Authenticated API functions ---
 
@@ -424,7 +315,7 @@ export async function getRepoContents(
   ref?: string,
 ): Promise<RepoContents> {
   const cacheKey = repoContentsCacheKey(installationId, repoFullName, path, ref);
-  const cached = getCachedRepoContents(cacheKey);
+  const cached = repoContentsCache.get(cacheKey);
   if (cached) return cached;
 
   const { owner, repo } = splitFullName(repoFullName);
@@ -432,7 +323,7 @@ export async function getRepoContents(
   if (ref) qs.set('ref', ref);
   const res = await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/contents?${qs.toString()}`);
   const data = (await res.json()) as RepoContents;
-  setCachedRepoContents(cacheKey, data);
+  repoContentsCache.set(cacheKey, data);
   return data;
 }
 
@@ -444,7 +335,7 @@ export async function getPublicRepoContents(
 ): Promise<RepoContents> {
   const cacheIdentity = publicRepoContentsCacheIdentity(owner, repo);
   const cacheKey = repoContentsCacheKey(cacheIdentity, `${owner}/${repo}`, path, ref);
-  const cached = getCachedRepoContents(cacheKey);
+  const cached = repoContentsCache.get(cacheKey);
   if (cached) return cached;
 
   const qs = new URLSearchParams({ path });
@@ -453,7 +344,7 @@ export async function getPublicRepoContents(
     `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`,
   );
   const data = (await res.json()) as RepoContents;
-  setCachedRepoContents(cacheKey, data);
+  repoContentsCache.set(cacheKey, data);
   return data;
 }
 
