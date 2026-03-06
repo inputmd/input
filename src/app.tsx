@@ -59,7 +59,7 @@ import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
-import { decodeBase64ToBytes, encodePathForHref, encodeBytesToBase64, encodeUtf8ToBase64 } from './util';
+import { decodeBase64ToBytes, encodePathForHref, encodeBytesToBase64, encodeUtf8ToBase64, isMarkdownFileName } from './util';
 import { ContentView } from './views/ContentView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
@@ -131,11 +131,6 @@ function repoNewDraftKey(installationId: string, repoFullName: string, field: 't
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
 }
 
-function isMarkdownFileName(name: string | null | undefined): boolean {
-  if (!name) return false;
-  return /\.md(?:own|wn)?$/i.test(name) || /\.markdown$/i.test(name);
-}
-
 function isTxtFileName(name: string | null | undefined): boolean {
   return Boolean(name && /\.txt$/i.test(name));
 }
@@ -143,8 +138,7 @@ function isTxtFileName(name: string | null | undefined): boolean {
 function isSidebarTextFileName(name: string | null | undefined): boolean {
   if (!name) return false;
   return (
-    /\.md(?:own|wn)?$/i.test(name) ||
-    /\.markdown$/i.test(name) ||
+    isMarkdownFileName(name) ||
     /\.(txt|ts|js|py|tsx|jsx|json|jsonc|yml|yaml|toml|css|scss|html|sh|sql|xml|csv|mdx|rst)$/i.test(name)
   );
 }

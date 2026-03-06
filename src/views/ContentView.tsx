@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
-import { isExternalHttpHref } from '../util';
+import { MARKDOWN_EXT_RE, isExternalHttpHref } from '../util';
 
 interface MarkdownLinkPreview {
   title: string;
@@ -35,7 +35,8 @@ const CLAUDE_CODE_ASCII_BANNER = ` ▐▛███▜▌
   ▘▘ ▝▝`;
 
 function isMarkdownHref(href: string): boolean {
-  return /\.md(?:own|wn)?(?:$|[?#])|\.markdown(?:$|[?#])/i.test(href);
+  const withoutSuffix = href.split(/[?#]/, 1)[0] ?? '';
+  return MARKDOWN_EXT_RE.test(withoutSuffix);
 }
 
 function lastPathSegment(path: string): string {

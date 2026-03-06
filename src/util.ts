@@ -42,6 +42,13 @@ export function readCacheTtlMs(envVar: string, fallback: number): number {
   return Math.floor(parsed);
 }
 
+export const MARKDOWN_EXT_RE = /\.(?:md(?:own|wn)?|markdown)$/i;
+
+export function isMarkdownFileName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return MARKDOWN_EXT_RE.test(name);
+}
+
 export function encodePathForHref(path: string): string {
   return path
     .split('/')
