@@ -3012,7 +3012,9 @@ export function App() {
 
   const sidebarEligible = activeView === 'content' || activeView === 'edit';
   const sidebarDisabled = activeView === 'edit' && draftMode;
-  const defaultShowSidebar = isDesktopWidth && !sidebarDisabled && (!!user || repoAccessMode === 'public');
+  const isAnonymousGistWorkspace = currentGistId !== null && !user;
+  const defaultShowSidebar =
+    isDesktopWidth && !sidebarDisabled && (!!user || repoAccessMode === 'public' || currentGistId !== null);
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
   const handleSidebarDocumentStep = useCallback(
     async (direction: -1 | 1) => {
@@ -3261,7 +3263,7 @@ export function App() {
               onViewFolderOnGitHub={handleViewFolderOnGitHub}
               canViewOnGitHub={currentGistId !== null || selectedRepo !== null || publicRepoRef !== null}
               disabled={sidebarDisabled}
-              readOnly={repoAccessMode === 'public'}
+              readOnly={repoAccessMode === 'public' || isAnonymousGistWorkspace}
               onCreateFile={handleCreateFile}
               onCreateDirectory={handleCreateDirectory}
               onDeleteFile={handleDeleteFile}
