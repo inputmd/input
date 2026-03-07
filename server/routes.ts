@@ -1054,12 +1054,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         messages: [
           {
             role: 'system',
-            content:
-              'You are a helpful assistant. Answer questions about the provided markdown document. Cite specific details from the document when possible. If the document lacks the answer, say so plainly.',
-          },
-          {
-            role: 'user',
-            content: `Markdown document:\n\n${source.slice(-READER_AI_MAX_SOURCE_CHARS)}`,
+            content: `You are a helpful assistant. Answer questions about the provided markdown document. Cite specific details from the document when possible. If the document lacks the answer, say so plainly.\n\n<document>\n${source.slice(-READER_AI_MAX_SOURCE_CHARS)}\n</document>`,
           },
           ...messages,
         ],
