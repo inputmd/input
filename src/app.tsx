@@ -3718,8 +3718,25 @@ export function App() {
     },
     [isDesktopWidth],
   );
-  const onOpenLightbox = useCallback((src: string, alt: string) => {
-    setLightboxImage({ src, alt });
+  const onOpenLightbox = useCallback((image: HTMLImageElement) => {
+    const src = image.currentSrc.trim() || (image.getAttribute('src') ?? '').trim();
+    if (!src) return;
+    let lightboxSrc = src;
+    if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext('2d');
+        if (context) {
+          context.drawImage(image, 0, 0);
+          lightboxSrc = canvas.toDataURL('image/png');
+        }
+      } catch {
+        // Cross-origin images can taint canvas; fall back to original src.
+      }
+    }
+    setLightboxImage({ src: lightboxSrc, alt: image.getAttribute('alt') ?? '' });
   }, []);
   const onCloseLightbox = useCallback(() => {
     setLightboxImage(null);

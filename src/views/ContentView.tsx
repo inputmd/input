@@ -18,7 +18,7 @@ interface ContentViewProps {
   alertDownloadName?: string | null;
   onInternalLinkNavigate?: (route: string) => void;
   onRequestMarkdownLinkPreview?: (route: string) => Promise<MarkdownLinkPreview | null>;
-  onImageClick?: (src: string, alt: string) => void;
+  onImageClick?: (image: HTMLImageElement) => void;
 }
 
 interface LinkPreviewState {
@@ -268,10 +268,8 @@ export function ContentView({
 
     const image = target?.closest('img');
     if (image && onImageClick) {
-      const imageSrc = image.getAttribute('src')?.trim();
-      if (!imageSrc) return;
       event.preventDefault();
-      onImageClick(imageSrc, image.getAttribute('alt') ?? '');
+      onImageClick(image);
       return;
     }
 
@@ -540,7 +538,7 @@ export function ContentView({
             class="content-image-preview-image"
             src={imagePreview.src}
             alt={imagePreview.alt}
-            onClick={() => onImageClick?.(imagePreview.src, imagePreview.alt)}
+            onClick={(event) => onImageClick?.(event.currentTarget)}
           />
         </div>
       ) : markdown ? (

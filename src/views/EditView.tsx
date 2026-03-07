@@ -8,7 +8,7 @@ interface EditViewProps {
   canRenderPreview: boolean;
   onTogglePreview: () => void;
   onContentChange: (content: string) => void;
-  onPreviewImageClick?: (src: string, alt: string) => void;
+  onPreviewImageClick?: (image: HTMLImageElement) => void;
   onEditorPaste?: (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => void;
   saving: boolean;
   canSave: boolean;
@@ -152,11 +152,9 @@ export function EditView({
     const target = event.target as HTMLElement | null;
     const image = target?.closest('img');
     if (!image || !onPreviewImageClick) return;
-    const imageSrc = image.getAttribute('src')?.trim();
-    if (!imageSrc) return;
 
     event.preventDefault();
-    onPreviewImageClick(imageSrc, image.getAttribute('alt') ?? '');
+    onPreviewImageClick(image);
   };
 
   return (
