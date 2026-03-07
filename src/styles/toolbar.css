@@ -224,7 +224,8 @@
   background: #2ea043;
 }
 
-.action-buttons .preview-toggle-btn {
+.action-buttons .preview-toggle-btn,
+.action-buttons .author-menu-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;

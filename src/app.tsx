@@ -3520,7 +3520,8 @@ export function App() {
     activeView === 'content' &&
     isMarkdownFileName(currentFileName) &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
-  const showReaderAiToggle = activeView === 'content' && renderMode === 'markdown' && Boolean(readerAiSource);
+  const showReaderAiToggle =
+    activeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript);
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
