@@ -121,7 +121,6 @@ export function Toolbar({
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
   const runAuthorMenuAction = (event: Event, action: () => void): void => {
-    event.preventDefault();
     event.stopPropagation();
     action();
   };
