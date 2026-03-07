@@ -104,6 +104,7 @@ interface OpenRouterModelsResponse {
     name?: unknown;
     description?: unknown;
     context_length?: unknown;
+    supported_parameters?: unknown;
   }>;
 }
 
@@ -407,6 +408,8 @@ async function fetchReaderAiModels(req: http.IncomingMessage): Promise<ReaderAiM
       const id = typeof entry.id === 'string' ? entry.id : '';
       const name = typeof entry.name === 'string' ? entry.name : id;
       if (!id.endsWith(':free')) return null;
+      const supportedParams = Array.isArray(entry.supported_parameters) ? entry.supported_parameters : [];
+      if (!supportedParams.includes('tools')) return null;
       const paramsBillions = modelParamsEstimateBillions(entry);
       if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) return null;
       const rawCtx = typeof entry.context_length === 'number' ? entry.context_length : 0;
