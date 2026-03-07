@@ -290,6 +290,11 @@ export function setRepoContentsCacheTtlMs(ttlMs: number): void {
   repoContentsCache.setTtlMs(ttlMs);
 }
 
+export function clearGitHubAppCaches(): void {
+  repoContentsCache.clearAll();
+  repoTreeCache.clear();
+}
+
 // --- Authenticated API functions ---
 
 function splitFullName(fullName: string): { owner: string; repo: string } {

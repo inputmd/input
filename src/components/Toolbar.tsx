@@ -3,6 +3,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   Check,
   ChevronDown,
+  ChevronRight,
   ExternalLink,
   Eye,
   Globe,
@@ -63,6 +64,7 @@ interface ToolbarProps {
   onRetryGists: () => void;
   onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void;
   onSignOut: () => void;
+  onClearCache: () => void | Promise<void>;
   onToggleTheme: () => void;
   onToggleSidebar: () => void;
   onEdit: () => void;
@@ -106,6 +108,7 @@ export function Toolbar({
   onRetryGists,
   onSelectRepo,
   onSignOut,
+  onClearCache,
   onToggleTheme,
   onToggleSidebar,
   onEdit,
@@ -389,6 +392,23 @@ export function Toolbar({
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                     Toggle Theme
                   </DropdownMenu.Item>
+                  <DropdownMenu.Sub>
+                    <DropdownMenu.SubTrigger class="user-menu-item user-menu-subtrigger">
+                      <span>Advanced</span>
+                      <ChevronRight size={14} aria-hidden="true" />
+                    </DropdownMenu.SubTrigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.SubContent
+                        class="user-menu-content user-menu-subcontent"
+                        sideOffset={6}
+                        alignOffset={-6}
+                      >
+                        <DropdownMenu.Item class="user-menu-item" onSelect={() => void onClearCache()}>
+                          Clear cache
+                        </DropdownMenu.Item>
+                      </DropdownMenu.SubContent>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Sub>
                   <DropdownMenu.Separator class="user-menu-separator" />
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onSignOut()}>
                     Sign Out

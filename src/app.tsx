@@ -12,6 +12,7 @@ import { type ActiveView, Toolbar } from './components/Toolbar';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
 import { markGistRecentlyCreated } from './gist_consistency';
 import {
+  clearGitHubCaches,
   createGist,
   type GistDetail,
   type GistFile,
@@ -24,6 +25,7 @@ import {
   updateGist,
 } from './github';
 import {
+  clearGitHubAppCaches,
   clearInstallationId,
   clearPendingInstallationId,
   clearSelectedRepo,
@@ -582,6 +584,11 @@ export function App() {
     },
     [showFailureToast],
   );
+
+  const clearMarkdownLinkPreviewCache = useCallback(() => {
+    markdownLinkPreviewCacheRef.current.clear();
+    markdownLinkPreviewPendingRef.current.clear();
+  }, []);
 
   const clearOAuthRedirectGuard = useCallback(() => {
     try {
@@ -2071,6 +2078,7 @@ export function App() {
         });
         navigate(routePath.gistView(gist.id, filename));
       }
+      clearMarkdownLinkPreviewCache();
       showSuccessToast('Saved');
       saved = true;
     } catch (err) {
@@ -2105,6 +2113,7 @@ export function App() {
     showAlert,
     showRateLimitToastIfNeeded,
     showSuccessToast,
+    clearMarkdownLinkPreviewCache,
     renderDocumentContent,
     repoFiles,
     selectedRepoRef,
@@ -2124,6 +2133,28 @@ export function App() {
 
     return null;
   }, [currentGistId, repoAccessMode, selectedRepo]);
+
+  const onClearCaches = useCallback(async () => {
+    const confirmed = await showConfirm(
+      'Clear cached GitHub and preview data? This removes local caches and may cause additional reload requests.',
+      { confirmLabel: 'Clear cache', intent: 'danger' },
+    );
+    if (!confirmed) return;
+    clearGitHubCaches();
+    clearGitHubAppCaches();
+    clearMarkdownLinkPreviewCache();
+    setMenuGists([]);
+    setMenuGistsLoaded(false);
+    setMenuGistsLoading(false);
+    setAutoLoadAttemptedGists(false);
+    setGistsLoadError(null);
+    setInstallationRepos([]);
+    setInstallationReposLoading(false);
+    setLoadedReposInstallationId(null);
+    setAutoLoadAttemptedReposInstallationId(null);
+    setReposLoadError(null);
+    showSuccessToast('Caches cleared');
+  }, [clearMarkdownLinkPreviewCache, showConfirm, showSuccessToast]);
 
   // --- Sidebar actions ---
   const navigateToSidebarFile = useCallback(
@@ -3225,6 +3256,7 @@ export function App() {
         onRetryGists={() => onOpenRepoMenu('manual')}
         onSelectRepo={onSelectRepo}
         onSignOut={signOut}
+        onClearCache={onClearCaches}
         onToggleTheme={toggleTheme}
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}

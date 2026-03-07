@@ -47,6 +47,11 @@ export function setGistDetailCacheTtlMs(ttlMs: number): void {
   gistDetailCache.setTtlMs(ttlMs);
 }
 
+export function clearGitHubCaches(): void {
+  gistListCache.clearAll();
+  gistDetailCache.clearAll();
+}
+
 export interface GistFile {
   filename: string;
   content: string;
