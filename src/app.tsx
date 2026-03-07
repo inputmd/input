@@ -659,6 +659,7 @@ export function App() {
   const [readerAiModels, setReaderAiModels] = useState<ReaderAiModel[]>([]);
   const [readerAiModelsLoading, setReaderAiModelsLoading] = useState(false);
   const [readerAiModelsError, setReaderAiModelsError] = useState<string | null>(null);
+  const [readerAiConfigured, setReaderAiConfigured] = useState(true);
   const [readerAiSelectedModel, setReaderAiSelectedModel] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
     try {
@@ -2084,6 +2085,7 @@ export function App() {
     setReaderAiModelsError(null);
     try {
       const models = prioritizeReaderAiModels(await listReaderAiModels());
+      setReaderAiConfigured(true);
       setReaderAiModels(models);
       setReaderAiSelectedModel((current) => {
         if (current && models.some((model) => model.id === current)) return current;
@@ -2091,6 +2093,9 @@ export function App() {
       });
     } catch (err) {
       setReaderAiModels([]);
+      if (err instanceof ApiError && err.status === 503) {
+        setReaderAiConfigured(false);
+      }
       setReaderAiModelsError(err instanceof Error ? err.message : 'Failed to load Reader AI models');
     } finally {
       setReaderAiModelsLoading(false);
@@ -2131,10 +2136,20 @@ export function App() {
     };
   }, []);
 
+  const showReaderAiToggleCandidate =
+    activeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript);
+
   useEffect(() => {
-    if (!readerAiVisible || readerAiModelsLoading || readerAiModels.length > 0 || readerAiModelsError) return;
+    if (!showReaderAiToggleCandidate || readerAiModelsLoading || readerAiModels.length > 0 || readerAiModelsError)
+      return;
     void loadReaderAiModels();
-  }, [loadReaderAiModels, readerAiModels.length, readerAiModelsError, readerAiModelsLoading, readerAiVisible]);
+  }, [
+    loadReaderAiModels,
+    readerAiModels.length,
+    readerAiModelsError,
+    readerAiModelsLoading,
+    showReaderAiToggleCandidate,
+  ]);
 
   const streamReaderAiAssistant = useCallback(
     async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
@@ -3641,8 +3656,7 @@ export function App() {
     activeView === 'content' &&
     isMarkdownFileName(currentFileName) &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
-  const showReaderAiToggle =
-    activeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript);
+  const showReaderAiToggle = showReaderAiToggleCandidate && readerAiConfigured;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
