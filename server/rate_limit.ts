@@ -30,11 +30,7 @@ function getClientIp(req: http.IncomingMessage): string {
   return req.socket.remoteAddress || 'unknown';
 }
 
-function checkLimit(
-  key: string,
-  max: number,
-  res: http.ServerResponse,
-): boolean {
+function checkLimit(key: string, max: number, res: http.ServerResponse): boolean {
   const now = Date.now();
   let entry = rateLimitWindows.get(key);
 
@@ -63,7 +59,7 @@ export function checkRateLimit(req: http.IncomingMessage, res: http.ServerRespon
 }
 
 export function checkRateLimitAuthenticated(
-  req: http.IncomingMessage,
+  _req: http.IncomingMessage,
   res: http.ServerResponse,
   userId: number,
 ): boolean {
