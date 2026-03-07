@@ -15,6 +15,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overscroll-behavior: contain;
   z-index: 15;
 }
 
@@ -138,6 +139,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -269,16 +271,6 @@
 
 .reader-ai-error {
   color: var(--error-color);
-}
-
-.reader-ai-input-wrap--composer {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  background: color-mix(in srgb, var(--bg) 75%, transparent);
 }
 
 .reader-ai-input-wrap {
