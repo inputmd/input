@@ -365,7 +365,13 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
 
 function loadReaderAiMessagesFromHistory(historyKey: string): ReaderAiMessage[] {
   const store = loadReaderAiHistoryStore();
-  return store.entries[historyKey] ?? [];
+  const messages = store.entries[historyKey] ?? [];
+  console.debug('[reader-ai] loaded history', {
+    historyKey,
+    messageCount: messages.length,
+    knownKeys: store.order,
+  });
+  return messages;
 }
 
 function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAiMessage[]): void {
@@ -375,23 +381,69 @@ function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAi
   const nextOrder = store.order.filter((key) => key !== historyKey);
   const normalizedMessages = normalizeReaderAiMessages(messages);
   if (normalizedMessages.length === 0) {
-    delete nextEntries[historyKey];
-  } else {
-    nextEntries[historyKey] = normalizedMessages;
-    nextOrder.unshift(historyKey);
+    console.debug('[reader-ai] skip persist for empty messages (no explicit clear)', { historyKey });
+    return;
   }
+  nextEntries[historyKey] = normalizedMessages;
+  nextOrder.unshift(historyKey);
   const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
+  for (const key of Object.keys(nextEntries)) {
+    if (!trimmedOrder.includes(key)) delete nextEntries[key];
+  }
+  console.debug('[reader-ai] persisting history', {
+    historyKey,
+    messageCount: normalizedMessages.length,
+    orderLength: trimmedOrder.length,
+  });
+  try {
+    if (trimmedOrder.length === 0) {
+      localStorage.removeItem(READER_AI_HISTORY_KEY);
+      const persisted = localStorage.getItem(READER_AI_HISTORY_KEY);
+      console.debug('[reader-ai] persisted history clear check', {
+        removed: persisted === null,
+      });
+      return;
+    }
+    const payload = JSON.stringify({ order: trimmedOrder, entries: nextEntries });
+    localStorage.setItem(READER_AI_HISTORY_KEY, payload);
+    const persistedRaw = localStorage.getItem(READER_AI_HISTORY_KEY);
+    if (!persistedRaw) {
+      console.warn('[reader-ai] persist check failed: history key missing after write', { historyKey });
+      return;
+    }
+    const persistedStore = JSON.parse(persistedRaw) as ReaderAiHistoryStore;
+    const persistedMessages = normalizeReaderAiMessages(persistedStore.entries?.[historyKey]);
+    console.debug('[reader-ai] persisted history check', {
+      historyKey,
+      persisted: persistedMessages.length === normalizedMessages.length,
+      persistedMessageCount: persistedMessages.length,
+      expectedMessageCount: normalizedMessages.length,
+    });
+  } catch {
+    console.error('[reader-ai] persist history failed', { historyKey });
+  }
+}
+
+function clearReaderAiMessagesFromHistory(historyKey: string): void {
+  if (typeof window === 'undefined') return;
+  const store = loadReaderAiHistoryStore();
+  if (!(historyKey in store.entries)) return;
+  const nextEntries = { ...store.entries };
+  delete nextEntries[historyKey];
+  const trimmedOrder = store.order.filter((key) => key !== historyKey).slice(0, READER_AI_HISTORY_MAX_ENTRIES);
   for (const key of Object.keys(nextEntries)) {
     if (!trimmedOrder.includes(key)) delete nextEntries[key];
   }
   try {
     if (trimmedOrder.length === 0) {
       localStorage.removeItem(READER_AI_HISTORY_KEY);
+      console.debug('[reader-ai] cleared history key and removed store', { historyKey });
       return;
     }
     localStorage.setItem(READER_AI_HISTORY_KEY, JSON.stringify({ order: trimmedOrder, entries: nextEntries }));
+    console.debug('[reader-ai] cleared history key', { historyKey, remainingKeys: trimmedOrder });
   } catch {
-    // Best effort only.
+    console.error('[reader-ai] clear history failed', { historyKey });
   }
 }
 
@@ -750,6 +802,7 @@ export function App() {
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
+  const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const activeView = viewPhase ?? viewFromRoute(route);
   const readerAiHistoryDocumentKey = useMemo(
     () =>
@@ -2128,9 +2181,13 @@ export function App() {
 
   useEffect(() => {
     const prevHistoryKey = readerAiPrevHistoryKeyRef.current;
-    readerAiPrevHistoryKeyRef.current = readerAiHistoryDocumentKey;
     if (activeView === 'content' && renderMode === 'markdown' && readerAiSource && readerAiHistoryDocumentKey) {
       if (prevHistoryKey !== readerAiHistoryDocumentKey) {
+        readerAiSkipPersistHistoryKeyRef.current = readerAiHistoryDocumentKey;
+        console.debug('[reader-ai] switching history context', {
+          from: prevHistoryKey,
+          to: readerAiHistoryDocumentKey,
+        });
         readerAiAbortRef.current?.abort();
         readerAiAbortRef.current = null;
         setReaderAiSending(false);
@@ -2138,8 +2195,10 @@ export function App() {
         setReaderAiRetryAvailable(false);
         setReaderAiError(null);
       }
+      readerAiPrevHistoryKeyRef.current = readerAiHistoryDocumentKey;
       return;
     }
+    readerAiPrevHistoryKeyRef.current = null;
     readerAiAbortRef.current?.abort();
     readerAiAbortRef.current = null;
     setReaderAiSending(false);
@@ -2150,6 +2209,13 @@ export function App() {
 
   useLayoutEffect(() => {
     if (activeView !== 'content' || renderMode !== 'markdown' || !readerAiSource || !readerAiHistoryDocumentKey) return;
+    if (readerAiSkipPersistHistoryKeyRef.current === readerAiHistoryDocumentKey) {
+      readerAiSkipPersistHistoryKeyRef.current = null;
+      console.debug('[reader-ai] skipping first persist after history load', {
+        historyKey: readerAiHistoryDocumentKey,
+      });
+      return;
+    }
     persistReaderAiMessagesToHistory(readerAiHistoryDocumentKey, readerAiMessages);
   }, [activeView, renderMode, readerAiMessages, readerAiSource, readerAiHistoryDocumentKey]);
 
@@ -2300,10 +2366,11 @@ export function App() {
   }, []);
 
   const onReaderAiClear = useCallback(() => {
+    if (readerAiHistoryDocumentKey) clearReaderAiMessagesFromHistory(readerAiHistoryDocumentKey);
     setReaderAiMessages([]);
     setReaderAiRetryAvailable(false);
     setReaderAiError(null);
-  }, []);
+  }, [readerAiHistoryDocumentKey]);
 
   const onReaderAiRetryLastMessage = useCallback(async () => {
     if (readerAiSending || !readerAiRetryAvailable) return;
