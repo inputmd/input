@@ -22,6 +22,11 @@ type ReaderAiModelsResponse = {
 interface ReaderAiStreamOptions {
   onDelta: (delta: string) => void;
   onSummary?: (summary: string) => void;
+  onToolCall?: (name: string, args?: Record<string, unknown> | string) => void;
+  onToolResult?: (name: string, preview?: string) => void;
+  onStreamError?: (message: string) => void;
+  onTurnStart?: (iteration: number) => void;
+  onTurnEnd?: (iteration: number, reason: string) => void;
   signal?: AbortSignal;
 }
 
@@ -132,6 +137,52 @@ export async function askReaderAiStream(
           if (typeof parsed.summary === 'string' && parsed.summary) options.onSummary(parsed.summary);
         } catch {
           // Ignore malformed summary event.
+        }
+      } else if (eventType === 'tool_call') {
+        if (options.onToolCall) {
+          try {
+            const parsed = JSON.parse(data) as { name?: string; arguments?: Record<string, unknown> | string };
+            if (typeof parsed.name === 'string') options.onToolCall(parsed.name, parsed.arguments);
+          } catch {
+            // Ignore malformed tool_call event.
+          }
+        }
+      } else if (eventType === 'tool_result') {
+        if (options.onToolResult) {
+          try {
+            const parsed = JSON.parse(data) as { name?: string; preview?: string };
+            if (typeof parsed.name === 'string') options.onToolResult(parsed.name, parsed.preview);
+          } catch {
+            // Ignore malformed tool_result event.
+          }
+        }
+      } else if (eventType === 'turn_start') {
+        if (options.onTurnStart) {
+          try {
+            const parsed = JSON.parse(data) as { iteration?: number };
+            if (typeof parsed.iteration === 'number') options.onTurnStart(parsed.iteration);
+          } catch {
+            // Ignore malformed turn_start event.
+          }
+        }
+      } else if (eventType === 'turn_end') {
+        if (options.onTurnEnd) {
+          try {
+            const parsed = JSON.parse(data) as { iteration?: number; reason?: string };
+            if (typeof parsed.iteration === 'number')
+              options.onTurnEnd(parsed.iteration, parsed.reason ?? 'unknown');
+          } catch {
+            // Ignore malformed turn_end event.
+          }
+        }
+      } else if (eventType === 'error') {
+        if (options.onStreamError) {
+          try {
+            const parsed = JSON.parse(data) as { message?: string };
+            if (typeof parsed.message === 'string') options.onStreamError(parsed.message);
+          } catch {
+            // Ignore malformed error event.
+          }
         }
       } else {
         try {

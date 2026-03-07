@@ -264,6 +264,10 @@ const READER_AI_CONTEXT_WINDOW_MESSAGES = 8;
 const READER_AI_MAX_SUMMARY_CHARS = 2000;
 const READER_AI_SUMMARIZE_TIMEOUT_MS = 30_000;
 const READER_AI_MIN_MODEL_PARAMS_B = 15;
+const READER_AI_MAX_TOOL_ITERATIONS = 10;
+const READER_AI_TOOL_RESULT_MAX_CHARS = 30_000;
+const READER_AI_DOC_PREVIEW_CHARS = 12_000;
+const READER_AI_PER_CALL_TIMEOUT_MS = 60_000;
 let readerAiModelsCache: { value: ReaderAiModelEntry[]; expiresAt: number } | null = null;
 
 function modelParamsEstimateBillions(entry: { id?: unknown; name?: unknown; description?: unknown }): number | null {
@@ -1096,6 +1100,290 @@ async function handleReaderAiModels(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, { models });
 }
 
+// ── Reader AI Tool Definitions & Helpers ──
+
+const READER_AI_TOOLS = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'read_document',
+      description:
+        'Read the document content. Returns line-numbered text. Without arguments returns the full document; use start_line/end_line for specific sections.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          start_line: {
+            type: 'number' as const,
+            description: 'First line to return (1-based, inclusive). Omit to start from the beginning.',
+          },
+          end_line: {
+            type: 'number' as const,
+            description: 'Last line to return (1-based, inclusive). Omit to read to the end.',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'search_document',
+      description:
+        'Search the document for lines matching a query (case-insensitive substring). Returns matching lines with surrounding context and line numbers.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string' as const, description: 'Text to search for (case-insensitive)' },
+          context_lines: {
+            type: 'number' as const,
+            description: 'Lines of context before/after each match (default: 2, max: 10)',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+];
+
+interface ReaderAiToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+interface ReaderAiStreamParseResult {
+  content: string;
+  toolCalls: ReaderAiToolCall[];
+  finishReason: string;
+}
+
+type OpenRouterMessage =
+  | { role: 'system' | 'user' | 'assistant'; content: string }
+  | {
+      role: 'assistant';
+      content: string | null;
+      tool_calls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+    }
+  | { role: 'tool'; tool_call_id: string; content: string };
+
+function executeReaderAiReadDocument(
+  lines: string[],
+  args: { start_line?: number; end_line?: number },
+): string {
+  const total = lines.length;
+  const start = Math.max(1, Math.floor(args.start_line ?? 1));
+  const end = Math.min(total, Math.floor(args.end_line ?? total));
+  if (start > total) return `(start_line ${start} is beyond the document, which has ${total} lines)`;
+  if (start > end) return `(invalid range: start_line ${start} > end_line ${end})`;
+  const selected = lines.slice(start - 1, end);
+  const numbered = selected.map((line, i) => `${start + i}: ${line}`);
+  const result = numbered.join('\n');
+  if (result.length > READER_AI_TOOL_RESULT_MAX_CHARS) {
+    return (
+      result.slice(0, READER_AI_TOOL_RESULT_MAX_CHARS) +
+      `\n\n... (truncated; requested ${end - start + 1} lines; use a smaller range)`
+    );
+  }
+  return result;
+}
+
+function executeReaderAiSearchDocument(
+  lines: string[],
+  args: { query: string; context_lines?: number },
+): string {
+  if (!args.query) return '(query is required)';
+  const query = args.query.toLowerCase();
+  const ctx = Math.max(0, Math.min(args.context_lines ?? 2, 10));
+  const matchIndices: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].toLowerCase().includes(query)) matchIndices.push(i);
+  }
+  if (matchIndices.length === 0) return 'No matches found.';
+
+  const ranges: Array<[number, number]> = [];
+  for (const idx of matchIndices) {
+    const rStart = Math.max(0, idx - ctx);
+    const rEnd = Math.min(lines.length - 1, idx + ctx);
+    if (ranges.length > 0 && rStart <= ranges[ranges.length - 1][1] + 1) {
+      ranges[ranges.length - 1][1] = rEnd;
+    } else {
+      ranges.push([rStart, rEnd]);
+    }
+  }
+
+  const matchSet = new Set(matchIndices);
+  const parts: string[] = [`${matchIndices.length} match${matchIndices.length === 1 ? '' : 'es'} found.\n`];
+  for (const [rStart, rEnd] of ranges) {
+    for (let i = rStart; i <= rEnd; i++) {
+      const marker = matchSet.has(i) ? '>' : ' ';
+      parts.push(`${marker} ${i + 1}: ${lines[i]}`);
+    }
+    parts.push('---');
+  }
+
+  const result = parts.join('\n');
+  if (result.length > READER_AI_TOOL_RESULT_MAX_CHARS) {
+    return result.slice(0, READER_AI_TOOL_RESULT_MAX_CHARS) + '\n\n... (too many matches, try a more specific query)';
+  }
+  return result;
+}
+
+function executeReaderAiTool(toolName: string, argsJson: string, lines: string[]): string {
+  let args: Record<string, unknown>;
+  try {
+    args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {};
+  } catch {
+    return `(invalid JSON arguments: ${argsJson})`;
+  }
+  switch (toolName) {
+    case 'read_document':
+      return executeReaderAiReadDocument(lines, args as { start_line?: number; end_line?: number });
+    case 'search_document':
+      return executeReaderAiSearchDocument(lines, args as { query: string; context_lines?: number });
+    default:
+      return `(unknown tool: ${toolName})`;
+  }
+}
+
+async function parseReaderAiUpstreamStream(
+  body: ReadableStream<Uint8Array>,
+  onTextDelta: (delta: string) => void,
+): Promise<ReaderAiStreamParseResult> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+  let finishReason = '';
+  const accumulators = new Map<number, { id: string; name: string; arguments: string }>();
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, '\n');
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        const event = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const dataLines = event
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim());
+        const data = dataLines.join('');
+        if (!data || data === '[DONE]') {
+          boundary = buffer.indexOf('\n\n');
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: Array<{
+              delta?: {
+                content?: string | null;
+                tool_calls?: Array<{
+                  index?: number;
+                  id?: string;
+                  function?: { name?: string; arguments?: string };
+                }>;
+              };
+              finish_reason?: string | null;
+            }>;
+          };
+          const choice = parsed.choices?.[0];
+          if (!choice) {
+            boundary = buffer.indexOf('\n\n');
+            continue;
+          }
+          if (choice.finish_reason) finishReason = choice.finish_reason;
+          const delta = choice.delta;
+          if (delta?.content) {
+            content += delta.content;
+            onTextDelta(delta.content);
+          }
+          if (Array.isArray(delta?.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!accumulators.has(idx)) accumulators.set(idx, { id: '', name: '', arguments: '' });
+              const acc = accumulators.get(idx)!;
+              if (tc.id) acc.id = tc.id;
+              if (tc.function?.name) acc.name += tc.function.name;
+              if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+            }
+          }
+        } catch {
+          // ignore malformed chunks
+        }
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const toolCalls: ReaderAiToolCall[] = [];
+  for (const [, acc] of [...accumulators.entries()].sort((a, b) => a[0] - b[0])) {
+    if (acc.name) {
+      toolCalls.push({
+        id: acc.id || `tool_${Date.now()}_${toolCalls.length}`,
+        name: acc.name,
+        arguments: acc.arguments,
+      });
+    }
+  }
+  return { content, toolCalls, finishReason };
+}
+
+function buildReaderAiSystemPrompt(source: string, lines: string[], maxPreviewChars: number): string {
+  const totalLines = lines.length;
+  const totalChars = source.length;
+
+  let docSection: string;
+  if (totalChars <= maxPreviewChars) {
+    const numbered = lines.map((line, i) => `${i + 1}: ${line}`).join('\n');
+    docSection = `The full document is included below (${totalLines} lines).\n\n<document>\n${numbered}\n</document>`;
+  } else {
+    let previewEnd = 0;
+    let previewChars = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const lineLen = `${i + 1}: ${lines[i]}\n`.length;
+      if (previewChars + lineLen > maxPreviewChars && i > 0) break;
+      previewChars += lineLen;
+      previewEnd = i + 1;
+    }
+    const preview = lines
+      .slice(0, previewEnd)
+      .map((line, i) => `${i + 1}: ${line}`)
+      .join('\n');
+    docSection = `A preview of the document is included below (first ${previewEnd} of ${totalLines} lines). Use the read_document and search_document tools for full access.\n\n<document-preview>\n${preview}\n</document-preview>`;
+  }
+
+  return [
+    'You are a helpful assistant that answers questions about a document.',
+    '',
+    'You have tools available:',
+    '- read_document: Read all or part of the document by line range. Returns numbered lines.',
+    '- search_document: Search for text in the document (case-insensitive). Returns matching lines with context.',
+    '',
+    'Guidelines:',
+    '- For specific questions, use search_document to find relevant sections.',
+    '- Cite line numbers when referencing specific parts.',
+    '- If the document content already visible contains the answer, respond directly without tools.',
+    '- If the document lacks the answer, say so plainly.',
+    '',
+    `Document info: ${totalLines} lines, ${totalChars} characters.`,
+    '',
+    docSection,
+  ].join('\n');
+}
+
+function readUpstreamError(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const errorObj = 'error' in payload ? (payload as { error?: unknown }).error : null;
+  if (!errorObj || typeof errorObj !== 'object') return null;
+  const message = (errorObj as { message?: unknown }).message;
+  return typeof message === 'string' && message ? message : null;
+}
+
 async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
@@ -1109,17 +1397,17 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const allMessages = normalizeReaderAiMessages(body?.messages);
   const existingSummary =
     typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
-  let messages: ReaderAiChatMessage[];
+  let chatMessages: ReaderAiChatMessage[];
   let newSummary: string | null = null;
   if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
     if (existingSummary) {
-      messages = [
+      chatMessages = [
         { role: 'user', content: `[Summary of earlier conversation]\n${existingSummary}` },
         { role: 'assistant', content: 'Understood, I have the context from our earlier conversation.' },
         ...allMessages,
       ];
     } else {
-      messages = allMessages;
+      chatMessages = allMessages;
     }
   } else {
     const evicted = allMessages.slice(0, -READER_AI_CONTEXT_WINDOW_MESSAGES);
@@ -1131,79 +1419,155 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     }
     const summaryText = newSummary || existingSummary;
     if (summaryText) {
-      messages = [
+      chatMessages = [
         { role: 'user', content: `[Summary of earlier conversation]\n${summaryText}` },
         { role: 'assistant', content: 'Understood, I have the context from our earlier conversation.' },
         ...kept,
       ];
     } else {
-      messages = kept;
+      chatMessages = kept;
     }
   }
 
+  // Prepare document for tool access
+  const lines = source.split('\n');
   const cachedModels = readerAiModelsCache?.value ?? [];
   const modelEntry = cachedModels.find((m) => m.id === model);
   const contextTokens = modelEntry?.context_length || 0;
-  const maxSourceChars =
+  const maxPreviewChars =
     contextTokens > 0
-      ? Math.min(READER_AI_MAX_SOURCE_CHARS, Math.floor(contextTokens * 3 * 0.75))
-      : READER_AI_MAX_SOURCE_CHARS;
+      ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
+      : READER_AI_DOC_PREVIEW_CHARS;
 
-  try {
-    const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const systemPrompt = buildReaderAiSystemPrompt(source, lines, maxPreviewChars);
+
+  // Build messages for OpenRouter (internal format supports tool call/result messages)
+  const openRouterMessages: OpenRouterMessage[] = [
+    { role: 'system', content: systemPrompt },
+    ...chatMessages.map((m): OpenRouterMessage => ({ role: m.role, content: m.content })),
+  ];
+
+  const requestStart = Date.now();
+  const abortController = new AbortController();
+  const onClientClose = () => abortController.abort();
+  ctx.req.on('close', onClientClose);
+
+  const openRouterHeaders = {
+    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': APP_URL || requestBaseUrl(ctx.req),
+    'X-Title': 'Input Reader AI',
+  };
+
+  const callUpstream = (timeoutMs: number) =>
+    fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': APP_URL || requestBaseUrl(ctx.req),
-        'X-Title': 'Input Reader AI',
-      },
-      body: JSON.stringify({
-        model,
-        stream: true,
-        messages: [
-          {
-            role: 'system',
-            content: `You are a helpful assistant. Answer questions about the provided markdown document. Cite specific details from the document when possible. If the document lacks the answer, say so plainly.\n\n<document>\n${source.slice(-maxSourceChars)}\n</document>`,
-          },
-          ...messages,
-        ],
-      }),
-      signal: AbortSignal.timeout(READER_AI_TIMEOUT_MS),
+      headers: openRouterHeaders,
+      body: JSON.stringify({ model, stream: true, messages: openRouterMessages, tools: READER_AI_TOOLS }),
+      signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), abortController.signal]),
     });
 
-    if (!upstream.ok) {
-      const payload = (await upstream.json().catch(() => null)) as unknown;
-      const fallback = `OpenRouter request failed (${upstream.status})`;
-      const errorObj =
-        payload && typeof payload === 'object' && 'error' in payload ? (payload as { error?: unknown }).error : null;
-      const upstreamError =
-        errorObj && typeof errorObj === 'object' ? (errorObj as { message?: unknown }).message : null;
-      throw new ClientError(typeof upstreamError === 'string' && upstreamError ? upstreamError : fallback, 502);
-    }
+  const remainingMs = () => Math.max(0, READER_AI_TIMEOUT_MS - (Date.now() - requestStart));
+  const callTimeout = () => Math.min(READER_AI_PER_CALL_TIMEOUT_MS, remainingMs());
 
-    if (!upstream.body) {
-      throw new ClientError('OpenRouter did not return a stream', 502);
+  try {
+    // First call — errors before SSE starts can be returned as JSON
+    const firstUpstream = await callUpstream(callTimeout());
+    if (!firstUpstream.ok) {
+      const payload = (await firstUpstream.json().catch(() => null)) as unknown;
+      const upstreamError = readUpstreamError(payload);
+      throw new ClientError(
+        upstreamError || `OpenRouter request failed (${firstUpstream.status})`,
+        502,
+      );
     }
+    if (!firstUpstream.body) throw new ClientError('OpenRouter did not return a stream', 502);
 
+    // Start SSE response
     ctx.res.statusCode = 200;
     ctx.res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     ctx.res.setHeader('Cache-Control', 'no-cache');
     ctx.res.setHeader('Connection', 'keep-alive');
-
     if (newSummary) {
       ctx.res.write(`event: summary\ndata: ${JSON.stringify({ summary: newSummary })}\n\n`);
     }
 
-    const reader = upstream.body.getReader();
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value) ctx.res.write(Buffer.from(value));
+    const writeSseDelta = (delta: string) => {
+      if (ctx.res.writableEnded) return;
+      ctx.res.write(
+        `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`,
+      );
+    };
+
+    const writeSseEvent = (event: string, data: unknown) => {
+      if (ctx.res.writableEnded) return;
+      ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Agentic tool-call loop
+    const maxToolBudgetChars = contextTokens > 0 ? Math.floor(contextTokens * 3 * 0.5) : 60_000;
+    let toolResultChars = 0;
+    let currentBody: ReadableStream<Uint8Array> = firstUpstream.body;
+    for (let iteration = 0; iteration < READER_AI_MAX_TOOL_ITERATIONS; iteration++) {
+      writeSseEvent('turn_start', { iteration });
+      const result = await parseReaderAiUpstreamStream(currentBody, writeSseDelta);
+
+      if (result.toolCalls.length === 0) {
+        writeSseEvent('turn_end', { iteration, reason: 'done' });
+        break;
       }
-    } finally {
-      if (!ctx.res.writableEnded) ctx.res.end();
+
+      // Add assistant message with tool calls
+      openRouterMessages.push({
+        role: 'assistant',
+        content: result.content || null,
+        tool_calls: result.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      });
+
+      // Execute each tool call
+      for (const tc of result.toolCalls) {
+        let parsedArgs: Record<string, unknown> | undefined;
+        try {
+          parsedArgs = tc.arguments ? (JSON.parse(tc.arguments) as Record<string, unknown>) : {};
+        } catch {
+          // send raw string if unparseable
+        }
+        writeSseEvent('tool_call', { id: tc.id, name: tc.name, arguments: parsedArgs ?? tc.arguments });
+        const toolResult = executeReaderAiTool(tc.name, tc.arguments, lines);
+        toolResultChars += toolResult.length;
+        openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
+        const resultPreview = toolResult.length > 200 ? toolResult.slice(0, 200) + '...' : toolResult;
+        writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
+      }
+
+      // Stop if tool results have consumed too much of the context window
+      if (toolResultChars > maxToolBudgetChars) {
+        writeSseEvent('turn_end', { iteration, reason: 'context_budget' });
+        break;
+      }
+
+      // Check remaining time before next call
+      if (remainingMs() <= 0) {
+        writeSseEvent('error', { message: 'Request timed out during tool execution' });
+        writeSseEvent('turn_end', { iteration, reason: 'timeout' });
+        break;
+      }
+
+      writeSseEvent('turn_end', { iteration, reason: 'tool_calls' });
+
+      const nextUpstream = await callUpstream(callTimeout());
+      if (!nextUpstream.ok || !nextUpstream.body) {
+        const status = nextUpstream.status ?? 0;
+        const payload = await nextUpstream.json().catch(() => null) as unknown;
+        const detail = readUpstreamError(payload) || `Model returned an error (${status})`;
+        writeSseEvent('error', { message: detail });
+        break;
+      }
+      currentBody = nextUpstream.body;
     }
   } catch (err) {
     if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
@@ -1217,6 +1581,13 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       return;
     }
     throw err;
+  } finally {
+    ctx.req.off('close', onClientClose);
+  }
+
+  if (!ctx.res.writableEnded) {
+    ctx.res.write('data: [DONE]\n\n');
+    ctx.res.end();
   }
 }
 
