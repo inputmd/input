@@ -143,7 +143,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 12px 14px 0;
 }
 
 .reader-ai-empty {
@@ -289,6 +289,10 @@
 
 .reader-ai-input-wrap--composer-bottom {
   margin-top: auto;
+  position: sticky;
+  bottom: 0px;
+  z-index: 2;
+  background: var(--toolbar-bg);
 }
 
 .reader-ai-composer-menu-trigger {
