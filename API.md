@@ -13,6 +13,11 @@
 | `POST` | `/api/github-app/sessions` | Associates an `installationId` with the current auth session |
 | `POST` | `/api/github-app/disconnect` | Clears the saved GitHub App installation from the current user session |
 | `GET` | `/api/gists/:id` | Cached proxy for public gist reads (see [Gist proxy](#gist-proxy)) |
+| `GET` | `/api/public/repos/:owner/:repo/contents?path=...&ref=...` | Reads public repo file or directory contents |
+| `GET` | `/api/public/repos/:owner/:repo/raw?path=...` | Reads a public repo file as raw bytes |
+| `GET` | `/api/public/repos/:owner/:repo/tree?ref=...&markdown_only=...` | Lists files from a public repo tree |
+| `GET` | `/api/share/repo-file/:token` | Resolves a private repo-file share token |
+| `GET` | `/api/ai/models` | Lists available Reader AI models (requires server config) |
 
 ### Authenticated (requires `input_session_id` cookie)
 
@@ -28,6 +33,10 @@
 | `GET` | `/api/github-app/installations/:id/repos/:owner/:repo/contents?path=...` | Reads a file or directory listing |
 | `PUT` | `/api/github-app/installations/:id/repos/:owner/:repo/contents` | Creates or updates a file (base64 content) |
 | `DELETE` | `/api/github-app/installations/:id/repos/:owner/:repo/contents` | Deletes a file |
+| `GET` | `/api/github-app/installations/:id/repos/:owner/:repo/raw?path=...` | Reads an installed repo file as raw bytes |
+| `GET` | `/api/github-app/installations/:id/repos/:owner/:repo/tree?ref=...&markdown_only=...` | Lists files from an installed repo tree |
+| `POST` | `/api/share/repo-file` | Creates a private share token for an installed markdown file |
+| `POST` | `/api/ai/chat` | Streams Reader AI chat completions for markdown content |
 
 Sessions are stored server-side in SQLite (`DATABASE_PATH`) and keyed by an `HttpOnly` cookie. `installationId` is linked to the signed-in GitHub user and enforced on repo API routes.
 
