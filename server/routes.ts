@@ -885,6 +885,20 @@ async function handleGetRawContent(ctx: RouteContext): Promise<void> {
   const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
     headers: { Accept: 'application/vnd.github.raw' },
   });
+  if (!ghRes.ok) {
+    const text = await ghRes.text().catch(() => '');
+    let message = 'GitHub API error';
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as GitHubApiError;
+        message = parsed.message ?? message;
+      } catch {
+        message = text;
+      }
+    }
+    respondGitHubError(ctx.res, ghRes, message, ghPath);
+    return;
+  }
 
   ctx.res.statusCode = 200;
   ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
@@ -1093,7 +1107,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   if (!model) throw new ClientError('model is required', 400);
   if (!source) throw new ClientError('source is required', 400);
   const allMessages = normalizeReaderAiMessages(body?.messages);
-  const existingSummary = typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
+  const existingSummary =
+    typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
   let messages: ReaderAiChatMessage[];
   let newSummary: string | null = null;
   if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
