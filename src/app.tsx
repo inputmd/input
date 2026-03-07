@@ -677,6 +677,7 @@ export function App() {
   });
   const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
   const [readerAiSending, setReaderAiSending] = useState(false);
+  const [readerAiRetryAvailable, setReaderAiRetryAvailable] = useState(false);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
@@ -2105,6 +2106,7 @@ export function App() {
         readerAiAbortRef.current = null;
         setReaderAiSending(false);
         setReaderAiMessages(loadReaderAiMessagesFromHistory(readerAiSource));
+        setReaderAiRetryAvailable(false);
         setReaderAiError(null);
       }
       return;
@@ -2113,6 +2115,7 @@ export function App() {
     readerAiAbortRef.current = null;
     setReaderAiSending(false);
     setReaderAiMessages([]);
+    setReaderAiRetryAvailable(false);
     setReaderAiError(null);
   }, [activeView, renderMode, readerAiSource]);
 
@@ -2146,6 +2149,7 @@ export function App() {
         ...baseMessages,
         assistantEdited ? { role: 'assistant', content: '', edited: true } : { role: 'assistant', content: '' },
       ]);
+      setReaderAiRetryAvailable(false);
       setReaderAiSending(true);
       setReaderAiError(null);
       let received = false;
@@ -2212,6 +2216,7 @@ export function App() {
           if (last.role === 'assistant' && !last.content.trim()) return current.slice(0, -1);
           return current;
         });
+        if (!received) setReaderAiRetryAvailable(true);
         if (err instanceof DOMException && err.name === 'AbortError') return true;
         setReaderAiError(err instanceof Error ? err.message : 'Reader AI request failed');
         return false;
@@ -2257,8 +2262,17 @@ export function App() {
 
   const onReaderAiClear = useCallback(() => {
     setReaderAiMessages([]);
+    setReaderAiRetryAvailable(false);
     setReaderAiError(null);
   }, []);
+
+  const onReaderAiRetryLastMessage = useCallback(async () => {
+    if (readerAiSending || !readerAiRetryAvailable) return;
+    if (readerAiMessages.length === 0) return;
+    const lastMessage = readerAiMessages[readerAiMessages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user' || !lastMessage.content.trim()) return;
+    await streamReaderAiAssistant(readerAiMessages);
+  }, [readerAiMessages, readerAiRetryAvailable, readerAiSending, streamReaderAiAssistant]);
 
   // --- Sign out ---
   const signOut = useCallback(() => {
@@ -3787,6 +3801,8 @@ export function App() {
               error={readerAiError}
               onSend={onReaderAiSend}
               onEditMessage={onReaderAiEditMessage}
+              canRetryLastUserMessage={readerAiRetryAvailable}
+              onRetryLastUserMessage={onReaderAiRetryLastMessage}
               onStop={onReaderAiStop}
               onClear={onReaderAiClear}
             />

@@ -22,6 +22,8 @@ interface ReaderAiPanelProps {
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
+  canRetryLastUserMessage: boolean;
+  onRetryLastUserMessage: () => Promise<void>;
   onStop: () => void;
   onClear: () => void;
 }
@@ -41,6 +43,8 @@ export function ReaderAiPanel({
   error,
   onSend,
   onEditMessage,
+  canRetryLastUserMessage,
+  onRetryLastUserMessage,
   onStop,
   onClear,
 }: ReaderAiPanelProps) {
@@ -284,17 +288,29 @@ export function ReaderAiPanel({
                       </button>
                     </span>
                   ) : (
-                    <button
-                      type="button"
-                      class="reader-ai-message-action-btn"
-                      onClick={() => {
-                        setEditingIndex(index);
-                        setEditingDraft(message.content);
-                      }}
-                      disabled={sending || !selectedModel}
-                    >
-                      Edit
-                    </button>
+                    <span class="reader-ai-message-actions">
+                      {canRetryLastUserMessage && index === messageCount - 1 ? (
+                        <button
+                          type="button"
+                          class="reader-ai-message-action-btn"
+                          onClick={() => void onRetryLastUserMessage()}
+                          disabled={sending || !selectedModel}
+                        >
+                          Retry
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        class="reader-ai-message-action-btn"
+                        onClick={() => {
+                          setEditingIndex(index);
+                          setEditingDraft(message.content);
+                        }}
+                        disabled={sending || !selectedModel}
+                      >
+                        Edit
+                      </button>
+                    </span>
                   )}
                 </>
               ) : (
