@@ -90,6 +90,7 @@ interface ReaderAiChatBody {
   model?: unknown;
   source?: unknown;
   messages?: unknown;
+  summary?: unknown;
 }
 
 interface ReaderAiChatMessage {
@@ -260,6 +261,8 @@ const READER_AI_MAX_SOURCE_CHARS = 140_000;
 const READER_AI_MAX_MESSAGES = 24;
 const READER_AI_MAX_MESSAGE_CHARS = 16_000;
 const READER_AI_CONTEXT_WINDOW_MESSAGES = 8;
+const READER_AI_MAX_SUMMARY_CHARS = 2000;
+const READER_AI_SUMMARIZE_TIMEOUT_MS = 30_000;
 const READER_AI_MIN_MODEL_PARAMS_B = 15;
 let readerAiModelsCache: { value: ReaderAiModelEntry[]; expiresAt: number } | null = null;
 
@@ -325,6 +328,53 @@ function normalizeReaderAiMessages(raw: unknown): ReaderAiChatMessage[] {
     });
   }
   return messages;
+}
+
+async function summarizeReaderAiConversation(
+  model: string,
+  evictedMessages: ReaderAiChatMessage[],
+  existingSummary: string,
+  req: http.IncomingMessage,
+): Promise<string> {
+  const parts: string[] = [];
+  if (existingSummary) parts.push(`Previous summary:\n${existingSummary}`);
+  for (const msg of evictedMessages) {
+    const label = msg.role === 'user' ? 'User' : 'Assistant';
+    parts.push(`${label}: ${msg.content}`);
+  }
+  const toSummarize = parts.join('\n\n');
+
+  const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': APP_URL || requestBaseUrl(req),
+      'X-Title': 'Input Reader AI',
+    },
+    body: JSON.stringify({
+      model,
+      stream: false,
+      max_tokens: 512,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Summarize the following conversation history in 2-4 concise sentences. Capture the key questions asked, answers given, and any important conclusions. Write in third person (e.g. "The user asked about...").',
+        },
+        { role: 'user', content: toSummarize },
+      ],
+    }),
+    signal: AbortSignal.timeout(READER_AI_SUMMARIZE_TIMEOUT_MS),
+  });
+
+  if (!upstream.ok) return existingSummary;
+
+  const payload = (await upstream.json().catch(() => null)) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  } | null;
+  const summary = payload?.choices?.[0]?.message?.content?.trim();
+  return summary ? summary.slice(0, READER_AI_MAX_SUMMARY_CHARS) : existingSummary;
 }
 
 async function fetchReaderAiModels(req: http.IncomingMessage): Promise<ReaderAiModelEntry[]> {
@@ -1043,27 +1093,37 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   if (!model) throw new ClientError('model is required', 400);
   if (!source) throw new ClientError('source is required', 400);
   const allMessages = normalizeReaderAiMessages(body?.messages);
+  const existingSummary = typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
   let messages: ReaderAiChatMessage[];
+  let newSummary: string | null = null;
   if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
-    messages = allMessages;
+    if (existingSummary) {
+      messages = [
+        { role: 'user', content: `[Summary of earlier conversation]\n${existingSummary}` },
+        { role: 'assistant', content: 'Understood, I have the context from our earlier conversation.' },
+        ...allMessages,
+      ];
+    } else {
+      messages = allMessages;
+    }
   } else {
     const evicted = allMessages.slice(0, -READER_AI_CONTEXT_WINDOW_MESSAGES);
     const kept = allMessages.slice(-READER_AI_CONTEXT_WINDOW_MESSAGES);
-    const summaryLines: string[] = [];
-    for (const msg of evicted) {
-      const label = msg.role === 'user' ? 'User' : 'Assistant';
-      const snippet = msg.content.length > 200 ? msg.content.slice(0, 200) + '...' : msg.content;
-      summaryLines.push(`${label}: ${snippet}`);
+    try {
+      newSummary = await summarizeReaderAiConversation(model, evicted, existingSummary, ctx.req);
+    } catch {
+      newSummary = existingSummary || null;
     }
-    const summaryPreamble: ReaderAiChatMessage = {
-      role: 'user',
-      content: `[Summary of earlier conversation]\n${summaryLines.join('\n')}`,
-    };
-    const summaryAck: ReaderAiChatMessage = {
-      role: 'assistant',
-      content: 'Understood, I have the context from our earlier conversation.',
-    };
-    messages = [summaryPreamble, summaryAck, ...kept];
+    const summaryText = newSummary || existingSummary;
+    if (summaryText) {
+      messages = [
+        { role: 'user', content: `[Summary of earlier conversation]\n${summaryText}` },
+        { role: 'assistant', content: 'Understood, I have the context from our earlier conversation.' },
+        ...kept,
+      ];
+    } else {
+      messages = kept;
+    }
   }
 
   const cachedModels = readerAiModelsCache?.value ?? [];
@@ -1115,6 +1175,10 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     ctx.res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     ctx.res.setHeader('Cache-Control', 'no-cache');
     ctx.res.setHeader('Connection', 'keep-alive');
+
+    if (newSummary) {
+      ctx.res.write(`event: summary\ndata: ${JSON.stringify({ summary: newSummary })}\n\n`);
+    }
 
     const reader = upstream.body.getReader();
     try {

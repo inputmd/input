@@ -285,9 +285,14 @@ function trimReaderAiSource(source: string): string {
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
 }
 
+interface ReaderAiHistoryEntry {
+  messages: ReaderAiMessage[];
+  summary?: string;
+}
+
 interface ReaderAiHistoryStore {
   order: string[];
-  entries: Record<string, ReaderAiMessage[]>;
+  entries: Record<string, ReaderAiHistoryEntry>;
 }
 
 function buildReaderAiHistoryDocumentKey(options: {
@@ -346,9 +351,18 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
     const parsed = JSON.parse(raw) as { order?: unknown; entries?: unknown };
     const rawEntries = parsed.entries;
     if (!rawEntries || typeof rawEntries !== 'object') return { order: [], entries: {} };
-    const entries: Record<string, ReaderAiMessage[]> = {};
-    for (const [key, messages] of Object.entries(rawEntries)) {
-      entries[key] = normalizeReaderAiMessages(messages);
+    const entries: Record<string, ReaderAiHistoryEntry> = {};
+    for (const [key, value] of Object.entries(rawEntries)) {
+      // Support both old format (ReaderAiMessage[]) and new format (ReaderAiHistoryEntry)
+      if (Array.isArray(value)) {
+        entries[key] = { messages: normalizeReaderAiMessages(value) };
+      } else if (value && typeof value === 'object') {
+        const entry = value as { messages?: unknown; summary?: unknown };
+        entries[key] = {
+          messages: normalizeReaderAiMessages(entry.messages),
+          ...(typeof entry.summary === 'string' && entry.summary ? { summary: entry.summary } : {}),
+        };
+      }
     }
     const rawOrder = Array.isArray(parsed.order)
       ? parsed.order.filter((key): key is string => typeof key === 'string')
@@ -363,18 +377,23 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
   }
 }
 
-function loadReaderAiMessagesFromHistory(historyKey: string): ReaderAiMessage[] {
+function loadReaderAiEntryFromHistory(historyKey: string): ReaderAiHistoryEntry {
   const store = loadReaderAiHistoryStore();
-  const messages = store.entries[historyKey] ?? [];
+  const entry = store.entries[historyKey] ?? { messages: [] };
   console.debug('[reader-ai] loaded history', {
     historyKey,
-    messageCount: messages.length,
+    messageCount: entry.messages.length,
+    hasSummary: Boolean(entry.summary),
     knownKeys: store.order,
   });
-  return messages;
+  return entry;
 }
 
-function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAiMessage[]): void {
+function persistReaderAiMessagesToHistory(
+  historyKey: string,
+  messages: ReaderAiMessage[],
+  summary?: string,
+): void {
   if (typeof window === 'undefined') return;
   const store = loadReaderAiHistoryStore();
   const nextEntries = { ...store.entries };
@@ -384,7 +403,9 @@ function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAi
     console.debug('[reader-ai] skip persist for empty messages (no explicit clear)', { historyKey });
     return;
   }
-  nextEntries[historyKey] = normalizedMessages;
+  const entry: ReaderAiHistoryEntry = { messages: normalizedMessages };
+  if (summary) entry.summary = summary;
+  nextEntries[historyKey] = entry;
   nextOrder.unshift(historyKey);
   const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
   for (const key of Object.keys(nextEntries)) {
@@ -393,6 +414,7 @@ function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAi
   console.debug('[reader-ai] persisting history', {
     historyKey,
     messageCount: normalizedMessages.length,
+    hasSummary: Boolean(summary),
     orderLength: trimmedOrder.length,
   });
   try {
@@ -412,7 +434,8 @@ function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAi
       return;
     }
     const persistedStore = JSON.parse(persistedRaw) as ReaderAiHistoryStore;
-    const persistedMessages = normalizeReaderAiMessages(persistedStore.entries?.[historyKey]);
+    const persistedEntry = persistedStore.entries?.[historyKey];
+    const persistedMessages = normalizeReaderAiMessages(persistedEntry?.messages);
     console.debug('[reader-ai] persisted history check', {
       historyKey,
       persisted: persistedMessages.length === normalizedMessages.length,
@@ -740,6 +763,7 @@ export function App() {
     return DEFAULT_READER_AI_WIDTH_PX;
   });
   const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
+  const [readerAiSummary, setReaderAiSummary] = useState<string>('');
   const [readerAiSending, setReaderAiSending] = useState(false);
   const [readerAiRetryAvailable, setReaderAiRetryAvailable] = useState(false);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
@@ -2191,7 +2215,9 @@ export function App() {
         readerAiAbortRef.current?.abort();
         readerAiAbortRef.current = null;
         setReaderAiSending(false);
-        setReaderAiMessages(loadReaderAiMessagesFromHistory(readerAiHistoryDocumentKey));
+        const loaded = loadReaderAiEntryFromHistory(readerAiHistoryDocumentKey);
+        setReaderAiMessages(loaded.messages);
+        setReaderAiSummary(loaded.summary ?? '');
         setReaderAiRetryAvailable(false);
         setReaderAiError(null);
       }
@@ -2203,6 +2229,7 @@ export function App() {
     readerAiAbortRef.current = null;
     setReaderAiSending(false);
     setReaderAiMessages([]);
+    setReaderAiSummary('');
     setReaderAiRetryAvailable(false);
     setReaderAiError(null);
   }, [activeView, renderMode, readerAiSource, readerAiHistoryDocumentKey]);
@@ -2216,8 +2243,8 @@ export function App() {
       });
       return;
     }
-    persistReaderAiMessagesToHistory(readerAiHistoryDocumentKey, readerAiMessages);
-  }, [activeView, renderMode, readerAiMessages, readerAiSource, readerAiHistoryDocumentKey]);
+    persistReaderAiMessagesToHistory(readerAiHistoryDocumentKey, readerAiMessages, readerAiSummary || undefined);
+  }, [activeView, renderMode, readerAiMessages, readerAiSummary, readerAiSource, readerAiHistoryDocumentKey]);
 
   useEffect(() => {
     return () => {
@@ -2265,6 +2292,7 @@ export function App() {
           baseMessages.map((message) => ({ role: message.role, content: message.content })),
           {
             signal: controller.signal,
+            onSummary: (summary) => setReaderAiSummary(summary),
             onDelta: (delta) => {
               if (!delta) return;
               received = true;
@@ -2290,6 +2318,7 @@ export function App() {
               });
             },
           },
+          readerAiSummary || undefined,
         );
         if (!received) {
           setReaderAiMessages((current) => {
@@ -2330,7 +2359,7 @@ export function App() {
         setReaderAiSending(false);
       }
     },
-    [readerAiSelectedModel, readerAiSource],
+    [readerAiSelectedModel, readerAiSource, readerAiSummary],
   );
 
   const onReaderAiSend = useCallback(
@@ -2368,6 +2397,7 @@ export function App() {
   const onReaderAiClear = useCallback(() => {
     if (readerAiHistoryDocumentKey) clearReaderAiMessagesFromHistory(readerAiHistoryDocumentKey);
     setReaderAiMessages([]);
+    setReaderAiSummary('');
     setReaderAiRetryAvailable(false);
     setReaderAiError(null);
   }, [readerAiHistoryDocumentKey]);

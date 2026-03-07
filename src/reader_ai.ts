@@ -21,6 +21,7 @@ type ReaderAiModelsResponse = {
 
 interface ReaderAiStreamOptions {
   onDelta: (delta: string) => void;
+  onSummary?: (summary: string) => void;
   signal?: AbortSignal;
 }
 
@@ -83,6 +84,7 @@ export async function askReaderAiStream(
   source: string,
   messages: { role: 'user' | 'assistant'; content: string }[],
   options: ReaderAiStreamOptions,
+  summary?: string,
 ): Promise<void> {
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
@@ -93,6 +95,7 @@ export async function askReaderAiStream(
       model,
       source,
       messages,
+      ...(summary ? { summary } : {}),
     }),
   });
   if (!res.ok) throw await responseToApiError(res);
@@ -115,13 +118,22 @@ export async function askReaderAiStream(
       const event = buffer.slice(0, boundary);
       buffer = buffer.slice(boundary + 2);
 
-      const dataLines = event
-        .split('\n')
-        .map((line) => line.trim())
+      const lines = event.split('\n').map((line) => line.trim());
+      const eventType = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? '';
+      const dataLines = lines
         .filter((line) => line.startsWith('data:'))
         .map((line) => line.slice(5).trim());
       const data = dataLines.join('\n');
-      if (data && data !== '[DONE]') {
+      if (!data || data === '[DONE]') {
+        // skip
+      } else if (eventType === 'summary' && options.onSummary) {
+        try {
+          const parsed = JSON.parse(data) as { summary?: string };
+          if (typeof parsed.summary === 'string' && parsed.summary) options.onSummary(parsed.summary);
+        } catch {
+          // Ignore malformed summary event.
+        }
+      } else {
         try {
           const parsed = JSON.parse(data) as unknown;
           const delta = extractStreamDelta(parsed);
