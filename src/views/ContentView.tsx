@@ -10,6 +10,7 @@ interface MarkdownLinkPreview {
 interface ContentViewProps {
   html: string;
   markdown: boolean;
+  loading?: boolean;
   imagePreview?: { src: string; alt: string } | null;
   claudeTranscript?: boolean;
   alertMessage?: string | null;
@@ -58,6 +59,7 @@ function isMissingWikiLink(anchor: HTMLAnchorElement): boolean {
 export function ContentView({
   html,
   markdown,
+  loading = false,
   imagePreview,
   claudeTranscript,
   alertMessage,
@@ -526,7 +528,11 @@ export function ContentView({
           ) : null}
         </ContentAlert>
       ) : null}
-      {isEmpty ? (
+      {loading ? (
+        <div class="content-loading-shell" role="status" aria-label="Loading content">
+          <span class="content-spinner" aria-hidden="true" />
+        </div>
+      ) : isEmpty ? (
         <p class="content-empty-placeholder">This file is empty.</p>
       ) : imagePreview ? (
         <div class="content-image-preview">

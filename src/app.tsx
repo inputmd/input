@@ -507,6 +507,7 @@ export function App() {
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
   const [renderedHtml, setRenderedHtml] = useState('');
   const [renderMode, setRenderMode] = useState<'ansi' | 'markdown' | 'image'>('ansi');
+  const [contentLoadPending, setContentLoadPending] = useState(false);
   const [contentImagePreview, setContentImagePreview] = useState<{ src: string; alt: string } | null>(null);
   const [isClaudeTranscript, setIsClaudeTranscript] = useState(false);
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
@@ -570,6 +571,19 @@ export function App() {
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const activeView = viewPhase ?? viewFromRoute(route);
+  const isContentRoute = useCallback((nextRoute: Route) => {
+    return nextRoute.name === 'gist' || nextRoute.name === 'repofile' || nextRoute.name === 'sharefile';
+  }, []);
+
+  const clearRenderedContent = useCallback(() => {
+    setRenderedHtml('');
+    setRenderMode('ansi');
+    setIsClaudeTranscript(false);
+    setContentImagePreview(null);
+    setContentAlertMessage(null);
+    setContentAlertDownloadHref(null);
+    setContentAlertDownloadName(null);
+  }, []);
 
   // --- Helpers ---
   const showError = useCallback((msg: string) => {
@@ -719,6 +733,7 @@ export function App() {
           }),
         );
         setRenderMode('markdown');
+        setContentLoadPending(false);
         return;
       }
       if (isTxtFileName(fileName) && looksLikeClaudeExportTrace(content)) {
@@ -733,6 +748,7 @@ export function App() {
         );
         setContentAlertDownloadHref(null);
         setContentAlertDownloadName(null);
+        setContentLoadPending(false);
         return;
       }
       setRenderedHtml(parseAnsiToHtml(content));
@@ -742,6 +758,7 @@ export function App() {
       setContentAlertMessage(null);
       setContentAlertDownloadHref(null);
       setContentAlertDownloadName(null);
+      setContentLoadPending(false);
     },
     [resolveMarkdownImageSrc],
   );
@@ -754,6 +771,7 @@ export function App() {
     setContentAlertMessage(null);
     setContentAlertDownloadHref(null);
     setContentAlertDownloadName(null);
+    setContentLoadPending(false);
   }, []);
 
   const renderBinaryFileContent = useCallback(
@@ -766,6 +784,7 @@ export function App() {
       setContentAlertMessage('Binary file detected.');
       setContentAlertDownloadHref(downloadHref);
       setContentAlertDownloadName(fileName ?? null);
+      setContentLoadPending(false);
     },
     [],
   );
@@ -1752,9 +1771,15 @@ export function App() {
   useEffect(() => {
     if (!initialized.current) return;
     if (route === prevRoute.current) return;
+    if (isContentRoute(route)) {
+      clearRenderedContent();
+      setContentLoadPending(true);
+    } else {
+      setContentLoadPending(false);
+    }
     prevRoute.current = route;
     handleRoute(route);
-  }, [route, handleRoute]);
+  }, [clearRenderedContent, handleRoute, isContentRoute, route]);
 
   // --- Draft persistence ---
   useEffect(() => {
@@ -2953,6 +2978,7 @@ export function App() {
           <ContentView
             html={renderedHtml}
             markdown={renderMode === 'markdown' || renderMode === 'image'}
+            loading={contentLoadPending}
             imagePreview={contentImagePreview}
             claudeTranscript={isClaudeTranscript}
             alertMessage={contentAlertMessage}
