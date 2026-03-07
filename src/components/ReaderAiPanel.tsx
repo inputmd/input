@@ -43,6 +43,7 @@ export function ReaderAiPanel({
   const [draft, setDraft] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
+  const panelRef = useRef<HTMLElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
@@ -94,6 +95,44 @@ export function ReaderAiPanel({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [hasMessages, onClear, sending]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    const messages = messagesRef.current;
+    if (!panel || !messages) return;
+
+    const onWheel = (event: WheelEvent) => {
+      if (!messagesRef.current) return;
+      const activeMessages = messagesRef.current;
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? activeMessages.clientHeight
+            : 1;
+      const deltaY = event.deltaY * unit;
+      if (deltaY === 0) return;
+
+      const maxScrollTop = Math.max(0, activeMessages.scrollHeight - activeMessages.clientHeight);
+      if (maxScrollTop <= 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const next = activeMessages.scrollTop + deltaY;
+      const clamped = Math.max(0, Math.min(maxScrollTop, next));
+      if (clamped === activeMessages.scrollTop) {
+        event.preventDefault();
+        return;
+      }
+
+      activeMessages.scrollTop = clamped;
+      event.preventDefault();
+    };
+
+    panel.addEventListener('wheel', onWheel, { passive: false });
+    return () => panel.removeEventListener('wheel', onWheel);
+  }, []);
 
   const submit = async () => {
     const draftValue = draft;
@@ -209,7 +248,7 @@ export function ReaderAiPanel({
   );
 
   return (
-    <aside class="reader-ai-panel" aria-label="Reader AI panel">
+    <aside ref={panelRef} class="reader-ai-panel" aria-label="Reader AI panel">
       <div class="reader-ai-messages" ref={messagesRef}>
         {composerAtTop ? composer : null}
         {!hasMessages ? <div class="reader-ai-empty"></div> : null}
