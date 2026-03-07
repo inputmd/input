@@ -123,90 +123,88 @@ export function ReaderAiPanel({
   };
 
   const composer = (
-    <div class="reader-ai-composer">
-      <div class="reader-ai-input-wrap">
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button type="button" class="reader-ai-composer-menu-trigger" aria-label="Reader AI chat actions">
-              <MoreHorizontal size={14} aria-hidden="true" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
-              <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={clearChat}>
-                Clear chat
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              type="button"
-              class="reader-ai-model-trigger reader-ai-model-trigger--composer"
-              aria-label="Reader AI model"
-              disabled={modelSelectDisabled}
-            >
-              <span class="reader-ai-model-trigger-label">{modelTriggerLabel}</span>
-              <ChevronDown size={14} class="reader-ai-model-trigger-icon" aria-hidden="true" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content class="reader-ai-model-menu" sideOffset={6} align="start">
-              <DropdownMenu.RadioGroup value={selectedModel} onValueChange={onSelectModel}>
-                {models.reduce<ComponentChildren[]>((items, model, index) => {
-                  if (index === firstNonFeaturedModelIndex && firstNonFeaturedModelIndex > 0) {
-                    items.push(
-                      <DropdownMenu.Separator key="featured-separator" class="reader-ai-model-menu-separator" />,
-                    );
-                  }
-                  items.push(
-                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {model.name}
-                    </DropdownMenu.RadioItem>,
-                  );
-                  return items;
-                }, [])}
-              </DropdownMenu.RadioGroup>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-        <textarea
-          ref={composerInputRef}
-          class="reader-ai-input"
-          value={draft}
-          placeholder="Ask or edit..."
-          onInput={(event) => {
-            const input = event.currentTarget;
-            setDraft(input.value);
-            input.style.height = 'auto';
-            input.style.height = `${input.scrollHeight}px`;
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              void submit();
-            }
-          }}
-          rows={3}
-          disabled={sending || !selectedModel}
-        />
-        {sending ? (
-          <button type="button" class="reader-ai-send-btn" onClick={onStop} aria-label="Stop response">
-            <CircleStop size={13} class="reader-ai-stop-icon" aria-hidden="true" />
+    <div class="reader-ai-input-wrap reader-ai-input-wrap--composer">
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button type="button" class="reader-ai-composer-menu-trigger" aria-label="Reader AI chat actions">
+            <MoreHorizontal size={14} aria-hidden="true" />
           </button>
-        ) : (
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
+            <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={clearChat}>
+              Clear chat
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
           <button
             type="button"
-            class="reader-ai-send-btn"
-            disabled={!canSend}
-            onClick={() => void submit()}
-            aria-label="Send question"
+            class="reader-ai-model-trigger reader-ai-model-trigger--composer"
+            aria-label="Reader AI model"
+            disabled={modelSelectDisabled}
           >
-            <ArrowRight size={16} aria-hidden="true" />
+            <span class="reader-ai-model-trigger-label">{modelTriggerLabel}</span>
+            <ChevronDown size={14} class="reader-ai-model-trigger-icon" aria-hidden="true" />
           </button>
-        )}
-      </div>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content class="reader-ai-model-menu" sideOffset={6} align="start">
+            <DropdownMenu.RadioGroup value={selectedModel} onValueChange={onSelectModel}>
+              {models.reduce<ComponentChildren[]>((items, model, index) => {
+                if (index === firstNonFeaturedModelIndex && firstNonFeaturedModelIndex > 0) {
+                  items.push(
+                    <DropdownMenu.Separator key="featured-separator" class="reader-ai-model-menu-separator" />,
+                  );
+                }
+                items.push(
+                  <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
+                    {model.name}
+                  </DropdownMenu.RadioItem>,
+                );
+                return items;
+              }, [])}
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+      <textarea
+        ref={composerInputRef}
+        class="reader-ai-input"
+        value={draft}
+        placeholder="Ask or edit..."
+        onInput={(event) => {
+          const input = event.currentTarget;
+          setDraft(input.value);
+          input.style.height = 'auto';
+          input.style.height = `${input.scrollHeight}px`;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            void submit();
+          }
+        }}
+        rows={3}
+        disabled={sending || !selectedModel}
+      />
+      {sending ? (
+        <button type="button" class="reader-ai-send-btn" onClick={onStop} aria-label="Stop response">
+          <CircleStop size={13} class="reader-ai-stop-icon" aria-hidden="true" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          class="reader-ai-send-btn"
+          disabled={!canSend}
+          onClick={() => void submit()}
+          aria-label="Send question"
+        >
+          <ArrowRight size={16} aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 

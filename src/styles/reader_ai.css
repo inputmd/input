@@ -271,7 +271,7 @@
   color: var(--error-color);
 }
 
-.reader-ai-composer {
+.reader-ai-input-wrap--composer {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
