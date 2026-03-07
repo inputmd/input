@@ -27,6 +27,8 @@ export type SidebarFileFilter = 'text' | 'all';
 
 interface SidebarProps {
   files: SidebarFile[];
+  textFileCount: number;
+  totalFileCount: number;
   fileFilter: SidebarFileFilter;
   onFileFilterChange: (value: SidebarFileFilter) => void;
   disabled?: boolean;
@@ -265,6 +267,8 @@ function IndentGuides({ depth }: { depth: number }) {
 
 export function Sidebar({
   files,
+  textFileCount,
+  totalFileCount,
   fileFilter,
   onFileFilterChange,
   disabled = false,
@@ -458,7 +462,8 @@ export function Sidebar({
     }
   };
 
-  const filterLabel = fileFilter === 'text' ? 'Text files' : 'All files';
+  const filterLabel =
+    fileFilter === 'text' ? `Text files (${textFileCount}/${totalFileCount})` : `All files (${totalFileCount})`;
   const filterControl = (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -727,7 +732,7 @@ export function Sidebar({
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <button type="button" class="sidebar-add-btn" title="Add">
-                +
+                <span class="sidebar-add-btn-icon">+</span>
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>

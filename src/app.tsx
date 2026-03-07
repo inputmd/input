@@ -3332,6 +3332,23 @@ export function App() {
     }
     return [];
   }, [gistFiles, currentFileName, repoSidebarFiles, currentRepoDocPath, sidebarFileFilter]);
+  const sidebarFileCounts = useMemo(() => {
+    if (gistFiles) {
+      const allPaths = Object.keys(gistFiles);
+      return {
+        text: allPaths.filter((path) => isSidebarTextFileName(path)).length,
+        total: allPaths.length,
+      };
+    }
+    const sourceFiles = repoSidebarFiles;
+    if (sourceFiles.length > 0 && currentRepoDocPath) {
+      return {
+        text: sourceFiles.filter((file) => isSidebarTextFileName(file.path)).length,
+        total: sourceFiles.length,
+      };
+    }
+    return { text: 0, total: 0 };
+  }, [gistFiles, repoSidebarFiles, currentRepoDocPath]);
   const sidebarWorkspaceKey = useMemo(() => {
     if (currentGistId) return `gist:${currentGistId}`;
     if (repoAccessMode === 'installed' && selectedRepo) return `repo:${selectedRepo}`;
@@ -3614,6 +3631,8 @@ export function App() {
             <Sidebar
               key={sidebarWorkspaceKey}
               files={sidebarFiles}
+              textFileCount={sidebarFileCounts.text}
+              totalFileCount={sidebarFileCounts.total}
               fileFilter={sidebarFileFilter}
               onFileFilterChange={setSidebarFileFilter}
               onSelectFile={handleSelectFile}

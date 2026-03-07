@@ -118,6 +118,11 @@
   line-height: 1;
 }
 
+.sidebar-add-btn-icon {
+  display: inline-block;
+  transform: translateY(-1px);
+}
+
 .sidebar-files {
   flex: 1;
   overflow-y: auto;
