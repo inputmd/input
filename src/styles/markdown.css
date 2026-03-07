@@ -56,7 +56,6 @@
   font-size: 14px;
   line-height: inherit;
   padding-bottom: 9px;
-  padding-right: 110px;
 }
 
 .content-alert-link {
@@ -73,6 +72,7 @@
 }
 
 .content-view--claude-chat {
+  position: relative;
   max-width: 860px;
 }
 
@@ -86,8 +86,8 @@
 
 .claude-chat-compact-toggle {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: 14px;
+  right: 18px;
   display: inline-flex;
   align-items: center;
   gap: 6px;

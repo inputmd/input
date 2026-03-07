@@ -498,6 +498,17 @@ export function ContentView({
     <div
       class={`content-view ${imagePreview ? 'content-view--image' : markdown ? 'content-view--markdown' : 'content-view--plain'} ${claudeTranscript ? 'content-view--claude-chat' : ''}`}
     >
+      {claudeTranscript && markdown ? (
+        <label class="claude-chat-compact-toggle">
+          <input
+            type="checkbox"
+            class="claude-chat-compact-toggle-checkbox"
+            checked={collapseAssistantMessages}
+            onChange={(event) => setCollapseAssistantMessages((event.currentTarget as HTMLInputElement).checked)}
+          />
+          <span>Compact (c)</span>
+        </label>
+      ) : null}
       {alertMessage ? (
         <ContentAlert className={claudeTranscript && markdown ? 'content-alert--claude' : undefined}>
           {claudeTranscript && markdown ? (
@@ -510,17 +521,6 @@ export function ContentView({
           <span class={`content-alert-caption ${claudeTranscript && markdown ? 'content-alert-caption--small' : ''}`}>
             {alertMessage}
           </span>
-          {claudeTranscript && markdown ? (
-            <label class="claude-chat-compact-toggle">
-              <input
-                type="checkbox"
-                class="claude-chat-compact-toggle-checkbox"
-                checked={collapseAssistantMessages}
-                onChange={(event) => setCollapseAssistantMessages((event.currentTarget as HTMLInputElement).checked)}
-              />
-              <span>Compact (c)</span>
-            </label>
-          ) : null}
           {alertDownloadHref ? (
             <a href={alertDownloadHref} download={alertDownloadName ?? undefined} class="content-alert-link">
               Download
