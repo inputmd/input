@@ -214,19 +214,12 @@ export function ReaderAiPanel({
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="reader-ai-model-menu" sideOffset={6} align="start">
             <DropdownMenu.RadioGroup value={selectedModel} onValueChange={onSelectModel}>
-              {featuredModels.map((model) => (
-                <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                  {displayModelName(model.name)}
-                </DropdownMenu.RadioItem>
-              ))}
-
-              {publicDatasetModels.length > 0 ? (
+              {hasDefaultSection ? (
                 <>
-                  {hasDefaultSection ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    May publish to public datasets
+                    Recommended free models
                   </DropdownMenu.Item>
-                  {publicDatasetModels.map((model) => (
+                  {featuredModels.map((model) => (
                     <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
                       {displayModelName(model.name)}
                     </DropdownMenu.RadioItem>
@@ -236,13 +229,27 @@ export function ReaderAiPanel({
 
               {unverifiedModels.length > 0 ? (
                 <>
-                  {hasDefaultSection || publicDatasetModels.length > 0 ? (
-                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
-                  ) : null}
+                  {hasDefaultSection ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Unverified free providers
                   </DropdownMenu.Item>
                   {unverifiedModels.map((model) => (
+                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
+                      {displayModelName(model.name)}
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </>
+              ) : null}
+
+              {publicDatasetModels.length > 0 ? (
+                <>
+                  {hasDefaultSection || unverifiedModels.length > 0 ? (
+                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
+                  ) : null}
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                    May publish to public datasets
+                  </DropdownMenu.Item>
+                  {publicDatasetModels.map((model) => (
                     <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
                       {displayModelName(model.name)}
                     </DropdownMenu.RadioItem>
