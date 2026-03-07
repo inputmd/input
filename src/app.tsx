@@ -579,6 +579,7 @@ export function App() {
     setRenderedHtml('');
     setRenderMode('ansi');
     setIsClaudeTranscript(false);
+    setReaderAiSource('');
     setContentImagePreview(null);
     setContentAlertMessage(null);
     setContentAlertDownloadHref(null);
