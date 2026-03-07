@@ -290,18 +290,31 @@ interface ReaderAiHistoryStore {
   entries: Record<string, ReaderAiMessage[]>;
 }
 
-function hashReaderAiSource(source: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < source.length; index += 1) {
-    hash ^= source.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
-}
+function buildReaderAiHistoryDocumentKey(options: {
+  currentRepoDocPath: string | null;
+  currentGistId: string | null;
+  currentFileName: string | null;
+  repoAccessMode: 'installed' | 'public' | null;
+  selectedRepo: string | null;
+  publicRepoRef: PublicRepoRef | null;
+  route: Route;
+}): string | null {
+  const { currentRepoDocPath, currentGistId, currentFileName, repoAccessMode, selectedRepo, publicRepoRef, route } =
+    options;
 
-function buildReaderAiHistorySourceKey(source: string): string {
-  const trimmed = trimReaderAiSource(source);
-  return `${trimmed.length}:${hashReaderAiSource(trimmed)}`;
+  if (currentGistId && currentFileName) {
+    return `gist:${currentGistId}:${currentFileName}`;
+  }
+  if (currentRepoDocPath && repoAccessMode === 'installed' && selectedRepo) {
+    return `repo:${selectedRepo.toLowerCase()}:${currentRepoDocPath}`;
+  }
+  if (currentRepoDocPath && repoAccessMode === 'public' && publicRepoRef) {
+    return `public:${publicRepoRef.owner.toLowerCase()}/${publicRepoRef.repo.toLowerCase()}:${currentRepoDocPath}`;
+  }
+  if (route.name === 'sharefile' && currentRepoDocPath) {
+    return `share:${route.params.token}:${currentRepoDocPath}`;
+  }
+  return null;
 }
 
 function isReaderAiRole(value: unknown): value is ReaderAiMessage['role'] {
@@ -350,24 +363,22 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
   }
 }
 
-function loadReaderAiMessagesFromHistory(source: string): ReaderAiMessage[] {
-  const sourceKey = buildReaderAiHistorySourceKey(source);
+function loadReaderAiMessagesFromHistory(historyKey: string): ReaderAiMessage[] {
   const store = loadReaderAiHistoryStore();
-  return store.entries[sourceKey] ?? [];
+  return store.entries[historyKey] ?? [];
 }
 
-function persistReaderAiMessagesToHistory(source: string, messages: ReaderAiMessage[]): void {
+function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAiMessage[]): void {
   if (typeof window === 'undefined') return;
-  const sourceKey = buildReaderAiHistorySourceKey(source);
   const store = loadReaderAiHistoryStore();
   const nextEntries = { ...store.entries };
-  const nextOrder = store.order.filter((key) => key !== sourceKey);
+  const nextOrder = store.order.filter((key) => key !== historyKey);
   const normalizedMessages = normalizeReaderAiMessages(messages);
   if (normalizedMessages.length === 0) {
-    delete nextEntries[sourceKey];
+    delete nextEntries[historyKey];
   } else {
-    nextEntries[sourceKey] = normalizedMessages;
-    nextOrder.unshift(sourceKey);
+    nextEntries[historyKey] = normalizedMessages;
+    nextOrder.unshift(historyKey);
   }
   const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
   for (const key of Object.keys(nextEntries)) {
@@ -738,8 +749,21 @@ export function App() {
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const readerAiAbortRef = useRef<AbortController | null>(null);
-  const readerAiPrevSourceRef = useRef('');
+  const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const activeView = viewPhase ?? viewFromRoute(route);
+  const readerAiHistoryDocumentKey = useMemo(
+    () =>
+      buildReaderAiHistoryDocumentKey({
+        currentRepoDocPath,
+        currentGistId,
+        currentFileName,
+        repoAccessMode,
+        selectedRepo,
+        publicRepoRef,
+        route,
+      }),
+    [currentRepoDocPath, currentGistId, currentFileName, repoAccessMode, selectedRepo, publicRepoRef, route],
+  );
   const isContentRoute = useCallback((nextRoute: Route) => {
     return nextRoute.name === 'gist' || nextRoute.name === 'repofile' || nextRoute.name === 'sharefile';
   }, []);
@@ -2103,14 +2127,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const prevSource = readerAiPrevSourceRef.current;
-    readerAiPrevSourceRef.current = readerAiSource;
-    if (activeView === 'content' && renderMode === 'markdown' && readerAiSource) {
-      if (prevSource !== readerAiSource) {
+    const prevHistoryKey = readerAiPrevHistoryKeyRef.current;
+    readerAiPrevHistoryKeyRef.current = readerAiHistoryDocumentKey;
+    if (activeView === 'content' && renderMode === 'markdown' && readerAiSource && readerAiHistoryDocumentKey) {
+      if (prevHistoryKey !== readerAiHistoryDocumentKey) {
         readerAiAbortRef.current?.abort();
         readerAiAbortRef.current = null;
         setReaderAiSending(false);
-        setReaderAiMessages(loadReaderAiMessagesFromHistory(readerAiSource));
+        setReaderAiMessages(loadReaderAiMessagesFromHistory(readerAiHistoryDocumentKey));
         setReaderAiRetryAvailable(false);
         setReaderAiError(null);
       }
@@ -2122,12 +2146,12 @@ export function App() {
     setReaderAiMessages([]);
     setReaderAiRetryAvailable(false);
     setReaderAiError(null);
-  }, [activeView, renderMode, readerAiSource]);
+  }, [activeView, renderMode, readerAiSource, readerAiHistoryDocumentKey]);
 
   useLayoutEffect(() => {
-    if (activeView !== 'content' || renderMode !== 'markdown' || !readerAiSource) return;
-    persistReaderAiMessagesToHistory(readerAiSource, readerAiMessages);
-  }, [activeView, renderMode, readerAiMessages, readerAiSource]);
+    if (activeView !== 'content' || renderMode !== 'markdown' || !readerAiSource || !readerAiHistoryDocumentKey) return;
+    persistReaderAiMessagesToHistory(readerAiHistoryDocumentKey, readerAiMessages);
+  }, [activeView, renderMode, readerAiMessages, readerAiSource, readerAiHistoryDocumentKey]);
 
   useEffect(() => {
     return () => {
