@@ -1367,7 +1367,6 @@ export function App() {
           try {
             const mdFiles = await loadRepoMarkdownFiles(instId, repoName);
             setRepoFiles(mdFiles);
-            if (sidebarFileFilter === 'text') setRepoSidebarFiles(mdFiles);
             knownMarkdownPaths = mdFiles.map((file) => file.path);
           } catch {
             /* sidebar index is best-effort */
@@ -1421,7 +1420,6 @@ export function App() {
       renderBinaryFileContent,
       activeView,
       currentFileName,
-      sidebarFileFilter,
       showRateLimitToastIfNeeded,
     ],
   );
@@ -1445,7 +1443,6 @@ export function App() {
         const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
         const knownMarkdownPaths = mdFiles.map((file) => file.path);
         setRepoFiles(mdFiles);
-        if (sidebarFileFilter === 'text') setRepoSidebarFiles(mdFiles);
         setRepoAccessMode('public');
         setPublicRepoRef({ owner, repo });
         setCurrentRepoDocPath(contents.path);
@@ -1488,7 +1485,6 @@ export function App() {
       renderDocumentContent,
       renderImageFileContent,
       renderBinaryFileContent,
-      sidebarFileFilter,
       showError,
       showRateLimitToastIfNeeded,
     ],
@@ -1591,7 +1587,6 @@ export function App() {
                 setRepoAccessMode('installed');
                 setPublicRepoRef(null);
                 setRepoFiles(mdFiles);
-                if (sidebarFileFilter === 'text') setRepoSidebarFiles(mdFiles);
                 const target = pickPreferredRepoMarkdownFile(mdFiles);
                 if (!target) {
                   navigate(routePath.repoNew(owner, repo, DEFAULT_NEW_FILENAME), { replace: true });
@@ -1612,7 +1607,6 @@ export function App() {
             setRepoAccessMode('public');
             setPublicRepoRef({ owner, repo });
             setRepoFiles(mdFiles);
-            if (sidebarFileFilter === 'text') setRepoSidebarFiles(mdFiles);
             const target = pickPreferredRepoMarkdownFile(mdFiles);
             if (!target) {
               showError('No markdown files found in this repository');
@@ -1817,7 +1811,6 @@ export function App() {
       gistFiles,
       startGitHubSignIn,
       handleSessionExpired,
-      sidebarFileFilter,
       showRateLimitToastIfNeeded,
       defaultPreviewVisible,
       selectedRepo,
