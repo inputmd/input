@@ -30,3 +30,5 @@ dist-ssr
 # Coding agent exports
 /*.txt
 SCRATCH.md
+
+/submodules
