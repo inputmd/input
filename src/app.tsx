@@ -80,6 +80,7 @@ const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const READER_AI_VISIBLE_KEY = 'reader_ai_visible';
 const READER_AI_MODEL_KEY = 'reader_ai_model';
 const READER_AI_WIDTH_KEY = 'reader_ai_width_px';
+const READER_AI_HISTORY_KEY = 'reader_ai_history_v1';
 const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const DRAFT_TITLE_KEY = 'draft_title';
@@ -102,6 +103,8 @@ const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
 const MARKDOWN_LINK_PREVIEW_MAX_CHARS = 1800;
 const MARKDOWN_LINK_PREVIEW_MAX_LINES = 18;
 const READER_AI_SOURCE_MAX_CHARS = 140_000;
+const READER_AI_HISTORY_MAX_ENTRIES = 12;
+const READER_AI_HISTORY_MAX_MESSAGES = 80;
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
@@ -280,6 +283,105 @@ function removeImagesFromHtml(html: string): string {
 function trimReaderAiSource(source: string): string {
   if (source.length <= READER_AI_SOURCE_MAX_CHARS) return source;
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
+}
+
+interface ReaderAiHistoryStore {
+  order: string[];
+  entries: Record<string, ReaderAiMessage[]>;
+}
+
+function hashReaderAiSource(source: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function buildReaderAiHistorySourceKey(source: string): string {
+  const trimmed = trimReaderAiSource(source);
+  return `${trimmed.length}:${hashReaderAiSource(trimmed)}`;
+}
+
+function isReaderAiRole(value: unknown): value is ReaderAiMessage['role'] {
+  return value === 'user' || value === 'assistant';
+}
+
+function normalizeReaderAiMessages(value: unknown): ReaderAiMessage[] {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+    .map((item): ReaderAiMessage | null => {
+      if (!item || typeof item !== 'object') return null;
+      const role = (item as { role?: unknown }).role;
+      const content = (item as { content?: unknown }).content;
+      const edited = (item as { edited?: unknown }).edited;
+      if (!isReaderAiRole(role) || typeof content !== 'string') return null;
+      const message: ReaderAiMessage = { role, content };
+      if (edited === true) message.edited = true;
+      return message;
+    })
+    .filter((message): message is ReaderAiMessage => message !== null);
+  return normalized.slice(-READER_AI_HISTORY_MAX_MESSAGES);
+}
+
+function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
+  if (typeof window === 'undefined') return { order: [], entries: {} };
+  try {
+    const raw = localStorage.getItem(READER_AI_HISTORY_KEY);
+    if (!raw) return { order: [], entries: {} };
+    const parsed = JSON.parse(raw) as { order?: unknown; entries?: unknown };
+    const rawEntries = parsed.entries;
+    if (!rawEntries || typeof rawEntries !== 'object') return { order: [], entries: {} };
+    const entries: Record<string, ReaderAiMessage[]> = {};
+    for (const [key, messages] of Object.entries(rawEntries)) {
+      entries[key] = normalizeReaderAiMessages(messages);
+    }
+    const rawOrder = Array.isArray(parsed.order)
+      ? parsed.order.filter((key): key is string => typeof key === 'string')
+      : [];
+    const order = rawOrder.filter((key, index) => index < READER_AI_HISTORY_MAX_ENTRIES && key in entries);
+    for (const key of Object.keys(entries)) {
+      if (!order.includes(key)) delete entries[key];
+    }
+    return { order, entries };
+  } catch {
+    return { order: [], entries: {} };
+  }
+}
+
+function loadReaderAiMessagesFromHistory(source: string): ReaderAiMessage[] {
+  const sourceKey = buildReaderAiHistorySourceKey(source);
+  const store = loadReaderAiHistoryStore();
+  return store.entries[sourceKey] ?? [];
+}
+
+function persistReaderAiMessagesToHistory(source: string, messages: ReaderAiMessage[]): void {
+  if (typeof window === 'undefined') return;
+  const sourceKey = buildReaderAiHistorySourceKey(source);
+  const store = loadReaderAiHistoryStore();
+  const nextEntries = { ...store.entries };
+  const nextOrder = store.order.filter((key) => key !== sourceKey);
+  const normalizedMessages = normalizeReaderAiMessages(messages);
+  if (normalizedMessages.length === 0) {
+    delete nextEntries[sourceKey];
+  } else {
+    nextEntries[sourceKey] = normalizedMessages;
+    nextOrder.unshift(sourceKey);
+  }
+  const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
+  for (const key of Object.keys(nextEntries)) {
+    if (!trimmedOrder.includes(key)) delete nextEntries[key];
+  }
+  try {
+    if (trimmedOrder.length === 0) {
+      localStorage.removeItem(READER_AI_HISTORY_KEY);
+      return;
+    }
+    localStorage.setItem(READER_AI_HISTORY_KEY, JSON.stringify({ order: trimmedOrder, entries: nextEntries }));
+  } catch {
+    // Best effort only.
+  }
 }
 
 function clampSidebarWidth(width: number): number {
@@ -1998,11 +2100,11 @@ export function App() {
     const prevSource = readerAiPrevSourceRef.current;
     readerAiPrevSourceRef.current = readerAiSource;
     if (activeView === 'content' && renderMode === 'markdown' && readerAiSource) {
-      if (prevSource && prevSource !== readerAiSource) {
+      if (prevSource !== readerAiSource) {
         readerAiAbortRef.current?.abort();
         readerAiAbortRef.current = null;
         setReaderAiSending(false);
-        setReaderAiMessages([]);
+        setReaderAiMessages(loadReaderAiMessagesFromHistory(readerAiSource));
         setReaderAiError(null);
       }
       return;
@@ -2013,6 +2115,11 @@ export function App() {
     setReaderAiMessages([]);
     setReaderAiError(null);
   }, [activeView, renderMode, readerAiSource]);
+
+  useLayoutEffect(() => {
+    if (activeView !== 'content' || renderMode !== 'markdown' || !readerAiSource) return;
+    persistReaderAiMessagesToHistory(readerAiSource, readerAiMessages);
+  }, [activeView, renderMode, readerAiMessages, readerAiSource]);
 
   useEffect(() => {
     return () => {
