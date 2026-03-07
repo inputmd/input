@@ -2562,8 +2562,8 @@ export function App() {
 
   const onClearCaches = useCallback(async () => {
     const confirmed = await showConfirm(
-      'Clear cached GitHub and preview data? This removes local caches and may cause additional reload requests.',
-      { confirmLabel: 'Clear cache', intent: 'danger' },
+      'Clear cached data and API requests? This may cause additional reload requests.',
+      { confirmLabel: 'Clear cache', intent: 'danger', defaultFocus: 'cancel' },
     );
     if (!confirmed) return;
     clearGitHubCaches();

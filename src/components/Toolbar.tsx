@@ -3,7 +3,6 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   Check,
   ChevronDown,
-  ChevronRight,
   ExternalLink,
   Eye,
   Globe,
@@ -379,21 +378,11 @@ export function Toolbar({
           </div>
           {user ? (
             <DropdownMenu.Root>
-              <Tooltip.Root>
-                <DropdownMenu.Trigger asChild>
-                  <Tooltip.Trigger asChild>
-                    <button type="button" class="user-menu-trigger" aria-label="User menu">
-                      <img class="user-avatar" src={user.avatar_url} alt="" width={24} height={24} />
-                    </button>
-                  </Tooltip.Trigger>
-                </DropdownMenu.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content class="toolbar-tooltip" side="bottom" align="end" sideOffset={6}>
-                    User menu
-                    <Tooltip.Arrow class="toolbar-tooltip-arrow" />
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
+              <DropdownMenu.Trigger asChild>
+                <button type="button" class="user-menu-trigger" aria-label="User menu" title="User menu">
+                  <img class="user-avatar" src={user.avatar_url} alt="" width={24} height={24} />
+                </button>
+              </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
                   <DropdownMenu.Label class="user-menu-label">
@@ -410,23 +399,9 @@ export function Toolbar({
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                     Toggle Theme
                   </DropdownMenu.Item>
-                  <DropdownMenu.Sub>
-                    <DropdownMenu.SubTrigger class="user-menu-item user-menu-subtrigger">
-                      <span>Advanced</span>
-                      <ChevronRight size={14} aria-hidden="true" />
-                    </DropdownMenu.SubTrigger>
-                    <DropdownMenu.Portal>
-                      <DropdownMenu.SubContent
-                        class="user-menu-content user-menu-subcontent"
-                        sideOffset={6}
-                        alignOffset={-6}
-                      >
-                        <DropdownMenu.Item class="user-menu-item" onSelect={() => void onClearCache()}>
-                          Clear cache
-                        </DropdownMenu.Item>
-                      </DropdownMenu.SubContent>
-                    </DropdownMenu.Portal>
-                  </DropdownMenu.Sub>
+                  <DropdownMenu.Item class="user-menu-item" onSelect={() => void onClearCache()}>
+                    Clear cache
+                  </DropdownMenu.Item>
                   <DropdownMenu.Separator class="user-menu-separator" />
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onSignOut()}>
                     Sign Out
