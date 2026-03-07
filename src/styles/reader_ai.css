@@ -135,6 +135,17 @@
   background: var(--border);
 }
 
+.reader-ai-model-menu-heading {
+  min-height: 24px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+
 .reader-ai-messages {
   flex: 1;
   min-height: 0;
@@ -269,8 +280,7 @@
   margin: 0;
 }
 
-.reader-ai-status,
-.reader-ai-error {
+.reader-ai-status {
   padding: 8px 14px;
   font-size: 12px;
 }
@@ -281,6 +291,15 @@
 
 .reader-ai-error {
   color: var(--error-color);
+}
+
+.reader-ai-error--inline {
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--error-color) 35%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--error-color) 8%, transparent);
 }
 
 .reader-ai-input-wrap {

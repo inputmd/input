@@ -3805,6 +3805,7 @@ export function App() {
               onPointerDown={onReaderAiSplitPointerDown}
             />
             <ReaderAiPanel
+              authenticated={Boolean(user)}
               models={readerAiModels}
               modelsLoading={readerAiModelsLoading}
               modelsError={readerAiModelsError}

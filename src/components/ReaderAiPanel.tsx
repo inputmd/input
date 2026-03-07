@@ -1,6 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ArrowRight, ChevronDown, CircleStop, MoreHorizontal } from 'lucide-react';
-import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseMarkdownToHtml } from '../markdown';
 import { type ReaderAiModel, readerAiModelPriorityRank } from '../reader_ai';
@@ -12,6 +11,7 @@ export interface ReaderAiMessage {
 }
 
 interface ReaderAiPanelProps {
+  authenticated: boolean;
   models: ReaderAiModel[];
   modelsLoading: boolean;
   modelsError: string | null;
@@ -32,7 +32,13 @@ function displayModelName(name: string): string {
   return name.replace(/\s+\(free\)\s*$/i, '');
 }
 
+function isPublicDatasetModel(model: ReaderAiModel): boolean {
+  const id = model.id.trim().toLowerCase();
+  return id.includes('gpt-oss-120b') || id.includes('gpt-oss-20b');
+}
+
 export function ReaderAiPanel({
+  authenticated,
   models,
   modelsLoading,
   modelsError,
@@ -56,19 +62,25 @@ export function ReaderAiPanel({
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const messageCount = messages.length;
-  const canSend = draft.trim().length > 0 && !sending && Boolean(selectedModel);
+  const canSend = authenticated && draft.trim().length > 0 && !sending && Boolean(selectedModel);
   const hasMessages = messageCount > 0;
   const composerAtTop = !hasMessages;
   const modelSelectDisabled = modelsLoading || models.length === 0 || sending;
   const selectedModelName = displayModelName(models.find((model) => model.id === selectedModel)?.name ?? '');
   const modelTriggerLabel = selectedModelName || (modelsLoading ? 'Loading models...' : 'No models');
-  const firstNonFeaturedModelIndex = models.findIndex((model) => readerAiModelPriorityRank(model) === -1);
+  const featuredModels = models.filter((model) => readerAiModelPriorityRank(model) !== -1);
+  const nonFeaturedModels = models.filter((model) => readerAiModelPriorityRank(model) === -1);
+  const publicDatasetModels = nonFeaturedModels.filter((model) => isPublicDatasetModel(model));
+  const unverifiedModels = nonFeaturedModels.filter((model) => !isPublicDatasetModel(model));
+  const hasDefaultSection = featuredModels.length > 0;
   const statusText = useMemo(() => {
     if (modelsLoading) return 'Loading free models...';
     if (modelsError) return modelsError;
     if (!selectedModel) return 'No free model available.';
     return null;
   }, [modelsLoading, modelsError, selectedModel]);
+  const composerInputDisabled = sending || !selectedModel || !authenticated;
+  const composerPlaceholder = authenticated ? 'Ask AI...' : 'Sign in to enable chat';
 
   useEffect(() => {
     const root = messagesRef.current;
@@ -202,19 +214,41 @@ export function ReaderAiPanel({
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="reader-ai-model-menu" sideOffset={6} align="start">
             <DropdownMenu.RadioGroup value={selectedModel} onValueChange={onSelectModel}>
-              {models.reduce<ComponentChildren[]>((items, model, index) => {
-                if (index === firstNonFeaturedModelIndex && firstNonFeaturedModelIndex > 0) {
-                  items.push(
-                    <DropdownMenu.Separator key="featured-separator" class="reader-ai-model-menu-separator" />,
-                  );
-                }
-                items.push(
-                  <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                    {displayModelName(model.name)}
-                  </DropdownMenu.RadioItem>,
-                );
-                return items;
-              }, [])}
+              {featuredModels.map((model) => (
+                <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
+                  {displayModelName(model.name)}
+                </DropdownMenu.RadioItem>
+              ))}
+
+              {publicDatasetModels.length > 0 ? (
+                <>
+                  {hasDefaultSection ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                    May publish to public datasets
+                  </DropdownMenu.Item>
+                  {publicDatasetModels.map((model) => (
+                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
+                      {displayModelName(model.name)}
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </>
+              ) : null}
+
+              {unverifiedModels.length > 0 ? (
+                <>
+                  {hasDefaultSection || publicDatasetModels.length > 0 ? (
+                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
+                  ) : null}
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                    Unverified free providers
+                  </DropdownMenu.Item>
+                  {unverifiedModels.map((model) => (
+                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
+                      {displayModelName(model.name)}
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </>
+              ) : null}
             </DropdownMenu.RadioGroup>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
@@ -223,7 +257,7 @@ export function ReaderAiPanel({
         ref={composerInputRef}
         class={`reader-ai-input${hasMessages ? ' reader-ai-input--bottom' : ''}`}
         value={draft}
-        placeholder="Ask or edit..."
+        placeholder={composerPlaceholder}
         onInput={(event) => {
           const input = event.currentTarget;
           setDraft(input.value);
@@ -237,7 +271,7 @@ export function ReaderAiPanel({
           }
         }}
         rows={3}
-        disabled={sending || !selectedModel}
+        disabled={composerInputDisabled}
       />
       {sending ? (
         <button type="button" class="reader-ai-send-btn" onClick={onStop} aria-label="Stop response">
@@ -354,10 +388,10 @@ export function ReaderAiPanel({
             )}
           </div>
         ))}
+        {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : composer}
       </div>
       {statusText ? <div class="reader-ai-status">{statusText}</div> : null}
-      {error ? <div class="reader-ai-error">{error}</div> : null}
     </aside>
   );
 }

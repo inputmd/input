@@ -1020,7 +1020,7 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
 }
 
 async function handleReaderAiModels(ctx: RouteContext): Promise<void> {
-  const session = requireAuthSession(ctx);
+  const session = getSession(ctx.req);
   if (!checkRateLimitForSession(ctx, session)) return;
   ensureOpenRouterConfigured();
   const models = await fetchReaderAiModels(ctx.req);
