@@ -26,6 +26,10 @@ interface ReaderAiPanelProps {
   onClear: () => void;
 }
 
+function displayModelName(name: string): string {
+  return name.replace(/\s+\(free\)\s*$/i, '');
+}
+
 export function ReaderAiPanel({
   models,
   modelsLoading,
@@ -52,7 +56,7 @@ export function ReaderAiPanel({
   const hasMessages = messageCount > 0;
   const composerAtTop = !hasMessages;
   const modelSelectDisabled = modelsLoading || models.length === 0 || sending;
-  const selectedModelName = models.find((model) => model.id === selectedModel)?.name ?? '';
+  const selectedModelName = displayModelName(models.find((model) => model.id === selectedModel)?.name ?? '');
   const modelTriggerLabel = selectedModelName || (modelsLoading ? 'Loading models...' : 'No models');
   const firstNonFeaturedModelIndex = models.findIndex((model) => readerAiModelPriorityRank(model) === -1);
   const statusText = useMemo(() => {
@@ -162,7 +166,9 @@ export function ReaderAiPanel({
   };
 
   const composer = (
-    <div class="reader-ai-input-wrap reader-ai-input-wrap--composer">
+    <div
+      class={`reader-ai-input-wrap reader-ai-input-wrap--composer${composerAtTop ? '' : ' reader-ai-input-wrap--composer-bottom'}`}
+    >
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button type="button" class="reader-ai-composer-menu-trigger" aria-label="Reader AI chat actions">
@@ -200,7 +206,7 @@ export function ReaderAiPanel({
                 }
                 items.push(
                   <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                    {model.name}
+                    {displayModelName(model.name)}
                   </DropdownMenu.RadioItem>,
                 );
                 return items;
@@ -211,7 +217,7 @@ export function ReaderAiPanel({
       </DropdownMenu.Root>
       <textarea
         ref={composerInputRef}
-        class="reader-ai-input"
+        class={`reader-ai-input${hasMessages ? ' reader-ai-input--bottom' : ''}`}
         value={draft}
         placeholder="Ask or edit..."
         onInput={(event) => {

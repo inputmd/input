@@ -38,7 +38,7 @@
 
 .reader-ai-model-trigger {
   width: 100%;
-  min-height: 30px;
+  min-height: 29px;
   max-width: 210px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -80,10 +80,10 @@
 
 .reader-ai-model-trigger--composer {
   position: absolute;
-  left: 8px;
-  bottom: 14px;
-  width: calc(100% - 62px);
-  max-width: 190px;
+  left: 10px;
+  bottom: 15px;
+  width: calc(100% - 54px);
+  max-width: initial;
   z-index: 1;
 }
 
@@ -167,7 +167,9 @@
 }
 
 .reader-ai-message--assistant {
-  background: color-mix(in srgb, var(--bg) 75%, transparent);
+  background: transparent;
+  border: 0;
+  padding: 0 2px 4px;
 }
 
 .reader-ai-message-role {
@@ -229,7 +231,6 @@
 .reader-ai-inline-edit-input:focus-visible {
   outline: none;
   border-color: var(--reader-ai-active-border);
-  box-shadow: var(--reader-ai-active-shadow);
 }
 
 .reader-ai-message-content {
@@ -255,6 +256,15 @@
   font-size: 12px;
 }
 
+.reader-ai-message-content.rendered-markdown h1,
+.reader-ai-message-content.rendered-markdown h2,
+.reader-ai-message-content.rendered-markdown h3,
+.reader-ai-message-content.rendered-markdown h4,
+.reader-ai-message-content.rendered-markdown h5,
+.reader-ai-message-content.rendered-markdown h6 {
+  margin: 0.5em 0;
+}
+
 .reader-ai-message-content.rendered-markdown li > p {
   margin: 0;
 }
@@ -275,6 +285,10 @@
 
 .reader-ai-input-wrap {
   position: relative;
+}
+
+.reader-ai-input-wrap--composer-bottom {
+  margin-top: auto;
 }
 
 .reader-ai-composer-menu-trigger {
@@ -357,10 +371,10 @@
 
 .reader-ai-send-btn {
   position: absolute;
-  right: 9px;
-  bottom: 14px;
-  width: 28px;
-  height: 28px;
+  right: 10px;
+  bottom: 16px;
+  width: 27px;
+  height: 27px;
   border: 1px solid color-mix(in srgb, var(--focus-border) 86%, transparent);
   border-radius: 6px;
   background: var(--focus-border);
