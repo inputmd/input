@@ -54,6 +54,8 @@ export function ReaderAiPanel({
   onStop,
   onClear,
 }: ReaderAiPanelProps) {
+  const isMac = typeof navigator !== 'undefined' && /(mac|iphone|ipad|ipod)/i.test(navigator.platform ?? '');
+  const clearChatShortcutLabel = isMac ? '⌘K' : 'Ctrl+K';
   const [draft, setDraft] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
@@ -194,7 +196,10 @@ export function ReaderAiPanel({
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
             <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={clearChat}>
-              Clear chat
+              <span>Clear chat</span>
+              <span class="reader-ai-composer-menu-item-shortcut" aria-hidden="true">
+                {clearChatShortcutLabel}
+              </span>
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>

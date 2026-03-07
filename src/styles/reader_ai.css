@@ -361,6 +361,14 @@
   color: var(--text);
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reader-ai-composer-menu-item-shortcut {
+  color: var(--text-secondary);
+  font-size: 12px;
+  letter-spacing: 0.02em;
 }
 
 .reader-ai-composer-menu-item[data-highlighted] {
