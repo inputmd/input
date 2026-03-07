@@ -83,6 +83,7 @@ interface ShareRepoFileCreateBody {
 interface ReaderAiModelEntry {
   id: string;
   name: string;
+  context_length: number;
 }
 
 interface ReaderAiChatBody {
@@ -101,6 +102,7 @@ interface OpenRouterModelsResponse {
     id?: unknown;
     name?: unknown;
     description?: unknown;
+    context_length?: unknown;
   }>;
 }
 
@@ -353,7 +355,9 @@ async function fetchReaderAiModels(req: http.IncomingMessage): Promise<ReaderAiM
       if (!id.endsWith(':free')) return null;
       const paramsBillions = modelParamsEstimateBillions(entry);
       if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) return null;
-      return { id, name };
+      const rawCtx = typeof entry.context_length === 'number' ? entry.context_length : 0;
+      const context_length = Number.isFinite(rawCtx) && rawCtx > 0 ? rawCtx : 0;
+      return { id, name, context_length };
     })
     .filter((entry): entry is ReaderAiModelEntry => Boolean(entry))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -1044,6 +1048,14 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       ? allMessages
       : [...allMessages.slice(0, 2), ...allMessages.slice(-READER_AI_CONTEXT_WINDOW_MESSAGES)];
 
+  const cachedModels = readerAiModelsCache?.value ?? [];
+  const modelEntry = cachedModels.find((m) => m.id === model);
+  const contextTokens = modelEntry?.context_length || 0;
+  const maxSourceChars =
+    contextTokens > 0
+      ? Math.min(READER_AI_MAX_SOURCE_CHARS, Math.floor(contextTokens * 3 * 0.75))
+      : READER_AI_MAX_SOURCE_CHARS;
+
   try {
     const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -1059,7 +1071,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         messages: [
           {
             role: 'system',
-            content: `You are a helpful assistant. Answer questions about the provided markdown document. Cite specific details from the document when possible. If the document lacks the answer, say so plainly.\n\n<document>\n${source.slice(-READER_AI_MAX_SOURCE_CHARS)}\n</document>`,
+            content: `You are a helpful assistant. Answer questions about the provided markdown document. Cite specific details from the document when possible. If the document lacks the answer, say so plainly.\n\n<document>\n${source.slice(-maxSourceChars)}\n</document>`,
           },
           ...messages,
         ],

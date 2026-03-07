@@ -3,6 +3,7 @@ import { responseToApiError } from './api_error';
 export interface ReaderAiModel {
   id: string;
   name: string;
+  context_length: number;
 }
 
 export const FEATURED_READER_AI_MODELS = [
