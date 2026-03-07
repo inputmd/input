@@ -1043,10 +1043,28 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   if (!model) throw new ClientError('model is required', 400);
   if (!source) throw new ClientError('source is required', 400);
   const allMessages = normalizeReaderAiMessages(body?.messages);
-  const messages =
-    allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES
-      ? allMessages
-      : [...allMessages.slice(0, 2), ...allMessages.slice(-READER_AI_CONTEXT_WINDOW_MESSAGES)];
+  let messages: ReaderAiChatMessage[];
+  if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
+    messages = allMessages;
+  } else {
+    const evicted = allMessages.slice(0, -READER_AI_CONTEXT_WINDOW_MESSAGES);
+    const kept = allMessages.slice(-READER_AI_CONTEXT_WINDOW_MESSAGES);
+    const summaryLines: string[] = [];
+    for (const msg of evicted) {
+      const label = msg.role === 'user' ? 'User' : 'Assistant';
+      const snippet = msg.content.length > 200 ? msg.content.slice(0, 200) + '...' : msg.content;
+      summaryLines.push(`${label}: ${snippet}`);
+    }
+    const summaryPreamble: ReaderAiChatMessage = {
+      role: 'user',
+      content: `[Summary of earlier conversation]\n${summaryLines.join('\n')}`,
+    };
+    const summaryAck: ReaderAiChatMessage = {
+      role: 'assistant',
+      content: 'Understood, I have the context from our earlier conversation.',
+    };
+    messages = [summaryPreamble, summaryAck, ...kept];
+  }
 
   const cachedModels = readerAiModelsCache?.value ?? [];
   const modelEntry = cachedModels.find((m) => m.id === model);
