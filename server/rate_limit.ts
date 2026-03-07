@@ -3,6 +3,7 @@ import { json } from './http_helpers';
 import type { RateLimitEntry } from './types';
 
 const RATE_LIMIT_MAX = 100;
+const RATE_LIMIT_AUTHENTICATED_MAX = 500;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
 
@@ -29,10 +30,13 @@ function getClientIp(req: http.IncomingMessage): string {
   return req.socket.remoteAddress || 'unknown';
 }
 
-export function checkRateLimit(req: http.IncomingMessage, res: http.ServerResponse): boolean {
-  const ip = getClientIp(req);
+function checkLimit(
+  key: string,
+  max: number,
+  res: http.ServerResponse,
+): boolean {
   const now = Date.now();
-  let entry = rateLimitWindows.get(ip);
+  let entry = rateLimitWindows.get(key);
 
   if (!entry || now >= entry.resetAtMs) {
     if (!entry && rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES) {
@@ -40,11 +44,11 @@ export function checkRateLimit(req: http.IncomingMessage, res: http.ServerRespon
       return false;
     }
     entry = { count: 0, resetAtMs: now + RATE_LIMIT_WINDOW_MS };
-    rateLimitWindows.set(ip, entry);
+    rateLimitWindows.set(key, entry);
   }
 
   entry.count++;
-  if (entry.count > RATE_LIMIT_MAX) {
+  if (entry.count > max) {
     const retryAfter = Math.ceil((entry.resetAtMs - now) / 1000);
     res.setHeader('Retry-After', String(retryAfter));
     json(res, 429, { error: 'Too many requests' });
@@ -52,4 +56,16 @@ export function checkRateLimit(req: http.IncomingMessage, res: http.ServerRespon
   }
 
   return true;
+}
+
+export function checkRateLimit(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  return checkLimit(`ip:${getClientIp(req)}`, RATE_LIMIT_MAX, res);
+}
+
+export function checkRateLimitAuthenticated(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  userId: number,
+): boolean {
+  return checkLimit(`user:${userId}`, RATE_LIMIT_AUTHENTICATED_MAX, res);
 }

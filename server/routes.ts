@@ -12,7 +12,7 @@ import { ClientError } from './errors';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
 import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
 import { json, readJson, requireEnv, requireString } from './http_helpers';
-import { checkRateLimit } from './rate_limit';
+import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
 import {
   clearRememberedInstallationForUser,
   consumeOAuthState,
@@ -117,6 +117,13 @@ function requireAuthSession(ctx: RouteContext): Session {
   const session = getSession(ctx.req);
   if (!session) throw new ClientError('Unauthorized', 401);
   return session;
+}
+
+function checkRateLimitForSession(ctx: RouteContext, session: Session | null): boolean {
+  if (session) {
+    return checkRateLimitAuthenticated(ctx.req, ctx.res, session.githubUserId);
+  }
+  return checkRateLimit(ctx.req, ctx.res);
 }
 
 function requireMatchedInstallation(ctx: RouteContext, session: Session, matchIndex: number): string {
@@ -368,8 +375,8 @@ async function handleInstallUrl(ctx: RouteContext): Promise<void> {
 }
 
 async function handleCreateSession(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const body = await readJson(ctx.req);
   const installationId = body?.installationId;
   if (!installationId || typeof installationId !== 'string') {
@@ -403,8 +410,8 @@ async function handleCreateSession(ctx: RouteContext): Promise<void> {
 }
 
 async function handleDisconnectInstallation(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   session.installationId = null;
   clearRememberedInstallationForUser(session.githubUserId);
   refreshSession(session, ctx.res);
@@ -412,8 +419,8 @@ async function handleDisconnectInstallation(ctx: RouteContext): Promise<void> {
 }
 
 async function handleGitHubUser(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   json(ctx.res, 200, {
     login: session.githubLogin,
     avatar_url: session.githubAvatarUrl,
@@ -422,8 +429,8 @@ async function handleGitHubUser(ctx: RouteContext): Promise<void> {
 }
 
 async function handleListGists(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const qs = new URLSearchParams();
   const page = ctx.url.searchParams.get('page') ?? '1';
   const perPage = ctx.url.searchParams.get('per_page') ?? '30';
@@ -433,14 +440,14 @@ async function handleListGists(ctx: RouteContext): Promise<void> {
 }
 
 async function handleGetAuthedGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   await proxyGitHubJson(ctx, session, `/gists/${encodeURIComponent(ctx.match[1])}`);
 }
 
 async function handleCreateGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const body = await readJson(ctx.req);
   await proxyGitHubJson(ctx, session, '/gists', {
     method: 'POST',
@@ -450,8 +457,8 @@ async function handleCreateGist(ctx: RouteContext): Promise<void> {
 }
 
 async function handlePatchGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const body = await readJson(ctx.req);
   await proxyGitHubJson(ctx, session, `/gists/${encodeURIComponent(ctx.match[1])}`, {
     method: 'PATCH',
@@ -461,8 +468,8 @@ async function handlePatchGist(ctx: RouteContext): Promise<void> {
 }
 
 async function handleDeleteGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const ghRes = await githubFetchWithUserToken(session, `/gists/${encodeURIComponent(ctx.match[1])}`, {
     method: 'DELETE',
   });
@@ -481,8 +488,8 @@ async function handleDeleteGist(ctx: RouteContext): Promise<void> {
 }
 
 async function handleListRepos(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const installationId = requireMatchedInstallation(ctx, session, 1);
 
   const allRepos: unknown[] = [];
@@ -503,8 +510,8 @@ async function handleListRepos(ctx: RouteContext): Promise<void> {
 }
 
 async function handleGetContents(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const installationId = requireMatchedInstallation(ctx, session, 1);
   const owner = ctx.match[2];
   const repo = ctx.match[3];
@@ -528,8 +535,8 @@ async function handleGetContents(ctx: RouteContext): Promise<void> {
 }
 
 async function handlePutContents(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const installationId = requireMatchedInstallation(ctx, session, 1);
   const owner = ctx.match[2];
   const repo = ctx.match[3];
@@ -556,8 +563,8 @@ async function handlePutContents(ctx: RouteContext): Promise<void> {
 }
 
 async function handleDeleteContents(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const installationId = requireMatchedInstallation(ctx, session, 1);
   const owner = ctx.match[2];
   const repo = ctx.match[3];
@@ -582,13 +589,12 @@ async function handleDeleteContents(ctx: RouteContext): Promise<void> {
 }
 
 async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   if (!SHARE_TOKEN_SECRET) {
     json(ctx.res, 503, SHARE_LINKS_NOT_CONFIGURED_ERROR);
     return;
   }
-
-  const session = requireAuthSession(ctx);
   const body = (await readJson(ctx.req)) as ShareRepoFileCreateBody | null;
   const installationId = typeof body?.installationId === 'string' ? body.installationId : '';
   const repoFullName = typeof body?.repoFullName === 'string' ? body.repoFullName : '';
@@ -678,8 +684,8 @@ async function handleGetSharedRepoFile(ctx: RouteContext): Promise<void> {
 }
 
 async function handleGetRawContent(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const installationId = requireMatchedInstallation(ctx, session, 1);
   const owner = ctx.match[2];
   const repo = ctx.match[3];
@@ -699,7 +705,7 @@ async function handleGetRawContent(ctx: RouteContext): Promise<void> {
 }
 
 async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  if (!checkRateLimitForSession(ctx, getSession(ctx.req))) return;
   const owner = decodeURIComponent(ctx.match[1]);
   const repo = decodeURIComponent(ctx.match[2]);
   const pathParam = ctx.url.searchParams.get('path') ?? '';
@@ -720,7 +726,7 @@ async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
 }
 
 async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  if (!checkRateLimitForSession(ctx, getSession(ctx.req))) return;
   const owner = decodeURIComponent(ctx.match[1]);
   const repo = decodeURIComponent(ctx.match[2]);
   const pathParam = ctx.url.searchParams.get('path');
@@ -782,8 +788,8 @@ function markdownOnlyTreeQuery(url: URL): boolean {
 }
 
 async function handleGetTree(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
   const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const installationId = requireMatchedInstallation(ctx, session, 1);
   const owner = ctx.match[2];
   const repo = ctx.match[3];
@@ -797,7 +803,7 @@ async function handleGetTree(ctx: RouteContext): Promise<void> {
 }
 
 async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  if (!checkRateLimitForSession(ctx, getSession(ctx.req))) return;
   const owner = decodeURIComponent(ctx.match[1]);
   const repo = decodeURIComponent(ctx.match[2]);
   const ref = ctx.url.searchParams.get('ref') || 'HEAD';
@@ -819,7 +825,8 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
 }
 
 async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
-  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  const session = getSession(ctx.req);
+  if (!checkRateLimitForSession(ctx, session)) return;
   const gistId = ctx.match[1];
   const cached = getGistCacheEntry(gistId);
   const now = Date.now();
