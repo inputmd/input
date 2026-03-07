@@ -124,10 +124,12 @@ export async function askReaderAiStream(
       buffer = buffer.slice(boundary + 2);
 
       const lines = event.split('\n').map((line) => line.trim());
-      const eventType = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? '';
-      const dataLines = lines
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trim());
+      const eventType =
+        lines
+          .find((line) => line.startsWith('event:'))
+          ?.slice(6)
+          .trim() ?? '';
+      const dataLines = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim());
       const data = dataLines.join('\n');
       if (!data || data === '[DONE]') {
         // skip
@@ -169,8 +171,7 @@ export async function askReaderAiStream(
         if (options.onTurnEnd) {
           try {
             const parsed = JSON.parse(data) as { iteration?: number; reason?: string };
-            if (typeof parsed.iteration === 'number')
-              options.onTurnEnd(parsed.iteration, parsed.reason ?? 'unknown');
+            if (typeof parsed.iteration === 'number') options.onTurnEnd(parsed.iteration, parsed.reason ?? 'unknown');
           } catch {
             // Ignore malformed turn_end event.
           }

@@ -258,7 +258,6 @@ async function readGitHubErrorMessage(ghRes: Response, fallback = 'GitHub API er
 }
 
 const READER_AI_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
-const READER_AI_MAX_SOURCE_CHARS = 140_000;
 const READER_AI_MAX_MESSAGES = 24;
 const READER_AI_MAX_MESSAGE_CHARS = 16_000;
 const READER_AI_CONTEXT_WINDOW_MESSAGES = 8;
@@ -1111,7 +1110,7 @@ const READER_AI_TOOLS = [
     function: {
       name: 'read_document',
       description:
-        'Read the document content. Returns line-numbered text. Without arguments returns the full document; use start_line/end_line for specific sections.',
+        'Read the document content. Returns line-numbered text. Without arguments returns the full document; use start_line/end_line for specific sections. For short documents the full text is already in the system prompt — only call this tool if you need content beyond what is already visible.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -1169,10 +1168,7 @@ type OpenRouterMessage =
     }
   | { role: 'tool'; tool_call_id: string; content: string };
 
-function executeReaderAiReadDocument(
-  lines: string[],
-  args: { start_line?: number; end_line?: number },
-): string {
+function executeReaderAiReadDocument(lines: string[], args: { start_line?: number; end_line?: number }): string {
   const total = lines.length;
   const start = Math.max(1, Math.floor(args.start_line ?? 1));
   const end = Math.min(total, Math.floor(args.end_line ?? total));
@@ -1182,18 +1178,23 @@ function executeReaderAiReadDocument(
   const numbered = selected.map((line, i) => `${start + i}: ${line}`);
   const result = numbered.join('\n');
   if (result.length > READER_AI_TOOL_RESULT_MAX_CHARS) {
+    // Figure out how many lines fit within the budget
+    let charCount = 0;
+    let lastFittingLine = start;
+    for (let i = 0; i < numbered.length; i++) {
+      charCount += numbered[i].length + 1;
+      if (charCount > READER_AI_TOOL_RESULT_MAX_CHARS) break;
+      lastFittingLine = start + i;
+    }
     return (
       result.slice(0, READER_AI_TOOL_RESULT_MAX_CHARS) +
-      `\n\n... (truncated; requested ${end - start + 1} lines; use a smaller range)`
+      `\n\n... (truncated; showing lines ${start}-${lastFittingLine} of ${total}; use start_line/end_line to read specific ranges)`
     );
   }
   return result;
 }
 
-function executeReaderAiSearchDocument(
-  lines: string[],
-  args: { query: string; context_lines?: number },
-): string {
+function executeReaderAiSearchDocument(lines: string[], args: { query: string; context_lines?: number }): string {
   if (!args.query) return '(query is required)';
   const query = args.query.toLowerCase();
   const ctx = Math.max(0, Math.min(args.context_lines ?? 2, 10));
@@ -1226,7 +1227,7 @@ function executeReaderAiSearchDocument(
 
   const result = parts.join('\n');
   if (result.length > READER_AI_TOOL_RESULT_MAX_CHARS) {
-    return result.slice(0, READER_AI_TOOL_RESULT_MAX_CHARS) + '\n\n... (too many matches, try a more specific query)';
+    return `${result.slice(0, READER_AI_TOOL_RESULT_MAX_CHARS)}\n\n... (too many matches, try a more specific query)`;
   }
   return result;
 }
@@ -1343,7 +1344,7 @@ function buildReaderAiSystemPrompt(source: string, lines: string[], maxPreviewCh
   let docSection: string;
   if (totalChars <= maxPreviewChars) {
     const numbered = lines.map((line, i) => `${i + 1}: ${line}`).join('\n');
-    docSection = `The full document is included below (${totalLines} lines).\n\n<document>\n${numbered}\n</document>`;
+    docSection = `The full document is included below (${totalLines} lines). You already have the complete text — do not call read_document unless the user asks you to re-examine specific line ranges.\n\n<document>\n${numbered}\n</document>`;
   } else {
     let previewEnd = 0;
     let previewChars = 0;
@@ -1479,10 +1480,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     if (!firstUpstream.ok) {
       const payload = (await firstUpstream.json().catch(() => null)) as unknown;
       const upstreamError = readUpstreamError(payload);
-      throw new ClientError(
-        upstreamError || `OpenRouter request failed (${firstUpstream.status})`,
-        502,
-      );
+      throw new ClientError(upstreamError || `OpenRouter request failed (${firstUpstream.status})`, 502);
     }
     if (!firstUpstream.body) throw new ClientError('OpenRouter did not return a stream', 502);
 
@@ -1497,9 +1495,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
     const writeSseDelta = (delta: string) => {
       if (ctx.res.writableEnded) return;
-      ctx.res.write(
-        `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`,
-      );
+      ctx.res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`);
     };
 
     const writeSseEvent = (event: string, data: unknown) => {
@@ -1510,10 +1506,18 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     // Agentic tool-call loop
     const maxToolBudgetChars = contextTokens > 0 ? Math.floor(contextTokens * 3 * 0.5) : 60_000;
     let toolResultChars = 0;
-    let currentBody: ReadableStream<Uint8Array> = firstUpstream.body;
+    let currentBody: ReadableStream<Uint8Array> | null = firstUpstream.body;
     for (let iteration = 0; iteration < READER_AI_MAX_TOOL_ITERATIONS; iteration++) {
       writeSseEvent('turn_start', { iteration });
-      const result = await parseReaderAiUpstreamStream(currentBody, writeSseDelta);
+      let result: ReaderAiStreamParseResult;
+      try {
+        result = await parseReaderAiUpstreamStream(currentBody, writeSseDelta);
+      } catch (streamErr) {
+        await currentBody.cancel().catch(() => {});
+        currentBody = null;
+        throw streamErr;
+      }
+      currentBody = null;
 
       if (result.toolCalls.length === 0) {
         writeSseEvent('turn_end', { iteration, reason: 'done' });
@@ -1543,7 +1547,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         const toolResult = executeReaderAiTool(tc.name, tc.arguments, lines);
         toolResultChars += toolResult.length;
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
-        const resultPreview = toolResult.length > 200 ? toolResult.slice(0, 200) + '...' : toolResult;
+        const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
         writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
       }
 
@@ -1565,22 +1569,30 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       const nextUpstream = await callUpstream(callTimeout());
       if (!nextUpstream.ok || !nextUpstream.body) {
         const status = nextUpstream.status ?? 0;
-        const payload = await nextUpstream.json().catch(() => null) as unknown;
+        const payload = (await nextUpstream.json().catch(() => null)) as unknown;
         const detail = readUpstreamError(payload) || `Model returned an error (${status})`;
         writeSseEvent('error', { message: detail });
         break;
       }
       currentBody = nextUpstream.body;
     }
+    // Cancel any unconsumed stream body
+    if (currentBody) await currentBody.cancel().catch(() => {});
   } catch (err) {
     if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       if (!ctx.res.headersSent) throw new ClientError('Reader AI request timed out', 504);
-      if (!ctx.res.writableEnded) ctx.res.end();
+      if (!ctx.res.writableEnded) {
+        ctx.res.write('data: [DONE]\n\n');
+        ctx.res.end();
+      }
       return;
     }
     if (ctx.res.headersSent) {
       console.warn('Reader AI stream failed after response start:', err);
-      if (!ctx.res.writableEnded) ctx.res.end();
+      if (!ctx.res.writableEnded) {
+        ctx.res.write('data: [DONE]\n\n');
+        ctx.res.end();
+      }
       return;
     }
     throw err;

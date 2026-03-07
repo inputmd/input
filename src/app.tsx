@@ -389,11 +389,7 @@ function loadReaderAiEntryFromHistory(historyKey: string): ReaderAiHistoryEntry 
   return entry;
 }
 
-function persistReaderAiMessagesToHistory(
-  historyKey: string,
-  messages: ReaderAiMessage[],
-  summary?: string,
-): void {
+function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAiMessage[], summary?: string): void {
   if (typeof window === 'undefined') return;
   const store = loadReaderAiHistoryStore();
   const nextEntries = { ...store.entries };
@@ -766,6 +762,7 @@ export function App() {
   const [readerAiSummary, setReaderAiSummary] = useState<string>('');
   const [readerAiSending, setReaderAiSending] = useState(false);
   const [readerAiRetryAvailable, setReaderAiRetryAvailable] = useState(false);
+  const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
@@ -2215,6 +2212,7 @@ export function App() {
         readerAiAbortRef.current?.abort();
         readerAiAbortRef.current = null;
         setReaderAiSending(false);
+        setReaderAiToolStatus(null);
         const loaded = loadReaderAiEntryFromHistory(readerAiHistoryDocumentKey);
         setReaderAiMessages(loaded.messages);
         setReaderAiSummary(loaded.summary ?? '');
@@ -2228,6 +2226,7 @@ export function App() {
     readerAiAbortRef.current?.abort();
     readerAiAbortRef.current = null;
     setReaderAiSending(false);
+    setReaderAiToolStatus(null);
     setReaderAiMessages([]);
     setReaderAiSummary('');
     setReaderAiRetryAvailable(false);
@@ -2283,6 +2282,7 @@ export function App() {
       ]);
       setReaderAiRetryAvailable(false);
       setReaderAiSending(true);
+      setReaderAiToolStatus(null);
       setReaderAiError(null);
       let received = false;
       try {
@@ -2293,6 +2293,16 @@ export function App() {
           {
             signal: controller.signal,
             onSummary: (summary) => setReaderAiSummary(summary),
+            onToolCall: (name) => {
+              const label =
+                name === 'read_document'
+                  ? 'Reading document…'
+                  : name === 'search_document'
+                    ? 'Searching document…'
+                    : `Running ${name}…`;
+              setReaderAiToolStatus(label);
+            },
+            onToolResult: () => setReaderAiToolStatus(null),
             onDelta: (delta) => {
               if (!delta) return;
               received = true;
@@ -2357,6 +2367,7 @@ export function App() {
       } finally {
         if (readerAiAbortRef.current === controller) readerAiAbortRef.current = null;
         setReaderAiSending(false);
+        setReaderAiToolStatus(null);
       }
     },
     [readerAiSelectedModel, readerAiSource, readerAiSummary],
@@ -2392,6 +2403,7 @@ export function App() {
     readerAiAbortRef.current?.abort();
     readerAiAbortRef.current = null;
     setReaderAiSending(false);
+    setReaderAiToolStatus(null);
   }, []);
 
   const onReaderAiClear = useCallback(() => {
@@ -2399,6 +2411,7 @@ export function App() {
     setReaderAiMessages([]);
     setReaderAiSummary('');
     setReaderAiRetryAvailable(false);
+    setReaderAiToolStatus(null);
     setReaderAiError(null);
   }, [readerAiHistoryDocumentKey]);
 
@@ -3951,6 +3964,7 @@ export function App() {
               onSelectModel={setReaderAiSelectedModel}
               messages={readerAiMessages}
               sending={readerAiSending}
+              toolStatus={readerAiToolStatus}
               error={readerAiError}
               onSend={onReaderAiSend}
               onEditMessage={onReaderAiEditMessage}

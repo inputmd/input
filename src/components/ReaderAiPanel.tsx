@@ -19,6 +19,7 @@ interface ReaderAiPanelProps {
   onSelectModel: (modelId: string) => void;
   messages: ReaderAiMessage[];
   sending: boolean;
+  toolStatus: string | null;
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
@@ -46,6 +47,7 @@ export function ReaderAiPanel({
   onSelectModel,
   messages,
   sending,
+  toolStatus,
   error,
   onSend,
   onEditMessage,
@@ -411,6 +413,7 @@ export function ReaderAiPanel({
             )}
           </div>
         ))}
+        {sending && toolStatus ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : composer}
       </div>

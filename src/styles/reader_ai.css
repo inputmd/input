@@ -186,6 +186,13 @@
   cursor: not-allowed;
 }
 
+.reader-ai-tool-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 2px 4px;
+  font-style: italic;
+}
+
 .reader-ai-message {
   border: 1px solid var(--border);
   border-radius: 8px;
