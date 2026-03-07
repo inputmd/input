@@ -307,7 +307,18 @@ export function ReaderAiPanel({
     <aside ref={panelRef} class="reader-ai-panel" aria-label="Reader AI panel">
       <div class="reader-ai-messages" ref={messagesRef}>
         {composerAtTop ? composer : null}
-        {!hasMessages ? <div class="reader-ai-empty"></div> : null}
+        {!hasMessages ? (
+          <div class="reader-ai-empty">
+            <button
+              type="button"
+              class="reader-ai-summarize-btn"
+              disabled={composerInputDisabled}
+              onClick={() => void onSend('Summarize this document.')}
+            >
+              Summarize
+            </button>
+          </div>
+        ) : null}
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}`} class={`reader-ai-message reader-ai-message--${message.role}`}>
             <div class="reader-ai-message-role">
