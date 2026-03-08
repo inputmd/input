@@ -7,6 +7,7 @@ Clean up dead code, types, or files after making changes.
 
 Run `npx biome check .`, `npx tsc`, and if any files in /server have been changed,
 `npx tsc -p tsconfig.server.json` after making changes to verify lint and types.
+To run tests, use `npx ava`.
 
 `fly deploy` may print a warning that the app is not listening on `0.0.0.0:8787`
 and only show `/.fly/hallpass` during one machine check pass. When that happens,
