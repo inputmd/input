@@ -334,6 +334,38 @@
   background: color-mix(in srgb, var(--error-color) 8%, transparent);
 }
 
+.reader-ai-suggest-project-mode {
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--link-color) 35%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--link-color) 8%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reader-ai-suggest-project-mode-btn {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--link-color) 50%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--link-color) 12%, transparent);
+  color: var(--link-color);
+  cursor: pointer;
+}
+
+.reader-ai-suggest-project-mode-btn:hover {
+  background: color-mix(in srgb, var(--link-color) 20%, transparent);
+}
+
+.reader-ai-suggest-project-mode-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .reader-ai-input-wrap {
   position: relative;
 }

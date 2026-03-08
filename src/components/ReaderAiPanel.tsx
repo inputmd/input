@@ -44,6 +44,7 @@ interface ReaderAiPanelProps {
   repoModeLoading: boolean;
   repoModeFileCount: number;
   repoModeDisabledReason: string | null;
+  suggestProjectMode?: boolean;
   onToggleRepoMode: (enabled: boolean) => void;
 }
 
@@ -242,6 +243,7 @@ export function ReaderAiPanel({
   repoModeLoading,
   repoModeFileCount,
   repoModeDisabledReason,
+  suggestProjectMode,
   onToggleRepoMode,
 }: ReaderAiPanelProps) {
   const isMac = typeof navigator !== 'undefined' && /(mac|iphone|ipad|ipod)/i.test(navigator.platform ?? '');
@@ -684,6 +686,19 @@ export function ReaderAiPanel({
         ))}
         {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
         {sending && toolStatus && toolLog.length === 0 ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
+        {!sending && suggestProjectMode ? (
+          <div class="reader-ai-suggest-project-mode">
+            <span>This question may need access to other files in the project.</span>
+            <button
+              type="button"
+              class="reader-ai-suggest-project-mode-btn"
+              onClick={() => onToggleRepoMode(true)}
+              disabled={repoModeLoading}
+            >
+              {repoModeLoading ? 'Loading...' : 'Enable project mode'}
+            </button>
+          </div>
+        ) : null}
         {!sending && stagedChanges.length > 0 ? (
           <StagedChangesSection
             changes={stagedChanges}

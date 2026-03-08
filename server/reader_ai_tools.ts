@@ -966,6 +966,7 @@ export function buildReaderAiSystemPrompt(source: string, lines: string[], maxPr
     '- If the document content already visible contains the answer, respond directly without tools.',
     '- If the document lacks the answer, say so plainly.',
     '- Use the task tool when a problem benefits from independent analysis by a subagent with a dedicated role or perspective.',
+    '- You can only see the current document. If the user asks about other files, the broader project, or the repository, begin your response with the exact marker `<<SUGGEST_PROJECT_MODE>>` (on its own line) before your reply. This signals the UI to offer the user a way to enable project-wide access. Do not mention this marker to the user or explain it.',
     '',
     `Document info: ${totalLines} lines, ${totalChars} characters.`,
     '',

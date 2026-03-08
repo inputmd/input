@@ -804,6 +804,7 @@ export function App() {
   const [readerAiRepoModeLoading, setReaderAiRepoModeLoading] = useState(false);
   const [readerAiRepoFiles, setReaderAiRepoFiles] = useState<RepoFileEntry[] | null>(null);
   const [readerAiProjectId, setReaderAiProjectId] = useState<string | null>(null);
+  const [readerAiSuggestProjectMode, setReaderAiSuggestProjectMode] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -2442,6 +2443,7 @@ export function App() {
         setReaderAiRepoFiles(files);
         setReaderAiProjectId(ps.projectId);
         setReaderAiRepoMode(true);
+        setReaderAiSuggestProjectMode(false);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
         setReaderAiError(err instanceof Error ? err.message : 'Failed to load repo files');
@@ -2484,6 +2486,7 @@ export function App() {
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
       setReaderAiError(null);
+      setReaderAiSuggestProjectMode(false);
       let received = false;
 
       let effectiveProjectId = readerAiProjectId;
@@ -2620,6 +2623,20 @@ export function App() {
             return updated;
           });
         }
+
+        // Detect project mode suggestion marker from the AI and strip it.
+        const PROJECT_MODE_MARKER = '<<SUGGEST_PROJECT_MODE>>';
+        setReaderAiMessages((current) => {
+          if (current.length === 0) return current;
+          const last = current[current.length - 1];
+          if (last.role !== 'assistant' || !last.content.includes(PROJECT_MODE_MARKER)) return current;
+          setReaderAiSuggestProjectMode(true);
+          const cleaned = last.content.replace(PROJECT_MODE_MARKER, '').replace(/^\s*\n/, '');
+          const updated = [...current];
+          updated[updated.length - 1] = { ...last, content: cleaned };
+          return updated;
+        });
+
         return true;
       } catch (err) {
         setReaderAiMessages((current) => {
@@ -2692,6 +2709,7 @@ export function App() {
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
     setReaderAiError(null);
+    setReaderAiSuggestProjectMode(false);
     if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
   }, [readerAiHistoryDocumentKey, readerAiProjectId]);
 
@@ -4434,6 +4452,7 @@ export function App() {
               repoModeLoading={readerAiRepoModeLoading}
               repoModeFileCount={repoModeFileCount}
               repoModeDisabledReason={repoModeDisabledReason}
+              suggestProjectMode={readerAiSuggestProjectMode && repoModeAvailable && !readerAiRepoMode}
               onToggleRepoMode={(enabled) => void onToggleRepoMode(enabled)}
             />
           </>
