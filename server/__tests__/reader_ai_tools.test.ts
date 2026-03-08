@@ -5,6 +5,7 @@ import {
   compactToolResults,
   estimateMessagesTokens,
   estimateTokens,
+  executeReaderAiEditDocumentTool,
   executeReaderAiListFiles,
   executeReaderAiProjectSyncTool,
   executeReaderAiReadDocument,
@@ -121,6 +122,112 @@ test('read_document single line', (t) => {
   const lines = makeLines(5);
   const result = executeReaderAiReadDocument(lines, { start_line: 3, end_line: 3 });
   t.is(result, '3: Line 3');
+});
+
+// ── executeReaderAiEditDocumentTool ──
+
+test('edit_document supports line-range replacement', (t) => {
+  const state = {
+    source: 'a\nb\nc\nd',
+    lines: ['a', 'b', 'c', 'd'],
+    currentDocPath: 'doc.md',
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+  };
+  const raw = executeReaderAiEditDocumentTool('{"start_line":2,"end_line":3,"new_text":"X\\nY"}', state);
+  const parsed = JSON.parse(raw) as { ok: boolean; mode?: string };
+  t.true(parsed.ok);
+  t.is(parsed.mode, 'line_range');
+  t.is(state.source, 'a\nX\nY\nd');
+  t.truthy(state.stagedContent);
+});
+
+test('edit_document supports atomic batched edits', (t) => {
+  const state = {
+    source: 'one\ntwo\nthree',
+    lines: ['one', 'two', 'three'],
+    currentDocPath: 'doc.md',
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+  };
+  const raw = executeReaderAiEditDocumentTool(
+    '{"edits":[{"old_text":"one","new_text":"ONE"},{"start_line":2,"end_line":2,"new_text":"TWO"}]}',
+    state,
+  );
+  const parsed = JSON.parse(raw) as { ok: boolean; mode?: string; edits_applied?: number };
+  t.true(parsed.ok);
+  t.is(parsed.mode, 'batch');
+  t.is(parsed.edits_applied, 2);
+  t.is(state.source, 'ONE\nTWO\nthree');
+});
+
+test('edit_document batch failures are atomic', (t) => {
+  const state = {
+    source: 'alpha\nbeta',
+    lines: ['alpha', 'beta'],
+    currentDocPath: 'doc.md',
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+  };
+  const raw = executeReaderAiEditDocumentTool(
+    '{"edits":[{"old_text":"alpha","new_text":"ALPHA"},{"old_text":"missing","new_text":"x"}]}',
+    state,
+  );
+  const parsed = JSON.parse(raw) as { ok: boolean; error?: { code?: string } };
+  t.false(parsed.ok);
+  t.is(parsed.error?.code, 'not_found');
+  t.is(state.source, 'alpha\nbeta');
+  t.is(state.stagedContent, null);
+});
+
+test('edit_document dry_run previews without applying', (t) => {
+  const state = {
+    source: 'left right',
+    lines: ['left right'],
+    currentDocPath: 'doc.md',
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+  };
+  const raw = executeReaderAiEditDocumentTool('{"old_text":"left","new_text":"LEFT","dry_run":true}', state);
+  const parsed = JSON.parse(raw) as { ok: boolean; dry_run?: boolean; applied?: boolean };
+  t.true(parsed.ok);
+  t.true(parsed.dry_run);
+  t.false(parsed.applied);
+  t.is(state.source, 'left right');
+  t.is(state.stagedContent, null);
+});
+
+test('edit_document returns structured invalid_json error', (t) => {
+  const state = {
+    source: 'x',
+    lines: ['x'],
+    currentDocPath: 'doc.md',
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+  };
+  const raw = executeReaderAiEditDocumentTool('{bad', state);
+  const parsed = JSON.parse(raw) as { ok: boolean; error?: { code?: string } };
+  t.false(parsed.ok);
+  t.is(parsed.error?.code, 'invalid_json');
+});
+
+test('edit_document returns ambiguity hints', (t) => {
+  const state = {
+    source: 'repeat\nx\nrepeat\ny\nrepeat',
+    lines: ['repeat', 'x', 'repeat', 'y', 'repeat'],
+    currentDocPath: 'doc.md',
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+  };
+  const raw = executeReaderAiEditDocumentTool('{"old_text":"repeat","new_text":"R"}', state);
+  const parsed = JSON.parse(raw) as {
+    ok: boolean;
+    error?: { code?: string; details?: { matches?: Array<{ start_line: number; snippet: string }> } };
+  };
+  t.false(parsed.ok);
+  t.is(parsed.error?.code, 'ambiguous_match');
+  t.true((parsed.error?.details?.matches?.length ?? 0) >= 2);
+  t.true((parsed.error?.details?.matches?.[0]?.start_line ?? 0) >= 1);
 });
 
 // ── executeReaderAiSearchDocument ──

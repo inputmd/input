@@ -20,6 +20,14 @@ export interface ReaderAiFileEntry {
   size: number;
 }
 
+export interface ReaderAiDocumentEditState {
+  source: string;
+  lines: string[];
+  currentDocPath?: string | null;
+  stagedContent: string | null;
+  stagedDiff: string | null;
+}
+
 /**
  * Rough token estimate from character count.
  * ~3.5 chars per token for English text / code is a reasonable approximation.
@@ -156,7 +164,7 @@ export const READER_AI_TOOLS = [
     function: {
       name: 'edit_document',
       description:
-        'Edit the current document by replacing one exact snippet with new text. old_text must match exactly and uniquely in the current working document. Returns a unified diff of the edit.',
+        'Edit the current document. Supports exact-text replacement (old_text/new_text), line-range replacement (start_line/end_line/new_text), and batched edits via edits[]. Set dry_run=true to preview without applying. Returns structured JSON including diff and errors.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -168,8 +176,33 @@ export const READER_AI_TOOLS = [
             type: 'string' as const,
             description: 'Replacement text for old_text.',
           },
+          start_line: {
+            type: 'number' as const,
+            description: 'First line to replace (1-based, inclusive). Use with end_line and new_text.',
+          },
+          end_line: {
+            type: 'number' as const,
+            description: 'Last line to replace (1-based, inclusive). Use with start_line and new_text.',
+          },
+          dry_run: {
+            type: 'boolean' as const,
+            description: 'If true, preview the diff without applying changes to staged document content.',
+          },
+          edits: {
+            type: 'array' as const,
+            description:
+              'Optional atomic batch of edits. Each item supports either old_text/new_text or start_line/end_line/new_text. If any edit fails, none are applied.',
+            items: {
+              type: 'object' as const,
+              properties: {
+                old_text: { type: 'string' as const },
+                new_text: { type: 'string' as const },
+                start_line: { type: 'number' as const },
+                end_line: { type: 'number' as const },
+              },
+            },
+          },
         },
-        required: ['old_text', 'new_text'],
       },
     },
   },
@@ -613,6 +646,292 @@ export function generateUnifiedDiff(path: string, oldContent: string, newContent
 
   if (result.length === 2) return '(no changes)';
   return result.join('\n');
+}
+
+interface ReaderAiEditDocumentOp {
+  old_text?: string;
+  new_text?: string;
+  start_line?: number;
+  end_line?: number;
+}
+
+interface ReaderAiEditDocumentFailure {
+  ok: false;
+  tool: 'edit_document';
+  error: {
+    code:
+      | 'invalid_json'
+      | 'invalid_args'
+      | 'missing_required'
+      | 'invalid_range'
+      | 'not_found'
+      | 'ambiguous_match'
+      | 'no_change';
+    message: string;
+    details?: Record<string, unknown>;
+  };
+}
+
+interface ReaderAiEditDocumentSuccess {
+  ok: true;
+  tool: 'edit_document';
+  dry_run: boolean;
+  applied: boolean;
+  path: string;
+  mode: 'snippet' | 'line_range' | 'batch';
+  edits_applied: number;
+  diff: string;
+}
+
+function isEditDocumentFailure(
+  result: ReaderAiEditDocumentFailure | { updated: string } | { updated: string; mode: 'snippet' | 'line_range' },
+): result is ReaderAiEditDocumentFailure {
+  return 'ok' in result && result.ok === false;
+}
+
+function makeEditDocumentFailure(
+  error: ReaderAiEditDocumentFailure['error'],
+  details?: Record<string, unknown>,
+): ReaderAiEditDocumentFailure {
+  return {
+    ok: false,
+    tool: 'edit_document',
+    error: { ...error, ...(details ? { details } : {}) },
+  };
+}
+
+function countLineForIndex(source: string, index: number): number {
+  if (index <= 0) return 1;
+  let lines = 1;
+  for (let i = 0; i < index; i++) {
+    if (source.charCodeAt(i) === 10) lines += 1;
+  }
+  return lines;
+}
+
+function snippetAround(source: string, index: number, length: number): string {
+  const pad = 36;
+  const start = Math.max(0, index - pad);
+  const end = Math.min(source.length, index + length + pad);
+  return source.slice(start, end).replace(/\n/g, '\\n');
+}
+
+function findAmbiguousMatches(
+  source: string,
+  needle: string,
+  limit = 5,
+): Array<{ start_line: number; snippet: string }> {
+  const matches: Array<{ start_line: number; snippet: string }> = [];
+  let from = 0;
+  while (matches.length < limit) {
+    const idx = source.indexOf(needle, from);
+    if (idx === -1) break;
+    matches.push({ start_line: countLineForIndex(source, idx), snippet: snippetAround(source, idx, needle.length) });
+    from = idx + Math.max(1, needle.length);
+  }
+  return matches;
+}
+
+function applySnippetEdit(
+  source: string,
+  op: ReaderAiEditDocumentOp,
+): { updated: string } | ReaderAiEditDocumentFailure {
+  const oldText = typeof op.old_text === 'string' ? op.old_text : null;
+  const newText = typeof op.new_text === 'string' ? op.new_text : null;
+  if (oldText === null || newText === null) {
+    return makeEditDocumentFailure({
+      code: 'missing_required',
+      message: 'snippet edit requires old_text and new_text',
+    });
+  }
+  if (oldText === newText) {
+    return makeEditDocumentFailure({
+      code: 'no_change',
+      message: 'old_text and new_text are identical',
+    });
+  }
+  const first = source.indexOf(oldText);
+  if (first === -1) {
+    return makeEditDocumentFailure(
+      {
+        code: 'not_found',
+        message: 'old_text not found in document',
+      },
+      { case_insensitive_match_exists: source.toLowerCase().includes(oldText.toLowerCase()) },
+    );
+  }
+  const second = source.indexOf(oldText, first + oldText.length);
+  if (second !== -1) {
+    return makeEditDocumentFailure(
+      {
+        code: 'ambiguous_match',
+        message: 'old_text matches multiple locations; provide more context',
+      },
+      { matches: findAmbiguousMatches(source, oldText) },
+    );
+  }
+  return {
+    updated: source.slice(0, first) + newText + source.slice(first + oldText.length),
+  };
+}
+
+function applyRangeEdit(source: string, op: ReaderAiEditDocumentOp): { updated: string } | ReaderAiEditDocumentFailure {
+  const startLine = Number.isFinite(op.start_line) ? Math.floor(op.start_line as number) : NaN;
+  const endLine = Number.isFinite(op.end_line) ? Math.floor(op.end_line as number) : NaN;
+  const newText = typeof op.new_text === 'string' ? op.new_text : null;
+  if (!Number.isFinite(startLine) || !Number.isFinite(endLine) || newText === null) {
+    return makeEditDocumentFailure({
+      code: 'missing_required',
+      message: 'line range edit requires start_line, end_line, and new_text',
+    });
+  }
+  const lines = source.split('\n');
+  const total = lines.length;
+  if (startLine < 1 || endLine < 1 || startLine > total || endLine > total || startLine > endLine) {
+    return makeEditDocumentFailure(
+      {
+        code: 'invalid_range',
+        message: 'invalid line range',
+      },
+      { start_line: startLine, end_line: endLine, total_lines: total },
+    );
+  }
+  const replacementLines = newText.split('\n');
+  const nextLines = [...lines.slice(0, startLine - 1), ...replacementLines, ...lines.slice(endLine)];
+  const updated = nextLines.join('\n');
+  if (updated === source) {
+    return makeEditDocumentFailure({
+      code: 'no_change',
+      message: 'line range replacement produced no changes',
+    });
+  }
+  return { updated };
+}
+
+function classifyEditMode(op: ReaderAiEditDocumentOp): 'snippet' | 'line_range' | null {
+  const hasSnippet = typeof op.old_text === 'string';
+  const hasRange = Number.isFinite(op.start_line) || Number.isFinite(op.end_line);
+  if (hasSnippet && hasRange) return null;
+  if (hasSnippet) return 'snippet';
+  if (hasRange) return 'line_range';
+  return null;
+}
+
+function applySingleDocumentEdit(
+  source: string,
+  op: ReaderAiEditDocumentOp,
+): { updated: string; mode: 'snippet' | 'line_range' } | ReaderAiEditDocumentFailure {
+  const mode = classifyEditMode(op);
+  if (!mode) {
+    return makeEditDocumentFailure({
+      code: 'invalid_args',
+      message: 'edit must specify either old_text/new_text or start_line/end_line/new_text',
+    });
+  }
+  if (mode === 'snippet') {
+    const result = applySnippetEdit(source, op);
+    return isEditDocumentFailure(result) ? result : { updated: result.updated, mode };
+  }
+  const result = applyRangeEdit(source, op);
+  return isEditDocumentFailure(result) ? result : { updated: result.updated, mode };
+}
+
+export function executeReaderAiEditDocumentTool(argsJson: string, state: ReaderAiDocumentEditState): string {
+  let args: Record<string, unknown>;
+  try {
+    args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {};
+  } catch {
+    return JSON.stringify(
+      makeEditDocumentFailure({
+        code: 'invalid_json',
+        message: 'invalid JSON arguments',
+      }),
+    );
+  }
+
+  const dryRun = args.dry_run === true;
+  const path = state.currentDocPath || 'current-document.md';
+
+  const batchRaw = Array.isArray(args.edits) ? args.edits : null;
+  const batch = batchRaw
+    ? batchRaw
+        .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+        .map((entry) => ({
+          old_text: typeof entry.old_text === 'string' ? entry.old_text : undefined,
+          new_text: typeof entry.new_text === 'string' ? entry.new_text : undefined,
+          start_line: Number.isFinite(entry.start_line) ? Number(entry.start_line) : undefined,
+          end_line: Number.isFinite(entry.end_line) ? Number(entry.end_line) : undefined,
+        }))
+    : null;
+
+  const ops: ReaderAiEditDocumentOp[] =
+    batch && batch.length > 0
+      ? batch
+      : [
+          {
+            old_text: typeof args.old_text === 'string' ? args.old_text : undefined,
+            new_text: typeof args.new_text === 'string' ? args.new_text : undefined,
+            start_line: Number.isFinite(args.start_line) ? Number(args.start_line) : undefined,
+            end_line: Number.isFinite(args.end_line) ? Number(args.end_line) : undefined,
+          },
+        ];
+
+  if (ops.length === 0) {
+    return JSON.stringify(
+      makeEditDocumentFailure({
+        code: 'missing_required',
+        message: 'no edits provided',
+      }),
+    );
+  }
+
+  let working = state.source;
+  let lastMode: 'snippet' | 'line_range' | 'batch' = 'batch';
+  for (let i = 0; i < ops.length; i++) {
+    const result = applySingleDocumentEdit(working, ops[i]);
+    if (isEditDocumentFailure(result)) {
+      return JSON.stringify(
+        makeEditDocumentFailure(
+          {
+            ...result.error,
+            message: `edit ${i + 1} failed: ${result.error.message}`,
+          },
+          { ...(result.error.details ?? {}), edit_index: i },
+        ),
+      );
+    }
+    working = result.updated;
+    if (ops.length === 1) lastMode = result.mode;
+  }
+
+  if (working === state.source) {
+    return JSON.stringify(
+      makeEditDocumentFailure({
+        code: 'no_change',
+        message: 'no changes were produced',
+      }),
+    );
+  }
+
+  const diff = generateUnifiedDiff(path, state.source, working);
+  if (!dryRun) {
+    state.source = working;
+    state.lines = working.split('\n');
+    state.stagedContent = working;
+    state.stagedDiff = diff;
+  }
+
+  const success: ReaderAiEditDocumentSuccess = {
+    ok: true,
+    tool: 'edit_document',
+    dry_run: dryRun,
+    applied: !dryRun,
+    path,
+    mode: ops.length > 1 ? 'batch' : lastMode,
+    edits_applied: ops.length,
+    diff,
+  };
+  return JSON.stringify(success);
 }
 
 /** Build a line-matching function from query + is_regex flag. Returns null on invalid regex. */
