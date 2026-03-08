@@ -1399,10 +1399,33 @@ export function buildReaderAiProjectSystemPrompt(
 
 export function readUpstreamError(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null;
-  const errorObj = 'error' in payload ? (payload as { error?: unknown }).error : null;
-  if (!errorObj || typeof errorObj !== 'object') return null;
-  const message = (errorObj as { message?: unknown }).message;
-  return typeof message === 'string' && message ? message : null;
+  // OpenRouter can return errors as { error: { message } } or { error: "string" } or { message: "string" }
+  const errorField = 'error' in payload ? (payload as { error?: unknown }).error : null;
+  if (typeof errorField === 'string' && errorField) return errorField;
+  if (errorField && typeof errorField === 'object') {
+    const message = (errorField as { message?: unknown }).message;
+    if (typeof message === 'string' && message) return message;
+  }
+  const topMessage = 'message' in payload ? (payload as { message?: unknown }).message : null;
+  if (typeof topMessage === 'string' && topMessage) return topMessage;
+  return null;
+}
+
+/**
+ * Extract rate limit info from OpenRouter response headers.
+ * Returns a user-facing message if the request was rate-limited, null otherwise.
+ */
+export function readUpstreamRateLimitMessage(headers: Headers): string | null {
+  const remaining = headers.get('x-ratelimit-remaining');
+  const resetStr = headers.get('x-ratelimit-reset');
+  // OpenRouter uses 429 status, but also sends these headers on near-limit responses
+  if (remaining !== null && Number(remaining) <= 0 && resetStr) {
+    const resetMs = Number(resetStr) * 1000;
+    const now = Date.now();
+    const waitSeconds = Math.max(1, Math.ceil((resetMs - now) / 1000));
+    return `Rate limited by upstream provider. Try again in ${waitSeconds}s.`;
+  }
+  return null;
 }
 
 export interface ReaderAiSubagentOptions {

@@ -38,6 +38,7 @@ import {
   type ReaderAiStreamParseResult,
   type ReaderAiToolCall,
   readUpstreamError,
+  readUpstreamRateLimitMessage,
   StagedChanges,
 } from './reader_ai_tools';
 import {
@@ -1562,6 +1563,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     // First call — errors before SSE starts can be returned as JSON
     const firstUpstream = await callUpstream(callTimeout());
     if (!firstUpstream.ok) {
+      const rateLimitMsg = readUpstreamRateLimitMessage(firstUpstream.headers);
+      if (rateLimitMsg) throw new ClientError(rateLimitMsg, 429);
       const payload = (await firstUpstream.json().catch(() => null)) as unknown;
       const upstreamError = readUpstreamError(payload);
       throw new ClientError(upstreamError || `OpenRouter request failed (${firstUpstream.status})`, 502);
@@ -1734,9 +1737,10 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
       const nextUpstream = await callUpstream(callTimeout());
       if (!nextUpstream.ok || !nextUpstream.body) {
+        const rateLimitMsg = readUpstreamRateLimitMessage(nextUpstream.headers);
         const status = nextUpstream.status ?? 0;
-        const payload = (await nextUpstream.json().catch(() => null)) as unknown;
-        const detail = readUpstreamError(payload) || `Model returned an error (${status})`;
+        const payload = rateLimitMsg ? null : (await nextUpstream.json().catch(() => null)) as unknown;
+        const detail = rateLimitMsg || readUpstreamError(payload) || `Model returned an error (${status})`;
         writeSseEvent('error', { message: detail });
         break;
       }
