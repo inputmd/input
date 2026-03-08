@@ -993,7 +993,41 @@ export function buildReaderAiProjectSystemPrompt(files: ReaderAiFileEntry[], cur
         ? `${(totalSize / 1024).toFixed(1)}KB`
         : `${totalSize}B`;
 
-  const currentDocSection = currentDocPath ? `\nThe user is currently viewing: ${currentDocPath}` : '';
+  // Pre-load the currently viewed file into the system prompt
+  let currentFileSection = '';
+  if (currentDocPath) {
+    const currentFile = files.find((f) => f.path === currentDocPath);
+    if (currentFile) {
+      const lines = currentFile.content.split('\n');
+      const maxPreviewLines = 200;
+      if (lines.length <= maxPreviewLines) {
+        const numbered = lines.map((line, i) => `${i + 1}: ${line}`).join('\n');
+        currentFileSection = [
+          '',
+          `The user is currently viewing ${currentDocPath} (${lines.length} lines). The full file is included below — do not call read_file for this file unless you need to re-examine it after an edit.`,
+          '',
+          '<current-file>',
+          numbered,
+          '</current-file>',
+        ].join('\n');
+      } else {
+        const numbered = lines
+          .slice(0, maxPreviewLines)
+          .map((line, i) => `${i + 1}: ${line}`)
+          .join('\n');
+        currentFileSection = [
+          '',
+          `The user is currently viewing ${currentDocPath} (${lines.length} lines). A preview is included below (first ${maxPreviewLines} lines). Use read_file for the full content.`,
+          '',
+          '<current-file-preview>',
+          numbered,
+          '</current-file-preview>',
+        ].join('\n');
+      }
+    } else {
+      currentFileSection = `\nThe user is currently viewing: ${currentDocPath}`;
+    }
+  }
 
   return [
     'You are an assistant with full access to a project. You can read any file, search across the codebase, analyze the project structure, and make edits.',
@@ -1018,11 +1052,12 @@ export function buildReaderAiProjectSystemPrompt(files: ReaderAiFileEntry[], cur
     '- Prefer targeted reads and searches over reading entire large files.',
     '- All edits are staged for user review — they are not applied until the user approves them.',
     '',
-    `Project: ${totalFiles} files, ${totalSizeLabel} total.${currentDocSection}`,
+    `Project: ${totalFiles} files, ${totalSizeLabel} total.`,
     '',
     '<file-tree>',
     fileTree,
     '</file-tree>',
+    currentFileSection,
   ].join('\n');
 }
 
