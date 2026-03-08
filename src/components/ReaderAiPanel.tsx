@@ -29,7 +29,8 @@ interface ReaderAiPanelProps {
   toolLog: ReaderAiToolLogEntry[];
   stagedChanges: ReaderAiStagedChange[];
   applyingChanges: boolean;
-  onApplyChanges: () => void;
+  canApplyChanges: boolean;
+  onApplyChanges: (commitMessage?: string) => void;
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
@@ -125,13 +126,16 @@ function DiffView({ diff }: { diff: string }) {
 function StagedChangesSection({
   changes,
   applying,
+  canApply,
   onApply,
 }: {
   changes: ReaderAiStagedChange[];
   applying: boolean;
-  onApply: () => void;
+  canApply: boolean;
+  onApply: (commitMessage?: string) => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [commitMessage, setCommitMessage] = useState('');
   if (changes.length === 0) return null;
 
   const togglePath = (path: string) => {
@@ -155,9 +159,6 @@ function StagedChangesSection({
         <span>
           Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
         </span>
-        <button type="button" class="reader-ai-staged-changes-apply" onClick={onApply} disabled={applying}>
-          {applying ? 'Applying…' : 'Apply'}
-        </button>
       </div>
       {changes.map((change) => (
         <div key={change.path} class="reader-ai-staged-change">
@@ -171,6 +172,36 @@ function StagedChangesSection({
           {expandedPaths.has(change.path) ? <DiffView diff={change.diff} /> : null}
         </div>
       ))}
+      {canApply ? (
+        <div class="reader-ai-staged-changes-footer">
+          <input
+            type="text"
+            class="reader-ai-staged-changes-commit-input"
+            placeholder="Commit message (optional)"
+            value={commitMessage}
+            onInput={(e) => setCommitMessage(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !applying) {
+                e.preventDefault();
+                onApply(commitMessage.trim() || undefined);
+              }
+            }}
+            disabled={applying}
+          />
+          <button
+            type="button"
+            class="reader-ai-staged-changes-apply"
+            onClick={() => onApply(commitMessage.trim() || undefined)}
+            disabled={applying}
+          >
+            {applying ? 'Applying…' : 'Apply'}
+          </button>
+        </div>
+      ) : (
+        <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
+          Read-only — no write access
+        </div>
+      )}
     </div>
   );
 }
@@ -188,6 +219,7 @@ export function ReaderAiPanel({
   toolLog,
   stagedChanges,
   applyingChanges,
+  canApplyChanges,
   onApplyChanges,
   error,
   onSend,
@@ -643,7 +675,12 @@ export function ReaderAiPanel({
         {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
         {sending && toolStatus && toolLog.length === 0 ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
         {!sending && stagedChanges.length > 0 ? (
-          <StagedChangesSection changes={stagedChanges} applying={applyingChanges} onApply={onApplyChanges} />
+          <StagedChangesSection
+            changes={stagedChanges}
+            applying={applyingChanges}
+            canApply={canApplyChanges}
+            onApply={onApplyChanges}
+          />
         ) : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : composer}
