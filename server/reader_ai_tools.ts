@@ -130,11 +130,18 @@ export const READER_AI_TOOLS = [
     function: {
       name: 'search_document',
       description:
-        'Search the document for lines matching a query (case-insensitive substring). Returns matching lines with surrounding context and line numbers.',
+        'Search the document for lines matching a query. By default uses case-insensitive substring matching. Set is_regex to true for regular expression matching. Returns matching lines with surrounding context and line numbers.',
       parameters: {
         type: 'object' as const,
         properties: {
-          query: { type: 'string' as const, description: 'Text to search for (case-insensitive)' },
+          query: {
+            type: 'string' as const,
+            description: 'Text to search for, or a regular expression pattern if is_regex is true.',
+          },
+          is_regex: {
+            type: 'boolean' as const,
+            description: 'If true, treat query as a regular expression. Default: false.',
+          },
           context_lines: {
             type: 'number' as const,
             description: 'Lines of context before/after each match (default: 2, max: 10)',
@@ -201,11 +208,18 @@ export const READER_AI_PROJECT_TOOLS = [
     function: {
       name: 'search_files',
       description:
-        'Search across all files in the project for lines matching a query (case-insensitive substring). Returns matching lines grouped by file with line numbers and context. Use glob to filter by file pattern.',
+        'Search across all files in the project for lines matching a query. By default uses case-insensitive substring matching. Set is_regex to true for regular expression matching. Returns matching lines grouped by file with line numbers and context. Use glob to filter by file pattern.',
       parameters: {
         type: 'object' as const,
         properties: {
-          query: { type: 'string' as const, description: 'Text to search for (case-insensitive).' },
+          query: {
+            type: 'string' as const,
+            description: 'Text to search for, or a regular expression pattern if is_regex is true.',
+          },
+          is_regex: {
+            type: 'boolean' as const,
+            description: 'If true, treat query as a regular expression. Default: false.',
+          },
           glob: {
             type: 'string' as const,
             description:
@@ -341,14 +355,15 @@ export function executeReaderAiReadDocument(lines: string[], args: { start_line?
 
 export function executeReaderAiSearchDocument(
   lines: string[],
-  args: { query: string; context_lines?: number },
+  args: { query: string; is_regex?: boolean; context_lines?: number },
 ): string {
   if (!args.query) return '(query is required)';
-  const query = args.query.toLowerCase();
+  const matcher = buildLineMatcher(args.query, args.is_regex);
+  if (!matcher) return `(invalid regular expression: ${args.query})`;
   const ctx = Math.max(0, Math.min(args.context_lines ?? 2, 10));
   const matchIndices: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].toLowerCase().includes(query)) matchIndices.push(i);
+    if (matcher(lines[i])) matchIndices.push(i);
   }
   if (matchIndices.length === 0) return 'No matches found.';
 
@@ -576,6 +591,20 @@ export function generateUnifiedDiff(path: string, oldContent: string, newContent
   return result.join('\n');
 }
 
+/** Build a line-matching function from query + is_regex flag. Returns null on invalid regex. */
+function buildLineMatcher(query: string, isRegex?: boolean): ((line: string) => boolean) | null {
+  if (isRegex) {
+    try {
+      const re = new RegExp(query, 'i');
+      return (line: string) => re.test(line);
+    } catch {
+      return null;
+    }
+  }
+  const lower = query.toLowerCase();
+  return (line: string) => line.toLowerCase().includes(lower);
+}
+
 // ── Project-mode tool execution ──
 
 function simpleGlobMatch(pattern: string, filePath: string): boolean {
@@ -649,10 +678,11 @@ export function executeReaderAiReadFile(
 
 export function executeReaderAiSearchFiles(
   files: ReaderAiFileEntry[],
-  args: { query: string; glob?: string; context_lines?: number },
+  args: { query: string; is_regex?: boolean; glob?: string; context_lines?: number },
 ): string {
   if (!args.query) return '(query is required)';
-  const query = args.query.toLowerCase();
+  const matcher = buildLineMatcher(args.query, args.is_regex);
+  if (!matcher) return `(invalid regular expression: ${args.query})`;
   const ctx = Math.max(0, Math.min(args.context_lines ?? 2, 5));
   const candidates = args.glob ? files.filter((f) => simpleGlobMatch(args.glob!, f.path)) : files;
   if (candidates.length === 0 && args.glob) return `No files matching glob "${args.glob}".`;
@@ -666,7 +696,7 @@ export function executeReaderAiSearchFiles(
     const lines = file.content.split('\n');
     const matchIndices: number[] = [];
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().includes(query)) matchIndices.push(i);
+      if (matcher(lines[i])) matchIndices.push(i);
     }
     if (matchIndices.length === 0) continue;
 
@@ -744,7 +774,10 @@ export function executeReaderAiSyncTool(toolName: string, argsJson: string, line
     case 'read_document':
       return executeReaderAiReadDocument(lines, args as { start_line?: number; end_line?: number });
     case 'search_document':
-      return executeReaderAiSearchDocument(lines, args as { query: string; context_lines?: number });
+      return executeReaderAiSearchDocument(
+        lines,
+        args as { query: string; is_regex?: boolean; context_lines?: number },
+      );
     default:
       return `(unknown tool: ${toolName})`;
   }
@@ -769,7 +802,10 @@ export function executeReaderAiProjectSyncTool(
     case 'read_file':
       return executeReaderAiReadFile(workingFiles, args as { path: string; start_line?: number; end_line?: number });
     case 'search_files':
-      return executeReaderAiSearchFiles(workingFiles, args as { query: string; glob?: string; context_lines?: number });
+      return executeReaderAiSearchFiles(
+        workingFiles,
+        args as { query: string; is_regex?: boolean; glob?: string; context_lines?: number },
+      );
     case 'list_files':
       return executeReaderAiListFiles(workingFiles, args as { path?: string });
     case 'edit_file': {
