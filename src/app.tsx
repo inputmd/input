@@ -2361,6 +2361,13 @@ export function App() {
     return null;
   }, [repoModeAvailable, isGistContext, gistFiles, repoSidebarFiles, repoFiles]);
 
+  const repoModeToggleDisabledReason = useMemo((): string | null => {
+    if (readerAiRepoMode && readerAiMessages.length > 0) {
+      return 'Clear chat to disable project mode';
+    }
+    return repoModeDisabledReason;
+  }, [readerAiRepoMode, readerAiMessages.length, repoModeDisabledReason]);
+
   // Reset repo mode when navigating away from a repo/gist
   useEffect(() => {
     if (!repoModeAvailable) {
@@ -2414,6 +2421,10 @@ export function App() {
   const onToggleRepoMode = useCallback(
     async (enabled: boolean) => {
       if (!enabled) {
+        if (readerAiMessages.length > 0) {
+          setReaderAiError('Clear chat before disabling project mode.');
+          return;
+        }
         setReaderAiRepoMode(false);
         setReaderAiRepoFiles(null);
         setReaderAiRetryAfterProjectModeEnable(false);
@@ -2468,6 +2479,7 @@ export function App() {
       showRateLimitToastIfNeeded,
       readerAiProjectId,
       readerAiSuggestProjectMode,
+      readerAiMessages.length,
       isGistContext,
       gistFiles,
     ],
@@ -4464,7 +4476,7 @@ export function App() {
               repoModeEnabled={readerAiRepoMode}
               repoModeLoading={readerAiRepoModeLoading}
               repoModeFileCount={repoModeFileCount}
-              repoModeDisabledReason={repoModeDisabledReason}
+              repoModeDisabledReason={repoModeToggleDisabledReason}
               suggestProjectMode={readerAiSuggestProjectMode && repoModeAvailable && !readerAiRepoMode}
               onToggleRepoMode={(enabled) => void onToggleRepoMode(enabled)}
             />

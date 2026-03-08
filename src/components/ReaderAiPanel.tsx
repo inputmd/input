@@ -557,7 +557,9 @@ export function ReaderAiPanel({
                   type="button"
                   class="reader-ai-summarize-btn"
                   disabled={composerInputDisabled}
-                  onClick={() => void onSend('Explain this project — its purpose, structure, and key entry points.')}
+                  onClick={() =>
+                    void onSend('Explain this project, including its purpose, structure, and key entry points.')
+                  }
                 >
                   Explain project
                 </button>
