@@ -64,32 +64,35 @@ const TOOL_LABELS: Record<string, string> = {
   task: 'Subagent',
 };
 
-function ToolLogSection({ entries }: { entries: ReaderAiToolLogEntry[] }) {
+function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntry[]; live?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   if (entries.length === 0) return null;
 
-  // Group into call/result pairs
-  const callCount = entries.filter((e) => e.type === 'call').length;
-  const summary = `${callCount} tool call${callCount === 1 ? '' : 's'}`;
+  const callEntries = entries.filter((e) => e.type === 'call');
+  const callCount = callEntries.length;
+  const summary = live
+    ? `${callCount} tool call${callCount === 1 ? '' : 's'}…`
+    : `${callCount} tool call${callCount === 1 ? '' : 's'}`;
+
+  // Auto-expand while live
+  const isExpanded = live || expanded;
 
   return (
     <div class="reader-ai-tool-log">
       <button type="button" class="reader-ai-tool-log-toggle" onClick={() => setExpanded(!expanded)}>
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <span>{summary}</span>
       </button>
-      {expanded ? (
+      {isExpanded ? (
         <div class="reader-ai-tool-log-entries">
-          {entries
-            .filter((e) => e.type === 'call')
-            .map((entry, i) => (
-              <div key={i} class="reader-ai-tool-log-entry">
-                <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
-                {entry.detail ? (
-                  <span class="reader-ai-tool-log-detail">{entry.detail.length > 60 ? `${entry.detail.slice(0, 60)}…` : entry.detail}</span>
-                ) : null}
-              </div>
-            ))}
+          {callEntries.map((entry, i) => (
+            <div key={i} class="reader-ai-tool-log-entry">
+              <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
+              {entry.detail ? (
+                <span class="reader-ai-tool-log-detail">{entry.detail.length > 60 ? `${entry.detail.slice(0, 60)}…` : entry.detail}</span>
+              ) : null}
+            </div>
+          ))}
         </div>
       ) : null}
     </div>
@@ -220,11 +223,12 @@ export function ReaderAiPanel({
       ? 'Ask about this project...'
       : 'Ask about this document...';
 
+  const toolLogCount = toolLog.length;
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
     root.scrollTop = root.scrollHeight;
-  }, [messageCount, sending]);
+  }, [messageCount, sending, toolLogCount]);
 
   useEffect(() => {
     if (editingIndex === null) return;
@@ -593,8 +597,8 @@ export function ReaderAiPanel({
             )}
           </div>
         ))}
-        {sending && toolStatus ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
-        {!sending && toolLog.length > 0 ? <ToolLogSection entries={toolLog} /> : null}
+        {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
+        {sending && toolStatus && toolLog.length === 0 ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
         {!sending && stagedChanges.length > 0 ? <StagedChangesSection changes={stagedChanges} /> : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : composer}
