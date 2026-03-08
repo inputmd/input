@@ -1,5 +1,7 @@
 // ── Reader AI Tool Definitions, Execution, and Subagent Support ──
 
+import { createTwoFilesPatch } from 'diff';
+
 export const READER_AI_TOOL_RESULT_MAX_CHARS = 30_000;
 export const READER_AI_DOC_PREVIEW_CHARS = 12_000;
 export const READER_AI_TASK_TIMEOUT_MS = 90_000;
@@ -565,87 +567,17 @@ export class StagedChanges {
   }
 }
 
-/** Generate a simple unified diff between two strings. */
+/** Generate a unified diff between two strings using the `diff` library. */
 export function generateUnifiedDiff(path: string, oldContent: string, newContent: string): string {
-  const oldLines = oldContent ? oldContent.split('\n') : [];
-  const newLines = newContent ? newContent.split('\n') : [];
-  const result: string[] = [`--- a/${path}`, `+++ b/${path}`];
-
-  // Simple diff: find changed regions by comparing lines
-  let i = 0;
-  let j = 0;
-  while (i < oldLines.length || j < newLines.length) {
-    // Find next difference
-    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
-      i++;
-      j++;
-      continue;
-    }
-
-    // Found a difference — collect the hunk
-    const hunkStartOld = Math.max(0, i - 3);
-    const hunkStartNew = Math.max(0, j - 3);
-
-    // Find the end of the differing region
-    let diffEndOld = i;
-    let diffEndNew = j;
-
-    // Advance through differing lines
-    while (diffEndOld < oldLines.length || diffEndNew < newLines.length) {
-      if (
-        diffEndOld < oldLines.length &&
-        diffEndNew < newLines.length &&
-        oldLines[diffEndOld] === newLines[diffEndNew]
-      ) {
-        // Check if we have 3 matching lines (end of hunk)
-        let matchCount = 0;
-        while (
-          diffEndOld + matchCount < oldLines.length &&
-          diffEndNew + matchCount < newLines.length &&
-          oldLines[diffEndOld + matchCount] === newLines[diffEndNew + matchCount]
-        ) {
-          matchCount++;
-          if (matchCount >= 3) break;
-        }
-        if (matchCount >= 3) break;
-        diffEndOld++;
-        diffEndNew++;
-      } else {
-        if (diffEndOld < oldLines.length) diffEndOld++;
-        if (diffEndNew < newLines.length) diffEndNew++;
-      }
-    }
-
-    const hunkEndOld = Math.min(oldLines.length, diffEndOld + 3);
-    const hunkEndNew = Math.min(newLines.length, diffEndNew + 3);
-
-    result.push(
-      `@@ -${hunkStartOld + 1},${hunkEndOld - hunkStartOld} +${hunkStartNew + 1},${hunkEndNew - hunkStartNew} @@`,
-    );
-
-    // Context before
-    for (let k = hunkStartOld; k < i; k++) {
-      result.push(` ${oldLines[k]}`);
-    }
-    // Removed lines
-    for (let k = i; k < diffEndOld; k++) {
-      result.push(`-${oldLines[k]}`);
-    }
-    // Added lines
-    for (let k = j; k < diffEndNew; k++) {
-      result.push(`+${newLines[k]}`);
-    }
-    // Context after
-    for (let k = diffEndOld; k < hunkEndOld; k++) {
-      result.push(` ${oldLines[k]}`);
-    }
-
-    i = hunkEndOld;
-    j = hunkEndNew;
-  }
-
-  if (result.length === 2) return '(no changes)';
-  return result.join('\n');
+  const patch = createTwoFilesPatch(`a/${path}`, `b/${path}`, oldContent, newContent, undefined, undefined, {
+    context: 3,
+  });
+  // Strip the "Index:" and "===" header lines that createTwoFilesPatch adds
+  const lines = patch.split('\n');
+  const startIndex = lines.findIndex((l) => l.startsWith('---'));
+  if (startIndex < 0) return '(no changes)';
+  const result = lines.slice(startIndex).join('\n').trimEnd();
+  return result || '(no changes)';
 }
 
 interface ReaderAiEditDocumentOp {
