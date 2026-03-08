@@ -2529,7 +2529,15 @@ export function App() {
               )
             : [...readerAiRepoFiles, { path: currentEditingDocPath, content: currentEditContent, size: contentSize }];
           if (effectiveProjectId) {
-            await updateReaderAiProjectSessionFile(effectiveProjectId, currentEditingDocPath, currentEditContent);
+            try {
+              await updateReaderAiProjectSessionFile(effectiveProjectId, currentEditingDocPath, currentEditContent);
+            } catch (err) {
+              // Recover from expired/missing project session by creating a fresh one.
+              if (!(err instanceof ApiError) || err.status !== 404) throw err;
+              const nextProject = await createReaderAiProjectSession(nextFiles);
+              effectiveProjectId = nextProject.projectId;
+              setReaderAiProjectId(nextProject.projectId);
+            }
           } else {
             const nextProject = await createReaderAiProjectSession(nextFiles);
             effectiveProjectId = nextProject.projectId;
