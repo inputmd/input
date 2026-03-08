@@ -24,6 +24,7 @@ import {
   listGists,
   logout,
   updateGist,
+  updateGistFiles,
 } from './github';
 import {
   clearGitHubAppCaches,
@@ -34,6 +35,7 @@ import {
   createInstallState,
   createRepoFileShareLink,
   createSession,
+  deleteRepoFile,
   disconnectInstallation,
   getInstallationId,
   getInstallUrl,
@@ -777,6 +779,7 @@ export function App() {
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
   const [readerAiToolLog, setReaderAiToolLog] = useState<Array<{ type: 'call' | 'result'; name: string; detail?: string }>>([]);
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>>([]);
+  const [readerAiApplyingChanges, setReaderAiApplyingChanges] = useState(false);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [readerAiRepoMode, setReaderAiRepoMode] = useState(false);
   const [readerAiRepoModeLoading, setReaderAiRepoModeLoading] = useState(false);
@@ -2586,6 +2589,112 @@ export function App() {
     if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
   }, [readerAiHistoryDocumentKey, readerAiProjectId]);
 
+  const onReaderAiApplyChanges = useCallback(async () => {
+    if (readerAiApplyingChanges || readerAiStagedChanges.length === 0 || !readerAiRepoFiles) return;
+    setReaderAiApplyingChanges(true);
+    setReaderAiError(null);
+
+    try {
+      if (isGistContext && currentGistId) {
+        // Gist mode: batch all changes into one PATCH call
+        const gistUpdates: Record<string, { content: string } | null> = {};
+        for (const change of readerAiStagedChanges) {
+          if (change.type === 'delete') {
+            gistUpdates[change.path] = null;
+          } else {
+            // For edit/create, find the modified content from readerAiRepoFiles
+            // (the staged changes only have diffs — we need the project session's working files)
+            // Since we can't access server-side working files from the client,
+            // reconstruct from the original files + the diff isn't reliable.
+            // Instead, fetch the modified content from the project session.
+            // For now, use a simpler approach: re-fetch via a dedicated endpoint.
+            // Actually — the project files on the client (readerAiRepoFiles) are the *original* files.
+            // We need the modified content. Let's add an endpoint to get it.
+            // For the initial implementation, we'll apply diffs to reconstruct content.
+          }
+        }
+        // For gists: fetch modified files from the project session
+        if (readerAiProjectId) {
+          const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
+            credentials: 'same-origin',
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
+            const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+            for (const change of readerAiStagedChanges) {
+              if (change.type === 'delete') {
+                gistUpdates[change.path] = null;
+              } else {
+                const content = modifiedMap.get(change.path);
+                if (content !== undefined) gistUpdates[change.path] = { content };
+              }
+            }
+          }
+        }
+        if (Object.keys(gistUpdates).length > 0) {
+          await updateGistFiles(currentGistId, gistUpdates);
+        }
+      } else if (repoAccessMode === 'installed' && installationId && selectedRepo) {
+        // Repo mode: apply each change via GitHub Contents API
+        // Fetch modified files from the project session
+        if (!readerAiProjectId) throw new Error('No project session');
+        const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
+          credentials: 'same-origin',
+        });
+        if (!res.ok) throw new Error('Failed to fetch modified files');
+        const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
+        const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+
+        for (const change of readerAiStagedChanges) {
+          if (change.type === 'delete') {
+            // Need SHA — fetch current file
+            const contents = await getRepoContents(installationId, selectedRepo, change.path);
+            if (!Array.isArray(contents) && contents.type === 'file') {
+              await deleteRepoFile(installationId, selectedRepo, change.path, `Delete ${change.path}`, contents.sha);
+            }
+          } else {
+            const content = modifiedMap.get(change.path);
+            if (content === undefined) continue;
+            const base64 = btoa(unescape(encodeURIComponent(content)));
+            // For edits, get the SHA; for creates, no SHA needed
+            let sha: string | undefined;
+            if (change.type === 'edit') {
+              try {
+                const contents = await getRepoContents(installationId, selectedRepo, change.path);
+                if (!Array.isArray(contents) && contents.type === 'file') sha = contents.sha;
+              } catch {
+                // File may not exist — treat as create
+              }
+            }
+            await putRepoFile(installationId, selectedRepo, change.path, `Update ${change.path}`, base64, sha);
+          }
+        }
+      } else {
+        throw new Error('Cannot apply changes: no repo or gist context');
+      }
+
+      // Clear staged changes after successful apply
+      setReaderAiStagedChanges([]);
+      if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
+    } catch (err) {
+      showRateLimitToastIfNeeded(err);
+      setReaderAiError(err instanceof Error ? err.message : 'Failed to apply changes');
+    } finally {
+      setReaderAiApplyingChanges(false);
+    }
+  }, [
+    readerAiApplyingChanges,
+    readerAiStagedChanges,
+    readerAiRepoFiles,
+    readerAiProjectId,
+    isGistContext,
+    currentGistId,
+    repoAccessMode,
+    installationId,
+    selectedRepo,
+    showRateLimitToastIfNeeded,
+  ]);
+
   const onReaderAiRetryLastMessage = useCallback(async () => {
     if (readerAiSending || !readerAiRetryAvailable) return;
     if (readerAiMessages.length === 0) return;
@@ -4138,6 +4247,8 @@ export function App() {
               toolStatus={readerAiToolStatus}
               toolLog={readerAiToolLog}
               stagedChanges={readerAiStagedChanges}
+              applyingChanges={readerAiApplyingChanges}
+              onApplyChanges={() => void onReaderAiApplyChanges()}
               error={readerAiError}
               onSend={onReaderAiSend}
               onEditMessage={onReaderAiEditMessage}

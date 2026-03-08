@@ -1240,6 +1240,22 @@ async function handleReaderAiProjectCreate(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, { project_id: id, file_count: files.length });
 }
 
+async function handleReaderAiProjectFiles(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+
+  const projectId = ctx.match[1];
+  const ps = getProjectSession(projectId, session.githubUserId);
+  if (!ps) throw new ClientError('Project session not found or expired', 404);
+
+  // Return only changed files (modified content) to minimize payload
+  const changes = ps.stagedChanges.getChanges();
+  const files = changes
+    .filter((c) => c.modified !== null)
+    .map((c) => ({ path: c.path, content: c.modified! }));
+  json(ctx.res, 200, { files });
+}
+
 async function handleReaderAiProjectReset(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
@@ -1778,6 +1794,7 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
   { method: 'POST', pattern: /^\/api\/ai\/project$/, handler: handleReaderAiProjectCreate },
+  { method: 'GET', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/files$/, handler: handleReaderAiProjectFiles },
   { method: 'POST', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/reset$/, handler: handleReaderAiProjectReset },
   { method: 'DELETE', pattern: /^\/api\/ai\/project\/([a-f0-9]+)$/i, handler: handleReaderAiProjectDelete },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },

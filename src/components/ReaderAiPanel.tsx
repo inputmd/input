@@ -28,6 +28,8 @@ interface ReaderAiPanelProps {
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
   stagedChanges: ReaderAiStagedChange[];
+  applyingChanges: boolean;
+  onApplyChanges: () => void;
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
@@ -119,7 +121,7 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function StagedChangesSection({ changes }: { changes: ReaderAiStagedChange[] }) {
+function StagedChangesSection({ changes, applying, onApply }: { changes: ReaderAiStagedChange[]; applying: boolean; onApply: () => void }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   if (changes.length === 0) return null;
 
@@ -141,7 +143,15 @@ function StagedChangesSection({ changes }: { changes: ReaderAiStagedChange[] }) 
   return (
     <div class="reader-ai-staged-changes">
       <div class="reader-ai-staged-changes-header">
-        Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
+        <span>Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})</span>
+        <button
+          type="button"
+          class="reader-ai-staged-changes-apply"
+          onClick={onApply}
+          disabled={applying}
+        >
+          {applying ? 'Applying…' : 'Apply'}
+        </button>
       </div>
       {changes.map((change) => (
         <div key={change.path} class="reader-ai-staged-change">
@@ -175,6 +185,8 @@ export function ReaderAiPanel({
   toolStatus,
   toolLog,
   stagedChanges,
+  applyingChanges,
+  onApplyChanges,
   error,
   onSend,
   onEditMessage,
@@ -622,7 +634,7 @@ export function ReaderAiPanel({
         ))}
         {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
         {sending && toolStatus && toolLog.length === 0 ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
-        {!sending && stagedChanges.length > 0 ? <StagedChangesSection changes={stagedChanges} /> : null}
+        {!sending && stagedChanges.length > 0 ? <StagedChangesSection changes={stagedChanges} applying={applyingChanges} onApply={onApplyChanges} /> : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : composer}
       </div>
