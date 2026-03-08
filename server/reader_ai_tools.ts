@@ -579,6 +579,8 @@ export function generateUnifiedDiff(path: string, oldContent: string, newContent
   const lines = patch.split('\n');
   const startIndex = lines.findIndex((l) => l.startsWith('---'));
   if (startIndex < 0) return '(no changes)';
+  // If there are no hunk headers, the files are identical
+  if (!lines.some((l) => l.startsWith('@@'))) return '(no changes)';
   const result = lines.slice(startIndex).join('\n').trimEnd();
   return result || '(no changes)';
 }
@@ -869,7 +871,7 @@ export function executeReaderAiEditDocumentTool(argsJson: string, state: ReaderA
   return JSON.stringify(success);
 }
 
-const READER_AI_MAX_REGEX_PATTERN_LENGTH = 200;
+export const READER_AI_MAX_REGEX_PATTERN_LENGTH = 200;
 
 /** Build a line-matching function from query + is_regex flag. Returns null on invalid regex. */
 function buildLineMatcher(query: string, isRegex?: boolean): ((line: string) => boolean) | null {
@@ -895,7 +897,7 @@ function buildLineMatcher(query: string, isRegex?: boolean): ((line: string) => 
 
 // ── Project-mode tool execution ──
 
-function simpleGlobMatch(pattern: string, filePath: string): boolean {
+export function simpleGlobMatch(pattern: string, filePath: string): boolean {
   // Convert glob to regex: * matches non-slash, ** matches anything, ? matches single char
   let regex = '';
   let i = 0;

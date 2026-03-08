@@ -13,9 +13,11 @@ import {
   executeReaderAiSearchDocument,
   executeReaderAiSearchFiles,
   executeReaderAiSyncTool,
+  generateUnifiedDiff,
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
   parseSseFieldValue,
+  READER_AI_MAX_REGEX_PATTERN_LENGTH,
   READER_AI_PROJECT_SUBAGENT_TOOLS,
   READER_AI_PROJECT_TOOLS,
   READER_AI_SUBAGENT_TOOLS,
@@ -23,6 +25,8 @@ import {
   READER_AI_TOOLS,
   type ReaderAiFileEntry,
   readUpstreamError,
+  simpleGlobMatch,
+  StagedChanges,
 } from '../reader_ai_tools.ts';
 
 // ── Helper ──
@@ -737,4 +741,215 @@ test('compactToolResults returns 0 when nothing to compact', (t) => {
   ];
   const reclaimed = compactToolResults(messages, 1);
   t.is(reclaimed, 0);
+});
+
+// ── search_document with is_regex ──
+
+test('search_document supports regex matching', (t) => {
+  const lines = ['foo 123', 'bar 456', 'baz 789'];
+  const result = executeReaderAiSearchDocument(lines, { query: '\\d{3}', is_regex: true });
+  t.true(result.includes('3 matches'));
+});
+
+test('search_document regex returns error for invalid pattern', (t) => {
+  const lines = ['hello'];
+  const result = executeReaderAiSearchDocument(lines, { query: '(unclosed', is_regex: true });
+  t.true(result.includes('invalid regular expression'));
+});
+
+test('search_document regex rejects patterns exceeding max length', (t) => {
+  const lines = ['hello'];
+  const longPattern = 'a'.repeat(READER_AI_MAX_REGEX_PATTERN_LENGTH + 1);
+  const result = executeReaderAiSearchDocument(lines, { query: longPattern, is_regex: true });
+  t.true(result.includes('invalid regular expression'));
+});
+
+test('search_files supports regex matching', (t) => {
+  const files: ReaderAiFileEntry[] = [
+    { path: 'a.ts', content: 'const x = 42;', size: 13 },
+    { path: 'b.ts', content: 'let y = "hello";', size: 16 },
+  ];
+  const result = executeReaderAiSearchFiles(files, { query: '=\\s*\\d+', is_regex: true });
+  t.true(result.includes('a.ts'));
+  t.false(result.includes('b.ts'));
+});
+
+// ── generateUnifiedDiff ──
+
+test('generateUnifiedDiff returns no changes for identical content', (t) => {
+  const result = generateUnifiedDiff('file.txt', 'hello\nworld', 'hello\nworld');
+  t.is(result, '(no changes)');
+});
+
+test('generateUnifiedDiff shows added lines', (t) => {
+  const result = generateUnifiedDiff('file.txt', 'a\nb', 'a\nb\nc');
+  t.true(result.includes('+c'));
+  t.true(result.includes('--- a/file.txt'));
+  t.true(result.includes('+++ b/file.txt'));
+});
+
+test('generateUnifiedDiff shows removed lines', (t) => {
+  const result = generateUnifiedDiff('file.txt', 'a\nb\nc', 'a\nc');
+  t.true(result.includes('-b'));
+});
+
+test('generateUnifiedDiff shows changed lines', (t) => {
+  const result = generateUnifiedDiff('file.txt', 'old line', 'new line');
+  t.true(result.includes('-old line'));
+  t.true(result.includes('+new line'));
+});
+
+test('generateUnifiedDiff handles empty old content (new file)', (t) => {
+  const result = generateUnifiedDiff('new.txt', '', 'hello\nworld');
+  t.true(result.includes('+hello'));
+  t.true(result.includes('+world'));
+});
+
+test('generateUnifiedDiff handles empty new content (deleted file)', (t) => {
+  const result = generateUnifiedDiff('del.txt', 'hello\nworld', '');
+  t.true(result.includes('-hello'));
+  t.true(result.includes('-world'));
+});
+
+test('generateUnifiedDiff handles multiple separate hunks', (t) => {
+  const oldLines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+  const newLines = [...oldLines];
+  newLines[2] = 'CHANGED 3';
+  newLines[17] = 'CHANGED 18';
+  const result = generateUnifiedDiff('multi.txt', oldLines.join('\n'), newLines.join('\n'));
+  t.true(result.includes('-line 3'));
+  t.true(result.includes('+CHANGED 3'));
+  t.true(result.includes('-line 18'));
+  t.true(result.includes('+CHANGED 18'));
+});
+
+// ── StagedChanges ──
+
+test('StagedChanges editFile replaces text and tracks change', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello world', size: 11 }];
+  const sc = new StagedChanges(files);
+  const result = sc.editFile('a.txt', 'hello', 'goodbye');
+  t.true(result.includes('Edited a.txt'));
+  t.is(sc.getContent('a.txt'), 'goodbye world');
+  t.true(sc.hasChanges());
+  const changes = sc.getChanges();
+  t.is(changes.length, 1);
+  t.is(changes[0].type, 'edit');
+});
+
+test('StagedChanges editFile returns error for missing file', (t) => {
+  const sc = new StagedChanges([]);
+  const result = sc.editFile('missing.txt', 'a', 'b');
+  t.true(result.includes('file not found'));
+});
+
+test('StagedChanges editFile returns error for identical old/new text', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello', size: 5 }];
+  const sc = new StagedChanges(files);
+  const result = sc.editFile('a.txt', 'hello', 'hello');
+  t.true(result.includes('identical'));
+});
+
+test('StagedChanges editFile returns error when old_text not found', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello', size: 5 }];
+  const sc = new StagedChanges(files);
+  const result = sc.editFile('a.txt', 'missing', 'x');
+  t.true(result.includes('not found'));
+});
+
+test('StagedChanges editFile returns error for ambiguous match', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'aa bb aa', size: 8 }];
+  const sc = new StagedChanges(files);
+  const result = sc.editFile('a.txt', 'aa', 'cc');
+  t.true(result.includes('multiple locations'));
+});
+
+test('StagedChanges editFile provides case-insensitive hint', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'Hello', size: 5 }];
+  const sc = new StagedChanges(files);
+  const result = sc.editFile('a.txt', 'hello', 'x');
+  t.true(result.includes('case-insensitive'));
+});
+
+test('StagedChanges createFile adds new file', (t) => {
+  const sc = new StagedChanges([]);
+  const result = sc.createFile('new.txt', 'content');
+  t.true(result.includes('Created new.txt'));
+  t.is(sc.getContent('new.txt'), 'content');
+  t.true(sc.hasFile('new.txt'));
+});
+
+test('StagedChanges createFile fails for existing file', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'x', size: 1 }];
+  const sc = new StagedChanges(files);
+  const result = sc.createFile('a.txt', 'y');
+  t.true(result.includes('already exists'));
+});
+
+test('StagedChanges deleteFile removes file', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'x', size: 1 }];
+  const sc = new StagedChanges(files);
+  const result = sc.deleteFile('a.txt');
+  t.true(result.includes('Deleted'));
+  t.false(sc.hasFile('a.txt'));
+  const changes = sc.getChanges();
+  t.is(changes[0].type, 'delete');
+});
+
+test('StagedChanges deleteFile fails for missing file', (t) => {
+  const sc = new StagedChanges([]);
+  const result = sc.deleteFile('missing.txt');
+  t.true(result.includes('file not found'));
+});
+
+test('StagedChanges reset restores original files', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'original', size: 8 }];
+  const sc = new StagedChanges(files);
+  sc.editFile('a.txt', 'original', 'modified');
+  t.true(sc.hasChanges());
+  sc.reset(files);
+  t.false(sc.hasChanges());
+  t.is(sc.getContent('a.txt'), 'original');
+});
+
+test('StagedChanges getWorkingFiles reflects staged changes', (t) => {
+  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello', size: 5 }];
+  const sc = new StagedChanges(files);
+  sc.editFile('a.txt', 'hello', 'goodbye');
+  sc.createFile('b.txt', 'new');
+  const working = sc.getWorkingFiles();
+  t.is(working.length, 2);
+  t.is(working.find((f) => f.path === 'a.txt')?.content, 'goodbye');
+  t.is(working.find((f) => f.path === 'b.txt')?.content, 'new');
+});
+
+// ── simpleGlobMatch ──
+
+test('simpleGlobMatch matches wildcard extensions', (t) => {
+  t.true(simpleGlobMatch('*.ts', 'index.ts'));
+  t.false(simpleGlobMatch('*.ts', 'index.js'));
+  t.false(simpleGlobMatch('*.ts', 'src/index.ts'));
+});
+
+test('simpleGlobMatch matches ** across directories', (t) => {
+  t.true(simpleGlobMatch('**/*.ts', 'src/index.ts'));
+  t.true(simpleGlobMatch('**/*.ts', 'src/lib/deep/file.ts'));
+  t.false(simpleGlobMatch('**/*.ts', 'src/index.js'));
+});
+
+test('simpleGlobMatch matches directory prefix', (t) => {
+  t.true(simpleGlobMatch('src/**', 'src/index.ts'));
+  t.true(simpleGlobMatch('src/**', 'src/lib/file.ts'));
+  t.false(simpleGlobMatch('src/**', 'lib/file.ts'));
+});
+
+test('simpleGlobMatch matches ? for single char', (t) => {
+  t.true(simpleGlobMatch('file?.ts', 'fileA.ts'));
+  t.false(simpleGlobMatch('file?.ts', 'file.ts'));
+  t.false(simpleGlobMatch('file?.ts', 'fileAB.ts'));
+});
+
+test('simpleGlobMatch is case-insensitive', (t) => {
+  t.true(simpleGlobMatch('*.TS', 'index.ts'));
+  t.true(simpleGlobMatch('README.*', 'readme.md'));
 });
