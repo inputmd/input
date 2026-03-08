@@ -10,11 +10,25 @@
     "preview": "vite preview",
     "deploy": "fly deploy",
     "lint": "biome check .",
-    "lint:fix": "biome check --fix ."
+    "lint:fix": "biome check --fix .",
+    "test": "ava"
+  },
+  "ava": {
+    "extensions": {
+      "ts": "module"
+    },
+    "nodeArguments": [
+      "--import=tsx/esm"
+    ],
+    "files": [
+      "server/__tests__/**/*.test.ts"
+    ],
+    "timeout": "30s"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
     "@types/node": "^25.2.3",
+    "ava": "^7.0.0",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "vite": "^7.3.1"
