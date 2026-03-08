@@ -644,7 +644,7 @@ export function ReaderAiPanel({
                   </>
                 ) : (
                   <>
-                    <span>AI</span>
+                    <span>Reader AI</span>
                     {message.edited ? <span class="reader-ai-message-edited">Edited</span> : null}
                   </>
                 )}
