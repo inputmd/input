@@ -123,13 +123,12 @@ export async function askReaderAiStream(
       const event = buffer.slice(0, boundary);
       buffer = buffer.slice(boundary + 2);
 
-      const lines = event.split('\n').map((line) => line.trim());
-      const eventType =
-        lines
-          .find((line) => line.startsWith('event:'))
-          ?.slice(6)
-          .trim() ?? '';
-      const dataLines = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim());
+      const lines = event.split('\n');
+      const eventTypeLine = lines.find((line) => line.startsWith('event:'));
+      const eventType = eventTypeLine ? parseSseFieldValue(eventTypeLine, 'event:').trim() : '';
+      const dataLines = lines
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => parseSseFieldValue(line, 'data:'));
       const data = dataLines.join('\n');
       if (!data || data === '[DONE]') {
         // skip
@@ -198,4 +197,11 @@ export async function askReaderAiStream(
       boundary = buffer.indexOf('\n\n');
     }
   }
+}
+
+function parseSseFieldValue(line: string, prefix: 'event:' | 'data:'): string {
+  let value = line.slice(prefix.length);
+  // Per SSE parsing rules, remove at most one leading space after ":".
+  if (value.startsWith(' ')) value = value.slice(1);
+  return value;
 }

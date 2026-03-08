@@ -1273,7 +1273,7 @@ async function parseReaderAiUpstreamStream(
         const dataLines = event
           .split('\n')
           .filter((line) => line.startsWith('data:'))
-          .map((line) => line.slice(5).trim());
+          .map((line) => parseSseFieldValue(line, 'data:'));
         const data = dataLines.join('');
         if (!data || data === '[DONE]') {
           boundary = buffer.indexOf('\n\n');
@@ -1335,6 +1335,13 @@ async function parseReaderAiUpstreamStream(
     }
   }
   return { content, toolCalls, finishReason };
+}
+
+function parseSseFieldValue(line: string, prefix: 'data:'): string {
+  let value = line.slice(prefix.length);
+  // Per SSE parsing rules, remove at most one leading space after ":".
+  if (value.startsWith(' ')) value = value.slice(1);
+  return value;
 }
 
 function buildReaderAiSystemPrompt(source: string, lines: string[], maxPreviewChars: number): string {
