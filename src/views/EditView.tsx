@@ -13,6 +13,7 @@ interface EditViewProps {
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
+  locked?: boolean;
   imageUploadIssue?: {
     message: string;
     onRetry: () => void;
@@ -32,6 +33,7 @@ export function EditView({
   saving,
   canSave,
   onSave,
+  locked = false,
   imageUploadIssue,
 }: EditViewProps) {
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -42,12 +44,12 @@ export function EditView({
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        if (canSave && !saving) onSave();
+        if (!locked && canSave && !saving) onSave();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [canSave, saving, onSave]);
+  }, [canSave, saving, onSave, locked]);
 
   const onSplitPointerDown = (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
     if (!previewVisible || !canRenderPreview) return;
@@ -71,6 +73,7 @@ export function EditView({
   };
 
   const handleEditorKeyDown = (e: JSX.TargetedKeyboardEvent<HTMLTextAreaElement>) => {
+    if (locked) return;
     const isMod = e.metaKey || e.ctrlKey;
     const ta = e.currentTarget;
     const start = ta.selectionStart;
@@ -173,6 +176,11 @@ export function EditView({
         </div>
       ) : null}
       <div class="editor-workspace" ref={splitRef} style={layoutStyle}>
+        {locked ? (
+          <div class="editor-inline-alert" role="status" aria-live="polite">
+            <span>Reader AI is working. Editing is temporarily locked.</span>
+          </div>
+        ) : null}
         <textarea
           class="doc-editor"
           ref={editorRef}
@@ -181,6 +189,7 @@ export function EditView({
           onInput={(e) => onContentChange((e.target as HTMLTextAreaElement).value)}
           onPaste={onEditorPaste}
           onKeyDown={handleEditorKeyDown}
+          readOnly={locked}
         />
         {previewVisible && canRenderPreview && (
           <>

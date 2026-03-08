@@ -864,7 +864,18 @@ export function App() {
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
+  const editContentRef = useRef(editContent);
+  editContentRef.current = editContent;
   const activeView = viewPhase ?? viewFromRoute(route);
+  const currentEditingDocPath = useMemo(
+    () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
+    [editingBackend, currentRepoDocPath, currentFileName],
+  );
+  const readerAiEditEligible = activeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
+  const readerAiHistoryEligible =
+    (activeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript)) ||
+    readerAiEditEligible;
+  const readerAiEditLocked = activeView === 'edit' && (readerAiSending || readerAiApplyingChanges);
   const readerAiHistoryDocumentKey = useMemo(
     () =>
       buildReaderAiHistoryDocumentKey({
@@ -2242,7 +2253,7 @@ export function App() {
 
   useEffect(() => {
     const prevHistoryKey = readerAiPrevHistoryKeyRef.current;
-    if (activeView === 'content' && renderMode === 'markdown' && readerAiSource && readerAiHistoryDocumentKey) {
+    if (readerAiHistoryEligible && readerAiHistoryDocumentKey) {
       if (prevHistoryKey !== readerAiHistoryDocumentKey) {
         readerAiSkipPersistHistoryKeyRef.current = readerAiHistoryDocumentKey;
         console.debug('[reader-ai] switching history context', {
@@ -2273,10 +2284,10 @@ export function App() {
     setReaderAiMessages([]);
     setReaderAiSummary('');
     setReaderAiError(null);
-  }, [activeView, renderMode, readerAiSource, readerAiHistoryDocumentKey]);
+  }, [readerAiHistoryEligible, readerAiHistoryDocumentKey]);
 
   useEffect(() => {
-    if (activeView !== 'content' || renderMode !== 'markdown' || !readerAiSource || !readerAiHistoryDocumentKey) return;
+    if (!readerAiHistoryEligible || !readerAiHistoryDocumentKey) return;
     if (readerAiSkipPersistHistoryKeyRef.current === readerAiHistoryDocumentKey) {
       readerAiSkipPersistHistoryKeyRef.current = null;
       console.debug('[reader-ai] skipping first persist after history load', {
@@ -2292,11 +2303,9 @@ export function App() {
       readerAiStagedChanges.length > 0 ? readerAiStagedChanges : undefined,
     );
   }, [
-    activeView,
-    renderMode,
+    readerAiHistoryEligible,
     readerAiMessages,
     readerAiSummary,
-    readerAiSource,
     readerAiHistoryDocumentKey,
     readerAiToolLog,
     readerAiStagedChanges,
@@ -2309,8 +2318,7 @@ export function App() {
     };
   }, []);
 
-  const showReaderAiToggleCandidate =
-    activeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript);
+  const showReaderAiToggleCandidate = readerAiHistoryEligible;
 
   useEffect(() => {
     if (!showReaderAiToggleCandidate || readerAiModelsLoading || readerAiModels.length > 0 || readerAiModelsError)
@@ -2459,8 +2467,10 @@ export function App() {
   const streamReaderAiAssistant = useCallback(
     async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
       const model = readerAiSelectedModel;
-      const source = trimReaderAiSource(readerAiSource);
-      if (!model || !source) return false;
+      // Read editContent from a ref to avoid recreating this callback on every keystroke.
+      const currentEditContent = editContentRef.current;
+      const source = trimReaderAiSource(activeView === 'edit' ? currentEditContent : readerAiSource);
+      if (!model) return false;
       const assistantEdited = options?.edited === true;
       readerAiAbortRef.current?.abort();
       const controller = new AbortController();
@@ -2476,12 +2486,48 @@ export function App() {
       setReaderAiError(null);
       let received = false;
 
+      let effectiveProjectId = readerAiProjectId;
+      const projectCurrentDocPath = activeView === 'edit' ? currentEditingDocPath : currentRepoDocPath;
+
+      // In edit mode, update the current file in the existing project session
+      // instead of creating a brand-new session on every send.
+      if (activeView === 'edit' && readerAiRepoMode && currentEditingDocPath && readerAiRepoFiles) {
+        const contentSize = new TextEncoder().encode(currentEditContent).length;
+        const fileExists = readerAiRepoFiles.some((file) => file.path === currentEditingDocPath);
+        const nextFiles = fileExists
+          ? readerAiRepoFiles.map((file) =>
+              file.path === currentEditingDocPath ? { ...file, content: currentEditContent, size: contentSize } : file,
+            )
+          : [...readerAiRepoFiles, { path: currentEditingDocPath, content: currentEditContent, size: contentSize }];
+        if (effectiveProjectId) {
+          // Re-upload files to the existing session rather than creating a new one.
+          try {
+            await resetReaderAiProjectSession(effectiveProjectId);
+            const nextProject = await createReaderAiProjectSession(nextFiles);
+            void deleteReaderAiProjectSession(effectiveProjectId);
+            effectiveProjectId = nextProject.projectId;
+            setReaderAiProjectId(nextProject.projectId);
+          } catch {
+            // Fall back to creating a fresh session
+            const nextProject = await createReaderAiProjectSession(nextFiles);
+            void deleteReaderAiProjectSession(effectiveProjectId);
+            effectiveProjectId = nextProject.projectId;
+            setReaderAiProjectId(nextProject.projectId);
+          }
+        } else {
+          const nextProject = await createReaderAiProjectSession(nextFiles);
+          effectiveProjectId = nextProject.projectId;
+          setReaderAiProjectId(nextProject.projectId);
+        }
+        setReaderAiRepoFiles(nextFiles);
+      }
+
       // Build project context if repo mode is active (send project_id, not files)
       let projectContext: { projectId: string; currentDocPath: string | null } | undefined;
-      if (readerAiRepoMode && readerAiProjectId) {
+      if (readerAiRepoMode && effectiveProjectId) {
         projectContext = {
-          projectId: readerAiProjectId,
-          currentDocPath: currentRepoDocPath,
+          projectId: effectiveProjectId,
+          currentDocPath: projectCurrentDocPath,
         };
       }
 
@@ -2591,7 +2637,17 @@ export function App() {
         setReaderAiToolStatus(null);
       }
     },
-    [readerAiSelectedModel, readerAiSource, readerAiSummary, readerAiRepoMode, readerAiProjectId, currentRepoDocPath],
+    [
+      readerAiSelectedModel,
+      readerAiSource,
+      readerAiSummary,
+      readerAiRepoMode,
+      readerAiProjectId,
+      currentRepoDocPath,
+      activeView,
+      currentEditingDocPath,
+      readerAiRepoFiles,
+    ],
   );
 
   const onReaderAiSend = useCallback(
@@ -2641,7 +2697,7 @@ export function App() {
 
   const onReaderAiApplyChanges = useCallback(
     async (commitMessage?: string) => {
-      if (readerAiApplyingChanges || readerAiStagedChanges.length === 0 || !readerAiRepoFiles) return;
+      if (readerAiApplyingChanges || readerAiStagedChanges.length === 0) return;
       setReaderAiApplyingChanges(true);
       setReaderAiError(null);
 
@@ -2658,7 +2714,20 @@ export function App() {
         const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
         const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
 
-        if (isGistContext && currentGistId) {
+        if (activeView === 'edit' && currentEditingDocPath) {
+          const nextContent = modifiedMap.get(currentEditingDocPath);
+          if (typeof nextContent !== 'string') {
+            throw new Error(`No staged content found for ${currentEditingDocPath}`);
+          }
+          setEditContent(nextContent);
+          setHasUnsavedChanges(true);
+          const ignoredCount = readerAiStagedChanges.filter((change) => change.path !== currentEditingDocPath).length;
+          setReaderAiStagedChanges([]);
+          if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
+          if (ignoredCount > 0) {
+            setReaderAiError(`Applied current file changes. Ignored ${ignoredCount} change(s) in other files.`);
+          }
+        } else if (isGistContext && currentGistId) {
           // Gist mode: batch all changes into one PATCH call
           const gistUpdates: Record<string, { content: string } | null> = {};
           for (const change of readerAiStagedChanges) {
@@ -2740,8 +2809,9 @@ export function App() {
     [
       readerAiApplyingChanges,
       readerAiStagedChanges,
-      readerAiRepoFiles,
       readerAiProjectId,
+      activeView,
+      currentEditingDocPath,
       isGistContext,
       currentGistId,
       repoAccessMode,
@@ -2794,13 +2864,14 @@ export function App() {
   }, [repoAccessMode, currentRepoDocPath, currentGistId, currentFileName, navigate, selectedRepoRef]);
 
   const onCancel = useCallback(() => {
+    if (readerAiEditLocked) return;
     if (currentRepoDocPath && selectedRepoRef) {
       navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath));
     } else if (currentGistId && currentFileName) navigate(routePath.gistView(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistView(currentGistId));
     else if (selectedRepoRef) navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
     else navigate(routePath.workspaces());
-  }, [currentRepoDocPath, currentGistId, currentFileName, selectedRepoRef, navigate]);
+  }, [readerAiEditLocked, currentRepoDocPath, currentGistId, currentFileName, selectedRepoRef, navigate]);
 
   const onShareLink = useCallback(async () => {
     const isGistRoute = route.name === 'gist' || route.name === 'edit';
@@ -2879,6 +2950,7 @@ export function App() {
   ]);
 
   const onSave = useCallback(async () => {
+    if (readerAiEditLocked) return;
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
     const content = editContent;
     let saved = false;
@@ -3006,6 +3078,7 @@ export function App() {
     editTitle,
     editContent,
     editingBackend,
+    readerAiEditLocked,
     currentRepoDocPath,
     currentRepoDocSha,
     currentGistId,
@@ -3077,6 +3150,10 @@ export function App() {
 
   const handleSelectFile = useCallback(
     async (filePath: string) => {
+      if (activeView === 'edit' && readerAiEditLocked) {
+        showFailureToast('Reader AI is working. Wait for it to finish before switching files.');
+        return;
+      }
       if (activeView === 'edit' && hasUnsavedChanges) {
         const action = await showConfirm('You have unsaved changes. Discard and switch files?');
         if (action) navigateToSidebarFile(filePath);
@@ -3084,7 +3161,7 @@ export function App() {
       }
       navigateToSidebarFile(filePath);
     },
-    [activeView, hasUnsavedChanges, navigateToSidebarFile, showConfirm],
+    [activeView, readerAiEditLocked, hasUnsavedChanges, navigateToSidebarFile, showConfirm, showFailureToast],
   );
 
   const handleCreateFile = useCallback(
@@ -3165,6 +3242,10 @@ export function App() {
 
   const handleEditFile = useCallback(
     async (filePath: string) => {
+      if (activeView === 'edit' && readerAiEditLocked) {
+        showFailureToast('Reader AI is working. Wait for it to finish before switching files.');
+        return;
+      }
       if (!isMarkdownFileName(filePath)) return;
       if (activeView === 'edit' && currentFileName === filePath) return;
 
@@ -3193,11 +3274,13 @@ export function App() {
       repoAccessMode,
       selectedRepoRef,
       activeView,
+      readerAiEditLocked,
       currentFileName,
       hasUnsavedChanges,
       onSave,
       navigate,
       showConfirm,
+      showFailureToast,
     ],
   );
 
@@ -3883,8 +3966,9 @@ export function App() {
             onPreviewImageClick={onOpenLightbox}
             onEditorPaste={handleEditorPaste}
             saving={saving}
-            canSave={hasUnsavedChanges}
+            canSave={hasUnsavedChanges && !readerAiEditLocked}
             onSave={onSave}
+            locked={readerAiEditLocked}
             imageUploadIssue={
               failedImageUpload
                 ? {
@@ -3969,8 +4053,14 @@ export function App() {
   const defaultShowSidebar =
     isDesktopWidth && !sidebarDisabled && (!!user || repoAccessMode === 'public' || currentGistId !== null);
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
+  const notifyReaderAiEditLock = useCallback(() => {
+    if (!readerAiEditLocked) return false;
+    showFailureToast('Reader AI is working. Wait for it to finish before editing or switching files.');
+    return true;
+  }, [readerAiEditLocked, showFailureToast]);
   const handleSidebarDocumentStep = useCallback(
     async (direction: -1 | 1) => {
+      if (activeView === 'edit' && notifyReaderAiEditLock()) return;
       if (!showSidebar || sidebarFiles.length < 2) return;
       const activeIndex = sidebarFiles.findIndex((file) => file.active);
       if (activeIndex < 0) return;
@@ -3992,7 +4082,16 @@ export function App() {
 
       navigateToSidebarFile(nextFile.path);
     },
-    [activeView, hasUnsavedChanges, navigateToSidebarFile, onSave, showConfirm, showSidebar, sidebarFiles],
+    [
+      activeView,
+      hasUnsavedChanges,
+      navigateToSidebarFile,
+      onSave,
+      showConfirm,
+      showSidebar,
+      sidebarFiles,
+      notifyReaderAiEditLock,
+    ],
   );
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -4128,10 +4227,14 @@ export function App() {
   const onCloseLightbox = useCallback(() => {
     setLightboxImage(null);
   }, []);
-  const onEditContentChange = useCallback((content: string) => {
-    setEditContent(content);
-    setHasUnsavedChanges(true);
-  }, []);
+  const onEditContentChange = useCallback(
+    (content: string) => {
+      if (readerAiEditLocked) return;
+      setEditContent(content);
+      setHasUnsavedChanges(true);
+    },
+    [readerAiEditLocked],
+  );
   const handleSignInWithGitHub = useCallback(() => {
     if (isSubdomainMode()) {
       const { protocol, hostname, port } = window.location;
@@ -4234,7 +4337,7 @@ export function App() {
         onCancel={onCancel}
         showSave={showEditorSave}
         saving={saving}
-        canSave={hasUnsavedChanges}
+        canSave={hasUnsavedChanges && !readerAiEditLocked}
         onSave={onSave}
         onSignInWithGitHub={handleSignInWithGitHub}
       />
@@ -4314,9 +4417,11 @@ export function App() {
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
               canApplyChanges={
+                (activeView === 'edit' && Boolean(currentEditingDocPath && readerAiProjectId)) ||
                 (repoAccessMode === 'installed' && Boolean(installationId && selectedRepo)) ||
                 (isGistContext && Boolean(currentGistId && user))
               }
+              applyToEditor={activeView === 'edit'}
               onApplyChanges={(msg) => void onReaderAiApplyChanges(msg)}
               error={readerAiError}
               onSend={onReaderAiSend}

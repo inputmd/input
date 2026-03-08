@@ -31,6 +31,7 @@ interface ReaderAiPanelProps {
   suggestedCommitMessage: string;
   applyingChanges: boolean;
   canApplyChanges: boolean;
+  applyToEditor?: boolean;
   onApplyChanges: (commitMessage?: string) => void;
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
@@ -129,12 +130,14 @@ function StagedChangesSection({
   defaultCommitMessage,
   applying,
   canApply,
+  applyToEditor,
   onApply,
 }: {
   changes: ReaderAiStagedChange[];
   defaultCommitMessage: string;
   applying: boolean;
   canApply: boolean;
+  applyToEditor?: boolean;
   onApply: (commitMessage?: string) => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -177,27 +180,29 @@ function StagedChangesSection({
       ))}
       {canApply ? (
         <div class="reader-ai-staged-changes-footer">
-          <input
-            type="text"
-            class="reader-ai-staged-changes-commit-input"
-            placeholder="Commit message (optional)"
-            value={commitMessage}
-            onInput={(e) => setCommitMessage(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !applying) {
-                e.preventDefault();
-                onApply(commitMessage.trim() || undefined);
-              }
-            }}
-            disabled={applying}
-          />
+          {applyToEditor ? null : (
+            <input
+              type="text"
+              class="reader-ai-staged-changes-commit-input"
+              placeholder="Commit message (optional)"
+              value={commitMessage}
+              onInput={(e) => setCommitMessage(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !applying) {
+                  e.preventDefault();
+                  onApply(commitMessage.trim() || undefined);
+                }
+              }}
+              disabled={applying}
+            />
+          )}
           <button
             type="button"
             class="reader-ai-staged-changes-apply"
-            onClick={() => onApply(commitMessage.trim() || undefined)}
+            onClick={() => onApply(applyToEditor ? undefined : commitMessage.trim() || undefined)}
             disabled={applying}
           >
-            {applying ? 'Applying…' : 'Apply'}
+            {applying ? 'Applying…' : applyToEditor ? 'Apply to editor' : 'Apply'}
           </button>
         </div>
       ) : (
@@ -224,6 +229,7 @@ export function ReaderAiPanel({
   suggestedCommitMessage,
   applyingChanges,
   canApplyChanges,
+  applyToEditor,
   onApplyChanges,
   error,
   onSend,
@@ -684,6 +690,7 @@ export function ReaderAiPanel({
             defaultCommitMessage={suggestedCommitMessage}
             applying={applyingChanges}
             canApply={canApplyChanges}
+            applyToEditor={applyToEditor}
             onApply={onApplyChanges}
           />
         ) : null}
