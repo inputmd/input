@@ -11,7 +11,7 @@ export interface ReaderAiMessage {
 }
 
 export interface ReaderAiToolLogEntry {
-  type: 'call' | 'result';
+  type: 'call' | 'result' | 'progress';
   name: string;
   detail?: string;
 }
@@ -74,11 +74,11 @@ function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntry[]; li
   const [expanded, setExpanded] = useState(false);
   if (entries.length === 0) return null;
 
-  const callEntries = entries.filter((e) => e.type === 'call');
-  const callCount = callEntries.length;
+  const visibleEntries = entries.filter((e) => e.type !== 'result');
+  const activityCount = visibleEntries.length;
   const summary = live
-    ? `${callCount} tool call${callCount === 1 ? '' : 's'}…`
-    : `${callCount} tool call${callCount === 1 ? '' : 's'}`;
+    ? `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}…`
+    : `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}`;
 
   // Auto-expand while live
   const isExpanded = live || expanded;
@@ -91,7 +91,7 @@ function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntry[]; li
       </button>
       {isExpanded ? (
         <div class="reader-ai-tool-log-entries">
-          {callEntries.map((entry, i) => (
+          {visibleEntries.map((entry, i) => (
             <div key={i} class="reader-ai-tool-log-entry">
               <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
               {entry.detail ? (

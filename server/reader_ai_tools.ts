@@ -1450,6 +1450,13 @@ export interface ReaderAiSubagentOptions {
   signal: AbortSignal;
   /** Override fetch for testing. Defaults to global fetch. */
   fetchFn?: typeof fetch;
+  onProgress?: (event: ReaderAiSubagentProgressEvent) => void;
+}
+
+export interface ReaderAiSubagentProgressEvent {
+  phase: 'started' | 'iteration_start' | 'tool_call' | 'tool_result' | 'completed' | 'error';
+  iteration?: number;
+  detail?: string;
 }
 
 export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions): Promise<string> {
@@ -1463,6 +1470,7 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
     openRouterHeaders,
     signal,
     fetchFn = fetch,
+    onProgress,
   } = options;
   const isProjectMode = projectFiles && projectFiles.length > 0;
 
@@ -1503,8 +1511,13 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
   ];
 
   let output = '';
+  onProgress?.({
+    phase: 'started',
+    detail: isProjectMode ? `Project mode (${projectFiles.length} files)` : 'Document mode',
+  });
 
   for (let iteration = 0; iteration < READER_AI_TASK_MAX_ITERATIONS; iteration++) {
+    onProgress?.({ phase: 'iteration_start', iteration: iteration + 1 });
     const upstream = await fetchFn('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: openRouterHeaders,
@@ -1520,9 +1533,11 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
     if (!upstream.ok) {
       const payload = (await upstream.json().catch(() => null)) as unknown;
       const detail = readUpstreamError(payload) || `Subagent request failed (${upstream.status})`;
+      onProgress?.({ phase: 'error', iteration: iteration + 1, detail });
       return output ? `${output}\n\n[Subagent error: ${detail}]` : `[Subagent error: ${detail}]`;
     }
     if (!upstream.body) {
+      onProgress?.({ phase: 'error', iteration: iteration + 1, detail: 'no response body' });
       return output ? `${output}\n\n[Subagent error: no response body]` : '[Subagent error: no response body]';
     }
 
@@ -1544,18 +1559,26 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
     });
 
     for (const tc of result.toolCalls) {
+      onProgress?.({ phase: 'tool_call', iteration: iteration + 1, detail: tc.name });
       const toolResult = isProjectMode
         ? executeReaderAiProjectSyncTool(tc.name, tc.arguments, projectFiles, stagedChanges)
         : executeReaderAiSyncTool(tc.name, tc.arguments, lines);
+      onProgress?.({
+        phase: 'tool_result',
+        iteration: iteration + 1,
+        detail: `${tc.name} (${toolResult.length} chars)`,
+      });
       messages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
     }
   }
 
   if (output.length > READER_AI_TASK_MAX_OUTPUT_CHARS) {
-    return (
+    const truncated =
       output.slice(0, READER_AI_TASK_MAX_OUTPUT_CHARS) +
-      `\n\n... (subagent output truncated at ${READER_AI_TASK_MAX_OUTPUT_CHARS} characters)`
-    );
+      `\n\n... (subagent output truncated at ${READER_AI_TASK_MAX_OUTPUT_CHARS} characters)`;
+    onProgress?.({ phase: 'completed', detail: `Output truncated at ${READER_AI_TASK_MAX_OUTPUT_CHARS} chars` });
+    return truncated;
   }
+  onProgress?.({ phase: 'completed' });
   return output || '(subagent produced no output)';
 }

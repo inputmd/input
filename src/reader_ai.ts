@@ -41,11 +41,20 @@ export interface ReaderAiToolResultEvent {
   preview?: string;
 }
 
+export interface ReaderAiTaskProgressEvent {
+  id?: string;
+  name?: string;
+  phase: 'started' | 'iteration_start' | 'tool_call' | 'tool_result' | 'completed' | 'error';
+  iteration?: number;
+  detail?: string;
+}
+
 interface ReaderAiStreamOptions {
   onDelta: (delta: string) => void;
   onSummary?: (summary: string) => void;
   onToolCall?: (event: ReaderAiToolCallEvent) => void;
   onToolResult?: (event: ReaderAiToolResultEvent) => void;
+  onTaskProgress?: (event: ReaderAiTaskProgressEvent) => void;
   onStagedChanges?: (
     changes: ReaderAiStagedChange[],
     suggestedCommitMessage?: string,
@@ -256,6 +265,36 @@ export async function askReaderAiStream(
               options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview });
           } catch {
             // Ignore malformed tool_result event.
+          }
+        }
+      } else if (eventType === 'task_progress') {
+        if (options.onTaskProgress) {
+          try {
+            const parsed = JSON.parse(data) as {
+              id?: string;
+              name?: string;
+              phase?: ReaderAiTaskProgressEvent['phase'];
+              iteration?: number;
+              detail?: string;
+            };
+            if (
+              parsed.phase === 'started' ||
+              parsed.phase === 'iteration_start' ||
+              parsed.phase === 'tool_call' ||
+              parsed.phase === 'tool_result' ||
+              parsed.phase === 'completed' ||
+              parsed.phase === 'error'
+            ) {
+              options.onTaskProgress({
+                id: parsed.id,
+                name: parsed.name,
+                phase: parsed.phase,
+                iteration: typeof parsed.iteration === 'number' ? parsed.iteration : undefined,
+                detail: typeof parsed.detail === 'string' ? parsed.detail : undefined,
+              });
+            }
+          } catch {
+            // Ignore malformed task_progress event.
           }
         }
       } else if (eventType === 'staged_changes') {

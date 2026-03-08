@@ -1626,6 +1626,15 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                 stagedChanges: isProjectMode ? stagedChanges : undefined,
                 openRouterHeaders,
                 signal: abortController.signal,
+                onProgress: (event) => {
+                  writeSseEvent('task_progress', {
+                    id: tc.id,
+                    name: 'task',
+                    phase: event.phase,
+                    iteration: event.iteration,
+                    detail: event.detail,
+                  });
+                },
               });
               return { id: tc.id, result: taskResult };
             } catch (taskErr) {
@@ -1635,6 +1644,12 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                   : taskErr instanceof Error
                     ? taskErr.message
                     : 'Subagent failed';
+              writeSseEvent('task_progress', {
+                id: tc.id,
+                name: 'task',
+                phase: 'error',
+                detail: message,
+              });
               return { id: tc.id, result: `[Subagent error: ${message}]` };
             }
           });

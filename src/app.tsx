@@ -303,7 +303,7 @@ function trimReaderAiSource(source: string): string {
 interface ReaderAiHistoryEntry {
   messages: ReaderAiMessage[];
   summary?: string;
-  toolLog?: Array<{ type: 'call' | 'result'; name: string; detail?: string }>;
+  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>;
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
   stagedFileContents?: Record<string, string>;
 }
@@ -430,7 +430,7 @@ function persistReaderAiMessagesToHistory(
   historyKey: string,
   messages: ReaderAiMessage[],
   summary?: string,
-  toolLog?: Array<{ type: 'call' | 'result'; name: string; detail?: string }>,
+  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>,
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>,
   stagedFileContents?: Record<string, string>,
 ): void {
@@ -788,7 +788,7 @@ export function App() {
   const [readerAiSending, setReaderAiSending] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
   const [readerAiToolLog, setReaderAiToolLog] = useState<
-    Array<{ type: 'call' | 'result'; name: string; detail?: string }>
+    Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>
   >([]);
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
@@ -2599,6 +2599,23 @@ export function App() {
             onToolResult: (event) => {
               setReaderAiToolStatus(null);
               setReaderAiToolLog((log) => [...log, { type: 'result', name: event.name, detail: event.preview }]);
+            },
+            onTaskProgress: (event) => {
+              const phaseLabel =
+                event.phase === 'started'
+                  ? 'Started'
+                  : event.phase === 'iteration_start'
+                    ? `Iteration ${event.iteration ?? '?'}`
+                    : event.phase === 'tool_call'
+                      ? 'Running tool'
+                      : event.phase === 'tool_result'
+                        ? 'Tool finished'
+                        : event.phase === 'completed'
+                          ? 'Completed'
+                          : 'Error';
+              const detail = event.detail ? `${phaseLabel}: ${event.detail}` : phaseLabel;
+              setReaderAiToolStatus(detail);
+              setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail }]);
             },
             onStagedChanges: (changes, suggestedCommitMessage, documentContent) => {
               setReaderAiStagedChanges(changes);
