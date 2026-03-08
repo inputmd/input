@@ -1,19 +1,17 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowRight, ChevronDown, ChevronRight, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-react';
+import { ArrowRight, ChevronDown, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseMarkdownToHtml } from '../markdown';
 import { type ReaderAiModel, type ReaderAiStagedChange, readerAiModelPriorityRank } from '../reader_ai';
+import { StagedChangesSection } from './ReaderAiStagedChanges';
+import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
+
+export type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
 
 export interface ReaderAiMessage {
   role: 'user' | 'assistant';
   content: string;
   edited?: boolean;
-}
-
-export interface ReaderAiToolLogEntry {
-  type: 'call' | 'result' | 'progress';
-  name: string;
-  detail?: string;
 }
 
 interface ReaderAiPanelProps {
@@ -55,165 +53,6 @@ function displayModelName(name: string): string {
 function isPublicDatasetModel(model: ReaderAiModel): boolean {
   const id = model.id.trim().toLowerCase();
   return id.includes('gpt-oss-120b') || id.includes('gpt-oss-20b');
-}
-
-const TOOL_LABELS: Record<string, string> = {
-  read_document: 'Read document',
-  search_document: 'Search document',
-  edit_document: 'Edit document',
-  read_file: 'Read file',
-  search_files: 'Search files',
-  list_files: 'List files',
-  edit_file: 'Edit file',
-  create_file: 'Create file',
-  delete_file: 'Delete file',
-  task: 'Subagent',
-};
-
-function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntry[]; live?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  if (entries.length === 0) return null;
-
-  const visibleEntries = entries.filter((e) => e.type !== 'result');
-  const activityCount = visibleEntries.length;
-  const summary = live
-    ? `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}…`
-    : `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}`;
-
-  // Auto-expand while live
-  const isExpanded = live || expanded;
-
-  return (
-    <div class="reader-ai-tool-log">
-      <button type="button" class="reader-ai-tool-log-toggle" onClick={() => setExpanded(!expanded)}>
-        {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <span>{summary}</span>
-      </button>
-      {isExpanded ? (
-        <div class="reader-ai-tool-log-entries">
-          {visibleEntries.map((entry, i) => (
-            <div key={i} class="reader-ai-tool-log-entry">
-              <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
-              {entry.detail ? (
-                <span class="reader-ai-tool-log-detail">
-                  {entry.detail.length > 60 ? `${entry.detail.slice(0, 60)}…` : entry.detail}
-                </span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function DiffView({ diff }: { diff: string }) {
-  const lines = diff.split('\n');
-  return (
-    <pre class="reader-ai-diff">
-      {lines.map((line, i) => {
-        let cls = 'reader-ai-diff-line';
-        if (line.startsWith('+++') || line.startsWith('---')) cls += ' reader-ai-diff-line--header';
-        else if (line.startsWith('@@')) cls += ' reader-ai-diff-line--hunk';
-        else if (line.startsWith('+')) cls += ' reader-ai-diff-line--add';
-        else if (line.startsWith('-')) cls += ' reader-ai-diff-line--del';
-        return (
-          <div key={i} class={cls}>
-            {line}
-          </div>
-        );
-      })}
-    </pre>
-  );
-}
-
-function StagedChangesSection({
-  changes,
-  defaultCommitMessage,
-  applying,
-  canApply,
-  applyToEditor,
-  onApply,
-}: {
-  changes: ReaderAiStagedChange[];
-  defaultCommitMessage: string;
-  applying: boolean;
-  canApply: boolean;
-  applyToEditor?: boolean;
-  onApply: (commitMessage?: string) => void;
-}) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
-  if (changes.length === 0) return null;
-
-  const togglePath = (path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  };
-
-  const typeLabel = (type: string) => {
-    if (type === 'create') return 'new';
-    if (type === 'delete') return 'del';
-    return 'edit';
-  };
-
-  return (
-    <div class="reader-ai-staged-changes">
-      <div class="reader-ai-staged-changes-header">
-        <span>
-          Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
-        </span>
-      </div>
-      {changes.map((change) => (
-        <div key={change.path} class="reader-ai-staged-change">
-          <button type="button" class="reader-ai-staged-change-header" onClick={() => togglePath(change.path)}>
-            {expandedPaths.has(change.path) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <span class={`reader-ai-staged-change-type reader-ai-staged-change-type--${change.type}`}>
-              {typeLabel(change.type)}
-            </span>
-            <span class="reader-ai-staged-change-path">{change.path}</span>
-          </button>
-          {expandedPaths.has(change.path) ? <DiffView diff={change.diff} /> : null}
-        </div>
-      ))}
-      {canApply ? (
-        <div class="reader-ai-staged-changes-footer">
-          {applyToEditor ? null : (
-            <input
-              type="text"
-              class="reader-ai-staged-changes-commit-input"
-              placeholder="Commit message (optional)"
-              value={commitMessage}
-              onInput={(e) => setCommitMessage(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !applying) {
-                  e.preventDefault();
-                  onApply(commitMessage.trim() || undefined);
-                }
-              }}
-              disabled={applying}
-            />
-          )}
-          <button
-            type="button"
-            class="reader-ai-staged-changes-apply"
-            onClick={() => onApply(applyToEditor ? undefined : commitMessage.trim() || undefined)}
-            disabled={applying}
-          >
-            {applying ? (applyToEditor ? 'Applying…' : 'Committing…') : applyToEditor ? 'Apply to editor' : 'Commit'}
-          </button>
-        </div>
-      ) : (
-        <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
-          Read-only — no write access
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function ReaderAiPanel({
