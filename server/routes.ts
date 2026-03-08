@@ -294,6 +294,7 @@ function respondGitHubError(res: http.ServerResponse, ghRes: Response, fallbackM
 async function readGitHubErrorMessage(ghRes: Response, fallback = 'GitHub API error'): Promise<string> {
   const text = await ghRes.text().catch(() => '');
   if (!text) return fallback;
+
   try {
     const parsed = JSON.parse(text) as GitHubApiError;
     const message = typeof parsed.message === 'string' ? parsed.message.trim() : '';
@@ -480,10 +481,19 @@ async function fetchReaderAiModelsUncached(req: http.IncomingMessage): Promise<R
       if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) return null;
       const rawCtx = typeof entry.context_length === 'number' ? entry.context_length : 0;
       const context_length = Number.isFinite(rawCtx) && rawCtx > 0 ? rawCtx : 0;
-      const normalizedId = id.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-      const normalizedName = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const normalizedId = id
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+      const normalizedName = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
       const featured = FEATURED_MODEL_PATTERNS.some((pattern) => {
-        const p = pattern.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const p = pattern
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .trim();
         return normalizedId.includes(p) || normalizedName.includes(p);
       });
       return { id, name, context_length, ...(featured ? { featured: true } : {}) };
@@ -1580,6 +1590,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+
   try {
     // First call — errors before SSE starts can be returned as JSON
     const firstUpstream = await callUpstream(callTimeout());
@@ -1624,7 +1636,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     };
 
     // SSE keepalive: send a comment every 15s to prevent intermediary proxy idle-timeout kills
-    const keepaliveInterval = setInterval(() => {
+    keepaliveInterval = setInterval(() => {
       if (ctx.res.writableEnded) return;
       ctx.res.write(': keepalive\n\n');
     }, 15_000);
@@ -1681,7 +1693,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
             openRouterMessages.push({
               role: 'tool',
               tool_call_id: tc.id,
-              content: '(task tool arguments could not be parsed as JSON — please provide valid JSON with a "prompt" field)',
+              content:
+                '(task tool arguments could not be parsed as JSON — please provide valid JSON with a "prompt" field)',
             });
             writeSseEvent('tool_result', { id: tc.id, name: 'task', preview: '(invalid JSON arguments)' });
           }
@@ -1797,7 +1810,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       if (!nextUpstream.ok || !nextUpstream.body) {
         const rateLimitMsg = readUpstreamRateLimitMessage(nextUpstream.headers);
         const status = nextUpstream.status ?? 0;
-        const payload = rateLimitMsg ? null : (await nextUpstream.json().catch(() => null)) as unknown;
+        const payload = rateLimitMsg ? null : ((await nextUpstream.json().catch(() => null)) as unknown);
         const detail = rateLimitMsg || readUpstreamError(payload) || `Model returned an error (${status})`;
         writeSseEvent('error', { message: detail });
         break;
@@ -1830,7 +1843,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     }
     throw err;
   } finally {
-    clearInterval(keepaliveInterval);
+    if (keepaliveInterval) clearInterval(keepaliveInterval);
     ctx.req.off('close', onClientClose);
   }
 

@@ -1,6 +1,6 @@
-import { addFileToGist, deleteFileFromGist, type GistDetail, renameFileInGist } from './github';
-import { deleteRepoFile, getRepoContents, isRepoFile, type PutFileResult, putRepoFile } from './github_app';
-import { encodeUtf8ToBase64 } from './util';
+import type { GistDetail } from './github';
+import type { PutFileResult } from './github_app';
+import { BrowserGitHubConnection, GitHubGistFileSystem, GitHubRepoFileSystem } from './github_filesystem';
 
 export interface RepoDocFile {
   name: string;
@@ -26,63 +26,37 @@ export interface RepoStore {
 export type DocumentStore = GistStore | RepoStore;
 
 export function createGistDocumentStore(gistId: string): GistStore {
+  const fs = new GitHubGistFileSystem(new BrowserGitHubConnection(), gistId);
   return {
     kind: 'gist',
     createFile(filename: string) {
-      return addFileToGist(gistId, filename, '\u200B');
+      return fs.createFile(filename);
     },
     deleteFile(file: { name: string }) {
-      return deleteFileFromGist(gistId, file.name);
+      return fs.deleteFile(file.name);
     },
     renameFile(file: { name: string }, newName: string) {
-      return renameFileInGist(gistId, file.name, newName);
+      return fs.renameFile(file.name, newName);
     },
   };
 }
 
 export function createRepoDocumentStore(installationId: string, repoFullName: string): RepoStore {
+  const fs = new GitHubRepoFileSystem(new BrowserGitHubConnection(), installationId, repoFullName);
   return {
     kind: 'repo',
     createFile(path: string) {
-      const normalized = normalizeRelativePath(path);
-      return putRepoFile(installationId, repoFullName, normalized, `Create ${path}`, encodeUtf8ToBase64(''));
+      return fs.createFile(path);
     },
     deleteFile(file: RepoDocFile) {
-      return deleteRepoFile(installationId, repoFullName, file.path, `Delete ${file.name}`, file.sha);
+      return fs.deleteFile(file.path, file.sha, `Delete ${file.name}`);
     },
-    async renameFile(file: RepoDocFile, newPath: string) {
-      const contents = await getRepoContents(installationId, repoFullName, file.path);
-      if (!isRepoFile(contents)) throw new Error('Expected a file');
-      const normalizedNewPath = normalizeRelativePath(newPath);
-      const created = await putRepoFile(
-        installationId,
-        repoFullName,
-        normalizedNewPath,
-        `Rename ${file.path} to ${newPath}`,
-        contents.content ?? '',
-      );
-      try {
-        await deleteRepoFile(installationId, repoFullName, file.path, `Delete ${file.name} (renamed)`, file.sha);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        throw new Error(
-          `Rename partially completed. Created "${normalizedNewPath}", but failed to delete "${file.path}": ${message}`,
-        );
-      }
-      return created;
+    renameFile(file: RepoDocFile, newPath: string) {
+      return fs.renameFile(file, newPath);
     },
   };
 }
 
 export function findRepoDocFile(files: RepoDocFile[], path: string): RepoDocFile | undefined {
   return files.find((file) => file.path === path);
-}
-
-function normalizeRelativePath(relativePath: string): string {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const parts = normalized.split('/');
-  if (parts.length === 0 || parts.some((part) => part === '' || part === '.' || part === '..')) {
-    throw new Error('Invalid file path');
-  }
-  return parts.join('/');
 }
