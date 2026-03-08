@@ -185,6 +185,17 @@ export function ReaderAiPanel({
     onClear();
   };
 
+  const handleSelectModel = (modelId: string) => {
+    onSelectModel(modelId);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const input = composerInputRef.current;
+        if (!input || input.disabled) return;
+        input.focus();
+      });
+    });
+  };
+
   const composer = (
     <div
       class={`reader-ai-input-wrap reader-ai-input-wrap--composer${composerAtTop ? '' : ' reader-ai-input-wrap--composer-bottom'}`}
@@ -220,7 +231,7 @@ export function ReaderAiPanel({
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="reader-ai-model-menu" sideOffset={6} align="start">
-            <DropdownMenu.RadioGroup value={selectedModel} onValueChange={onSelectModel}>
+            <DropdownMenu.RadioGroup value={selectedModel} onValueChange={handleSelectModel}>
               {hasDefaultSection ? (
                 <>
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
@@ -318,6 +329,14 @@ export function ReaderAiPanel({
               onClick={() => void onSend('Summarize this document.')}
             >
               Summarize
+            </button>
+            <button
+              type="button"
+              class="reader-ai-summarize-btn"
+              disabled={composerInputDisabled}
+              onClick={() => void onSend('Identify any questions raised by this document.')}
+            >
+              Identify questions
             </button>
           </div>
         ) : null}

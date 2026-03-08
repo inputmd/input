@@ -162,6 +162,7 @@
   color: var(--text-secondary);
   display: flex;
   justify-content: center;
+  gap: 8px;
   padding-top: 12px;
 }
 
@@ -481,7 +482,7 @@
 
   .reader-ai-panel {
     width: min(92vw, 420px);
-    box-shadow: -8px 0 20px rgba(0, 0, 0, 0.25);
+    box-shadow: -8px 0 20px rgba(0, 0, 0, 0.1);
     z-index: 30;
   }
 
