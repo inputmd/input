@@ -84,12 +84,19 @@ function extractStreamDelta(payload: unknown): string {
   return '';
 }
 
+export interface ReaderAiProjectFile {
+  path: string;
+  content: string;
+  size: number;
+}
+
 export async function askReaderAiStream(
   model: string,
   source: string,
   messages: { role: 'user' | 'assistant'; content: string }[],
   options: ReaderAiStreamOptions,
   summary?: string,
+  projectContext?: { files: ReaderAiProjectFile[]; currentDocPath: string | null },
 ): Promise<void> {
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
@@ -101,6 +108,7 @@ export async function askReaderAiStream(
       source,
       messages,
       ...(summary ? { summary } : {}),
+      ...(projectContext ? { project_files: projectContext.files, current_doc_path: projectContext.currentDocPath } : {}),
     }),
   });
   if (!res.ok) throw await responseToApiError(res);

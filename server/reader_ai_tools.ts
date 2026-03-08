@@ -7,6 +7,19 @@ export const READER_AI_TASK_MAX_OUTPUT_CHARS = 60_000;
 export const READER_AI_MAX_CONCURRENT_TASKS = 4;
 export const READER_AI_TASK_MAX_ITERATIONS = 10;
 
+// Per-tool token budget limits (in characters; ~3 chars per token as rough estimate)
+export const READER_AI_READ_FILE_MAX_CHARS = 20_000;
+export const READER_AI_SEARCH_FILES_MAX_CHARS = 20_000;
+export const READER_AI_LIST_FILES_MAX_CHARS = 10_000;
+export const READER_AI_SEARCH_FILES_MAX_MATCHES = 50;
+
+/** A file entry from a loaded repo or gist. */
+export interface ReaderAiFileEntry {
+  path: string;
+  content: string;
+  size: number;
+}
+
 export interface ReaderAiToolCall {
   id: string;
   name: string;
@@ -95,8 +108,102 @@ export const READER_AI_TOOLS = [
   },
 ];
 
+// ── Project-mode tools (repo/gist with all files loaded) ──
+
+export const READER_AI_PROJECT_TOOLS = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'read_file',
+      description:
+        'Read the contents of a file in the project. Returns line-numbered text. Use start_line/end_line to read specific sections of large files.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'File path relative to the project root.' },
+          start_line: {
+            type: 'number' as const,
+            description: 'First line to return (1-based, inclusive). Omit to start from the beginning.',
+          },
+          end_line: {
+            type: 'number' as const,
+            description: 'Last line to return (1-based, inclusive). Omit to read to the end.',
+          },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'search_files',
+      description:
+        'Search across all files in the project for lines matching a query (case-insensitive substring). Returns matching lines grouped by file with line numbers and context. Use glob to filter by file pattern.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string' as const, description: 'Text to search for (case-insensitive).' },
+          glob: {
+            type: 'string' as const,
+            description:
+              'Optional glob pattern to filter files (e.g. "*.ts", "src/**/*.md"). If omitted, searches all files.',
+          },
+          context_lines: {
+            type: 'number' as const,
+            description: 'Lines of context before/after each match (default: 2, max: 5).',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_files',
+      description:
+        'List files in the project. Without arguments returns the full file tree. With a path argument, lists files under that directory.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: {
+            type: 'string' as const,
+            description: 'Optional directory path to list. Omit to list all files in the project.',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'task',
+      description:
+        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. a reviewer, a research agent). The subagent has access to read_file, search_files, and list_files for the same project. Multiple task calls in the same turn run in parallel (up to 4).',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          prompt: {
+            type: 'string' as const,
+            description:
+              'The full prompt for the subagent. Include its role, instructions, and what output you expect.',
+          },
+          system_prompt: {
+            type: 'string' as const,
+            description:
+              'Optional system prompt override for the subagent. If omitted, the subagent gets a minimal system prompt with project access instructions.',
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+  },
+];
+
 // Subagent tools — subset available to task subagents (no nested task spawning)
 export const READER_AI_SUBAGENT_TOOLS = READER_AI_TOOLS.filter((t) => t.function.name !== 'task');
+export const READER_AI_PROJECT_SUBAGENT_TOOLS = READER_AI_PROJECT_TOOLS.filter((t) => t.function.name !== 'task');
 
 export function executeReaderAiReadDocument(lines: string[], args: { start_line?: number; end_line?: number }): string {
   const total = lines.length;
@@ -164,7 +271,161 @@ export function executeReaderAiSearchDocument(
   return result;
 }
 
-/** Execute a synchronous (non-task) tool. */
+// ── Project-mode tool execution ──
+
+function simpleGlobMatch(pattern: string, filePath: string): boolean {
+  // Convert glob to regex: * matches non-slash, ** matches anything, ? matches single char
+  let regex = '';
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i];
+    if (ch === '*') {
+      if (pattern[i + 1] === '*') {
+        // ** matches any path segment(s)
+        regex += '.*';
+        i += 2;
+        if (pattern[i] === '/') i++; // skip trailing slash after **
+        continue;
+      }
+      regex += '[^/]*';
+    } else if (ch === '?') {
+      regex += '[^/]';
+    } else if ('.+^${}()|[]\\'.includes(ch)) {
+      regex += `\\${ch}`;
+    } else {
+      regex += ch;
+    }
+    i++;
+  }
+  try {
+    return new RegExp(`^${regex}$`, 'i').test(filePath);
+  } catch {
+    return filePath.includes(pattern);
+  }
+}
+
+export function executeReaderAiReadFile(
+  files: ReaderAiFileEntry[],
+  args: { path: string; start_line?: number; end_line?: number },
+): string {
+  const file = files.find((f) => f.path === args.path);
+  if (!file) {
+    // Try case-insensitive and prefix match
+    const lower = args.path.toLowerCase();
+    const fuzzy = files.find((f) => f.path.toLowerCase() === lower);
+    if (fuzzy) return executeReaderAiReadFile(files, { ...args, path: fuzzy.path });
+    return `(file not found: ${args.path})`;
+  }
+  const lines = file.content.split('\n');
+  const total = lines.length;
+  const start = Math.max(1, Math.floor(args.start_line ?? 1));
+  const end = Math.min(total, Math.floor(args.end_line ?? total));
+  if (start > total) return `(start_line ${start} is beyond the file, which has ${total} lines)`;
+  if (start > end) return `(invalid range: start_line ${start} > end_line ${end})`;
+  const selected = lines.slice(start - 1, end);
+  const numbered = selected.map((line, i) => `${start + i}: ${line}`);
+  const result = `${args.path} (${total} lines)\n${numbered.join('\n')}`;
+  if (result.length > READER_AI_READ_FILE_MAX_CHARS) {
+    let charCount = 0;
+    let lastFittingLine = start;
+    for (let i = 0; i < numbered.length; i++) {
+      charCount += numbered[i].length + 1;
+      if (charCount > READER_AI_READ_FILE_MAX_CHARS) break;
+      lastFittingLine = start + i;
+    }
+    return (
+      result.slice(0, READER_AI_READ_FILE_MAX_CHARS) +
+      `\n\n... (truncated; showing lines ${start}-${lastFittingLine} of ${total}; use start_line/end_line to read specific ranges)`
+    );
+  }
+  return result;
+}
+
+export function executeReaderAiSearchFiles(
+  files: ReaderAiFileEntry[],
+  args: { query: string; glob?: string; context_lines?: number },
+): string {
+  if (!args.query) return '(query is required)';
+  const query = args.query.toLowerCase();
+  const ctx = Math.max(0, Math.min(args.context_lines ?? 2, 5));
+  const candidates = args.glob ? files.filter((f) => simpleGlobMatch(args.glob!, f.path)) : files;
+  if (candidates.length === 0 && args.glob) return `No files matching glob "${args.glob}".`;
+
+  const parts: string[] = [];
+  let totalMatches = 0;
+  let totalChars = 0;
+
+  for (const file of candidates) {
+    if (totalMatches >= READER_AI_SEARCH_FILES_MAX_MATCHES || totalChars >= READER_AI_SEARCH_FILES_MAX_CHARS) break;
+    const lines = file.content.split('\n');
+    const matchIndices: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes(query)) matchIndices.push(i);
+    }
+    if (matchIndices.length === 0) continue;
+
+    // Merge ranges
+    const ranges: Array<[number, number]> = [];
+    for (const idx of matchIndices) {
+      const rStart = Math.max(0, idx - ctx);
+      const rEnd = Math.min(lines.length - 1, idx + ctx);
+      if (ranges.length > 0 && rStart <= ranges[ranges.length - 1][1] + 1) {
+        ranges[ranges.length - 1][1] = rEnd;
+      } else {
+        ranges.push([rStart, rEnd]);
+      }
+    }
+
+    const matchSet = new Set(matchIndices);
+    const fileParts: string[] = [`\n${file.path} (${matchIndices.length} match${matchIndices.length === 1 ? '' : 'es'}):`];
+    for (const [rStart, rEnd] of ranges) {
+      for (let i = rStart; i <= rEnd; i++) {
+        const marker = matchSet.has(i) ? '>' : ' ';
+        fileParts.push(`${marker} ${i + 1}: ${lines[i]}`);
+      }
+      fileParts.push('---');
+    }
+    const section = fileParts.join('\n');
+    totalChars += section.length;
+    totalMatches += matchIndices.length;
+    parts.push(section);
+  }
+
+  if (parts.length === 0) return 'No matches found.';
+
+  let result = `${totalMatches} match${totalMatches === 1 ? '' : 'es'} across ${parts.length} file${parts.length === 1 ? '' : 's'}.\n${parts.join('\n')}`;
+  if (totalMatches >= READER_AI_SEARCH_FILES_MAX_MATCHES) {
+    result += `\n\n... (showing first ${READER_AI_SEARCH_FILES_MAX_MATCHES} matches; use a more specific query or glob to narrow results)`;
+  }
+  if (result.length > READER_AI_SEARCH_FILES_MAX_CHARS) {
+    result = result.slice(0, READER_AI_SEARCH_FILES_MAX_CHARS) + '\n\n... (results truncated; try a more specific query or glob)';
+  }
+  return result;
+}
+
+export function executeReaderAiListFiles(
+  files: ReaderAiFileEntry[],
+  args: { path?: string },
+): string {
+  let filtered = files;
+  if (args.path) {
+    const prefix = args.path.endsWith('/') ? args.path : `${args.path}/`;
+    filtered = files.filter((f) => f.path.startsWith(prefix) || f.path === args.path!.replace(/\/$/, ''));
+    if (filtered.length === 0) return `(no files under path: ${args.path})`;
+  }
+
+  const lines = filtered.map((f) => {
+    const sizeKb = f.size >= 1024 ? `${(f.size / 1024).toFixed(1)}KB` : `${f.size}B`;
+    return `${f.path}  (${sizeKb})`;
+  });
+  const result = `${filtered.length} file${filtered.length === 1 ? '' : 's'}${args.path ? ` under ${args.path}` : ''}:\n${lines.join('\n')}`;
+  if (result.length > READER_AI_LIST_FILES_MAX_CHARS) {
+    return result.slice(0, READER_AI_LIST_FILES_MAX_CHARS) + '\n\n... (file list truncated)';
+  }
+  return result;
+}
+
+/** Execute a synchronous (non-task) tool — document mode. */
 export function executeReaderAiSyncTool(toolName: string, argsJson: string, lines: string[]): string {
   let args: Record<string, unknown>;
   try {
@@ -177,6 +438,32 @@ export function executeReaderAiSyncTool(toolName: string, argsJson: string, line
       return executeReaderAiReadDocument(lines, args as { start_line?: number; end_line?: number });
     case 'search_document':
       return executeReaderAiSearchDocument(lines, args as { query: string; context_lines?: number });
+    default:
+      return `(unknown tool: ${toolName})`;
+  }
+}
+
+/** Execute a synchronous (non-task) tool — project mode. */
+export function executeReaderAiProjectSyncTool(toolName: string, argsJson: string, files: ReaderAiFileEntry[]): string {
+  let args: Record<string, unknown>;
+  try {
+    args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {};
+  } catch {
+    return `(invalid JSON arguments: ${argsJson})`;
+  }
+  switch (toolName) {
+    case 'read_file':
+      return executeReaderAiReadFile(
+        files,
+        args as { path: string; start_line?: number; end_line?: number },
+      );
+    case 'search_files':
+      return executeReaderAiSearchFiles(
+        files,
+        args as { query: string; glob?: string; context_lines?: number },
+      );
+    case 'list_files':
+      return executeReaderAiListFiles(files, args as { path?: string });
     default:
       return `(unknown tool: ${toolName})`;
   }
@@ -321,6 +608,58 @@ export function buildReaderAiSystemPrompt(source: string, lines: string[], maxPr
   ].join('\n');
 }
 
+function buildFileTree(files: ReaderAiFileEntry[]): string {
+  const lines: string[] = [];
+  for (const f of files) {
+    const sizeKb = f.size >= 1024 ? `${(f.size / 1024).toFixed(1)}KB` : `${f.size}B`;
+    lines.push(`${f.path}  (${sizeKb})`);
+  }
+  return lines.join('\n');
+}
+
+export function buildReaderAiProjectSystemPrompt(
+  files: ReaderAiFileEntry[],
+  currentDocPath: string | null,
+): string {
+  const fileTree = buildFileTree(files);
+  const totalFiles = files.length;
+  const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  const totalSizeLabel = totalSize >= 1024 * 1024
+    ? `${(totalSize / 1024 / 1024).toFixed(1)}MB`
+    : totalSize >= 1024
+      ? `${(totalSize / 1024).toFixed(1)}KB`
+      : `${totalSize}B`;
+
+  const currentDocSection = currentDocPath
+    ? `\nThe user is currently viewing: ${currentDocPath}`
+    : '';
+
+  return [
+    'You are an assistant with full access to a project. You can read any file, search across the codebase, and analyze the project structure.',
+    '',
+    'You have tools available:',
+    '- read_file: Read a file by path. Returns line-numbered text. Use start_line/end_line for specific sections.',
+    '- search_files: Search across all files for matching text (case-insensitive). Use glob to filter by file pattern.',
+    '- list_files: List files in the project or a subdirectory.',
+    '- task: Spawn an independent subagent for parallel or specialized work. The subagent has read_file, search_files, and list_files access but cannot spawn further subagents.',
+    '',
+    'Guidelines:',
+    '- Use search_files to locate relevant code before answering questions about the project.',
+    '- Use read_file to examine files in detail. Read files before making claims about their contents.',
+    '- Cite file paths and line numbers when referencing specific code.',
+    '- If you need to understand project structure, start with list_files.',
+    '- If the answer is not in the project, say so plainly.',
+    '- Use the task tool when a problem benefits from independent analysis.',
+    '- Prefer targeted reads and searches over reading entire large files.',
+    '',
+    `Project: ${totalFiles} files, ${totalSizeLabel} total.${currentDocSection}`,
+    '',
+    '<file-tree>',
+    fileTree,
+    '</file-tree>',
+  ].join('\n');
+}
+
 export function readUpstreamError(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const errorObj = 'error' in payload ? (payload as { error?: unknown }).error : null;
@@ -333,8 +672,11 @@ export interface ReaderAiSubagentOptions {
   model: string;
   prompt: string;
   systemPrompt?: string;
+  /** Document mode: lines of the current document. */
   lines: string[];
   source: string;
+  /** Project mode: all files in the repo/gist. When set, subagent uses project tools. */
+  projectFiles?: ReaderAiFileEntry[];
   openRouterHeaders: Record<string, string>;
   signal: AbortSignal;
   /** Override fetch for testing. Defaults to global fetch. */
@@ -342,21 +684,36 @@ export interface ReaderAiSubagentOptions {
 }
 
 export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions): Promise<string> {
-  const { model, prompt, lines, source, openRouterHeaders, signal, fetchFn = fetch } = options;
+  const { model, prompt, lines, source, projectFiles, openRouterHeaders, signal, fetchFn = fetch } = options;
+  const isProjectMode = projectFiles && projectFiles.length > 0;
 
-  const defaultSystemPrompt = [
-    'You are a focused subagent working on a specific task. You have access to a document via tools.',
-    '',
-    'Available tools:',
-    '- read_document: Read all or part of the document by line range.',
-    '- search_document: Search for text in the document (case-insensitive).',
-    '',
-    `Document info: ${lines.length} lines, ${source.length} characters.`,
-    '',
-    'Complete the task described in the user message. Be thorough and detailed in your response.',
-  ].join('\n');
+  const defaultSystemPrompt = isProjectMode
+    ? [
+        'You are a focused subagent working on a specific task. You have access to the project files via tools.',
+        '',
+        'Available tools:',
+        '- read_file: Read a file by path. Returns line-numbered text.',
+        '- search_files: Search across all files (case-insensitive). Use glob to filter.',
+        '- list_files: List files in the project.',
+        '',
+        `Project: ${projectFiles.length} files.`,
+        '',
+        'Complete the task described in the user message. Be thorough and detailed.',
+      ].join('\n')
+    : [
+        'You are a focused subagent working on a specific task. You have access to a document via tools.',
+        '',
+        'Available tools:',
+        '- read_document: Read all or part of the document by line range.',
+        '- search_document: Search for text in the document (case-insensitive).',
+        '',
+        `Document info: ${lines.length} lines, ${source.length} characters.`,
+        '',
+        'Complete the task described in the user message. Be thorough and detailed in your response.',
+      ].join('\n');
 
   const systemPrompt = options.systemPrompt || defaultSystemPrompt;
+  const tools = isProjectMode ? READER_AI_PROJECT_SUBAGENT_TOOLS : READER_AI_SUBAGENT_TOOLS;
 
   const messages: OpenRouterMessage[] = [
     { role: 'system', content: systemPrompt },
@@ -373,7 +730,7 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
         model,
         stream: true,
         messages,
-        tools: READER_AI_SUBAGENT_TOOLS,
+        tools,
       }),
       signal: AbortSignal.any([AbortSignal.timeout(READER_AI_TASK_TIMEOUT_MS), signal]),
     });
@@ -405,7 +762,9 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
     });
 
     for (const tc of result.toolCalls) {
-      const toolResult = executeReaderAiSyncTool(tc.name, tc.arguments, lines);
+      const toolResult = isProjectMode
+        ? executeReaderAiProjectSyncTool(tc.name, tc.arguments, projectFiles)
+        : executeReaderAiSyncTool(tc.name, tc.arguments, lines);
       messages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
     }
   }

@@ -64,7 +64,13 @@ import {
 } from './github_app';
 import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
-import { askReaderAiStream, listReaderAiModels, type ReaderAiModel, readerAiModelPriorityRank } from './reader_ai';
+import {
+  askReaderAiStream,
+  listReaderAiModels,
+  type ReaderAiModel,
+  readerAiModelPriorityRank,
+  type ReaderAiProjectFile,
+} from './reader_ai';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
 import {
@@ -2381,6 +2387,16 @@ export function App() {
       setReaderAiToolStatus(null);
       setReaderAiError(null);
       let received = false;
+
+      // Build project context if repo mode is active
+      let projectContext: { files: ReaderAiProjectFile[]; currentDocPath: string | null } | undefined;
+      if (readerAiRepoMode && readerAiRepoFiles && readerAiRepoFiles.length > 0) {
+        projectContext = {
+          files: readerAiRepoFiles,
+          currentDocPath: currentRepoDocPath,
+        };
+      }
+
       try {
         await askReaderAiStream(
           model,
@@ -2390,13 +2406,15 @@ export function App() {
             signal: controller.signal,
             onSummary: (summary) => setReaderAiSummary(summary),
             onToolCall: (name) => {
-              const label =
-                name === 'read_document'
-                  ? 'Reading document…'
-                  : name === 'search_document'
-                    ? 'Searching document…'
-                    : `Running ${name}…`;
-              setReaderAiToolStatus(label);
+              const labels: Record<string, string> = {
+                read_document: 'Reading document…',
+                search_document: 'Searching document…',
+                read_file: 'Reading file…',
+                search_files: 'Searching files…',
+                list_files: 'Listing files…',
+                task: 'Running subagent…',
+              };
+              setReaderAiToolStatus(labels[name] ?? `Running ${name}…`);
             },
             onToolResult: () => setReaderAiToolStatus(null),
             onDelta: (delta) => {
@@ -2425,6 +2443,7 @@ export function App() {
             },
           },
           readerAiSummary || undefined,
+          projectContext,
         );
         if (!received) {
           setReaderAiMessages((current) => {
@@ -2466,7 +2485,7 @@ export function App() {
         setReaderAiToolStatus(null);
       }
     },
-    [readerAiSelectedModel, readerAiSource, readerAiSummary],
+    [readerAiSelectedModel, readerAiSource, readerAiSummary, readerAiRepoMode, readerAiRepoFiles, currentRepoDocPath],
   );
 
   const onReaderAiSend = useCallback(

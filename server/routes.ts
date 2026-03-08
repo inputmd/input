@@ -19,13 +19,17 @@ import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationTok
 import { json, readJson, requireEnv, requireString } from './http_helpers';
 import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
 import {
+  buildReaderAiProjectSystemPrompt,
   buildReaderAiSystemPrompt,
+  executeReaderAiProjectSyncTool,
   executeReaderAiSubagent,
   executeReaderAiSyncTool,
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
   READER_AI_DOC_PREVIEW_CHARS,
+  type ReaderAiFileEntry,
   READER_AI_MAX_CONCURRENT_TASKS,
+  READER_AI_PROJECT_TOOLS,
   READER_AI_TOOLS,
   type ReaderAiStreamParseResult,
   type ReaderAiToolCall,
@@ -107,6 +111,10 @@ interface ReaderAiChatBody {
   source?: unknown;
   messages?: unknown;
   summary?: unknown;
+  /** Project mode: all files in the repo/gist, sent when repo mode toggle is on. */
+  project_files?: unknown;
+  /** The path of the currently-viewed document (for project mode context). */
+  current_doc_path?: unknown;
 }
 
 interface ReaderAiChatMessage {
@@ -348,6 +356,17 @@ function normalizeReaderAiMessages(raw: unknown): ReaderAiChatMessage[] {
   return messages;
 }
 
+/** Truncate long assistant messages for summarization — strip tool interaction noise. */
+function prepareMessageForSummary(msg: ReaderAiChatMessage): string {
+  const label = msg.role === 'user' ? 'User' : 'Assistant';
+  let content = msg.content;
+  // Truncate very long assistant messages (often padded by tool results)
+  if (content.length > 2000) {
+    content = content.slice(0, 2000) + '…';
+  }
+  return `${label}: ${content}`;
+}
+
 async function summarizeReaderAiConversation(
   model: string,
   evictedMessages: ReaderAiChatMessage[],
@@ -357,8 +376,7 @@ async function summarizeReaderAiConversation(
   const parts: string[] = [];
   if (existingSummary) parts.push(`Previous summary:\n${existingSummary}`);
   for (const msg of evictedMessages) {
-    const label = msg.role === 'user' ? 'User' : 'Assistant';
-    parts.push(`${label}: ${msg.content}`);
+    parts.push(prepareMessageForSummary(msg));
   }
   const toSummarize = parts.join('\n\n');
 
@@ -378,7 +396,7 @@ async function summarizeReaderAiConversation(
         {
           role: 'system',
           content:
-            'Summarize the following conversation history in 2-4 concise sentences. Capture the key questions asked, answers given, and any important conclusions. Write in third person (e.g. "The user asked about...").',
+            'Summarize the following conversation history in 2-4 concise sentences. Capture the key questions asked, answers given, important conclusions, and any files or code that were examined. Omit tool call details — focus on what was learned. Write in third person (e.g. "The user asked about...").',
         },
         { role: 'user', content: toSummarize },
       ],
@@ -1116,6 +1134,32 @@ async function handleReaderAiModels(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, { models });
 }
 
+const READER_AI_MAX_PROJECT_FILES = 100;
+const READER_AI_MAX_PROJECT_FILE_SIZE = 512 * 1024; // 512KB per file
+const READER_AI_MAX_PROJECT_TOTAL_SIZE = 5 * 1024 * 1024; // 5MB total
+
+function normalizeProjectFiles(raw: unknown): ReaderAiFileEntry[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  if (raw.length > READER_AI_MAX_PROJECT_FILES) {
+    throw new ClientError(`Too many project files (${raw.length}, max ${READER_AI_MAX_PROJECT_FILES})`, 400);
+  }
+  const files: ReaderAiFileEntry[] = [];
+  let totalSize = 0;
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const path = (item as { path?: unknown }).path;
+    const content = (item as { content?: unknown }).content;
+    const size = (item as { size?: unknown }).size;
+    if (typeof path !== 'string' || typeof content !== 'string') continue;
+    const fileSize = typeof size === 'number' && Number.isFinite(size) ? size : content.length;
+    if (fileSize > READER_AI_MAX_PROJECT_FILE_SIZE) continue; // skip oversized files silently
+    totalSize += fileSize;
+    if (totalSize > READER_AI_MAX_PROJECT_TOTAL_SIZE) break;
+    files.push({ path, content, size: fileSize });
+  }
+  return files.length > 0 ? files : null;
+}
+
 async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
@@ -1129,6 +1173,12 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const allMessages = normalizeReaderAiMessages(body?.messages);
   const existingSummary =
     typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
+
+  // Project mode: parse project_files if provided
+  const projectFiles = normalizeProjectFiles(body?.project_files);
+  const isProjectMode = projectFiles !== null;
+  const currentDocPath = typeof body?.current_doc_path === 'string' ? body.current_doc_path : null;
+
   let chatMessages: ReaderAiChatMessage[];
   let newSummary: string | null = null;
   if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
@@ -1166,12 +1216,21 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const cachedModels = readerAiModelsCache?.value ?? [];
   const modelEntry = cachedModels.find((m) => m.id === model);
   const contextTokens = modelEntry?.context_length || 0;
-  const maxPreviewChars =
-    contextTokens > 0
-      ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
-      : READER_AI_DOC_PREVIEW_CHARS;
 
-  const systemPrompt = buildReaderAiSystemPrompt(source, lines, maxPreviewChars);
+  // Build system prompt and tool set based on mode
+  let systemPrompt: string;
+  let tools: typeof READER_AI_TOOLS | typeof READER_AI_PROJECT_TOOLS;
+  if (isProjectMode) {
+    systemPrompt = buildReaderAiProjectSystemPrompt(projectFiles, currentDocPath);
+    tools = READER_AI_PROJECT_TOOLS;
+  } else {
+    const maxPreviewChars =
+      contextTokens > 0
+        ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
+        : READER_AI_DOC_PREVIEW_CHARS;
+    systemPrompt = buildReaderAiSystemPrompt(source, lines, maxPreviewChars);
+    tools = READER_AI_TOOLS;
+  }
 
   // Build messages for OpenRouter (internal format supports tool call/result messages)
   const openRouterMessages: OpenRouterMessage[] = [
@@ -1195,12 +1254,21 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: openRouterHeaders,
-      body: JSON.stringify({ model, stream: true, messages: openRouterMessages, tools: READER_AI_TOOLS }),
+      body: JSON.stringify({ model, stream: true, messages: openRouterMessages, tools }),
       signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), abortController.signal]),
     });
 
   const remainingMs = () => Math.max(0, READER_AI_TIMEOUT_MS - (Date.now() - requestStart));
   const callTimeout = () => Math.min(READER_AI_PER_CALL_TIMEOUT_MS, remainingMs());
+
+  // Per-tool budget: track chars consumed by tool results to avoid blowing context
+  const maxToolBudgetChars = contextTokens > 0 ? Math.floor(contextTokens * 3 * 0.5) : 60_000;
+  const executeSyncToolCall = (tc: ReaderAiToolCall): string => {
+    if (isProjectMode) {
+      return executeReaderAiProjectSyncTool(tc.name, tc.arguments, projectFiles);
+    }
+    return executeReaderAiSyncTool(tc.name, tc.arguments, lines);
+  };
 
   try {
     // First call — errors before SSE starts can be returned as JSON
@@ -1232,7 +1300,6 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     };
 
     // Agentic tool-call loop
-    const maxToolBudgetChars = contextTokens > 0 ? Math.floor(contextTokens * 3 * 0.5) : 60_000;
     let toolResultChars = 0;
     let currentBody: ReadableStream<Uint8Array> | null = firstUpstream.body;
     for (let iteration = 0; iteration < READER_AI_MAX_TOOL_ITERATIONS; iteration++) {
@@ -1285,7 +1352,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
       // Run sync tools first
       for (const { tc } of syncCalls) {
-        const toolResult = executeReaderAiSyncTool(tc.name, tc.arguments, lines);
+        const toolResult = executeSyncToolCall(tc);
         toolResultChars += toolResult.length;
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
@@ -1315,6 +1382,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                 systemPrompt: taskSystemPrompt,
                 lines,
                 source,
+                projectFiles: isProjectMode ? projectFiles : undefined,
                 openRouterHeaders,
                 signal: abortController.signal,
               });
