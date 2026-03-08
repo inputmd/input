@@ -158,7 +158,7 @@ function StagedChangesSection({
   const typeLabel = (type: string) => {
     if (type === 'create') return 'new';
     if (type === 'delete') return 'del';
-    return 'mod';
+    return 'edit';
   };
 
   return (
@@ -204,7 +204,7 @@ function StagedChangesSection({
             onClick={() => onApply(applyToEditor ? undefined : commitMessage.trim() || undefined)}
             disabled={applying}
           >
-            {applying ? 'Applying…' : applyToEditor ? 'Apply to editor' : 'Apply'}
+            {applying ? (applyToEditor ? 'Applying…' : 'Committing…') : applyToEditor ? 'Apply to editor' : 'Commit'}
           </button>
         </div>
       ) : (

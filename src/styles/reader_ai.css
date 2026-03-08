@@ -711,7 +711,6 @@
 .reader-ai-staged-changes {
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow: hidden;
   margin: 4px 0;
 }
 
@@ -858,6 +857,7 @@
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 1.55;
+  text-wrap: auto;
   overflow-x: auto;
   background: color-mix(in srgb, var(--bg) 60%, var(--toolbar-bg) 40%);
   border-top: 1px solid var(--border);
