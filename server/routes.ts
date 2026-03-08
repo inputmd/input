@@ -264,7 +264,7 @@ const READER_AI_CONTEXT_WINDOW_MESSAGES = 8;
 const READER_AI_MAX_SUMMARY_CHARS = 2000;
 const READER_AI_SUMMARIZE_TIMEOUT_MS = 30_000;
 const READER_AI_MIN_MODEL_PARAMS_B = 15;
-const READER_AI_MAX_TOOL_ITERATIONS = 10;
+const READER_AI_MAX_TOOL_ITERATIONS = 30;
 const READER_AI_TOOL_RESULT_MAX_CHARS = 30_000;
 const READER_AI_DOC_PREVIEW_CHARS = 12_000;
 const READER_AI_PER_CALL_TIMEOUT_MS = 60_000;
@@ -1104,6 +1104,11 @@ async function handleReaderAiModels(ctx: RouteContext): Promise<void> {
 
 // ── Reader AI Tool Definitions & Helpers ──
 
+const READER_AI_TASK_TIMEOUT_MS = 90_000;
+const READER_AI_TASK_MAX_OUTPUT_CHARS = 60_000;
+const READER_AI_MAX_CONCURRENT_TASKS = 4;
+const READER_AI_TASK_MAX_ITERATIONS = 10;
+
 const READER_AI_TOOLS = [
   {
     type: 'function' as const,
@@ -1142,6 +1147,30 @@ const READER_AI_TOOLS = [
           },
         },
         required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'task',
+      description:
+        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. an Electric Monk that must believe a position fully, a research agent, a reviewer). The subagent has access to read_document and search_document for the same document. Multiple task calls in the same turn run in parallel (up to 4).',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          prompt: {
+            type: 'string' as const,
+            description:
+              'The full prompt for the subagent. Include its role, instructions, and what output you expect. This becomes the user message in a fresh conversation.',
+          },
+          system_prompt: {
+            type: 'string' as const,
+            description:
+              'Optional system prompt override for the subagent. If omitted, the subagent gets a minimal system prompt with document access instructions.',
+          },
+        },
+        required: ['prompt'],
       },
     },
   },
@@ -1232,7 +1261,99 @@ function executeReaderAiSearchDocument(lines: string[], args: { query: string; c
   return result;
 }
 
-function executeReaderAiTool(toolName: string, argsJson: string, lines: string[]): string {
+// Subagent tools — subset available to task subagents (no nested task spawning)
+const READER_AI_SUBAGENT_TOOLS = READER_AI_TOOLS.filter((t) => t.function.name !== 'task');
+
+interface ReaderAiSubagentOptions {
+  model: string;
+  prompt: string;
+  systemPrompt?: string;
+  lines: string[];
+  source: string;
+  openRouterHeaders: Record<string, string>;
+  signal: AbortSignal;
+}
+
+async function executeReaderAiSubagent(options: ReaderAiSubagentOptions): Promise<string> {
+  const { model, prompt, lines, source, openRouterHeaders, signal } = options;
+
+  const defaultSystemPrompt = [
+    'You are a focused subagent working on a specific task. You have access to a document via tools.',
+    '',
+    'Available tools:',
+    '- read_document: Read all or part of the document by line range.',
+    '- search_document: Search for text in the document (case-insensitive).',
+    '',
+    `Document info: ${lines.length} lines, ${source.length} characters.`,
+    '',
+    'Complete the task described in the user message. Be thorough and detailed in your response.',
+  ].join('\n');
+
+  const systemPrompt = options.systemPrompt || defaultSystemPrompt;
+
+  const messages: OpenRouterMessage[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: prompt },
+  ];
+
+  let output = '';
+
+  for (let iteration = 0; iteration < READER_AI_TASK_MAX_ITERATIONS; iteration++) {
+    const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: openRouterHeaders,
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages,
+        tools: READER_AI_SUBAGENT_TOOLS,
+      }),
+      signal: AbortSignal.any([AbortSignal.timeout(READER_AI_TASK_TIMEOUT_MS), signal]),
+    });
+
+    if (!upstream.ok) {
+      const payload = (await upstream.json().catch(() => null)) as unknown;
+      const detail = readUpstreamError(payload) || `Subagent request failed (${upstream.status})`;
+      return output ? `${output}\n\n[Subagent error: ${detail}]` : `[Subagent error: ${detail}]`;
+    }
+    if (!upstream.body) {
+      return output ? `${output}\n\n[Subagent error: no response body]` : '[Subagent error: no response body]';
+    }
+
+    const result = await parseReaderAiUpstreamStream(upstream.body, (delta) => {
+      output += delta;
+    });
+
+    if (result.toolCalls.length === 0) break;
+
+    // Process tool calls within subagent
+    messages.push({
+      role: 'assistant',
+      content: result.content || null,
+      tool_calls: result.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: { name: tc.name, arguments: tc.arguments },
+      })),
+    });
+
+    for (const tc of result.toolCalls) {
+      const toolResult = executeReaderAiSyncTool(tc.name, tc.arguments, lines);
+      messages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
+    }
+  }
+
+  if (output.length > READER_AI_TASK_MAX_OUTPUT_CHARS) {
+    return (
+      output.slice(0, READER_AI_TASK_MAX_OUTPUT_CHARS) +
+      `\n\n... (subagent output truncated at ${READER_AI_TASK_MAX_OUTPUT_CHARS} characters)`
+    );
+  }
+  return output || '(subagent produced no output)';
+}
+
+/** Execute a synchronous (non-task) tool. */
+function executeReaderAiSyncTool(toolName: string, argsJson: string, lines: string[]): string {
   let args: Record<string, unknown>;
   try {
     args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {};
@@ -1374,12 +1495,14 @@ function buildReaderAiSystemPrompt(source: string, lines: string[], maxPreviewCh
     'You have tools available:',
     '- read_document: Read all or part of the document by line range. Returns numbered lines.',
     '- search_document: Search for text in the document (case-insensitive). Returns matching lines with context.',
+    '- task: Spawn an independent subagent with its own system prompt and fresh context. The subagent can read and search the document but cannot spawn further subagents. Use this when you need a separate perspective, a dedicated role (e.g. a reviewer or advocate), or parallel research. Multiple task calls in the same response run concurrently. Each subagent returns its complete output as the tool result.',
     '',
     'Guidelines:',
     '- For specific questions, use search_document to find relevant sections.',
     '- Cite line numbers when referencing specific parts.',
     '- If the document content already visible contains the answer, respond directly without tools.',
     '- If the document lacks the answer, say so plainly.',
+    '- Use the task tool when a problem benefits from independent analysis by a subagent with a dedicated role or perspective.',
     '',
     `Document info: ${totalLines} lines, ${totalChars} characters.`,
     '',
@@ -1542,7 +1665,10 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         })),
       });
 
-      // Execute each tool call
+      // Execute each tool call — task calls run in parallel, sync tools run sequentially
+      const taskCalls: Array<{ tc: ReaderAiToolCall; parsedArgs: Record<string, unknown> }> = [];
+      const syncCalls: Array<{ tc: ReaderAiToolCall; parsedArgs: Record<string, unknown> | undefined }> = [];
+
       for (const tc of result.toolCalls) {
         let parsedArgs: Record<string, unknown> | undefined;
         try {
@@ -1551,11 +1677,69 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           // send raw string if unparseable
         }
         writeSseEvent('tool_call', { id: tc.id, name: tc.name, arguments: parsedArgs ?? tc.arguments });
-        const toolResult = executeReaderAiTool(tc.name, tc.arguments, lines);
+
+        if (tc.name === 'task' && parsedArgs) {
+          taskCalls.push({ tc, parsedArgs });
+        } else {
+          syncCalls.push({ tc, parsedArgs });
+        }
+      }
+
+      // Run sync tools first
+      for (const { tc } of syncCalls) {
+        const toolResult = executeReaderAiSyncTool(tc.name, tc.arguments, lines);
         toolResultChars += toolResult.length;
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
         writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
+      }
+
+      // Run task calls in parallel (up to READER_AI_MAX_CONCURRENT_TASKS)
+      if (taskCalls.length > 0) {
+        const batches: Array<typeof taskCalls> = [];
+        for (let i = 0; i < taskCalls.length; i += READER_AI_MAX_CONCURRENT_TASKS) {
+          batches.push(taskCalls.slice(i, i + READER_AI_MAX_CONCURRENT_TASKS));
+        }
+        for (const batch of batches) {
+          const taskPromises = batch.map(async ({ tc, parsedArgs }) => {
+            const taskPrompt = typeof parsedArgs.prompt === 'string' ? parsedArgs.prompt : '';
+            const taskSystemPrompt =
+              typeof parsedArgs.system_prompt === 'string' ? parsedArgs.system_prompt : undefined;
+
+            if (!taskPrompt) {
+              return { id: tc.id, result: '(task tool requires a "prompt" argument)' };
+            }
+
+            try {
+              const taskResult = await executeReaderAiSubagent({
+                model,
+                prompt: taskPrompt,
+                systemPrompt: taskSystemPrompt,
+                lines,
+                source,
+                openRouterHeaders,
+                signal: abortController.signal,
+              });
+              return { id: tc.id, result: taskResult };
+            } catch (taskErr) {
+              const message =
+                taskErr instanceof DOMException && (taskErr.name === 'TimeoutError' || taskErr.name === 'AbortError')
+                  ? 'Subagent timed out'
+                  : taskErr instanceof Error
+                    ? taskErr.message
+                    : 'Subagent failed';
+              return { id: tc.id, result: `[Subagent error: ${message}]` };
+            }
+          });
+
+          const taskResults = await Promise.all(taskPromises);
+          for (const { id, result: taskResult } of taskResults) {
+            toolResultChars += taskResult.length;
+            openRouterMessages.push({ role: 'tool', tool_call_id: id, content: taskResult });
+            const resultPreview = taskResult.length > 200 ? `${taskResult.slice(0, 200)}...` : taskResult;
+            writeSseEvent('tool_result', { id, name: 'task', preview: resultPreview });
+          }
+        }
       }
 
       // Stop if tool results have consumed too much of the context window
