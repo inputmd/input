@@ -70,6 +70,14 @@ interface SidebarFolderNode {
 type SidebarTreeNode = SidebarFileNode | SidebarFolderNode;
 type RenameTarget = { kind: 'file' | 'folder'; path: string } | null;
 type CreateKind = 'file' | 'directory';
+type SidebarVisibleNode = {
+  kind: 'file' | 'folder';
+  path: string;
+  parentPath: string | null;
+  depth: number;
+  hasChildren: boolean;
+  collapsed: boolean;
+};
 
 const INDENT_PX = 16;
 const ICON_SIZE = 15;
@@ -260,6 +268,42 @@ function parentFolderPath(path: string): string {
   return slash === -1 ? '' : path.slice(0, slash);
 }
 
+function flattenVisibleTree(
+  nodes: SidebarTreeNode[],
+  collapsedFolders: Record<string, true>,
+  depth = 0,
+  parentPath: string | null = null,
+): SidebarVisibleNode[] {
+  const visible: SidebarVisibleNode[] = [];
+  for (const node of nodes) {
+    if (node.kind === 'folder') {
+      const collapsed = Boolean(collapsedFolders[node.path]);
+      const hasChildren = node.children.length > 0;
+      visible.push({
+        kind: 'folder',
+        path: node.path,
+        parentPath,
+        depth,
+        hasChildren,
+        collapsed,
+      });
+      if (!collapsed && hasChildren) {
+        visible.push(...flattenVisibleTree(node.children, collapsedFolders, depth + 1, node.path));
+      }
+      continue;
+    }
+    visible.push({
+      kind: 'file',
+      path: node.path,
+      parentPath,
+      depth,
+      hasChildren: false,
+      collapsed: false,
+    });
+  }
+  return visible;
+}
+
 function IndentGuides({ depth }: { depth: number }) {
   if (depth === 0) return null;
   const guides = [];
@@ -301,7 +345,7 @@ export function Sidebar({
   const [renameValue, setRenameValue] = useState('');
   const [draggingFilePath, setDraggingFilePath] = useState<string | null>(null);
   const [dropFolderPath, setDropFolderPath] = useState<string | null>(null);
-  const filesRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const createInFlightRef = useRef(false);
@@ -323,6 +367,13 @@ export function Sidebar({
   const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
   const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
   const hasFolders = folderPaths.size > 0;
+  const visibleNodes = useMemo(() => flattenVisibleTree(tree.children, collapsedFolders), [tree, collapsedFolders]);
+  const visibleIndexByPath = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [index, node] of visibleNodes.entries()) map.set(node.path, index);
+    return map;
+  }, [visibleNodes]);
+  const [focusedPath, setFocusedPath] = useState<string | null>(null);
 
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
@@ -331,6 +382,18 @@ export function Sidebar({
   useEffect(() => {
     if (renamingTarget) renameInputRef.current?.focus();
   }, [renamingTarget]);
+
+  useEffect(() => {
+    if (visibleNodes.length === 0) {
+      setFocusedPath(null);
+      return;
+    }
+    setFocusedPath((prev) => {
+      if (prev && visibleIndexByPath.has(prev)) return prev;
+      if (activeFilePath && visibleIndexByPath.has(activeFilePath)) return activeFilePath;
+      return visibleNodes[0]?.path ?? null;
+    });
+  }, [activeFilePath, visibleIndexByPath, visibleNodes]);
 
   useEffect(() => {
     setCollapsedFolders((prev) => {
@@ -438,36 +501,81 @@ export function Sidebar({
     });
   };
 
+  const focusTreeRow = (path: string) => {
+    setFocusedPath(path);
+    rowRefs.current[path]?.focus();
+  };
+
+  const focusNextVisibleOffset = (offset: number) => {
+    if (!focusedPath || visibleNodes.length === 0) return;
+    const index = visibleIndexByPath.get(focusedPath);
+    if (index === undefined) return;
+    const targetIndex = index + offset;
+    if (targetIndex < 0 || targetIndex >= visibleNodes.length) return;
+    const target = visibleNodes[targetIndex];
+    if (!target) return;
+    focusTreeRow(target.path);
+  };
+
+  const firstChildPath = (folderPath: string): string | null => {
+    const folderIndex = visibleIndexByPath.get(folderPath);
+    if (folderIndex === undefined) return null;
+    const folderNode = visibleNodes[folderIndex];
+    const childNode = visibleNodes[folderIndex + 1];
+    if (!folderNode || !childNode) return null;
+    if (childNode.parentPath !== folderNode.path) return null;
+    return childNode.path;
+  };
+
   const handleFilesKeyDown = (e: KeyboardEvent) => {
-    const container = filesRef.current;
-    if (!container) return;
-    const rows = Array.from(container.querySelectorAll<HTMLElement>('.sidebar-file'));
-    if (rows.length === 0) return;
-    const active = document.activeElement as HTMLElement | null;
-    const idx = active ? rows.indexOf(active) : -1;
+    const targetElement = e.target as HTMLElement | null;
+    if (targetElement?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (!focusedPath || visibleNodes.length === 0) return;
+    const currentIndex = visibleIndexByPath.get(focusedPath);
+    if (currentIndex === undefined) return;
+    const current = visibleNodes[currentIndex];
+    if (!current) return;
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      const next = idx < rows.length - 1 ? idx + 1 : 0;
-      rows[next].focus();
-    } else if (e.key === 'ArrowUp') {
+      focusNextVisibleOffset(1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
       e.preventDefault();
-      const prev = idx > 0 ? idx - 1 : rows.length - 1;
-      rows[prev].focus();
-    } else if (e.key === 'ArrowRight' && idx >= 0) {
-      const row = rows[idx];
-      const path = row.dataset.folderPath;
-      if (path && collapsedFolders[path]) {
-        e.preventDefault();
-        toggleFolder(path);
+      focusNextVisibleOffset(-1);
+      return;
+    }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      const first = visibleNodes[0];
+      if (first) focusTreeRow(first.path);
+      return;
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      const last = visibleNodes[visibleNodes.length - 1];
+      if (last) focusTreeRow(last.path);
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      if (current.kind !== 'folder') return;
+      e.preventDefault();
+      if (current.collapsed) {
+        toggleFolder(current.path);
+        return;
       }
-    } else if (e.key === 'ArrowLeft' && idx >= 0) {
-      const row = rows[idx];
-      const path = row.dataset.folderPath;
-      if (path && !collapsedFolders[path]) {
-        e.preventDefault();
-        toggleFolder(path);
+      const childPath = firstChildPath(current.path);
+      if (childPath) focusTreeRow(childPath);
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (current.kind === 'folder' && !current.collapsed && current.hasChildren) {
+        toggleFolder(current.path);
+        return;
       }
+      if (current.parentPath) focusTreeRow(current.parentPath);
     }
   };
 
@@ -529,11 +637,18 @@ export function Sidebar({
     const folderRow = (
       <div
         class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${folder.deemphasized ? ' sidebar-file-deemphasized' : ''}${isDropTarget ? ' drop-target' : ''}`}
-        tabIndex={0}
-        role="button"
+        ref={(el) => {
+          rowRefs.current[folder.path] = el;
+        }}
+        tabIndex={focusedPath === folder.path ? 0 : -1}
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-expanded={!collapsed}
+        aria-selected={folder.hasActiveDescendant || undefined}
         data-folder-path={folder.path}
         style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
         onClick={() => toggleFolder(folder.path)}
+        onFocus={() => setFocusedPath(folder.path)}
         onDragOver={(e) => {
           if (readOnly || !draggingFilePath) return;
           e.preventDefault();
@@ -643,12 +758,18 @@ export function Sidebar({
     const fileRow = (
       <div
         class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${draggingFilePath === file.path ? ' dragging' : ''}`}
-        tabIndex={0}
-        role="button"
+        ref={(el) => {
+          rowRefs.current[file.path] = el;
+        }}
+        tabIndex={focusedPath === file.path ? 0 : -1}
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-selected={file.active}
         aria-current={file.active ? 'true' : undefined}
         draggable={!readOnly && file.editable && !isRenaming}
         style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
         onClick={() => !file.active && onSelectFile(file.path)}
+        onFocus={() => setFocusedPath(file.path)}
         onDblClick={() => {
           if (!readOnly && file.editable) void startRename({ kind: 'file', path: file.path });
         }}
@@ -763,7 +884,7 @@ export function Sidebar({
           <div key={`tree:${node.path}`}>
             {renderFolderRow(node, depth)}
             {collapsed ? null : (
-              <div class="sidebar-folder-children">
+              <div class="sidebar-folder-children" role="group">
                 <div class="sidebar-folder-children-inner">{renderNodes(node.children, depth + 1)}</div>
               </div>
             )}
@@ -809,8 +930,9 @@ export function Sidebar({
         )}
       </div>
       <div
-        ref={filesRef}
         class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}${draggingFilePath && dropFolderPath === '' ? ' drop-target-root' : ''}`}
+        role="tree"
+        aria-label="Workspace files"
         onKeyDown={handleFilesKeyDown}
         onDragOver={(e) => {
           if (readOnly || !draggingFilePath) return;

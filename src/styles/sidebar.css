@@ -282,10 +282,6 @@
   transition: grid-template-rows 0.15s ease;
 }
 
-.sidebar-folder-children.collapsed {
-  grid-template-rows: 0fr;
-}
-
 .sidebar-folder-children-inner {
   overflow: hidden;
 }
