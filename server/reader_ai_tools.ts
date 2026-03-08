@@ -519,6 +519,12 @@ export class StagedChanges {
       if (lower.includes(lowerOld)) {
         return '(old_text not found — a case-insensitive match exists. The old_text must match exactly, including case.)';
       }
+      // If the file has pending staged changes, the content may have been modified
+      // by a concurrent subagent — hint this so the LLM re-reads instead of guessing.
+      const hasBeenEdited = this.changes.has(path);
+      if (hasBeenEdited) {
+        return '(old_text not found in file — the file was recently modified (possibly by a concurrent edit). Use read_file to see the current content before retrying.)';
+      }
       return '(old_text not found in file — it must match the file content exactly, including whitespace and indentation. Use read_file to verify the current content.)';
     }
 
