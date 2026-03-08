@@ -96,6 +96,26 @@ function ToolLogSection({ entries }: { entries: ReaderAiToolLogEntry[] }) {
   );
 }
 
+function DiffView({ diff }: { diff: string }) {
+  const lines = diff.split('\n');
+  return (
+    <pre class="reader-ai-diff">
+      {lines.map((line, i) => {
+        let cls = 'reader-ai-diff-line';
+        if (line.startsWith('+++') || line.startsWith('---')) cls += ' reader-ai-diff-line--header';
+        else if (line.startsWith('@@')) cls += ' reader-ai-diff-line--hunk';
+        else if (line.startsWith('+')) cls += ' reader-ai-diff-line--add';
+        else if (line.startsWith('-')) cls += ' reader-ai-diff-line--del';
+        return (
+          <div key={i} class={cls}>
+            {line}
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
 function StagedChangesSection({ changes }: { changes: ReaderAiStagedChange[] }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   if (changes.length === 0) return null;
@@ -133,9 +153,7 @@ function StagedChangesSection({ changes }: { changes: ReaderAiStagedChange[] }) 
             </span>
             <span class="reader-ai-staged-change-path">{change.path}</span>
           </button>
-          {expandedPaths.has(change.path) ? (
-            <pre class="reader-ai-staged-change-diff">{change.diff}</pre>
-          ) : null}
+          {expandedPaths.has(change.path) ? <DiffView diff={change.diff} /> : null}
         </div>
       ))}
     </div>

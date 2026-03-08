@@ -685,17 +685,52 @@
   font-size: 11.5px;
 }
 
-.reader-ai-staged-change-diff {
+/* ── Diff viewer ── */
+
+.reader-ai-diff {
   margin: 0;
-  padding: 8px 10px;
+  padding: 4px 0;
   font-family: var(--font-mono, monospace);
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.55;
   overflow-x: auto;
   background: color-mix(in srgb, var(--bg) 60%, var(--toolbar-bg) 40%);
   border-top: 1px solid var(--border);
   white-space: pre;
+}
+
+.reader-ai-diff-line {
+  padding: 0 10px;
   color: var(--text-secondary);
+}
+
+.reader-ai-diff-line--header {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.reader-ai-diff-line--hunk {
+  color: color-mix(in srgb, var(--focus-border) 85%, var(--text));
+}
+
+.reader-ai-diff-line--add {
+  color: #2aa198;
+  background: color-mix(in srgb, #2aa198 8%, transparent);
+}
+
+.reader-ai-diff-line--del {
+  color: #dc322f;
+  background: color-mix(in srgb, #dc322f 8%, transparent);
+}
+
+[data-theme="light"] .reader-ai-diff-line--add {
+  color: #0d6e2d;
+  background: color-mix(in srgb, #2ea043 10%, transparent);
+}
+
+[data-theme="light"] .reader-ai-diff-line--del {
+  color: #a0111f;
+  background: color-mix(in srgb, #cf222e 10%, transparent);
 }
 
 @media (max-width: 1023px) {
