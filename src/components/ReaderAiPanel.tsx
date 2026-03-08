@@ -27,6 +27,12 @@ interface ReaderAiPanelProps {
   onRetryLastUserMessage: () => Promise<void>;
   onStop: () => void;
   onClear: () => void;
+  repoModeAvailable: boolean;
+  repoModeEnabled: boolean;
+  repoModeLoading: boolean;
+  repoModeFileCount: number;
+  repoModeDisabledReason: string | null;
+  onToggleRepoMode: (enabled: boolean) => void;
 }
 
 function displayModelName(name: string): string {
@@ -55,6 +61,12 @@ export function ReaderAiPanel({
   onRetryLastUserMessage,
   onStop,
   onClear,
+  repoModeAvailable,
+  repoModeEnabled,
+  repoModeLoading,
+  repoModeFileCount,
+  repoModeDisabledReason,
+  onToggleRepoMode,
 }: ReaderAiPanelProps) {
   const isMac = typeof navigator !== 'undefined' && /(mac|iphone|ipad|ipod)/i.test(navigator.platform ?? '');
   const clearChatShortcutLabel = isMac ? '⌘K' : 'Ctrl+K';
@@ -318,6 +330,33 @@ export function ReaderAiPanel({
 
   return (
     <aside ref={panelRef} class="reader-ai-panel" aria-label="Reader AI panel">
+      {repoModeAvailable ? (
+        <div
+          class="reader-ai-repo-mode"
+          title={repoModeDisabledReason ?? (repoModeEnabled ? 'Disable repo-wide context' : 'Enable repo-wide context')}
+        >
+          <label class="reader-ai-toggle">
+            <input
+              type="checkbox"
+              checked={repoModeEnabled}
+              disabled={sending || repoModeLoading || Boolean(repoModeDisabledReason)}
+              onChange={(e) => onToggleRepoMode(e.currentTarget.checked)}
+            />
+            <span class="reader-ai-toggle-track">
+              <span class="reader-ai-toggle-thumb" />
+            </span>
+          </label>
+          <span
+            class={`reader-ai-repo-mode-label${repoModeDisabledReason ? ' reader-ai-repo-mode-label--disabled' : ''}`}
+          >
+            {repoModeLoading
+              ? 'Loading repo...'
+              : repoModeEnabled && repoModeFileCount > 0
+                ? `Repo mode (${repoModeFileCount} files)`
+                : 'Repo mode'}
+          </span>
+        </div>
+      ) : null}
       <div class="reader-ai-messages" ref={messagesRef}>
         {composerAtTop ? composer : null}
         {!hasMessages ? (

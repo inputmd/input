@@ -1,4 +1,7 @@
 import type http from 'node:http';
+import { Readable } from 'node:stream';
+import { createGunzip } from 'node:zlib';
+import tar from 'tar-stream';
 import {
   APP_URL,
   GITHUB_CLIENT_ID,
@@ -16,6 +19,19 @@ import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationTok
 import { json, readJson, requireEnv, requireString } from './http_helpers';
 import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
 import {
+  buildReaderAiSystemPrompt,
+  executeReaderAiSubagent,
+  executeReaderAiSyncTool,
+  type OpenRouterMessage,
+  parseReaderAiUpstreamStream,
+  READER_AI_DOC_PREVIEW_CHARS,
+  READER_AI_MAX_CONCURRENT_TASKS,
+  READER_AI_TOOLS,
+  type ReaderAiStreamParseResult,
+  type ReaderAiToolCall,
+  readUpstreamError,
+} from './reader_ai_tools';
+import {
   clearRememberedInstallationForUser,
   consumeOAuthState,
   createOAuthState,
@@ -26,19 +42,6 @@ import {
   refreshSession,
   rememberInstallationForUser,
 } from './session';
-import {
-  type OpenRouterMessage,
-  READER_AI_DOC_PREVIEW_CHARS,
-  READER_AI_MAX_CONCURRENT_TASKS,
-  READER_AI_TOOLS,
-  type ReaderAiStreamParseResult,
-  type ReaderAiToolCall,
-  buildReaderAiSystemPrompt,
-  executeReaderAiSubagent,
-  executeReaderAiSyncTool,
-  parseReaderAiUpstreamStream,
-  readUpstreamError,
-} from './reader_ai_tools';
 import { createRepoFileShareToken, verifyRepoFileShareToken } from './share_tokens';
 import type { Session } from './types';
 
@@ -1392,12 +1395,148 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   }
 }
 
+// ── Repo tarball download (bulk file fetch for AI repo mode) ──
+
+const REPO_TARBALL_MAX_FILES = 100;
+const REPO_TARBALL_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+const REPO_TARBALL_TIMEOUT_MS = 30_000;
+
+interface TarballFile {
+  path: string;
+  content: string;
+  size: number;
+}
+
+async function extractTarball(stream: ReadableStream<Uint8Array>): Promise<TarballFile[]> {
+  const files: TarballFile[] = [];
+  const extract = tar.extract();
+  const gunzip = createGunzip();
+
+  return new Promise((resolve, reject) => {
+    extract.on('entry', (header, entryStream, next) => {
+      if (header.type !== 'file') {
+        entryStream.resume();
+        next();
+        return;
+      }
+      // Tarball paths are prefixed with <owner>-<repo>-<sha>/
+      const rawPath = header.name;
+      const slashIndex = rawPath.indexOf('/');
+      const path = slashIndex >= 0 ? rawPath.slice(slashIndex + 1) : rawPath;
+      if (!path) {
+        entryStream.resume();
+        next();
+        return;
+      }
+
+      const size = header.size ?? 0;
+      if (size > REPO_TARBALL_MAX_FILE_SIZE) {
+        entryStream.resume();
+        next();
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      entryStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      entryStream.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        // Skip binary files — check for null bytes in the first 8KB
+        const preview = buf.subarray(0, 8192);
+        if (preview.includes(0)) {
+          next();
+          return;
+        }
+        files.push({ path, content: buf.toString('utf8'), size: buf.length });
+        if (files.length > REPO_TARBALL_MAX_FILES) {
+          extract.destroy(new Error('too_many_files'));
+          return;
+        }
+        next();
+      });
+      entryStream.on('error', next);
+    });
+
+    extract.on('finish', () => resolve(files));
+    extract.on('error', (err) => {
+      if (err.message === 'too_many_files') {
+        reject(new ClientError(`Repository has more than ${REPO_TARBALL_MAX_FILES} text files`, 400));
+      } else {
+        reject(err);
+      }
+    });
+
+    // Pipe ReadableStream → Node stream → gunzip → tar extract
+    const nodeStream = readableStreamToNodeStream(stream);
+    nodeStream.pipe(gunzip).pipe(extract);
+    gunzip.on('error', (err) => reject(new ClientError(`Failed to decompress tarball: ${err.message}`, 502)));
+  });
+}
+
+function readableStreamToNodeStream(webStream: ReadableStream<Uint8Array>): Readable {
+  const reader = webStream.getReader();
+  return new Readable({
+    async read() {
+      try {
+        const { value, done } = await reader.read();
+        if (done) {
+          this.push(null);
+        } else {
+          this.push(Buffer.from(value));
+        }
+      } catch (err) {
+        this.destroy(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+  });
+}
+
+async function handleRepoTarball(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  const installationId = requireMatchedInstallation(ctx, session, 1);
+  const owner = ctx.match[2];
+  const repo = ctx.match[3];
+  const ref = ctx.url.searchParams.get('ref') || 'HEAD';
+
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tarball/${encodeURIComponent(ref)}`;
+  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
+    headers: { Accept: 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(REPO_TARBALL_TIMEOUT_MS),
+  });
+
+  if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
+  const files = await extractTarball(ghRes.body);
+  json(ctx.res, 200, { files });
+}
+
+async function handlePublicRepoTarball(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimitForSession(ctx, getSession(ctx.req))) return;
+  const owner = decodeURIComponent(ctx.match[1]);
+  const repo = decodeURIComponent(ctx.match[2]);
+  const ref = ctx.url.searchParams.get('ref') || 'HEAD';
+
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tarball/${encodeURIComponent(ref)}`;
+  const ghRes = await fetchPublicGitHub(ghPath, {
+    signal: AbortSignal.timeout(REPO_TARBALL_TIMEOUT_MS),
+  });
+  if (!ghRes.ok) {
+    const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
+    return;
+  }
+  if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
+  const files = await extractTarball(ghRes.body);
+  json(ctx.res, 200, { files });
+}
+
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const RAW_CONTENT_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const TREE_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tree$/;
 const PUBLIC_REPO_CONTENTS_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const PUBLIC_REPO_RAW_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const PUBLIC_REPO_TREE_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tree$/;
+const TARBALL_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tarball$/;
+const PUBLIC_REPO_TARBALL_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tarball$/;
 const SHARE_REPO_FILE_PATTERN = /^\/api\/share\/repo-file\/([^/]+)$/;
 
 const routes: RouteDef[] = [
@@ -1422,9 +1561,11 @@ const routes: RouteDef[] = [
   { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
   { method: 'GET', pattern: RAW_CONTENT_PATTERN, handler: handleGetRawContent },
   { method: 'GET', pattern: TREE_PATTERN, handler: handleGetTree },
+  { method: 'GET', pattern: TARBALL_PATTERN, handler: handleRepoTarball },
   { method: 'GET', pattern: PUBLIC_REPO_CONTENTS_PATTERN, handler: handleGetPublicRepoContents },
   { method: 'GET', pattern: PUBLIC_REPO_RAW_PATTERN, handler: handleGetPublicRepoRaw },
   { method: 'GET', pattern: PUBLIC_REPO_TREE_PATTERN, handler: handleGetPublicTree },
+  { method: 'GET', pattern: PUBLIC_REPO_TARBALL_PATTERN, handler: handlePublicRepoTarball },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },

@@ -39,8 +39,10 @@ import {
   getInstallUrl,
   getPendingInstallationId,
   getPublicRepoContents,
+  getPublicRepoTarball,
   getPublicRepoTree,
   getRepoContents,
+  getRepoTarball,
   getRepoTree,
   getSelectedRepo,
   getSharedRepoFile,
@@ -51,12 +53,14 @@ import {
   publicRepoRawFileUrl,
   putRepoFile,
   type RepoContents,
+  type RepoFileEntry,
   rememberInstallState,
   repoRawFileUrl,
   SessionExpiredError,
   setInstallationId,
   setPendingInstallationId,
   setSelectedRepo as storeSelectedRepo,
+  tryBuildRepoFilesFromCache,
 } from './github_app';
 import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
@@ -764,6 +768,9 @@ export function App() {
   const [readerAiRetryAvailable, setReaderAiRetryAvailable] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
+  const [readerAiRepoMode, setReaderAiRepoMode] = useState(false);
+  const [readerAiRepoModeLoading, setReaderAiRepoModeLoading] = useState(false);
+  const [readerAiRepoFiles, setReaderAiRepoFiles] = useState<RepoFileEntry[] | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -2266,6 +2273,95 @@ export function App() {
     readerAiModelsLoading,
     showReaderAiToggleCandidate,
   ]);
+
+  // ── Repo mode availability ──
+  const REPO_MODE_MAX_FILES = 100;
+  const REPO_MODE_MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+  const repoModeAvailable = repoAccessMode !== null;
+
+  const repoModeFileCount = readerAiRepoFiles?.length ?? 0;
+
+  const repoModeDisabledReason = useMemo((): string | null => {
+    if (!repoModeAvailable) return null;
+    // Check against the sidebar files list (all files) when available
+    const allFiles = repoSidebarFiles.length > 0 ? repoSidebarFiles : repoFiles;
+    if (allFiles.length === 0) return null; // tree not loaded yet — allow toggle, will validate on fetch
+    if (allFiles.length > REPO_MODE_MAX_FILES) return `Too many files (${allFiles.length}, max ${REPO_MODE_MAX_FILES})`;
+    const oversized = allFiles.find((f) => f.size != null && f.size > REPO_MODE_MAX_FILE_SIZE);
+    if (oversized)
+      return `File too large: ${oversized.path} (${Math.round((oversized.size ?? 0) / 1024 / 1024)}MB, max 50MB)`;
+    return null;
+  }, [repoModeAvailable, repoSidebarFiles, repoFiles]);
+
+  // Reset repo mode when navigating away from a repo
+  useEffect(() => {
+    if (!repoModeAvailable) {
+      setReaderAiRepoMode(false);
+      setReaderAiRepoFiles(null);
+    }
+  }, [repoModeAvailable]);
+
+  // Auto-enable repo mode when all files are already cached
+  useEffect(() => {
+    if (!repoModeAvailable || readerAiRepoMode || readerAiRepoModeLoading || repoModeDisabledReason) return;
+    const allFiles = repoSidebarFiles.length > 0 ? repoSidebarFiles : repoFiles;
+    if (allFiles.length === 0) return;
+
+    let cached: RepoFileEntry[] | null = null;
+    if (repoAccessMode === 'installed' && installationId && selectedRepo) {
+      cached = tryBuildRepoFilesFromCache({ installationId, repoFullName: selectedRepo }, allFiles);
+    } else if (repoAccessMode === 'public' && publicRepoRef) {
+      cached = tryBuildRepoFilesFromCache({ owner: publicRepoRef.owner, repo: publicRepoRef.repo }, allFiles);
+    }
+    if (cached && cached.length > 0) {
+      setReaderAiRepoFiles(cached);
+      setReaderAiRepoMode(true);
+    }
+  }, [
+    repoModeAvailable,
+    readerAiRepoMode,
+    readerAiRepoModeLoading,
+    repoModeDisabledReason,
+    repoSidebarFiles,
+    repoFiles,
+    repoAccessMode,
+    installationId,
+    selectedRepo,
+    publicRepoRef,
+  ]);
+
+  const onToggleRepoMode = useCallback(
+    async (enabled: boolean) => {
+      if (!enabled) {
+        setReaderAiRepoMode(false);
+        setReaderAiRepoFiles(null);
+        return;
+      }
+
+      setReaderAiRepoModeLoading(true);
+      try {
+        let files: RepoFileEntry[];
+        if (repoAccessMode === 'installed' && installationId && selectedRepo) {
+          files = await getRepoTarball(installationId, selectedRepo);
+        } else if (repoAccessMode === 'public' && publicRepoRef) {
+          files = await getPublicRepoTarball(publicRepoRef.owner, publicRepoRef.repo);
+        } else {
+          return;
+        }
+        setReaderAiRepoFiles(files);
+        setReaderAiRepoMode(true);
+      } catch (err) {
+        showRateLimitToastIfNeeded(err);
+        setReaderAiError(err instanceof Error ? err.message : 'Failed to load repo files');
+        setReaderAiRepoMode(false);
+        setReaderAiRepoFiles(null);
+      } finally {
+        setReaderAiRepoModeLoading(false);
+      }
+    },
+    [repoAccessMode, installationId, selectedRepo, publicRepoRef, showRateLimitToastIfNeeded],
+  );
 
   const streamReaderAiAssistant = useCallback(
     async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
@@ -3972,6 +4068,12 @@ export function App() {
               onRetryLastUserMessage={onReaderAiRetryLastMessage}
               onStop={onReaderAiStop}
               onClear={onReaderAiClear}
+              repoModeAvailable={repoModeAvailable}
+              repoModeEnabled={readerAiRepoMode}
+              repoModeLoading={readerAiRepoModeLoading}
+              repoModeFileCount={repoModeFileCount}
+              repoModeDisabledReason={repoModeDisabledReason}
+              onToggleRepoMode={(enabled) => void onToggleRepoMode(enabled)}
             />
           </>
         ) : null}

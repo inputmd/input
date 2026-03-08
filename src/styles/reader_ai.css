@@ -475,6 +475,81 @@
   height: 13px;
 }
 
+/* ── Repo mode toggle ── */
+
+.reader-ai-repo-mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.reader-ai-repo-mode-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.reader-ai-repo-mode-label--disabled {
+  opacity: 0.5;
+}
+
+.reader-ai-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.reader-ai-toggle input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reader-ai-toggle-track {
+  position: relative;
+  width: 29px;
+  height: 16px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-secondary) 35%, transparent);
+  transition: background 0.2s ease;
+}
+
+.reader-ai-toggle input:checked + .reader-ai-toggle-track {
+  background: var(--focus-border);
+}
+
+.reader-ai-toggle input:disabled + .reader-ai-toggle-track {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.reader-ai-toggle input:focus-visible + .reader-ai-toggle-track {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
+}
+
+.reader-ai-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.reader-ai-toggle input:checked + .reader-ai-toggle-track .reader-ai-toggle-thumb {
+  transform: translateX(13px);
+}
+
 @media (max-width: 1023px) {
   .app-body--with-reader-ai main {
     margin-right: 0;

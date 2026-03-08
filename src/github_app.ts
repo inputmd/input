@@ -437,6 +437,65 @@ export function publicRepoRawFileUrl(owner: string, repo: string, path: string):
   return `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw?${qs.toString()}`;
 }
 
+export interface RepoFileEntry {
+  path: string;
+  content: string;
+  size: number;
+}
+
+export async function getRepoTarball(
+  installationId: string,
+  repoFullName: string,
+  ref?: string,
+): Promise<RepoFileEntry[]> {
+  const { owner, repo } = splitFullName(repoFullName);
+  const qs = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+  const url = `${installationUrl(installationId, 'repos', owner, repo)}/tarball${qs}`;
+  const res = await authFetch(url);
+  const data = (await res.json()) as { files: RepoFileEntry[] };
+  return data.files;
+}
+
+export async function getPublicRepoTarball(owner: string, repo: string, ref?: string): Promise<RepoFileEntry[]> {
+  const qs = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+  const url = `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tarball${qs}`;
+  const res = await publicFetch(url);
+  const data = (await res.json()) as { files: RepoFileEntry[] };
+  return data.files;
+}
+
+/**
+ * Check if all files in the tree are already in the contents cache.
+ * If so, return them as RepoFileEntry[]. Otherwise return null.
+ *
+ * For installed repos, pass `{ installationId, repoFullName }`.
+ * For public repos, pass `{ owner, repo }`.
+ */
+export function tryBuildRepoFilesFromCache(
+  identity: { installationId: string; repoFullName: string } | { owner: string; repo: string },
+  tree: Array<{ path: string; size?: number }>,
+): RepoFileEntry[] | null {
+  const cacheIdentity =
+    'installationId' in identity
+      ? identity.installationId
+      : publicRepoContentsCacheIdentity(identity.owner, identity.repo);
+  const repoFullName = 'repoFullName' in identity ? identity.repoFullName : `${identity.owner}/${identity.repo}`;
+
+  const files: RepoFileEntry[] = [];
+  for (const entry of tree) {
+    const cacheKey = repoContentsCacheKey(cacheIdentity, repoFullName, entry.path);
+    const cached = repoContentsCache.get(cacheKey);
+    if (!cached || Array.isArray(cached) || cached.type !== 'file' || !cached.content) return null;
+    try {
+      const content = atob(cached.content);
+      files.push({ path: entry.path, content, size: content.length });
+    } catch {
+      return null;
+    }
+  }
+  return files;
+}
+
 export async function putRepoFile(
   installationId: string,
   repoFullName: string,
