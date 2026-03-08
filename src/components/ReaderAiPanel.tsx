@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowRight, ChevronDown, ChevronRight, CircleStop, MoreHorizontal } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseMarkdownToHtml } from '../markdown';
 import { type ReaderAiModel, type ReaderAiStagedChange, readerAiModelPriorityRank } from '../reader_ai';
@@ -687,8 +687,15 @@ export function ReaderAiPanel({
         {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
         {sending && toolStatus && toolLog.length === 0 ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
         {!sending && suggestProjectMode ? (
-          <div class="reader-ai-suggest-project-mode">
-            <span>This question may need access to other files in the project.</span>
+          <div class="reader-ai-suggest-project-mode" role="status" aria-live="polite">
+            <div class="reader-ai-suggest-project-mode-copy">
+              <span class="reader-ai-suggest-project-mode-icon" aria-hidden="true">
+                <CircleAlert size={14} />
+              </span>
+              <span class="reader-ai-suggest-project-mode-text">
+                <span>This question may need access to other files in the project.</span>
+              </span>
+            </div>
             <button
               type="button"
               class="reader-ai-suggest-project-mode-btn"

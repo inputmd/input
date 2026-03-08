@@ -805,6 +805,7 @@ export function App() {
   const [readerAiRepoFiles, setReaderAiRepoFiles] = useState<RepoFileEntry[] | null>(null);
   const [readerAiProjectId, setReaderAiProjectId] = useState<string | null>(null);
   const [readerAiSuggestProjectMode, setReaderAiSuggestProjectMode] = useState(false);
+  const [readerAiRetryAfterProjectModeEnable, setReaderAiRetryAfterProjectModeEnable] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -2365,6 +2366,7 @@ export function App() {
     if (!repoModeAvailable) {
       setReaderAiRepoMode(false);
       setReaderAiRepoFiles(null);
+      setReaderAiRetryAfterProjectModeEnable(false);
       if (readerAiProjectId) {
         void deleteReaderAiProjectSession(readerAiProjectId);
         setReaderAiProjectId(null);
@@ -2414,12 +2416,14 @@ export function App() {
       if (!enabled) {
         setReaderAiRepoMode(false);
         setReaderAiRepoFiles(null);
+        setReaderAiRetryAfterProjectModeEnable(false);
         if (readerAiProjectId) {
           void deleteReaderAiProjectSession(readerAiProjectId);
           setReaderAiProjectId(null);
         }
         return;
       }
+      const shouldRetryAfterEnable = readerAiSuggestProjectMode;
 
       setReaderAiRepoModeLoading(true);
       try {
@@ -2444,12 +2448,14 @@ export function App() {
         setReaderAiProjectId(ps.projectId);
         setReaderAiRepoMode(true);
         setReaderAiSuggestProjectMode(false);
+        setReaderAiRetryAfterProjectModeEnable(shouldRetryAfterEnable);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
         setReaderAiError(err instanceof Error ? err.message : 'Failed to load repo files');
         setReaderAiRepoMode(false);
         setReaderAiRepoFiles(null);
         setReaderAiProjectId(null);
+        setReaderAiRetryAfterProjectModeEnable(false);
       } finally {
         setReaderAiRepoModeLoading(false);
       }
@@ -2461,6 +2467,7 @@ export function App() {
       publicRepoRef,
       showRateLimitToastIfNeeded,
       readerAiProjectId,
+      readerAiSuggestProjectMode,
       isGistContext,
       gistFiles,
     ],
@@ -2854,6 +2861,12 @@ export function App() {
     const messagesToReplay = readerAiMessages.slice(0, lastUserIndex + 1);
     await streamReaderAiAssistant(messagesToReplay);
   }, [readerAiMessages, readerAiSending, streamReaderAiAssistant]);
+
+  useEffect(() => {
+    if (!readerAiRetryAfterProjectModeEnable || !readerAiRepoMode || readerAiSending) return;
+    setReaderAiRetryAfterProjectModeEnable(false);
+    void onReaderAiRetryLastMessage();
+  }, [readerAiRetryAfterProjectModeEnable, readerAiRepoMode, readerAiSending, onReaderAiRetryLastMessage]);
 
   // --- Sign out ---
   const signOut = useCallback(() => {
