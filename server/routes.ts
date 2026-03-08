@@ -1607,12 +1607,27 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   // Emit staged changes if any edits were made
   if (!ctx.res.writableEnded && stagedChanges?.hasChanges()) {
-    const changes = stagedChanges.getChanges().map((c) => ({
+    const allChanges = stagedChanges.getChanges();
+    const changes = allChanges.map((c) => ({
       path: c.path,
       type: c.type,
       diff: c.diff,
     }));
-    ctx.res.write(`event: staged_changes\ndata: ${JSON.stringify({ changes })}\n\n`);
+    // Generate a suggested commit message from the changes
+    const edits = allChanges.filter((c) => c.type === 'edit').map((c) => c.path);
+    const creates = allChanges.filter((c) => c.type === 'create').map((c) => c.path);
+    const deletes = allChanges.filter((c) => c.type === 'delete').map((c) => c.path);
+    const parts: string[] = [];
+    if (edits.length === 1) parts.push(`Update ${edits[0]}`);
+    else if (edits.length > 1) parts.push(`Update ${edits.length} files`);
+    if (creates.length === 1) parts.push(`add ${creates[0]}`);
+    else if (creates.length > 1) parts.push(`add ${creates.length} files`);
+    if (deletes.length === 1) parts.push(`delete ${deletes[0]}`);
+    else if (deletes.length > 1) parts.push(`delete ${deletes.length} files`);
+    const suggestedCommitMessage = parts.join(', ') || 'Apply AI-suggested changes';
+    ctx.res.write(
+      `event: staged_changes\ndata: ${JSON.stringify({ changes, suggested_commit_message: suggestedCommitMessage })}\n\n`,
+    );
   }
 
   if (!ctx.res.writableEnded) {

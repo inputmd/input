@@ -782,6 +782,7 @@ export function App() {
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
   >([]);
+  const [readerAiSuggestedCommitMessage, setReaderAiSuggestedCommitMessage] = useState('');
   const [readerAiApplyingChanges, setReaderAiApplyingChanges] = useState(false);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [readerAiRepoMode, setReaderAiRepoMode] = useState(false);
@@ -2487,8 +2488,9 @@ export function App() {
               setReaderAiToolStatus(null);
               setReaderAiToolLog((log) => [...log, { type: 'result', name: event.name, detail: event.preview }]);
             },
-            onStagedChanges: (changes) => {
+            onStagedChanges: (changes, suggestedCommitMessage) => {
               setReaderAiStagedChanges(changes);
+              if (suggestedCommitMessage) setReaderAiSuggestedCommitMessage(suggestedCommitMessage);
             },
             onDelta: (delta) => {
               if (!delta) return;
@@ -4277,6 +4279,7 @@ export function App() {
               toolStatus={readerAiToolStatus}
               toolLog={readerAiToolLog}
               stagedChanges={readerAiStagedChanges}
+              suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
               canApplyChanges={
                 (repoAccessMode === 'installed' && Boolean(installationId && selectedRepo)) ||

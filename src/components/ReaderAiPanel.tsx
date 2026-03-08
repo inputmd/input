@@ -28,6 +28,7 @@ interface ReaderAiPanelProps {
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
   stagedChanges: ReaderAiStagedChange[];
+  suggestedCommitMessage: string;
   applyingChanges: boolean;
   canApplyChanges: boolean;
   onApplyChanges: (commitMessage?: string) => void;
@@ -125,17 +126,19 @@ function DiffView({ diff }: { diff: string }) {
 
 function StagedChangesSection({
   changes,
+  defaultCommitMessage,
   applying,
   canApply,
   onApply,
 }: {
   changes: ReaderAiStagedChange[];
+  defaultCommitMessage: string;
   applying: boolean;
   canApply: boolean;
   onApply: (commitMessage?: string) => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [commitMessage, setCommitMessage] = useState('');
+  const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
   if (changes.length === 0) return null;
 
   const togglePath = (path: string) => {
@@ -218,6 +221,7 @@ export function ReaderAiPanel({
   toolStatus,
   toolLog,
   stagedChanges,
+  suggestedCommitMessage,
   applyingChanges,
   canApplyChanges,
   onApplyChanges,
@@ -677,6 +681,7 @@ export function ReaderAiPanel({
         {!sending && stagedChanges.length > 0 ? (
           <StagedChangesSection
             changes={stagedChanges}
+            defaultCommitMessage={suggestedCommitMessage}
             applying={applyingChanges}
             canApply={canApplyChanges}
             onApply={onApplyChanges}

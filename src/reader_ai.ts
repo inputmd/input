@@ -42,7 +42,7 @@ interface ReaderAiStreamOptions {
   onSummary?: (summary: string) => void;
   onToolCall?: (event: ReaderAiToolCallEvent) => void;
   onToolResult?: (event: ReaderAiToolResultEvent) => void;
-  onStagedChanges?: (changes: ReaderAiStagedChange[]) => void;
+  onStagedChanges?: (changes: ReaderAiStagedChange[], suggestedCommitMessage?: string) => void;
   onStreamError?: (message: string) => void;
   onTurnStart?: (iteration: number) => void;
   onTurnEnd?: (iteration: number, reason: string) => void;
@@ -235,8 +235,8 @@ export async function askReaderAiStream(
       } else if (eventType === 'staged_changes') {
         if (options.onStagedChanges) {
           try {
-            const parsed = JSON.parse(data) as { changes?: ReaderAiStagedChange[] };
-            if (Array.isArray(parsed.changes)) options.onStagedChanges(parsed.changes);
+            const parsed = JSON.parse(data) as { changes?: ReaderAiStagedChange[]; suggested_commit_message?: string };
+            if (Array.isArray(parsed.changes)) options.onStagedChanges(parsed.changes, parsed.suggested_commit_message);
           } catch {
             // Ignore malformed staged_changes event.
           }
