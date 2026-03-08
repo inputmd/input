@@ -142,6 +142,20 @@ export async function resetReaderAiProjectSession(projectId: string): Promise<vo
   }
 }
 
+export async function updateReaderAiProjectSessionFile(
+  projectId: string,
+  path: string,
+  content: string,
+): Promise<void> {
+  const res = await fetch(`/api/ai/project/${encodeURIComponent(projectId)}/file`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  });
+  if (!res.ok) throw await responseToApiError(res);
+}
+
 export async function deleteReaderAiProjectSession(projectId: string): Promise<void> {
   try {
     await fetch(`/api/ai/project/${encodeURIComponent(projectId)}`, {

@@ -1256,6 +1256,32 @@ async function handleReaderAiProjectFiles(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, { files });
 }
 
+async function handleReaderAiProjectFileUpdate(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+
+  const projectId = ctx.match[1];
+  const ps = getProjectSession(projectId, session.githubUserId);
+  if (!ps) throw new ClientError('Project session not found or expired', 404);
+
+  const body = (await readJson(ctx.req)) as { path?: unknown; content?: unknown } | null;
+  const path = typeof body?.path === 'string' ? body.path.trim() : '';
+  const content = typeof body?.content === 'string' ? body.content : null;
+  if (!path) throw new ClientError('path is required', 400);
+  if (content === null) throw new ClientError('content is required', 400);
+
+  const fileSize = Buffer.byteLength(content, 'utf8');
+  const existingIndex = ps.files.findIndex((file) => file.path === path);
+  if (existingIndex >= 0) {
+    ps.files[existingIndex] = { path, content, size: fileSize };
+  } else {
+    ps.files.push({ path, content, size: fileSize });
+  }
+  ps.stagedChanges.reset(ps.files);
+
+  json(ctx.res, 200, { updated: true, file_count: ps.files.length });
+}
+
 async function handleReaderAiProjectReset(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
@@ -1835,6 +1861,7 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
   { method: 'POST', pattern: /^\/api\/ai\/project$/, handler: handleReaderAiProjectCreate },
   { method: 'GET', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/files$/, handler: handleReaderAiProjectFiles },
+  { method: 'POST', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/file$/, handler: handleReaderAiProjectFileUpdate },
   { method: 'POST', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/reset$/, handler: handleReaderAiProjectReset },
   { method: 'DELETE', pattern: /^\/api\/ai\/project\/([a-f0-9]+)$/i, handler: handleReaderAiProjectDelete },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },

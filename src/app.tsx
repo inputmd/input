@@ -74,6 +74,7 @@ import {
   type ReaderAiModel,
   readerAiModelPriorityRank,
   resetReaderAiProjectSession,
+  updateReaderAiProjectSessionFile,
 } from './reader_ai';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
@@ -2526,20 +2527,7 @@ export function App() {
               )
             : [...readerAiRepoFiles, { path: currentEditingDocPath, content: currentEditContent, size: contentSize }];
           if (effectiveProjectId) {
-            // Re-upload files to the existing session rather than creating a new one.
-            try {
-              await resetReaderAiProjectSession(effectiveProjectId);
-              const nextProject = await createReaderAiProjectSession(nextFiles);
-              void deleteReaderAiProjectSession(effectiveProjectId);
-              effectiveProjectId = nextProject.projectId;
-              setReaderAiProjectId(nextProject.projectId);
-            } catch {
-              // Fall back to creating a fresh session
-              const nextProject = await createReaderAiProjectSession(nextFiles);
-              void deleteReaderAiProjectSession(effectiveProjectId);
-              effectiveProjectId = nextProject.projectId;
-              setReaderAiProjectId(nextProject.projectId);
-            }
+            await updateReaderAiProjectSessionFile(effectiveProjectId, currentEditingDocPath, currentEditContent);
           } else {
             const nextProject = await createReaderAiProjectSession(nextFiles);
             effectiveProjectId = nextProject.projectId;
