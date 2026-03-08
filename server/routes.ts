@@ -1599,9 +1599,23 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       writeSseEvent('error', { message: 'Earlier conversation context could not be summarized and may be lost.' });
     }
 
+    let needsDrain = false;
     const writeSseDelta = (delta: string) => {
       if (ctx.res.writableEnded) return;
-      ctx.res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`);
+      const ok = ctx.res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`);
+      if (!ok) needsDrain = true;
+    };
+    const awaitDrainIfNeeded = (): Promise<void> => {
+      if (!needsDrain || ctx.res.writableEnded) {
+        needsDrain = false;
+        return Promise.resolve();
+      }
+      needsDrain = false;
+      return new Promise((resolve) => {
+        ctx.res.once('drain', resolve);
+        // Safety timeout — don't block forever if the socket is gone
+        setTimeout(resolve, 5000);
+      });
     };
 
     // SSE keepalive: send a comment every 15s to prevent intermediary proxy idle-timeout kills
@@ -1770,6 +1784,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       }
 
       writeSseEvent('turn_end', { iteration, reason: 'tool_calls' });
+
+      // Allow the write buffer to drain before making the next upstream call
+      await awaitDrainIfNeeded();
 
       const nextUpstream = await callUpstream(callTimeout());
       if (!nextUpstream.ok || !nextUpstream.body) {
