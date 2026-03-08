@@ -25,8 +25,8 @@ import {
   READER_AI_TOOLS,
   type ReaderAiFileEntry,
   readUpstreamError,
-  simpleGlobMatch,
   StagedChanges,
+  simpleGlobMatch,
 } from '../reader_ai_tools.ts';
 
 // ── Helper ──

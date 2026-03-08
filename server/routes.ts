@@ -1534,6 +1534,11 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     stagedChangesEmitted = true;
   };
 
+  const writeSseEvent = (event: string, data: unknown) => {
+    if (ctx.res.writableEnded) return;
+    ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
   try {
     // First call — errors before SSE starts can be returned as JSON
     const firstUpstream = await callUpstream(callTimeout());
@@ -1556,11 +1561,6 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     const writeSseDelta = (delta: string) => {
       if (ctx.res.writableEnded) return;
       ctx.res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`);
-    };
-
-    const writeSseEvent = (event: string, data: unknown) => {
-      if (ctx.res.writableEnded) return;
-      ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
     // Agentic tool-call loop
