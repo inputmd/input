@@ -928,7 +928,12 @@ export async function parseReaderAiUpstreamStream(
   return { content, toolCalls, finishReason };
 }
 
-export function buildReaderAiSystemPrompt(source: string, lines: string[], maxPreviewChars: number): string {
+export function buildReaderAiSystemPrompt(
+  source: string,
+  lines: string[],
+  maxPreviewChars: number,
+  currentDocPath?: string | null,
+): string {
   const totalLines = lines.length;
   const totalChars = source.length;
 
@@ -969,6 +974,7 @@ export function buildReaderAiSystemPrompt(source: string, lines: string[], maxPr
     '- Use the task tool when a problem benefits from independent analysis by a subagent with a dedicated role or perspective.',
     '- You can only see the current document. If the user asks about other files, the broader project, or the repository, begin your response with the exact marker `<<SUGGEST_PROJECT_MODE>>` (on its own line) before your reply. This signals the UI to offer the user a way to enable project-wide access. Do not mention this marker to the user or explain it.',
     '',
+    ...(currentDocPath ? [`Current document path: ${currentDocPath}`, ''] : []),
     `Document info: ${totalLines} lines, ${totalChars} characters.`,
     '',
     docSection,

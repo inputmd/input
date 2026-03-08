@@ -1355,7 +1355,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       contextTokens > 0
         ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
         : READER_AI_DOC_PREVIEW_CHARS;
-    systemPrompt = buildReaderAiSystemPrompt(source, lines, maxPreviewChars);
+    systemPrompt = buildReaderAiSystemPrompt(source, lines, maxPreviewChars, currentDocPath);
     tools = READER_AI_TOOLS;
   }
 

@@ -160,6 +160,7 @@ export async function askReaderAiStream(
   options: ReaderAiStreamOptions,
   summary?: string,
   projectContext?: { projectId: string; currentDocPath: string | null },
+  currentDocPath?: string | null,
 ): Promise<void> {
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
@@ -171,6 +172,7 @@ export async function askReaderAiStream(
       source,
       messages,
       ...(summary ? { summary } : {}),
+      ...(typeof currentDocPath === 'string' && currentDocPath ? { current_doc_path: currentDocPath } : {}),
       ...(projectContext
         ? { project_id: projectContext.projectId, current_doc_path: projectContext.currentDocPath }
         : {}),

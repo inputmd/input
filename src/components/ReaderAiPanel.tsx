@@ -539,11 +539,7 @@ export function ReaderAiPanel({
           <span
             class={`reader-ai-repo-mode-label${repoModeDisabledReason ? ' reader-ai-repo-mode-label--disabled' : ''}`}
           >
-            {repoModeLoading
-              ? 'Loading files...'
-              : repoModeEnabled && repoModeFileCount > 0
-                ? `Project mode (${repoModeFileCount} files)`
-                : 'Project mode'}
+            {repoModeEnabled ? `Project mode on (${repoModeFileCount} files)` : 'Project mode off'}
           </span>
         </div>
       ) : null}

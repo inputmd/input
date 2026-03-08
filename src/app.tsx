@@ -2509,7 +2509,8 @@ export function App() {
       let received = false;
 
       let effectiveProjectId = readerAiProjectId;
-      const projectCurrentDocPath = activeView === 'edit' ? currentEditingDocPath : currentRepoDocPath;
+      const projectCurrentDocPath =
+        activeView === 'edit' ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
 
       // In edit mode, update the current file in the existing project session
       // instead of creating a brand-new session on every send.
@@ -2619,6 +2620,7 @@ export function App() {
           },
           readerAiSummary || undefined,
           projectContext,
+          projectCurrentDocPath,
         );
         if (!received) {
           setReaderAiMessages((current) => {
@@ -2680,6 +2682,7 @@ export function App() {
       readerAiRepoMode,
       readerAiProjectId,
       currentRepoDocPath,
+      currentFileName,
       activeView,
       currentEditingDocPath,
       readerAiRepoFiles,
