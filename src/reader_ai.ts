@@ -161,6 +161,7 @@ export async function askReaderAiStream(
   summary?: string,
   projectContext?: { projectId: string; currentDocPath: string | null },
   currentDocPath?: string | null,
+  editModeCurrentDocOnly?: boolean,
 ): Promise<void> {
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
@@ -173,6 +174,7 @@ export async function askReaderAiStream(
       messages,
       ...(summary ? { summary } : {}),
       ...(typeof currentDocPath === 'string' && currentDocPath ? { current_doc_path: currentDocPath } : {}),
+      ...(editModeCurrentDocOnly ? { edit_mode_current_doc_only: true } : {}),
       ...(projectContext
         ? { project_id: projectContext.projectId, current_doc_path: projectContext.currentDocPath }
         : {}),

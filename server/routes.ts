@@ -121,6 +121,8 @@ interface ReaderAiChatBody {
   project_files?: unknown;
   /** The path of the currently-viewed document (for project mode context). */
   current_doc_path?: unknown;
+  /** If true, restrict project-mode edits to the currently-viewed document. */
+  edit_mode_current_doc_only?: unknown;
 }
 
 interface ReaderAiChatMessage {
@@ -1305,6 +1307,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const resolvedProjectFiles = projectFiles ?? undefined;
   const isProjectMode = resolvedProjectFiles !== undefined;
   const currentDocPath = typeof body?.current_doc_path === 'string' ? body.current_doc_path : null;
+  const editModeCurrentDocOnly = body?.edit_mode_current_doc_only === true;
 
   let chatMessages: ReaderAiChatMessage[];
   let newSummary: string | null = null;
@@ -1346,10 +1349,15 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   // Build system prompt and tool set based on mode
   let systemPrompt: string;
-  let tools: typeof READER_AI_TOOLS | typeof READER_AI_PROJECT_TOOLS;
+  let tools: Array<(typeof READER_AI_TOOLS)[number] | (typeof READER_AI_PROJECT_TOOLS)[number]>;
   if (isProjectMode) {
-    systemPrompt = buildReaderAiProjectSystemPrompt(resolvedProjectFiles, currentDocPath);
-    tools = READER_AI_PROJECT_TOOLS;
+    systemPrompt = buildReaderAiProjectSystemPrompt(resolvedProjectFiles, currentDocPath, editModeCurrentDocOnly);
+    tools = editModeCurrentDocOnly
+      ? READER_AI_PROJECT_TOOLS.filter((tool) => {
+          const name = tool.function.name;
+          return name !== 'create_file' && name !== 'delete_file';
+        })
+      : READER_AI_PROJECT_TOOLS;
   } else {
     const maxPreviewChars =
       contextTokens > 0
@@ -1403,6 +1411,22 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   const executeSyncToolCall = (tc: ReaderAiToolCall): string => {
     if (isProjectMode) {
+      if (editModeCurrentDocOnly && currentDocPath) {
+        let args: Record<string, unknown> | null = null;
+        try {
+          args = tc.arguments ? (JSON.parse(tc.arguments) as Record<string, unknown>) : {};
+        } catch {
+          // Let the tool handler return its own invalid JSON error.
+        }
+        if (tc.name === 'create_file' || tc.name === 'delete_file') {
+          return `(tool ${tc.name} is not available while editing the current document)`;
+        }
+        if ((tc.name === 'read_file' || tc.name === 'edit_file') && args && typeof args.path === 'string') {
+          if (args.path !== currentDocPath) {
+            return `(tool ${tc.name} is restricted to the current document: ${currentDocPath})`;
+          }
+        }
+      }
       return executeReaderAiProjectSyncTool(tc.name, tc.arguments, resolvedProjectFiles, stagedChanges);
     }
     return executeReaderAiSyncTool(tc.name, tc.arguments, lines);

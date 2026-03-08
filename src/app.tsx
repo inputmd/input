@@ -2623,6 +2623,7 @@ export function App() {
           readerAiSummary || undefined,
           projectContext,
           projectCurrentDocPath,
+          activeView === 'edit',
         );
         if (!received) {
           setReaderAiMessages((current) => {

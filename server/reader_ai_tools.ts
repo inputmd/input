@@ -990,7 +990,11 @@ function buildFileTree(files: ReaderAiFileEntry[]): string {
   return lines.join('\n');
 }
 
-export function buildReaderAiProjectSystemPrompt(files: ReaderAiFileEntry[], currentDocPath: string | null): string {
+export function buildReaderAiProjectSystemPrompt(
+  files: ReaderAiFileEntry[],
+  currentDocPath: string | null,
+  editModeCurrentDocOnly = false,
+): string {
   const fileTree = buildFileTree(files);
   const totalFiles = files.length;
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
@@ -1060,6 +1064,13 @@ export function buildReaderAiProjectSystemPrompt(files: ReaderAiFileEntry[], cur
     '- Use the task tool when a problem benefits from independent analysis.',
     '- Prefer targeted reads and searches over reading entire large files.',
     '- All edits are staged for user review — they are not applied until the user approves them.',
+    ...(editModeCurrentDocOnly && currentDocPath
+      ? [
+          '- You are in focused edit mode for the current document.',
+          `- Only edit this file: ${currentDocPath}`,
+          '- Do not create or delete files.',
+        ]
+      : []),
     '',
     `Project: ${totalFiles} files, ${totalSizeLabel} total.`,
     '',
