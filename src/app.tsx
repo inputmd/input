@@ -2512,49 +2512,51 @@ export function App() {
       const projectCurrentDocPath =
         activeView === 'edit' ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
 
-      // In edit mode, update the current file in the existing project session
-      // instead of creating a brand-new session on every send.
-      if (activeView === 'edit' && readerAiRepoMode && currentEditingDocPath && readerAiRepoFiles) {
-        const contentSize = new TextEncoder().encode(currentEditContent).length;
-        const fileExists = readerAiRepoFiles.some((file) => file.path === currentEditingDocPath);
-        const nextFiles = fileExists
-          ? readerAiRepoFiles.map((file) =>
-              file.path === currentEditingDocPath ? { ...file, content: currentEditContent, size: contentSize } : file,
-            )
-          : [...readerAiRepoFiles, { path: currentEditingDocPath, content: currentEditContent, size: contentSize }];
-        if (effectiveProjectId) {
-          // Re-upload files to the existing session rather than creating a new one.
-          try {
-            await resetReaderAiProjectSession(effectiveProjectId);
+      try {
+        // In edit mode, update the current file in the existing project session
+        // instead of creating a brand-new session on every send.
+        if (activeView === 'edit' && readerAiRepoMode && currentEditingDocPath && readerAiRepoFiles) {
+          const contentSize = new TextEncoder().encode(currentEditContent).length;
+          const fileExists = readerAiRepoFiles.some((file) => file.path === currentEditingDocPath);
+          const nextFiles = fileExists
+            ? readerAiRepoFiles.map((file) =>
+                file.path === currentEditingDocPath
+                  ? { ...file, content: currentEditContent, size: contentSize }
+                  : file,
+              )
+            : [...readerAiRepoFiles, { path: currentEditingDocPath, content: currentEditContent, size: contentSize }];
+          if (effectiveProjectId) {
+            // Re-upload files to the existing session rather than creating a new one.
+            try {
+              await resetReaderAiProjectSession(effectiveProjectId);
+              const nextProject = await createReaderAiProjectSession(nextFiles);
+              void deleteReaderAiProjectSession(effectiveProjectId);
+              effectiveProjectId = nextProject.projectId;
+              setReaderAiProjectId(nextProject.projectId);
+            } catch {
+              // Fall back to creating a fresh session
+              const nextProject = await createReaderAiProjectSession(nextFiles);
+              void deleteReaderAiProjectSession(effectiveProjectId);
+              effectiveProjectId = nextProject.projectId;
+              setReaderAiProjectId(nextProject.projectId);
+            }
+          } else {
             const nextProject = await createReaderAiProjectSession(nextFiles);
-            void deleteReaderAiProjectSession(effectiveProjectId);
-            effectiveProjectId = nextProject.projectId;
-            setReaderAiProjectId(nextProject.projectId);
-          } catch {
-            // Fall back to creating a fresh session
-            const nextProject = await createReaderAiProjectSession(nextFiles);
-            void deleteReaderAiProjectSession(effectiveProjectId);
             effectiveProjectId = nextProject.projectId;
             setReaderAiProjectId(nextProject.projectId);
           }
-        } else {
-          const nextProject = await createReaderAiProjectSession(nextFiles);
-          effectiveProjectId = nextProject.projectId;
-          setReaderAiProjectId(nextProject.projectId);
+          setReaderAiRepoFiles(nextFiles);
         }
-        setReaderAiRepoFiles(nextFiles);
-      }
 
-      // Build project context if repo mode is active (send project_id, not files)
-      let projectContext: { projectId: string; currentDocPath: string | null } | undefined;
-      if (readerAiRepoMode && effectiveProjectId) {
-        projectContext = {
-          projectId: effectiveProjectId,
-          currentDocPath: projectCurrentDocPath,
-        };
-      }
+        // Build project context if repo mode is active (send project_id, not files)
+        let projectContext: { projectId: string; currentDocPath: string | null } | undefined;
+        if (readerAiRepoMode && effectiveProjectId) {
+          projectContext = {
+            projectId: effectiveProjectId,
+            currentDocPath: projectCurrentDocPath,
+          };
+        }
 
-      try {
         await askReaderAiStream(
           model,
           source,
