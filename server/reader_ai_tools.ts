@@ -556,6 +556,12 @@ export class StagedChanges {
     if (content === undefined) return `(file not found: ${path})`;
     this.workingFiles.delete(path);
     const existing = this.changes.get(path);
+    // If this file was created in this session (original is null), deleting it
+    // cancels out the create — remove the change entry entirely.
+    if (existing && existing.original === null) {
+      this.changes.delete(path);
+      return `Deleted ${path} (reverted create)`;
+    }
     const original = existing?.original ?? content;
     const diff = generateUnifiedDiff(path, original, '');
     this.changes.set(path, { path, type: 'delete', original, modified: null, diff });

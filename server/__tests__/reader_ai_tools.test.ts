@@ -902,6 +902,18 @@ test('StagedChanges deleteFile fails for missing file', (t) => {
   t.true(result.includes('file not found'));
 });
 
+test('StagedChanges create then delete removes the change entry', (t) => {
+  const sc = new StagedChanges([]);
+  sc.createFile('ghost.txt', 'content');
+  t.true(sc.hasChanges());
+  t.true(sc.hasFile('ghost.txt'));
+  const result = sc.deleteFile('ghost.txt');
+  t.true(result.includes('reverted create'));
+  t.false(sc.hasChanges());
+  t.false(sc.hasFile('ghost.txt'));
+  t.is(sc.getChanges().length, 0);
+});
+
 test('StagedChanges reset restores original files', (t) => {
   const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'original', size: 8 }];
   const sc = new StagedChanges(files);
