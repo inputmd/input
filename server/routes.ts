@@ -109,7 +109,20 @@ interface ReaderAiModelEntry {
   id: string;
   name: string;
   context_length: number;
+  featured?: boolean;
 }
+
+/**
+ * Featured free model patterns — matched case-insensitively against model id/name.
+ * Maintained server-side so updates don't require client deploys.
+ */
+const FEATURED_MODEL_PATTERNS = [
+  'nemotron 3 nano 30b',
+  'step-3.5-flash',
+  'step 3.5 flash',
+  'trinity mini',
+  'trinity large preview',
+];
 
 interface ReaderAiChatBody {
   model?: unknown;
@@ -454,7 +467,13 @@ async function fetchReaderAiModels(req: http.IncomingMessage): Promise<ReaderAiM
       if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) return null;
       const rawCtx = typeof entry.context_length === 'number' ? entry.context_length : 0;
       const context_length = Number.isFinite(rawCtx) && rawCtx > 0 ? rawCtx : 0;
-      return { id, name, context_length };
+      const normalizedId = id.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const normalizedName = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const featured = FEATURED_MODEL_PATTERNS.some((pattern) => {
+        const p = pattern.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        return normalizedId.includes(p) || normalizedName.includes(p);
+      });
+      return { id, name, context_length, ...(featured ? { featured: true } : {}) };
     })
     .filter((entry): entry is ReaderAiModelEntry => Boolean(entry))
     .sort((a, b) => a.name.localeCompare(b.name));

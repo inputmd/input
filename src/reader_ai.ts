@@ -4,20 +4,8 @@ export interface ReaderAiModel {
   id: string;
   name: string;
   context_length: number;
+  featured?: boolean;
 }
-
-export const FEATURED_READER_AI_MODELS = [
-  { label: 'nemotron 3 nano 30b', aliases: ['nemotron 3 nano 30b'] },
-  {
-    label: 'stepfun step 3.5 flash',
-    aliases: ['stepfun step 3.5 flash', 'stepfun step-3.5-flash', 'step-3.5-flash'],
-  },
-  { label: 'arcee ai trinity mini', aliases: ['arcee ai trinity mini', 'arcee-ai trinity mini', 'trinity mini'] },
-  {
-    label: 'arcee ai trinity large preview',
-    aliases: ['arcee ai trinity large preview', 'arcee-ai trinity large preview', 'trinity large preview'],
-  },
-] as const;
 
 type ReaderAiModelsResponse = {
   models?: ReaderAiModel[];
@@ -66,35 +54,9 @@ interface ReaderAiStreamOptions {
   signal?: AbortSignal;
 }
 
+/** Returns 0 for featured models, -1 for non-featured. */
 export function readerAiModelPriorityRank(model: ReaderAiModel): number {
-  const id = model.id.trim().toLowerCase();
-  const name = model.name.trim().toLowerCase();
-  const normalizedId = id.replace(/[^a-z0-9]+/g, ' ').trim();
-  const normalizedName = name.replace(/[^a-z0-9]+/g, ' ').trim();
-  for (let index = 0; index < FEATURED_READER_AI_MODELS.length; index += 1) {
-    const featured = FEATURED_READER_AI_MODELS[index];
-    if (
-      featured.aliases.some((alias) => {
-        const normalizedAlias = alias
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, ' ')
-          .trim();
-        return (
-          id === alias ||
-          id.includes(alias) ||
-          name === alias ||
-          name.includes(alias) ||
-          normalizedId === normalizedAlias ||
-          normalizedId.includes(normalizedAlias) ||
-          normalizedName === normalizedAlias ||
-          normalizedName.includes(normalizedAlias)
-        );
-      })
-    ) {
-      return index;
-    }
-  }
-  return -1;
+  return model.featured ? 0 : -1;
 }
 
 export async function listReaderAiModels(): Promise<ReaderAiModel[]> {
