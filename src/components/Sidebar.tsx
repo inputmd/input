@@ -144,6 +144,16 @@ function sanitizePathInput(input: string): string {
   return normalized;
 }
 
+function sanitizeCreateNameInput(input: string): string {
+  const normalized = input
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+|\/+$/g, '');
+  if (!normalized) return '';
+  if (normalized.includes('/') || normalized === '.' || normalized === '..') return '';
+  return normalized;
+}
+
 function sortNodes(nodes: SidebarTreeNode[]): void {
   nodes.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
@@ -268,6 +278,13 @@ function parentFolderPath(path: string): string {
   return slash === -1 ? '' : path.slice(0, slash);
 }
 
+function resolveCreatePath(parentPath: string, input: string): string {
+  const folder = sanitizePathInput(parentPath);
+  const name = sanitizeCreateNameInput(input);
+  if (!name) return '';
+  return folder ? `${folder}/${name}` : name;
+}
+
 function flattenVisibleTree(
   nodes: SidebarTreeNode[],
   collapsedFolders: Record<string, true>,
@@ -341,6 +358,7 @@ export function Sidebar({
   const [createKind, setCreateKind] = useState<CreateKind>('file');
   const [creatingFile, setCreatingFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
+  const [createParentPath, setCreateParentPath] = useState('');
   const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
   const [renameValue, setRenameValue] = useState('');
   const [draggingFilePath, setDraggingFilePath] = useState<string | null>(null);
@@ -378,6 +396,12 @@ export function Sidebar({
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
   }, [creatingNew]);
+
+  useEffect(() => {
+    if (!creatingNew || !createParentPath) return;
+    if (folderPaths.has(createParentPath)) return;
+    setCreateParentPath('');
+  }, [createParentPath, creatingNew, folderPaths]);
 
   useEffect(() => {
     if (renamingTarget) renameInputRef.current?.focus();
@@ -435,7 +459,7 @@ export function Sidebar({
 
   const handleCreateSubmit = async () => {
     if (createInFlightRef.current) return;
-    const path = sanitizePathInput(newFileName);
+    const path = resolveCreatePath(createParentPath, newFileName);
     if (!path) return;
 
     createInFlightRef.current = true;
@@ -444,6 +468,7 @@ export function Sidebar({
       if (createKind === 'directory') await onCreateDirectory(path);
       else await onCreateFile(path);
       setNewFileName('');
+      setCreateParentPath('');
       setCreatingNew(false);
     } finally {
       createInFlightRef.current = false;
@@ -451,9 +476,19 @@ export function Sidebar({
     }
   };
 
-  const startCreate = (kind: CreateKind) => {
+  const startCreate = (kind: CreateKind, parentPath = '') => {
     cancelCreateOnBlurRef.current = false;
     setCreateKind(kind);
+    const resolvedParentPath = sanitizePathInput(parentPath);
+    setCreateParentPath(resolvedParentPath);
+    if (resolvedParentPath && collapsedFolders[resolvedParentPath]) {
+      setCollapsedFolders((prev) => {
+        if (!prev[resolvedParentPath]) return prev;
+        const next = { ...prev };
+        delete next[resolvedParentPath];
+        return next;
+      });
+    }
     setCreatingNew(true);
     setNewFileName('');
   };
@@ -525,6 +560,15 @@ export function Sidebar({
     if (!folderNode || !childNode) return null;
     if (childNode.parentPath !== folderNode.path) return null;
     return childNode.path;
+  };
+
+  const resolveCreateParentFromFocus = (): string => {
+    if (!focusedPath) return '';
+    const index = visibleIndexByPath.get(focusedPath);
+    if (index === undefined) return '';
+    const node = visibleNodes[index];
+    if (!node) return '';
+    return node.kind === 'folder' ? node.path : parentFolderPath(node.path);
   };
 
   const handleFilesKeyDown = (e: KeyboardEvent) => {
@@ -722,6 +766,19 @@ export function Sidebar({
         <ContextMenu.Portal>
           <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
             {!readOnly && (
+              <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => startCreate('file', folder.path)}>
+                Add file
+              </ContextMenu.Item>
+            )}
+            {!readOnly && (
+              <ContextMenu.Item
+                class="sidebar-context-menu-item"
+                onSelect={() => startCreate('directory', folder.path)}
+              >
+                Add directory
+              </ContextMenu.Item>
+            )}
+            {!readOnly && (
               <ContextMenu.Item
                 class="sidebar-context-menu-item"
                 onSelect={() => void startRename({ kind: 'folder', path: folder.path })}
@@ -885,7 +942,10 @@ export function Sidebar({
             {renderFolderRow(node, depth)}
             {collapsed ? null : (
               <div class="sidebar-folder-children" role="group">
-                <div class="sidebar-folder-children-inner">{renderNodes(node.children, depth + 1)}</div>
+                <div class="sidebar-folder-children-inner">
+                  {renderNodes(node.children, depth + 1)}
+                  {creatingNew && createParentPath === node.path && renderCreateRow(depth + 1)}
+                </div>
               </div>
             )}
           </div>
@@ -893,6 +953,58 @@ export function Sidebar({
       }
       return renderFileRow(node, depth);
     });
+
+  const renderCreateRow = (depth: number) => {
+    const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
+    return (
+      <div
+        class="sidebar-file renaming"
+        style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
+      >
+        <IndentGuides depth={depth} />
+        {createKind === 'directory' ? (
+          <FolderClosed size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+        ) : (
+          <File size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+        )}
+        {createParentPath ? <span class="sidebar-create-prefix">{createParentPath}/</span> : null}
+        <input
+          ref={newInputRef}
+          class="sidebar-rename-input"
+          type="text"
+          placeholder={createKind === 'directory' ? 'new-folder' : 'notes.md'}
+          value={newFileName}
+          disabled={creatingFile}
+          onInput={(e) => setNewFileName((e.target as HTMLInputElement).value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              void handleCreateSubmit();
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              cancelCreateOnBlurRef.current = true;
+              setCreateParentPath('');
+              setCreatingNew(false);
+              setNewFileName('');
+            }
+          }}
+          onBlur={() => {
+            if (cancelCreateOnBlurRef.current) {
+              cancelCreateOnBlurRef.current = false;
+              return;
+            }
+            if (newFileName.trim()) void handleCreateSubmit();
+            else {
+              setCreateParentPath('');
+              setCreatingNew(false);
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    );
+  };
 
   if (disabled) {
     return (
@@ -918,10 +1030,16 @@ export function Sidebar({
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="sidebar-filter-menu" sideOffset={6} align="end">
-                <DropdownMenu.Item class="sidebar-filter-menu-item" onSelect={() => startCreate('file')}>
+                <DropdownMenu.Item
+                  class="sidebar-filter-menu-item"
+                  onSelect={() => startCreate('file', resolveCreateParentFromFocus())}
+                >
                   Add file
                 </DropdownMenu.Item>
-                <DropdownMenu.Item class="sidebar-filter-menu-item" onSelect={() => startCreate('directory')}>
+                <DropdownMenu.Item
+                  class="sidebar-filter-menu-item"
+                  onSelect={() => startCreate('directory', resolveCreateParentFromFocus())}
+                >
                   Add directory
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
@@ -949,48 +1067,7 @@ export function Sidebar({
       >
         {renderNodes(tree.children, 0)}
         {files.length === 0 && !creatingNew && <p class="sidebar-empty-message">No files</p>}
-        {!readOnly && creatingNew && (
-          <div
-            class="sidebar-file renaming"
-            style={{ paddingLeft: `${8 + CHEVRON_SIZE + 6 + (hasFolders ? 0 : -12)}px` }}
-          >
-            {createKind === 'directory' ? (
-              <FolderClosed size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
-            ) : (
-              <File size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
-            )}
-            <input
-              ref={newInputRef}
-              class="sidebar-rename-input"
-              type="text"
-              placeholder={createKind === 'directory' ? 'notes' : 'notes/file.md'}
-              value={newFileName}
-              disabled={creatingFile}
-              onInput={(e) => setNewFileName((e.target as HTMLInputElement).value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void handleCreateSubmit();
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  cancelCreateOnBlurRef.current = true;
-                  setCreatingNew(false);
-                  setNewFileName('');
-                }
-              }}
-              onBlur={() => {
-                if (cancelCreateOnBlurRef.current) {
-                  cancelCreateOnBlurRef.current = false;
-                  return;
-                }
-                if (newFileName.trim()) void handleCreateSubmit();
-                else setCreatingNew(false);
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        )}
+        {!readOnly && creatingNew && createParentPath === '' && renderCreateRow(0)}
       </div>
     </aside>
   );

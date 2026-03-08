@@ -352,6 +352,13 @@
   user-select: text;
 }
 
+.sidebar-create-prefix {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--sidebar-font-size);
+  white-space: nowrap;
+}
+
 /* --- Backdrop (mobile) --- */
 
 .sidebar-backdrop {
