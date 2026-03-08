@@ -909,7 +909,9 @@ function buildLineMatcher(query: string, isRegex?: boolean): ((line: string) => 
 // ── Project-mode tool execution ──
 
 export function simpleGlobMatch(pattern: string, filePath: string): boolean {
-  // Convert glob to regex: * matches non-slash, ** matches anything, ? matches single char
+  // Convert glob to regex: * matches non-slash, ** matches anything, ? matches single char,
+  // {a,b} expands to alternation (a|b).
+  const REGEX_META = /[.+^${}()|[\]\\]/g;
   let regex = '';
   let i = 0;
   while (i < pattern.length) {
@@ -925,8 +927,18 @@ export function simpleGlobMatch(pattern: string, filePath: string): boolean {
       regex += '[^/]*';
     } else if (ch === '?') {
       regex += '[^/]';
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: literal regex metacharacters, not a template
-    } else if ('.+^${}()|[]\\'.includes(ch)) {
+    } else if (ch === '{') {
+      // Brace expansion: {a,b,c} → (?:a|b|c)
+      const close = pattern.indexOf('}', i + 1);
+      if (close === -1) {
+        regex += '\\{';
+      } else {
+        const inner = pattern.slice(i + 1, close);
+        const alternatives = inner.split(',').map((alt) => alt.replace(REGEX_META, '\\$&'));
+        regex += `(?:${alternatives.join('|')})`;
+        i = close; // loop increment will advance past '}'
+      }
+    } else if (REGEX_META.test(ch)) {
       regex += `\\${ch}`;
     } else {
       regex += ch;
