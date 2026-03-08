@@ -1372,6 +1372,11 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const source = typeof body?.source === 'string' ? body.source.trim() : '';
   if (!model) throw new ClientError('model is required', 400);
   if (!source) throw new ClientError('source is required', 400);
+  // Validate model against the cached free models list to prevent use of non-free models
+  const allowedModels = readerAiModelsCache?.value;
+  if (allowedModels && allowedModels.length > 0 && !allowedModels.some((m) => m.id === model)) {
+    throw new ClientError('Selected model is not available', 400);
+  }
   const allMessages = normalizeReaderAiMessages(body?.messages);
   const existingSummary =
     typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
