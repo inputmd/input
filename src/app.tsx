@@ -2557,6 +2557,12 @@ export function App() {
         }
 
         // Build project context if repo mode is active (send project_id, not files)
+        // If the project session was invalidated but we still have files, recreate it.
+        if (readerAiRepoMode && !effectiveProjectId && readerAiRepoFiles) {
+          const nextProject = await createReaderAiProjectSession(readerAiRepoFiles);
+          effectiveProjectId = nextProject.projectId;
+          setReaderAiProjectId(nextProject.projectId);
+        }
         let projectContext: { projectId: string; currentDocPath: string | null } | undefined;
         if (readerAiRepoMode && effectiveProjectId) {
           projectContext = {
@@ -2745,6 +2751,12 @@ export function App() {
           return current;
         });
         if (err instanceof DOMException && err.name === 'AbortError') return true;
+        // Detect expired project session (404) and invalidate so the next send recreates it
+        if (err instanceof ApiError && err.status === 404 && readerAiRepoMode && readerAiProjectId) {
+          setReaderAiProjectId(null);
+          setReaderAiError('Project session expired. Please try again.');
+          return false;
+        }
         setReaderAiError(err instanceof Error ? err.message : 'Reader AI request failed');
         return false;
       } finally {
