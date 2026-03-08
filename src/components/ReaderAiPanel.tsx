@@ -487,22 +487,45 @@ export function ReaderAiPanel({
         {composerAtTop ? composer : null}
         {!hasMessages ? (
           <div class="reader-ai-empty">
-            <button
-              type="button"
-              class="reader-ai-summarize-btn"
-              disabled={composerInputDisabled}
-              onClick={() => void onSend('Summarize this document.')}
-            >
-              Summarize
-            </button>
-            <button
-              type="button"
-              class="reader-ai-summarize-btn"
-              disabled={composerInputDisabled}
-              onClick={() => void onSend('Identify any questions raised by this document.')}
-            >
-              Identify questions
-            </button>
+            {repoModeEnabled ? (
+              <>
+                <button
+                  type="button"
+                  class="reader-ai-summarize-btn"
+                  disabled={composerInputDisabled}
+                  onClick={() => void onSend('Explain this project — its purpose, structure, and key entry points.')}
+                >
+                  Explain project
+                </button>
+                <button
+                  type="button"
+                  class="reader-ai-summarize-btn"
+                  disabled={composerInputDisabled}
+                  onClick={() => void onSend('Review the code for potential bugs, issues, or improvements.')}
+                >
+                  Review code
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  class="reader-ai-summarize-btn"
+                  disabled={composerInputDisabled}
+                  onClick={() => void onSend('Summarize this document.')}
+                >
+                  Summarize
+                </button>
+                <button
+                  type="button"
+                  class="reader-ai-summarize-btn"
+                  disabled={composerInputDisabled}
+                  onClick={() => void onSend('Identify any questions raised by this document.')}
+                >
+                  Identify questions
+                </button>
+              </>
+            )}
           </div>
         ) : null}
         {messages.map((message, index) => (
