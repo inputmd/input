@@ -154,6 +154,28 @@ export const READER_AI_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'edit_document',
+      description:
+        'Edit the current document by replacing one exact snippet with new text. old_text must match exactly and uniquely in the current working document. Returns a unified diff of the edit.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          old_text: {
+            type: 'string' as const,
+            description: 'The exact text to find and replace. Must match exactly and be unique in the document.',
+          },
+          new_text: {
+            type: 'string' as const,
+            description: 'Replacement text for old_text.',
+          },
+        },
+        required: ['old_text', 'new_text'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'task',
       description:
         'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. an Electric Monk that must believe a position fully, a research agent, a reviewer). The subagent has access to read_document and search_document for the same document. Multiple task calls in the same turn run in parallel (up to 4).',
@@ -325,7 +347,9 @@ export const READER_AI_PROJECT_TOOLS = [
 ];
 
 // Subagent tools — subset available to task subagents (no nested task spawning)
-export const READER_AI_SUBAGENT_TOOLS = READER_AI_TOOLS.filter((t) => t.function.name !== 'task');
+export const READER_AI_SUBAGENT_TOOLS = READER_AI_TOOLS.filter(
+  (t) => t.function.name !== 'task' && t.function.name !== 'edit_document',
+);
 export const READER_AI_PROJECT_SUBAGENT_TOOLS = READER_AI_PROJECT_TOOLS.filter((t) => t.function.name !== 'task');
 
 export function executeReaderAiReadDocument(lines: string[], args: { start_line?: number; end_line?: number }): string {
@@ -963,12 +987,14 @@ export function buildReaderAiSystemPrompt(
     'You have tools available:',
     '- read_document: Read all or part of the document by line range. Returns numbered lines.',
     '- search_document: Search for text in the document (case-insensitive). Returns matching lines with context.',
+    '- edit_document: Replace exact old_text with new_text in the current document and stage the result for the user to apply.',
     '- task: Spawn an independent subagent with its own system prompt and fresh context. The subagent can read and search the document but cannot spawn further subagents. Use this when you need a separate perspective, a dedicated role (e.g. a reviewer or advocate), or parallel research. Multiple task calls in the same response run concurrently. Each subagent returns its complete output as the tool result.',
     '',
     'Guidelines:',
     '- For specific questions, use search_document to find relevant sections.',
     '- Cite line numbers when referencing specific parts.',
     '- If the document content already visible contains the answer, respond directly without tools.',
+    '- If the user asks you to make a document change, use edit_document instead of only describing edits.',
     '- If the document lacks the answer, say so plainly.',
     '- Do not use markdown tables in responses; use short headings and bullet lists instead.',
     '- Use the task tool when a problem benefits from independent analysis by a subagent with a dedicated role or perspective.',

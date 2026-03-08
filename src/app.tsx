@@ -798,6 +798,7 @@ export function App() {
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
   >([]);
+  const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
   const [readerAiSuggestedCommitMessage, setReaderAiSuggestedCommitMessage] = useState('');
   const [readerAiApplyingChanges, setReaderAiApplyingChanges] = useState(false);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
@@ -2505,6 +2506,7 @@ export function App() {
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
+      setReaderAiDocumentEditedContent(null);
       setReaderAiError(null);
       setReaderAiSuggestProjectMode(false);
       let received = false;
@@ -2560,6 +2562,7 @@ export function App() {
                 search_files: 'Searching files…',
                 list_files: 'Listing files…',
                 edit_file: 'Editing file…',
+                edit_document: 'Editing document…',
                 create_file: 'Creating file…',
                 delete_file: 'Deleting file…',
                 task: 'Running subagent…',
@@ -2579,8 +2582,9 @@ export function App() {
               setReaderAiToolStatus(null);
               setReaderAiToolLog((log) => [...log, { type: 'result', name: event.name, detail: event.preview }]);
             },
-            onStagedChanges: (changes, suggestedCommitMessage) => {
+            onStagedChanges: (changes, suggestedCommitMessage, documentContent) => {
               setReaderAiStagedChanges(changes);
+              setReaderAiDocumentEditedContent(typeof documentContent === 'string' ? documentContent : null);
               if (suggestedCommitMessage) setReaderAiSuggestedCommitMessage(suggestedCommitMessage);
             },
             onDelta: (delta) => {
@@ -2721,6 +2725,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiDocumentEditedContent(null);
     setReaderAiError(null);
     setReaderAiSuggestProjectMode(false);
     if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
@@ -2736,16 +2741,27 @@ export function App() {
       const failed: Array<{ path: string; error: string }> = [];
 
       try {
-        // Fetch modified files from the project session
-        if (!readerAiProjectId) throw new Error('No project session');
-        const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
-          credentials: 'same-origin',
-        });
-        if (!res.ok) throw new Error('Failed to fetch modified files');
-        const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
-        const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+        if (activeView === 'edit') {
+          if (!readerAiProjectId && typeof readerAiDocumentEditedContent === 'string') {
+            setEditContent(readerAiDocumentEditedContent);
+            setHasUnsavedChanges(true);
+            setReaderAiStagedChanges([]);
+            setReaderAiDocumentEditedContent(null);
+            return;
+          }
 
-        if (activeView === 'edit' && currentEditingDocPath) {
+          if (!currentEditingDocPath) {
+            throw new Error('No current editing document');
+          }
+
+          if (!readerAiProjectId) throw new Error('No project session');
+          const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
+            credentials: 'same-origin',
+          });
+          if (!res.ok) throw new Error('Failed to fetch modified files');
+          const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
+          const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+
           const nextContent = modifiedMap.get(currentEditingDocPath);
           if (typeof nextContent !== 'string') {
             throw new Error(`No staged content found for ${currentEditingDocPath}`);
@@ -2754,11 +2770,21 @@ export function App() {
           setHasUnsavedChanges(true);
           const ignoredCount = readerAiStagedChanges.filter((change) => change.path !== currentEditingDocPath).length;
           setReaderAiStagedChanges([]);
+          setReaderAiDocumentEditedContent(null);
           if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
           if (ignoredCount > 0) {
             setReaderAiError(`Applied current file changes. Ignored ${ignoredCount} change(s) in other files.`);
           }
         } else if (isGistContext && currentGistId) {
+          // Fetch modified files from the project session
+          if (!readerAiProjectId) throw new Error('No project session');
+          const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
+            credentials: 'same-origin',
+          });
+          if (!res.ok) throw new Error('Failed to fetch modified files');
+          const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
+          const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+
           // Gist mode: batch all changes into one PATCH call
           const gistUpdates: Record<string, { content: string } | null> = {};
           for (const change of readerAiStagedChanges) {
@@ -2774,6 +2800,15 @@ export function App() {
             applied.push(...Object.keys(gistUpdates));
           }
         } else if (repoAccessMode === 'installed' && installationId && selectedRepo) {
+          // Fetch modified files from the project session
+          if (!readerAiProjectId) throw new Error('No project session');
+          const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
+            credentials: 'same-origin',
+          });
+          if (!res.ok) throw new Error('Failed to fetch modified files');
+          const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
+          const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+
           // Repo mode: apply each change via GitHub Contents API
           const message = commitMessage || 'Apply AI-suggested changes';
 
@@ -2840,6 +2875,7 @@ export function App() {
     [
       readerAiApplyingChanges,
       readerAiStagedChanges,
+      readerAiDocumentEditedContent,
       readerAiProjectId,
       activeView,
       currentEditingDocPath,
@@ -4454,7 +4490,11 @@ export function App() {
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
               canApplyChanges={
-                (activeView === 'edit' && Boolean(currentEditingDocPath && readerAiProjectId)) ||
+                (activeView === 'edit' &&
+                  Boolean(
+                    (readerAiProjectId && currentEditingDocPath) ||
+                      (!readerAiProjectId && readerAiDocumentEditedContent !== null),
+                  )) ||
                 (repoAccessMode === 'installed' && Boolean(installationId && selectedRepo)) ||
                 (isGistContext && Boolean(currentGistId && user))
               }

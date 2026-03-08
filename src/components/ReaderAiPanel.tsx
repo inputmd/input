@@ -60,6 +60,7 @@ function isPublicDatasetModel(model: ReaderAiModel): boolean {
 const TOOL_LABELS: Record<string, string> = {
   read_document: 'Read document',
   search_document: 'Search document',
+  edit_document: 'Edit document',
   read_file: 'Read file',
   search_files: 'Search files',
   list_files: 'List files',

@@ -27,6 +27,7 @@ import {
   executeReaderAiProjectSyncTool,
   executeReaderAiSubagent,
   executeReaderAiSyncTool,
+  generateUnifiedDiff,
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
   READER_AI_DOC_PREVIEW_CHARS,
@@ -1369,6 +1370,10 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   // Prepare document for tool access
   const lines = source.split('\n');
+  let workingDocumentSource = source;
+  let workingDocumentLines = lines;
+  let stagedDocumentContent: string | null = null;
+  let stagedDocumentDiff: string | null = null;
   const cachedModels = readerAiModelsCache?.value ?? [];
   const modelEntry = cachedModels.find((m) => m.id === model);
   const contextTokens = modelEntry?.context_length || 0;
@@ -1455,7 +1460,46 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       }
       return executeReaderAiProjectSyncTool(tc.name, tc.arguments, resolvedProjectFiles, stagedChanges);
     }
-    return executeReaderAiSyncTool(tc.name, tc.arguments, lines);
+    if (tc.name === 'edit_document') {
+      let args: Record<string, unknown>;
+      try {
+        args = tc.arguments ? (JSON.parse(tc.arguments) as Record<string, unknown>) : {};
+      } catch {
+        return `(invalid JSON arguments: ${tc.arguments})`;
+      }
+
+      const oldText = typeof args.old_text === 'string' ? args.old_text : null;
+      const newText = typeof args.new_text === 'string' ? args.new_text : null;
+      if (oldText === null) return '(old_text is required)';
+      if (newText === null) return '(new_text is required)';
+      if (oldText === newText) return '(old_text and new_text are identical — no change made)';
+
+      const index = workingDocumentSource.indexOf(oldText);
+      if (index === -1) {
+        const lowerSource = workingDocumentSource.toLowerCase();
+        const lowerOld = oldText.toLowerCase();
+        if (lowerSource.includes(lowerOld)) {
+          return '(old_text not found — a case-insensitive match exists. The old_text must match exactly, including case.)';
+        }
+        return '(old_text not found in document — it must match exactly, including whitespace and indentation.)';
+      }
+      const secondIndex = workingDocumentSource.indexOf(oldText, index + 1);
+      if (secondIndex !== -1) {
+        return '(old_text matches multiple locations in the document — provide more surrounding context to make it unique.)';
+      }
+
+      const updated =
+        workingDocumentSource.slice(0, index) + newText + workingDocumentSource.slice(index + oldText.length);
+      if (updated === workingDocumentSource) return '(no changes)';
+      const path = currentDocPath || 'current-document.md';
+      const diff = generateUnifiedDiff(path, workingDocumentSource, updated);
+      workingDocumentSource = updated;
+      workingDocumentLines = updated.split('\n');
+      stagedDocumentContent = updated;
+      stagedDocumentDiff = diff;
+      return `Edited ${path}:\n${diff}`;
+    }
+    return executeReaderAiSyncTool(tc.name, tc.arguments, workingDocumentLines);
   };
 
   try {
@@ -1656,8 +1700,20 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   }
 
   // Emit staged changes if any edits were made
-  if (!ctx.res.writableEnded && stagedChanges?.hasChanges()) {
-    const allChanges = stagedChanges.getChanges();
+  const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
+  const hasDocumentStagedChange = Boolean(stagedDocumentContent && stagedDocumentDiff);
+  if (!ctx.res.writableEnded && (hasProjectStagedChanges || hasDocumentStagedChange)) {
+    const allChanges = hasProjectStagedChanges
+      ? stagedChanges!.getChanges()
+      : [
+          {
+            path: currentDocPath || 'current-document.md',
+            type: 'edit' as const,
+            original: source,
+            modified: stagedDocumentContent!,
+            diff: stagedDocumentDiff!,
+          },
+        ];
     const changes = allChanges.map((c) => ({
       path: c.path,
       type: c.type,
@@ -1676,7 +1732,11 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     else if (deletes.length > 1) parts.push(`delete ${deletes.length} files`);
     const suggestedCommitMessage = parts.join(', ') || 'Apply AI-suggested changes';
     ctx.res.write(
-      `event: staged_changes\ndata: ${JSON.stringify({ changes, suggested_commit_message: suggestedCommitMessage })}\n\n`,
+      `event: staged_changes\ndata: ${JSON.stringify({
+        changes,
+        suggested_commit_message: suggestedCommitMessage,
+        ...(stagedDocumentContent ? { document_content: stagedDocumentContent } : {}),
+      })}\n\n`,
     );
   }
 
