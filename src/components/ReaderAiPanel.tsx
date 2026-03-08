@@ -90,7 +90,9 @@ function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntry[]; li
             <div key={i} class="reader-ai-tool-log-entry">
               <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
               {entry.detail ? (
-                <span class="reader-ai-tool-log-detail">{entry.detail.length > 60 ? `${entry.detail.slice(0, 60)}…` : entry.detail}</span>
+                <span class="reader-ai-tool-log-detail">
+                  {entry.detail.length > 60 ? `${entry.detail.slice(0, 60)}…` : entry.detail}
+                </span>
               ) : null}
             </div>
           ))}
@@ -120,7 +122,15 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function StagedChangesSection({ changes, applying, onApply }: { changes: ReaderAiStagedChange[]; applying: boolean; onApply: () => void }) {
+function StagedChangesSection({
+  changes,
+  applying,
+  onApply,
+}: {
+  changes: ReaderAiStagedChange[];
+  applying: boolean;
+  onApply: () => void;
+}) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   if (changes.length === 0) return null;
 
@@ -142,23 +152,16 @@ function StagedChangesSection({ changes, applying, onApply }: { changes: ReaderA
   return (
     <div class="reader-ai-staged-changes">
       <div class="reader-ai-staged-changes-header">
-        <span>Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})</span>
-        <button
-          type="button"
-          class="reader-ai-staged-changes-apply"
-          onClick={onApply}
-          disabled={applying}
-        >
+        <span>
+          Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
+        </span>
+        <button type="button" class="reader-ai-staged-changes-apply" onClick={onApply} disabled={applying}>
           {applying ? 'Applying…' : 'Apply'}
         </button>
       </div>
       {changes.map((change) => (
         <div key={change.path} class="reader-ai-staged-change">
-          <button
-            type="button"
-            class="reader-ai-staged-change-header"
-            onClick={() => togglePath(change.path)}
-          >
+          <button type="button" class="reader-ai-staged-change-header" onClick={() => togglePath(change.path)}>
             {expandedPaths.has(change.path) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <span class={`reader-ai-staged-change-type reader-ai-staged-change-type--${change.type}`}>
               {typeLabel(change.type)}
@@ -229,7 +232,10 @@ export function ReaderAiPanel({
   const composerInputDisabled = sending || !selectedModel || !authenticated;
   let lastUserMessageIndex = -1;
   for (let i = messageCount - 1; i >= 0; i--) {
-    if (messages[i].role === 'user') { lastUserMessageIndex = i; break; }
+    if (messages[i].role === 'user') {
+      lastUserMessageIndex = i;
+      break;
+    }
   }
   const composerPlaceholder = !authenticated
     ? 'Sign in to enable chat'
@@ -237,12 +243,12 @@ export function ReaderAiPanel({
       ? 'Ask about this project...'
       : 'Ask about this document...';
 
-  const toolLogCount = toolLog.length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length triggers scroll on new tool activity
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
     root.scrollTop = root.scrollHeight;
-  }, [messageCount, sending, toolLogCount]);
+  }, [messageCount, sending, toolLog.length]);
 
   useEffect(() => {
     if (editingIndex === null) return;
@@ -636,7 +642,9 @@ export function ReaderAiPanel({
         ))}
         {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
         {sending && toolStatus && toolLog.length === 0 ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
-        {!sending && stagedChanges.length > 0 ? <StagedChangesSection changes={stagedChanges} applying={applyingChanges} onApply={onApplyChanges} /> : null}
+        {!sending && stagedChanges.length > 0 ? (
+          <StagedChangesSection changes={stagedChanges} applying={applyingChanges} onApply={onApplyChanges} />
+        ) : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : composer}
       </div>

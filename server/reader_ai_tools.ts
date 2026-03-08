@@ -54,10 +54,7 @@ export function estimateMessagesTokens(messages: OpenRouterMessage[]): number {
  *
  * Returns the number of chars reclaimed.
  */
-export function compactToolResults(
-  messages: OpenRouterMessage[],
-  preserveRecentToolResults: number,
-): number {
+export function compactToolResults(messages: OpenRouterMessage[], preserveRecentToolResults: number): number {
   // Find all tool result messages
   const toolResultIndices: number[] = [];
   for (let i = 0; i < messages.length; i++) {
@@ -523,7 +520,11 @@ export function generateUnifiedDiff(path: string, oldContent: string, newContent
 
     // Advance through differing lines
     while (diffEndOld < oldLines.length || diffEndNew < newLines.length) {
-      if (diffEndOld < oldLines.length && diffEndNew < newLines.length && oldLines[diffEndOld] === newLines[diffEndNew]) {
+      if (
+        diffEndOld < oldLines.length &&
+        diffEndNew < newLines.length &&
+        oldLines[diffEndOld] === newLines[diffEndNew]
+      ) {
         // Check if we have 3 matching lines (end of hunk)
         let matchCount = 0;
         while (
@@ -546,7 +547,9 @@ export function generateUnifiedDiff(path: string, oldContent: string, newContent
     const hunkEndOld = Math.min(oldLines.length, diffEndOld + 3);
     const hunkEndNew = Math.min(newLines.length, diffEndNew + 3);
 
-    result.push(`@@ -${hunkStartOld + 1},${hunkEndOld - hunkStartOld} +${hunkStartNew + 1},${hunkEndNew - hunkStartNew} @@`);
+    result.push(
+      `@@ -${hunkStartOld + 1},${hunkEndOld - hunkStartOld} +${hunkStartNew + 1},${hunkEndNew - hunkStartNew} @@`,
+    );
 
     // Context before
     for (let k = hunkStartOld; k < i; k++) {
@@ -592,6 +595,7 @@ function simpleGlobMatch(pattern: string, filePath: string): boolean {
       regex += '[^/]*';
     } else if (ch === '?') {
       regex += '[^/]';
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: literal regex metacharacters, not a template
     } else if ('.+^${}()|[]\\'.includes(ch)) {
       regex += `\\${ch}`;
     } else {
@@ -679,7 +683,9 @@ export function executeReaderAiSearchFiles(
     }
 
     const matchSet = new Set(matchIndices);
-    const fileParts: string[] = [`\n${file.path} (${matchIndices.length} match${matchIndices.length === 1 ? '' : 'es'}):`];
+    const fileParts: string[] = [
+      `\n${file.path} (${matchIndices.length} match${matchIndices.length === 1 ? '' : 'es'}):`,
+    ];
     for (const [rStart, rEnd] of ranges) {
       for (let i = rStart; i <= rEnd; i++) {
         const marker = matchSet.has(i) ? '>' : ' ';
@@ -700,15 +706,14 @@ export function executeReaderAiSearchFiles(
     result += `\n\n... (showing first ${READER_AI_SEARCH_FILES_MAX_MATCHES} matches; use a more specific query or glob to narrow results)`;
   }
   if (result.length > READER_AI_SEARCH_FILES_MAX_CHARS) {
-    result = result.slice(0, READER_AI_SEARCH_FILES_MAX_CHARS) + '\n\n... (results truncated; try a more specific query or glob)';
+    result =
+      result.slice(0, READER_AI_SEARCH_FILES_MAX_CHARS) +
+      '\n\n... (results truncated; try a more specific query or glob)';
   }
   return result;
 }
 
-export function executeReaderAiListFiles(
-  files: ReaderAiFileEntry[],
-  args: { path?: string },
-): string {
+export function executeReaderAiListFiles(files: ReaderAiFileEntry[], args: { path?: string }): string {
   let filtered = files;
   if (args.path) {
     const prefix = args.path.endsWith('/') ? args.path : `${args.path}/`;
@@ -722,7 +727,7 @@ export function executeReaderAiListFiles(
   });
   const result = `${filtered.length} file${filtered.length === 1 ? '' : 's'}${args.path ? ` under ${args.path}` : ''}:\n${lines.join('\n')}`;
   if (result.length > READER_AI_LIST_FILES_MAX_CHARS) {
-    return result.slice(0, READER_AI_LIST_FILES_MAX_CHARS) + '\n\n... (file list truncated)';
+    return `${result.slice(0, READER_AI_LIST_FILES_MAX_CHARS)}\n\n... (file list truncated)`;
   }
   return result;
 }
@@ -762,15 +767,9 @@ export function executeReaderAiProjectSyncTool(
   const workingFiles = stagedChanges ? stagedChanges.getWorkingFiles() : files;
   switch (toolName) {
     case 'read_file':
-      return executeReaderAiReadFile(
-        workingFiles,
-        args as { path: string; start_line?: number; end_line?: number },
-      );
+      return executeReaderAiReadFile(workingFiles, args as { path: string; start_line?: number; end_line?: number });
     case 'search_files':
-      return executeReaderAiSearchFiles(
-        workingFiles,
-        args as { query: string; glob?: string; context_lines?: number },
-      );
+      return executeReaderAiSearchFiles(workingFiles, args as { query: string; glob?: string; context_lines?: number });
     case 'list_files':
       return executeReaderAiListFiles(workingFiles, args as { path?: string });
     case 'edit_file': {
@@ -947,22 +946,18 @@ function buildFileTree(files: ReaderAiFileEntry[]): string {
   return lines.join('\n');
 }
 
-export function buildReaderAiProjectSystemPrompt(
-  files: ReaderAiFileEntry[],
-  currentDocPath: string | null,
-): string {
+export function buildReaderAiProjectSystemPrompt(files: ReaderAiFileEntry[], currentDocPath: string | null): string {
   const fileTree = buildFileTree(files);
   const totalFiles = files.length;
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
-  const totalSizeLabel = totalSize >= 1024 * 1024
-    ? `${(totalSize / 1024 / 1024).toFixed(1)}MB`
-    : totalSize >= 1024
-      ? `${(totalSize / 1024).toFixed(1)}KB`
-      : `${totalSize}B`;
+  const totalSizeLabel =
+    totalSize >= 1024 * 1024
+      ? `${(totalSize / 1024 / 1024).toFixed(1)}MB`
+      : totalSize >= 1024
+        ? `${(totalSize / 1024).toFixed(1)}KB`
+        : `${totalSize}B`;
 
-  const currentDocSection = currentDocPath
-    ? `\nThe user is currently viewing: ${currentDocPath}`
-    : '';
+  const currentDocSection = currentDocPath ? `\nThe user is currently viewing: ${currentDocPath}` : '';
 
   return [
     'You are an assistant with full access to a project. You can read any file, search across the codebase, analyze the project structure, and make edits.',

@@ -30,10 +30,10 @@ import {
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
   READER_AI_DOC_PREVIEW_CHARS,
-  type ReaderAiFileEntry,
   READER_AI_MAX_CONCURRENT_TASKS,
   READER_AI_PROJECT_TOOLS,
   READER_AI_TOOLS,
+  type ReaderAiFileEntry,
   type ReaderAiStreamParseResult,
   type ReaderAiToolCall,
   readUpstreamError,
@@ -368,7 +368,7 @@ function prepareMessageForSummary(msg: ReaderAiChatMessage): string {
   let content = msg.content;
   // Truncate very long assistant messages (often padded by tool results)
   if (content.length > 2000) {
-    content = content.slice(0, 2000) + '…';
+    content = `${content.slice(0, 2000)}…`;
   }
   return `${label}: ${content}`;
 }
@@ -1250,9 +1250,7 @@ async function handleReaderAiProjectFiles(ctx: RouteContext): Promise<void> {
 
   // Return only changed files (modified content) to minimize payload
   const changes = ps.stagedChanges.getChanges();
-  const files = changes
-    .filter((c) => c.modified !== null)
-    .map((c) => ({ path: c.path, content: c.modified! }));
+  const files = changes.filter((c) => c.modified !== null).map((c) => ({ path: c.path, content: c.modified! }));
   json(ctx.res, 200, { files });
 }
 
@@ -1393,11 +1391,15 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   // Token budget management — reserve space for system prompt, keep tool results within budget
   const maxContextTokens = contextTokens > 0 ? contextTokens : 32_000;
   // Reserve 25% for system prompt + file tree, 15% for output, 60% for conversation + tool results
-  const conversationBudgetTokens = Math.floor(maxContextTokens * 0.60);
+  const conversationBudgetTokens = Math.floor(maxContextTokens * 0.6);
 
   // Staging layer for file edits in project mode — reuse from project session if available
   const projectSession = projectId ? readerAiProjectSessions.get(projectId) : undefined;
-  const stagedChanges = projectSession ? projectSession.stagedChanges : isProjectMode ? new StagedChanges(resolvedProjectFiles) : undefined;
+  const stagedChanges = projectSession
+    ? projectSession.stagedChanges
+    : isProjectMode
+      ? new StagedChanges(resolvedProjectFiles)
+      : undefined;
 
   const executeSyncToolCall = (tc: ReaderAiToolCall): string => {
     if (isProjectMode) {
@@ -1535,7 +1537,6 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
           const taskResults = await Promise.all(taskPromises);
           for (const { id, result: taskResult } of taskResults) {
-
             openRouterMessages.push({ role: 'tool', tool_call_id: id, content: taskResult });
             const resultPreview = taskResult.length > 200 ? `${taskResult.slice(0, 200)}...` : taskResult;
             writeSseEvent('tool_result', { id, name: 'task', preview: resultPreview });

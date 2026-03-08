@@ -114,9 +114,7 @@ export interface ReaderAiProjectSession {
   fileCount: number;
 }
 
-export async function createReaderAiProjectSession(
-  files: ReaderAiProjectFile[],
-): Promise<ReaderAiProjectSession> {
+export async function createReaderAiProjectSession(files: ReaderAiProjectFile[]): Promise<ReaderAiProjectSession> {
   const res = await fetch('/api/ai/project', {
     method: 'POST',
     credentials: 'same-origin',
@@ -213,8 +211,13 @@ export async function askReaderAiStream(
       } else if (eventType === 'tool_call') {
         if (options.onToolCall) {
           try {
-            const parsed = JSON.parse(data) as { id?: string; name?: string; arguments?: Record<string, unknown> | string };
-            if (typeof parsed.name === 'string') options.onToolCall({ name: parsed.name, id: parsed.id, arguments: parsed.arguments });
+            const parsed = JSON.parse(data) as {
+              id?: string;
+              name?: string;
+              arguments?: Record<string, unknown> | string;
+            };
+            if (typeof parsed.name === 'string')
+              options.onToolCall({ name: parsed.name, id: parsed.id, arguments: parsed.arguments });
           } catch {
             // Ignore malformed tool_call event.
           }
@@ -223,7 +226,8 @@ export async function askReaderAiStream(
         if (options.onToolResult) {
           try {
             const parsed = JSON.parse(data) as { id?: string; name?: string; preview?: string };
-            if (typeof parsed.name === 'string') options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview });
+            if (typeof parsed.name === 'string')
+              options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview });
           } catch {
             // Ignore malformed tool_result event.
           }
