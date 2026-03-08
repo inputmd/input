@@ -311,19 +311,6 @@ export function ReaderAiPanel({
   });
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== 'k') return;
-      event.preventDefault();
-      if (!hasMessages || sending) return;
-      onClear();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [hasMessages, onClear, sending]);
-
-  useEffect(() => {
     const panel = panelRef.current;
     const messages = messagesRef.current;
     if (!panel || !messages) return;
@@ -493,6 +480,11 @@ export function ReaderAiPanel({
           input.style.height = `${input.scrollHeight}px`;
         }}
         onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
+            event.preventDefault();
+            if (hasMessages && !sending) onClear();
+            return;
+          }
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             void submit();
