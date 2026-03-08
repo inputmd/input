@@ -1729,6 +1729,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       if (!ctx.res.headersSent) throw new ClientError('Reader AI request timed out', 504);
       if (!ctx.res.writableEnded) {
+        writeSseEvent('error', { message: 'Request timed out' });
         emitStagedChangesIfAny();
         ctx.res.write('data: [DONE]\n\n');
         ctx.res.end();
@@ -1738,6 +1739,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     if (ctx.res.headersSent) {
       console.warn('Reader AI stream failed after response start:', err);
       if (!ctx.res.writableEnded) {
+        const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+        writeSseEvent('error', { message });
         emitStagedChangesIfAny();
         ctx.res.write('data: [DONE]\n\n');
         ctx.res.end();
