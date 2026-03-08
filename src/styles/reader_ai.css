@@ -861,7 +861,7 @@
   overflow-x: auto;
   background: color-mix(in srgb, var(--bg) 60%, var(--toolbar-bg) 40%);
   border-top: 1px solid var(--border);
-  white-space: pre;
+  white-space: pre-wrap;
 }
 
 .reader-ai-diff-line {
