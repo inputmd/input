@@ -75,7 +75,10 @@ export function compactToolResults(messages: OpenRouterMessage[], preserveRecent
   }
 
   // Preserve the N most recent tool results
-  const toCompact = toolResultIndices.slice(0, -preserveRecentToolResults || toolResultIndices.length);
+  const toCompact =
+    preserveRecentToolResults > 0
+      ? toolResultIndices.slice(0, -preserveRecentToolResults)
+      : toolResultIndices;
   let reclaimed = 0;
 
   for (const idx of toCompact) {
