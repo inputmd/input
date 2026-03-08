@@ -305,6 +305,7 @@ interface ReaderAiHistoryEntry {
   summary?: string;
   toolLog?: Array<{ type: 'call' | 'result'; name: string; detail?: string }>;
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
+  stagedFileContents?: Record<string, string>;
 }
 
 interface ReaderAiHistoryStore {
@@ -374,7 +375,13 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
       if (Array.isArray(value)) {
         entries[key] = { messages: normalizeReaderAiMessages(value) };
       } else if (value && typeof value === 'object') {
-        const entry = value as { messages?: unknown; summary?: unknown; toolLog?: unknown; stagedChanges?: unknown };
+        const entry = value as {
+          messages?: unknown;
+          summary?: unknown;
+          toolLog?: unknown;
+          stagedChanges?: unknown;
+          stagedFileContents?: unknown;
+        };
         const parsed: ReaderAiHistoryEntry = {
           messages: normalizeReaderAiMessages(entry.messages),
         };
@@ -383,6 +390,14 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
           parsed.toolLog = entry.toolLog as ReaderAiHistoryEntry['toolLog'];
         if (Array.isArray(entry.stagedChanges) && entry.stagedChanges.length > 0)
           parsed.stagedChanges = entry.stagedChanges as ReaderAiHistoryEntry['stagedChanges'];
+        if (entry.stagedFileContents && typeof entry.stagedFileContents === 'object') {
+          const contents = Object.fromEntries(
+            Object.entries(entry.stagedFileContents).filter(
+              (item): item is [string, string] => typeof item[0] === 'string' && typeof item[1] === 'string',
+            ),
+          );
+          if (Object.keys(contents).length > 0) parsed.stagedFileContents = contents;
+        }
         entries[key] = parsed;
       }
     }
@@ -417,6 +432,7 @@ function persistReaderAiMessagesToHistory(
   summary?: string,
   toolLog?: Array<{ type: 'call' | 'result'; name: string; detail?: string }>,
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>,
+  stagedFileContents?: Record<string, string>,
 ): void {
   if (typeof window === 'undefined') return;
   const store = loadReaderAiHistoryStore();
@@ -431,6 +447,7 @@ function persistReaderAiMessagesToHistory(
   if (summary) entry.summary = summary;
   if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;
   if (stagedChanges && stagedChanges.length > 0) entry.stagedChanges = stagedChanges;
+  if (stagedFileContents && Object.keys(stagedFileContents).length > 0) entry.stagedFileContents = stagedFileContents;
   nextEntries[historyKey] = entry;
   nextOrder.unshift(historyKey);
   const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
@@ -776,6 +793,7 @@ export function App() {
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
   >([]);
+  const [readerAiStagedFileContents, setReaderAiStagedFileContents] = useState<Record<string, string>>({});
   const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
   const [readerAiSuggestedCommitMessage, setReaderAiSuggestedCommitMessage] = useState('');
   const [readerAiApplyingChanges, setReaderAiApplyingChanges] = useState(false);
@@ -2251,6 +2269,7 @@ export function App() {
         setReaderAiSummary(loaded.summary ?? '');
         setReaderAiToolLog(loaded.toolLog ?? []);
         setReaderAiStagedChanges(loaded.stagedChanges ?? []);
+        setReaderAiStagedFileContents(loaded.stagedFileContents ?? {});
         setReaderAiError(null);
       }
       readerAiPrevHistoryKeyRef.current = readerAiHistoryDocumentKey;
@@ -2263,6 +2282,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiStagedFileContents({});
     setReaderAiMessages([]);
     setReaderAiSummary('');
     setReaderAiError(null);
@@ -2283,6 +2303,7 @@ export function App() {
       readerAiSummary || undefined,
       readerAiToolLog.length > 0 ? readerAiToolLog : undefined,
       readerAiStagedChanges.length > 0 ? readerAiStagedChanges : undefined,
+      Object.keys(readerAiStagedFileContents).length > 0 ? readerAiStagedFileContents : undefined,
     );
   }, [
     readerAiHistoryEligible,
@@ -2291,6 +2312,7 @@ export function App() {
     readerAiHistoryDocumentKey,
     readerAiToolLog,
     readerAiStagedChanges,
+    readerAiStagedFileContents,
   ]);
 
   useEffect(() => {
@@ -2465,6 +2487,15 @@ export function App() {
     ],
   );
 
+  const fetchReaderAiProjectModifiedFiles = useCallback(async (projectId: string): Promise<Map<string, string>> => {
+    const res = await fetch(`/api/ai/project/${encodeURIComponent(projectId)}/files`, {
+      credentials: 'same-origin',
+    });
+    if (!res.ok) throw await responseToApiError(res);
+    const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
+    return new Map((data.files ?? []).map((file) => [file.path, file.content]));
+  }, []);
+
   const streamReaderAiAssistant = useCallback(
     async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
       const model = readerAiSelectedModel;
@@ -2571,8 +2602,39 @@ export function App() {
             },
             onStagedChanges: (changes, suggestedCommitMessage, documentContent) => {
               setReaderAiStagedChanges(changes);
+              setReaderAiStagedFileContents((current) => {
+                const next: Record<string, string> = {};
+                for (const change of changes) {
+                  if (change.type === 'delete') continue;
+                  const cached = current[change.path];
+                  if (typeof cached === 'string') next[change.path] = cached;
+                }
+                return next;
+              });
               setReaderAiDocumentEditedContent(typeof documentContent === 'string' ? documentContent : null);
               if (suggestedCommitMessage) setReaderAiSuggestedCommitMessage(suggestedCommitMessage);
+              if (!effectiveProjectId) return;
+              if (!changes.some((change) => change.type !== 'delete')) return;
+              void fetchReaderAiProjectModifiedFiles(effectiveProjectId)
+                .then((modifiedMap) => {
+                  setReaderAiStagedFileContents((current) => {
+                    const next: Record<string, string> = {};
+                    for (const change of changes) {
+                      if (change.type === 'delete') continue;
+                      const content = modifiedMap.get(change.path);
+                      if (typeof content === 'string') {
+                        next[change.path] = content;
+                        continue;
+                      }
+                      const cached = current[change.path];
+                      if (typeof cached === 'string') next[change.path] = cached;
+                    }
+                    return next;
+                  });
+                })
+                .catch(() => {
+                  // Best-effort cache fill; apply can still use server project session when available.
+                });
             },
             onTurnStart: (iteration) => {
               if (iteration <= 0 || !separateNextTurnOutput) return;
@@ -2685,6 +2747,7 @@ export function App() {
       activeView,
       currentEditingDocPath,
       readerAiRepoFiles,
+      fetchReaderAiProjectModifiedFiles,
     ],
   );
 
@@ -2729,6 +2792,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiStagedFileContents({});
     setReaderAiDocumentEditedContent(null);
     setReaderAiError(null);
     setReaderAiSuggestProjectMode(false);
@@ -2743,6 +2807,21 @@ export function App() {
 
       const applied: string[] = [];
       const failed: Array<{ path: string; error: string }> = [];
+      const cachedModifiedMap = new Map(Object.entries(readerAiStagedFileContents));
+      const getModifiedMapForApply = async (): Promise<Map<string, string>> => {
+        if (!readerAiProjectId) {
+          if (cachedModifiedMap.size > 0) return cachedModifiedMap;
+          throw new Error('No project session');
+        }
+        try {
+          return await fetchReaderAiProjectModifiedFiles(readerAiProjectId);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404 && cachedModifiedMap.size > 0) {
+            return cachedModifiedMap;
+          }
+          throw err;
+        }
+      };
 
       try {
         if (activeView === 'edit') {
@@ -2750,6 +2829,7 @@ export function App() {
             setEditContent(readerAiDocumentEditedContent);
             setHasUnsavedChanges(true);
             setReaderAiStagedChanges([]);
+            setReaderAiStagedFileContents({});
             setReaderAiDocumentEditedContent(null);
             return;
           }
@@ -2758,13 +2838,7 @@ export function App() {
             throw new Error('No current editing document');
           }
 
-          if (!readerAiProjectId) throw new Error('No project session');
-          const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
-            credentials: 'same-origin',
-          });
-          if (!res.ok) throw new Error('Failed to fetch modified files');
-          const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
-          const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+          const modifiedMap = await getModifiedMapForApply();
 
           const nextContent = modifiedMap.get(currentEditingDocPath);
           if (typeof nextContent !== 'string') {
@@ -2774,20 +2848,14 @@ export function App() {
           setHasUnsavedChanges(true);
           const ignoredCount = readerAiStagedChanges.filter((change) => change.path !== currentEditingDocPath).length;
           setReaderAiStagedChanges([]);
+          setReaderAiStagedFileContents({});
           setReaderAiDocumentEditedContent(null);
           if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
           if (ignoredCount > 0) {
             setReaderAiError(`Applied current file changes. Ignored ${ignoredCount} change(s) in other files.`);
           }
         } else if (isGistContext && currentGistId) {
-          // Fetch modified files from the project session
-          if (!readerAiProjectId) throw new Error('No project session');
-          const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
-            credentials: 'same-origin',
-          });
-          if (!res.ok) throw new Error('Failed to fetch modified files');
-          const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
-          const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+          const modifiedMap = await getModifiedMapForApply();
 
           // Gist mode: batch all changes into one PATCH call
           const gistUpdates: Record<string, { content: string } | null> = {};
@@ -2804,14 +2872,7 @@ export function App() {
             applied.push(...Object.keys(gistUpdates));
           }
         } else if (repoAccessMode === 'installed' && installationId && selectedRepo) {
-          // Fetch modified files from the project session
-          if (!readerAiProjectId) throw new Error('No project session');
-          const res = await fetch(`/api/ai/project/${encodeURIComponent(readerAiProjectId)}/files`, {
-            credentials: 'same-origin',
-          });
-          if (!res.ok) throw new Error('Failed to fetch modified files');
-          const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
-          const modifiedMap = new Map((data.files ?? []).map((f) => [f.path, f.content]));
+          const modifiedMap = await getModifiedMapForApply();
 
           // Repo mode: apply each change via GitHub Contents API
           const message = commitMessage || 'Apply AI-suggested changes';
@@ -2853,6 +2914,11 @@ export function App() {
         if (failed.length > 0 && applied.length > 0) {
           // Partial success
           setReaderAiStagedChanges((prev) => prev.filter((c) => !applied.includes(c.path)));
+          setReaderAiStagedFileContents((prev) => {
+            const next = { ...prev };
+            for (const path of applied) delete next[path];
+            return next;
+          });
           const failedPaths = failed.map((f) => f.path).join(', ');
           setReaderAiError(`Applied ${applied.length} file(s), but ${failed.length} failed: ${failedPaths}`);
         } else if (failed.length > 0) {
@@ -2861,6 +2927,7 @@ export function App() {
         } else {
           // Full success — clear staged changes
           setReaderAiStagedChanges([]);
+          setReaderAiStagedFileContents({});
           if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
         }
 
@@ -2879,6 +2946,7 @@ export function App() {
     [
       readerAiApplyingChanges,
       readerAiStagedChanges,
+      readerAiStagedFileContents,
       readerAiDocumentEditedContent,
       readerAiProjectId,
       activeView,
@@ -2888,6 +2956,7 @@ export function App() {
       repoAccessMode,
       installationId,
       selectedRepo,
+      fetchReaderAiProjectModifiedFiles,
       showRateLimitToastIfNeeded,
     ],
   );
