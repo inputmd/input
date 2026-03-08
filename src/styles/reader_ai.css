@@ -413,7 +413,7 @@
 
 .reader-ai-input {
   width: 100%;
-  min-height: 78px;
+  min-height: 70px;
   resize: none;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -429,6 +429,10 @@
 .reader-ai-input:focus-visible {
   outline: none;
   border-color: var(--reader-ai-active-border);
+}
+
+[data-theme="light"] .reader-ai-input {
+  background: var(--bg);
 }
 
 .reader-ai-send-btn {
