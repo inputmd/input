@@ -45,6 +45,7 @@ interface SidebarProps {
   onBeforeRenameFile?: (path: string) => boolean | Promise<boolean>;
   onRenameFile: (oldPath: string, newPath: string) => void | Promise<void>;
   onRenameFolder: (oldPath: string, newPath: string) => void | Promise<void>;
+  onMoveFile: (filePath: string, targetFolderPath: string) => void | Promise<void>;
 }
 
 interface SidebarFileNode {
@@ -254,6 +255,11 @@ function resolveRenamePath(oldPath: string, input: string): string {
   return `${oldPath.slice(0, slash + 1)}${next}`;
 }
 
+function parentFolderPath(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash === -1 ? '' : path.slice(0, slash);
+}
+
 function IndentGuides({ depth }: { depth: number }) {
   if (depth === 0) return null;
   const guides = [];
@@ -285,6 +291,7 @@ export function Sidebar({
   onBeforeRenameFile,
   onRenameFile,
   onRenameFolder,
+  onMoveFile,
 }: SidebarProps) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [createKind, setCreateKind] = useState<CreateKind>('file');
@@ -292,6 +299,8 @@ export function Sidebar({
   const [newFileName, setNewFileName] = useState('');
   const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [draggingFilePath, setDraggingFilePath] = useState<string | null>(null);
+  const [dropFolderPath, setDropFolderPath] = useState<string | null>(null);
   const filesRef = useRef<HTMLDivElement>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -490,18 +499,56 @@ export function Sidebar({
     </DropdownMenu.Root>
   );
 
+  const clearDragState = () => {
+    setDraggingFilePath(null);
+    setDropFolderPath(null);
+  };
+
+  const resolveDraggedPath = (event: DragEvent): string | null => {
+    const dataPath = event.dataTransfer?.getData('text/plain') ?? '';
+    const candidate = dataPath || draggingFilePath || '';
+    if (!candidate) return null;
+    return files.some((file) => file.path === candidate) ? candidate : null;
+  };
+
+  const handleDropToFolder = async (event: DragEvent, targetFolderPath: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const draggedPath = resolveDraggedPath(event);
+    clearDragState();
+    if (!draggedPath) return;
+    if (parentFolderPath(draggedPath) === targetFolderPath) return;
+    await onMoveFile(draggedPath, targetFolderPath);
+  };
+
   const renderFolderRow = (folder: SidebarFolderNode, depth: number) => {
     const collapsed = Boolean(collapsedFolders[folder.path]);
     const isRenaming = renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
     const FolderIcon = collapsed ? FolderClosed : FolderOpen;
+    const isDropTarget = draggingFilePath !== null && dropFolderPath === folder.path;
     const folderRow = (
       <div
-        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${folder.deemphasized ? ' sidebar-file-deemphasized' : ''}`}
+        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${folder.deemphasized ? ' sidebar-file-deemphasized' : ''}${isDropTarget ? ' drop-target' : ''}`}
         tabIndex={0}
         role="button"
         data-folder-path={folder.path}
         style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
         onClick={() => toggleFolder(folder.path)}
+        onDragOver={(e) => {
+          if (readOnly || !draggingFilePath) return;
+          e.preventDefault();
+          if (dropFolderPath !== folder.path) setDropFolderPath(folder.path);
+        }}
+        onDragLeave={(e) => {
+          if (!draggingFilePath) return;
+          const nextTarget = e.relatedTarget as Node | null;
+          if (nextTarget && (e.currentTarget as HTMLElement).contains(nextTarget)) return;
+          if (dropFolderPath === folder.path) setDropFolderPath(null);
+        }}
+        onDrop={(e) => {
+          if (readOnly) return;
+          void handleDropToFolder(e, folder.path);
+        }}
         onKeyDown={(e) => {
           if (isRenaming) return;
           if (e.key === 'Enter' || e.key === ' ') {
@@ -595,14 +642,27 @@ export function Sidebar({
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     const fileRow = (
       <div
-        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}`}
+        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${draggingFilePath === file.path ? ' dragging' : ''}`}
         tabIndex={0}
         role="button"
         aria-current={file.active ? 'true' : undefined}
+        draggable={!readOnly && file.editable && !isRenaming}
         style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
         onClick={() => !file.active && onSelectFile(file.path)}
         onDblClick={() => {
           if (!readOnly && file.editable) void startRename({ kind: 'file', path: file.path });
+        }}
+        onDragStart={(e) => {
+          if (readOnly || !file.editable || isRenaming) {
+            e.preventDefault();
+            return;
+          }
+          e.dataTransfer?.setData('text/plain', file.path);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+          setDraggingFilePath(file.path);
+        }}
+        onDragEnd={() => {
+          clearDragState();
         }}
         onKeyDown={(e) => {
           if (isRenaming) return;
@@ -750,8 +810,20 @@ export function Sidebar({
       </div>
       <div
         ref={filesRef}
-        class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}`}
+        class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}${draggingFilePath && dropFolderPath === '' ? ' drop-target-root' : ''}`}
         onKeyDown={handleFilesKeyDown}
+        onDragOver={(e) => {
+          if (readOnly || !draggingFilePath) return;
+          e.preventDefault();
+          const target = e.target as HTMLElement | null;
+          if (!target?.closest('[data-folder-path]')) setDropFolderPath('');
+        }}
+        onDrop={(e) => {
+          if (readOnly || !draggingFilePath) return;
+          const target = e.target as HTMLElement | null;
+          if (target?.closest('[data-folder-path]')) return;
+          void handleDropToFolder(e, '');
+        }}
       >
         {renderNodes(tree.children, 0)}
         {files.length === 0 && !creatingNew && <p class="sidebar-empty-message">No files</p>}

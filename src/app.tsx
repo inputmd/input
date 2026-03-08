@@ -3852,6 +3852,30 @@ export function App() {
     ],
   );
 
+  const handleMoveFile = useCallback(
+    async (filePath: string, targetFolderPath: string) => {
+      const currentFolderPath = dirName(filePath);
+      if (currentFolderPath === targetFolderPath) return;
+      const nextPath = targetFolderPath
+        ? `${targetFolderPath}/${fileNameFromPath(filePath)}`
+        : fileNameFromPath(filePath);
+      if (nextPath === filePath) return;
+
+      const canRename = await handleBeforeRenameFile(filePath);
+      if (!canRename) return;
+
+      const confirmed = await showConfirm(`Move this file to "${nextPath}"?`, {
+        title: 'Move file',
+        confirmLabel: 'Move',
+        defaultFocus: 'action',
+      });
+      if (!confirmed) return;
+
+      await handleRenameFile(filePath, nextPath);
+    },
+    [handleBeforeRenameFile, handleRenameFile, showConfirm],
+  );
+
   // --- GitHub App callbacks ---
   const onSelectRepo = useCallback((fullName: string, id: number, isPrivate: boolean) => {
     setSelectedRepo(fullName);
@@ -4453,6 +4477,7 @@ export function App() {
               onBeforeRenameFile={handleBeforeRenameFile}
               onRenameFile={handleRenameFile}
               onRenameFolder={handleRenameFolder}
+              onMoveFile={handleMoveFile}
             />
             <div
               class="sidebar-splitter"
