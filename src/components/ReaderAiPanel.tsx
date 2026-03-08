@@ -292,6 +292,10 @@ export function ReaderAiPanel({
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
+    // Only auto-scroll if the user is already near the bottom (within 80px).
+    // This prevents yanking the viewport away when the user scrolled up to read.
+    const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
+    if (distanceFromBottom > 80) return;
     root.scrollTop = root.scrollHeight;
   }, [messageCount, sending, toolLog.length]);
 
