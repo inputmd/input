@@ -1,7 +1,7 @@
 import test from 'ava';
 import {
-  READER_AI_TASK_MAX_OUTPUT_CHARS,
   executeReaderAiSubagent,
+  READER_AI_TASK_MAX_OUTPUT_CHARS,
   type ReaderAiSubagentOptions,
 } from '../reader_ai_tools.ts';
 
@@ -31,10 +31,7 @@ function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
 }
 
 /** Build a Response-like object for mock fetch. */
-function mockResponse(
-  body: ReadableStream<Uint8Array>,
-  status = 200,
-): Response {
+function mockResponse(body: ReadableStream<Uint8Array>, status = 200): Response {
   return new Response(body, { status });
 }
 
@@ -152,9 +149,7 @@ test('subagent processes search_document tool call', async (t) => {
   const fetchFn = async (_url: string | URL | Request, init?: RequestInit) => {
     callCount++;
     if (callCount === 1) {
-      return toolCallStreamResponse([
-        { id: 'call_s', name: 'search_document', arguments: '{"query":"two"}' },
-      ]);
+      return toolCallStreamResponse([{ id: 'call_s', name: 'search_document', arguments: '{"query":"two"}' }]);
     }
     secondCallBody = typeof init?.body === 'string' ? init.body : '';
     return textStreamResponse('Found it.');
@@ -164,7 +159,9 @@ test('subagent processes search_document tool call', async (t) => {
   t.is(result, 'Found it.');
 
   // Verify the tool result was sent back in the conversation
-  const parsed = JSON.parse(secondCallBody) as { messages: Array<{ role: string; content?: string; tool_call_id?: string }> };
+  const parsed = JSON.parse(secondCallBody) as {
+    messages: Array<{ role: string; content?: string; tool_call_id?: string }>;
+  };
   const toolResultMsg = parsed.messages.find((m) => m.role === 'tool');
   t.truthy(toolResultMsg);
   t.is(toolResultMsg!.tool_call_id, 'call_s');
@@ -230,10 +227,7 @@ test('subagent preserves partial output on mid-loop error', async (t) => {
 test('subagent returns empty output message when model produces nothing', async (t) => {
   const fetchFn = async () => {
     // Model returns finish_reason=stop with no content
-    return mockResponse(sseStream([
-      sseChunk({ choices: [{ finish_reason: 'stop' }] }),
-      sseDone(),
-    ]));
+    return mockResponse(sseStream([sseChunk({ choices: [{ finish_reason: 'stop' }] }), sseDone()]));
   };
   const result = await executeReaderAiSubagent({ ...defaultOpts, fetchFn });
   t.is(result, '(subagent produced no output)');
@@ -253,9 +247,10 @@ test('subagent stops after max iterations', async (t) => {
   const fetchFn = async () => {
     callCount++;
     // Always return tool calls, never a final response
-    return toolCallStreamResponse([
-      { id: `call_${callCount}`, name: 'read_document', arguments: '{"start_line":1,"end_line":1}' },
-    ], `Iteration ${callCount}. `);
+    return toolCallStreamResponse(
+      [{ id: `call_${callCount}`, name: 'read_document', arguments: '{"start_line":1,"end_line":1}' }],
+      `Iteration ${callCount}. `,
+    );
   };
 
   const result = await executeReaderAiSubagent({ ...defaultOpts, fetchFn });
@@ -298,9 +293,7 @@ test('subagent handles unknown tool call gracefully', async (t) => {
   const fetchFn = async (_url: string | URL | Request, init?: RequestInit) => {
     callCount++;
     if (callCount === 1) {
-      return toolCallStreamResponse([
-        { id: 'call_u', name: 'nonexistent_tool', arguments: '{}' },
-      ]);
+      return toolCallStreamResponse([{ id: 'call_u', name: 'nonexistent_tool', arguments: '{}' }]);
     }
     secondCallBody = typeof init?.body === 'string' ? init.body : '';
     return textStreamResponse('Handled.');

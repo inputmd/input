@@ -302,6 +302,8 @@ function trimReaderAiSource(source: string): string {
 interface ReaderAiHistoryEntry {
   messages: ReaderAiMessage[];
   summary?: string;
+  toolLog?: Array<{ type: 'call' | 'result'; name: string; detail?: string }>;
+  stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
 }
 
 interface ReaderAiHistoryStore {
@@ -371,11 +373,16 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
       if (Array.isArray(value)) {
         entries[key] = { messages: normalizeReaderAiMessages(value) };
       } else if (value && typeof value === 'object') {
-        const entry = value as { messages?: unknown; summary?: unknown };
-        entries[key] = {
+        const entry = value as { messages?: unknown; summary?: unknown; toolLog?: unknown; stagedChanges?: unknown };
+        const parsed: ReaderAiHistoryEntry = {
           messages: normalizeReaderAiMessages(entry.messages),
-          ...(typeof entry.summary === 'string' && entry.summary ? { summary: entry.summary } : {}),
         };
+        if (typeof entry.summary === 'string' && entry.summary) parsed.summary = entry.summary;
+        if (Array.isArray(entry.toolLog) && entry.toolLog.length > 0)
+          parsed.toolLog = entry.toolLog as ReaderAiHistoryEntry['toolLog'];
+        if (Array.isArray(entry.stagedChanges) && entry.stagedChanges.length > 0)
+          parsed.stagedChanges = entry.stagedChanges as ReaderAiHistoryEntry['stagedChanges'];
+        entries[key] = parsed;
       }
     }
     const rawOrder = Array.isArray(parsed.order)
@@ -403,7 +410,13 @@ function loadReaderAiEntryFromHistory(historyKey: string): ReaderAiHistoryEntry 
   return entry;
 }
 
-function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAiMessage[], summary?: string): void {
+function persistReaderAiMessagesToHistory(
+  historyKey: string,
+  messages: ReaderAiMessage[],
+  summary?: string,
+  toolLog?: Array<{ type: 'call' | 'result'; name: string; detail?: string }>,
+  stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>,
+): void {
   if (typeof window === 'undefined') return;
   const store = loadReaderAiHistoryStore();
   const nextEntries = { ...store.entries };
@@ -415,6 +428,8 @@ function persistReaderAiMessagesToHistory(historyKey: string, messages: ReaderAi
   }
   const entry: ReaderAiHistoryEntry = { messages: normalizedMessages };
   if (summary) entry.summary = summary;
+  if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;
+  if (stagedChanges && stagedChanges.length > 0) entry.stagedChanges = stagedChanges;
   nextEntries[historyKey] = entry;
   nextOrder.unshift(historyKey);
   const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
@@ -2241,7 +2256,8 @@ export function App() {
         const loaded = loadReaderAiEntryFromHistory(readerAiHistoryDocumentKey);
         setReaderAiMessages(loaded.messages);
         setReaderAiSummary(loaded.summary ?? '');
-
+        setReaderAiToolLog(loaded.toolLog ?? []);
+        setReaderAiStagedChanges(loaded.stagedChanges ?? []);
         setReaderAiError(null);
       }
       readerAiPrevHistoryKeyRef.current = readerAiHistoryDocumentKey;
@@ -2252,13 +2268,14 @@ export function App() {
     readerAiAbortRef.current = null;
     setReaderAiSending(false);
     setReaderAiToolStatus(null);
+    setReaderAiToolLog([]);
+    setReaderAiStagedChanges([]);
     setReaderAiMessages([]);
     setReaderAiSummary('');
-
     setReaderAiError(null);
   }, [activeView, renderMode, readerAiSource, readerAiHistoryDocumentKey]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (activeView !== 'content' || renderMode !== 'markdown' || !readerAiSource || !readerAiHistoryDocumentKey) return;
     if (readerAiSkipPersistHistoryKeyRef.current === readerAiHistoryDocumentKey) {
       readerAiSkipPersistHistoryKeyRef.current = null;
@@ -2267,8 +2284,23 @@ export function App() {
       });
       return;
     }
-    persistReaderAiMessagesToHistory(readerAiHistoryDocumentKey, readerAiMessages, readerAiSummary || undefined);
-  }, [activeView, renderMode, readerAiMessages, readerAiSummary, readerAiSource, readerAiHistoryDocumentKey]);
+    persistReaderAiMessagesToHistory(
+      readerAiHistoryDocumentKey,
+      readerAiMessages,
+      readerAiSummary || undefined,
+      readerAiToolLog.length > 0 ? readerAiToolLog : undefined,
+      readerAiStagedChanges.length > 0 ? readerAiStagedChanges : undefined,
+    );
+  }, [
+    activeView,
+    renderMode,
+    readerAiMessages,
+    readerAiSummary,
+    readerAiSource,
+    readerAiHistoryDocumentKey,
+    readerAiToolLog,
+    readerAiStagedChanges,
+  ]);
 
   useEffect(() => {
     return () => {

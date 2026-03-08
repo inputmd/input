@@ -1,26 +1,26 @@
 import test from 'ava';
 import {
   buildReaderAiProjectSystemPrompt,
+  buildReaderAiSystemPrompt,
   compactToolResults,
   estimateMessagesTokens,
   estimateTokens,
   executeReaderAiListFiles,
   executeReaderAiProjectSyncTool,
+  executeReaderAiReadDocument,
   executeReaderAiReadFile,
+  executeReaderAiSearchDocument,
   executeReaderAiSearchFiles,
+  executeReaderAiSyncTool,
   type OpenRouterMessage,
+  parseReaderAiUpstreamStream,
+  parseSseFieldValue,
   READER_AI_PROJECT_SUBAGENT_TOOLS,
   READER_AI_PROJECT_TOOLS,
-  type ReaderAiFileEntry,
   READER_AI_SUBAGENT_TOOLS,
   READER_AI_TOOL_RESULT_MAX_CHARS,
   READER_AI_TOOLS,
-  buildReaderAiSystemPrompt,
-  executeReaderAiReadDocument,
-  executeReaderAiSearchDocument,
-  executeReaderAiSyncTool,
-  parseReaderAiUpstreamStream,
-  parseSseFieldValue,
+  type ReaderAiFileEntry,
   readUpstreamError,
 } from '../reader_ai_tools.ts';
 
@@ -363,10 +363,7 @@ test('stream parser handles interleaved text and tool calls', async (t) => {
 });
 
 test('stream parser handles [DONE] gracefully', async (t) => {
-  const stream = makeStream([
-    sseChunk({ choices: [{ delta: { content: 'Hi' } }] }),
-    sseDone(),
-  ]);
+  const stream = makeStream([sseChunk({ choices: [{ delta: { content: 'Hi' } }] }), sseDone()]);
 
   const result = await parseReaderAiUpstreamStream(stream, () => {});
   t.is(result.content, 'Hi');
@@ -583,9 +580,17 @@ test('compactToolResults truncates old tool results', (t) => {
   const messages: OpenRouterMessage[] = [
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'hello' },
-    { role: 'assistant', content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 't1', type: 'function', function: { name: 'read_file', arguments: '{}' } }],
+    },
     { role: 'tool', tool_call_id: 't1', content: longResult },
-    { role: 'assistant', content: null, tool_calls: [{ id: 't2', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 't2', type: 'function', function: { name: 'read_file', arguments: '{}' } }],
+    },
     { role: 'tool', tool_call_id: 't2', content: longResult },
   ];
   const reclaimed = compactToolResults(messages, 1);
@@ -598,9 +603,7 @@ test('compactToolResults truncates old tool results', (t) => {
 });
 
 test('compactToolResults skips short results', (t) => {
-  const messages: OpenRouterMessage[] = [
-    { role: 'tool', tool_call_id: 't1', content: 'short' },
-  ];
+  const messages: OpenRouterMessage[] = [{ role: 'tool', tool_call_id: 't1', content: 'short' }];
   const reclaimed = compactToolResults(messages, 0);
   t.is(reclaimed, 0);
   t.is((messages[0] as { content: string }).content, 'short');
