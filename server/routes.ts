@@ -314,6 +314,8 @@ const READER_AI_MIN_MODEL_PARAMS_B = 15;
 const READER_AI_MAX_TOOL_ITERATIONS = 30;
 const READER_AI_PER_CALL_TIMEOUT_MS = 60_000;
 let readerAiModelsCache: { value: ReaderAiModelEntry[]; expiresAt: number } | null = null;
+/** In-flight model fetch promise for stampede protection. */
+let readerAiModelsFetchPromise: Promise<ReaderAiModelEntry[]> | null = null;
 
 function modelParamsEstimateBillions(entry: { id?: unknown; name?: unknown; description?: unknown }): number | null {
   const text = [
@@ -440,6 +442,16 @@ async function fetchReaderAiModels(req: http.IncomingMessage): Promise<ReaderAiM
   const now = Date.now();
   if (readerAiModelsCache && readerAiModelsCache.expiresAt > now) return readerAiModelsCache.value;
 
+  // Stampede protection: if another request is already fetching, reuse it
+  if (readerAiModelsFetchPromise) return readerAiModelsFetchPromise;
+  readerAiModelsFetchPromise = fetchReaderAiModelsUncached(req).finally(() => {
+    readerAiModelsFetchPromise = null;
+  });
+  return readerAiModelsFetchPromise;
+}
+
+async function fetchReaderAiModelsUncached(req: http.IncomingMessage): Promise<ReaderAiModelEntry[]> {
+  const now = Date.now();
   const upstream = await fetch('https://openrouter.ai/api/v1/models', {
     headers: {
       Authorization: `Bearer ${OPENROUTER_API_KEY}`,
