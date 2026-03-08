@@ -1395,6 +1395,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   let chatMessages: ReaderAiChatMessage[];
   let newSummary: string | null = null;
+  let summarizationFailed = false;
   if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
     if (existingSummary) {
       chatMessages = [
@@ -1412,6 +1413,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       newSummary = await summarizeReaderAiConversation(model, evicted, existingSummary, ctx.req);
     } catch {
       newSummary = existingSummary || null;
+      if (!existingSummary) summarizationFailed = true;
     }
     const summaryText = newSummary || existingSummary;
     if (summaryText) {
@@ -1592,6 +1594,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     ctx.res.setHeader('Connection', 'keep-alive');
     if (newSummary) {
       ctx.res.write(`event: summary\ndata: ${JSON.stringify({ summary: newSummary })}\n\n`);
+    }
+    if (summarizationFailed) {
+      writeSseEvent('error', { message: 'Earlier conversation context could not be summarized and may be lost.' });
     }
 
     const writeSseDelta = (delta: string) => {
