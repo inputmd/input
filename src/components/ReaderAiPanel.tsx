@@ -33,7 +33,6 @@ interface ReaderAiPanelProps {
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
-  canRetryLastUserMessage: boolean;
   onRetryLastUserMessage: () => Promise<void>;
   onStop: () => void;
   onClear: () => void;
@@ -190,7 +189,6 @@ export function ReaderAiPanel({
   error,
   onSend,
   onEditMessage,
-  canRetryLastUserMessage,
   onRetryLastUserMessage,
   onStop,
   onClear,
@@ -229,6 +227,10 @@ export function ReaderAiPanel({
     return null;
   }, [modelsLoading, modelsError, selectedModel]);
   const composerInputDisabled = sending || !selectedModel || !authenticated;
+  let lastUserMessageIndex = -1;
+  for (let i = messageCount - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') { lastUserMessageIndex = i; break; }
+  }
   const composerPlaceholder = !authenticated
     ? 'Sign in to enable chat'
     : repoModeEnabled
@@ -567,7 +569,7 @@ export function ReaderAiPanel({
                     </span>
                   ) : (
                     <span class="reader-ai-message-actions">
-                      {canRetryLastUserMessage && index === messageCount - 1 ? (
+                      {!sending && index === lastUserMessageIndex ? (
                         <button
                           type="button"
                           class="reader-ai-message-action-btn"

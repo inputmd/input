@@ -775,7 +775,6 @@ export function App() {
   const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
   const [readerAiSummary, setReaderAiSummary] = useState<string>('');
   const [readerAiSending, setReaderAiSending] = useState(false);
-  const [readerAiRetryAvailable, setReaderAiRetryAvailable] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
   const [readerAiToolLog, setReaderAiToolLog] = useState<Array<{ type: 'call' | 'result'; name: string; detail?: string }>>([]);
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>>([]);
@@ -2237,7 +2236,7 @@ export function App() {
         const loaded = loadReaderAiEntryFromHistory(readerAiHistoryDocumentKey);
         setReaderAiMessages(loaded.messages);
         setReaderAiSummary(loaded.summary ?? '');
-        setReaderAiRetryAvailable(false);
+
         setReaderAiError(null);
       }
       readerAiPrevHistoryKeyRef.current = readerAiHistoryDocumentKey;
@@ -2250,7 +2249,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiMessages([]);
     setReaderAiSummary('');
-    setReaderAiRetryAvailable(false);
+
     setReaderAiError(null);
   }, [activeView, renderMode, readerAiSource, readerAiHistoryDocumentKey]);
 
@@ -2422,7 +2421,7 @@ export function App() {
         ...baseMessages,
         assistantEdited ? { role: 'assistant', content: '', edited: true } : { role: 'assistant', content: '' },
       ]);
-      setReaderAiRetryAvailable(false);
+  
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
@@ -2531,7 +2530,6 @@ export function App() {
           if (last.role === 'assistant' && !last.content.trim()) return current.slice(0, -1);
           return current;
         });
-        if (!received) setReaderAiRetryAvailable(true);
         if (err instanceof DOMException && err.name === 'AbortError') return true;
         setReaderAiError(err instanceof Error ? err.message : 'Reader AI request failed');
         return false;
@@ -2581,7 +2579,7 @@ export function App() {
     if (readerAiHistoryDocumentKey) clearReaderAiMessagesFromHistory(readerAiHistoryDocumentKey);
     setReaderAiMessages([]);
     setReaderAiSummary('');
-    setReaderAiRetryAvailable(false);
+
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
@@ -2696,12 +2694,17 @@ export function App() {
   ]);
 
   const onReaderAiRetryLastMessage = useCallback(async () => {
-    if (readerAiSending || !readerAiRetryAvailable) return;
+    if (readerAiSending) return;
     if (readerAiMessages.length === 0) return;
-    const lastMessage = readerAiMessages[readerAiMessages.length - 1];
-    if (!lastMessage || lastMessage.role !== 'user' || !lastMessage.content.trim()) return;
-    await streamReaderAiAssistant(readerAiMessages);
-  }, [readerAiMessages, readerAiRetryAvailable, readerAiSending, streamReaderAiAssistant]);
+    // Find the last user message and replay up to (and including) it
+    let lastUserIndex = -1;
+    for (let i = readerAiMessages.length - 1; i >= 0; i--) {
+      if (readerAiMessages[i].role === 'user') { lastUserIndex = i; break; }
+    }
+    if (lastUserIndex === -1) return;
+    const messagesToReplay = readerAiMessages.slice(0, lastUserIndex + 1);
+    await streamReaderAiAssistant(messagesToReplay);
+  }, [readerAiMessages, readerAiSending, streamReaderAiAssistant]);
 
   // --- Sign out ---
   const signOut = useCallback(() => {
@@ -4252,7 +4255,6 @@ export function App() {
               error={readerAiError}
               onSend={onReaderAiSend}
               onEditMessage={onReaderAiEditMessage}
-              canRetryLastUserMessage={readerAiRetryAvailable}
               onRetryLastUserMessage={onReaderAiRetryLastMessage}
               onStop={onReaderAiStop}
               onClear={onReaderAiClear}
