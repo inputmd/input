@@ -21,6 +21,8 @@ import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
 import {
   buildReaderAiProjectSystemPrompt,
   buildReaderAiSystemPrompt,
+  compactToolResults,
+  estimateMessagesTokens,
   executeReaderAiProjectSyncTool,
   executeReaderAiSubagent,
   executeReaderAiSyncTool,
@@ -1261,8 +1263,10 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const remainingMs = () => Math.max(0, READER_AI_TIMEOUT_MS - (Date.now() - requestStart));
   const callTimeout = () => Math.min(READER_AI_PER_CALL_TIMEOUT_MS, remainingMs());
 
-  // Per-tool budget: track chars consumed by tool results to avoid blowing context
-  const maxToolBudgetChars = contextTokens > 0 ? Math.floor(contextTokens * 3 * 0.5) : 60_000;
+  // Token budget management — reserve space for system prompt, keep tool results within budget
+  const maxContextTokens = contextTokens > 0 ? contextTokens : 32_000;
+  // Reserve 25% for system prompt + file tree, 15% for output, 60% for conversation + tool results
+  const conversationBudgetTokens = Math.floor(maxContextTokens * 0.60);
   const executeSyncToolCall = (tc: ReaderAiToolCall): string => {
     if (isProjectMode) {
       return executeReaderAiProjectSyncTool(tc.name, tc.arguments, projectFiles);
@@ -1300,7 +1304,6 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     };
 
     // Agentic tool-call loop
-    let toolResultChars = 0;
     let currentBody: ReadableStream<Uint8Array> | null = firstUpstream.body;
     for (let iteration = 0; iteration < READER_AI_MAX_TOOL_ITERATIONS; iteration++) {
       writeSseEvent('turn_start', { iteration });
@@ -1353,7 +1356,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       // Run sync tools first
       for (const { tc } of syncCalls) {
         const toolResult = executeSyncToolCall(tc);
-        toolResultChars += toolResult.length;
+
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
         writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
@@ -1400,7 +1403,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
           const taskResults = await Promise.all(taskPromises);
           for (const { id, result: taskResult } of taskResults) {
-            toolResultChars += taskResult.length;
+
             openRouterMessages.push({ role: 'tool', tool_call_id: id, content: taskResult });
             const resultPreview = taskResult.length > 200 ? `${taskResult.slice(0, 200)}...` : taskResult;
             writeSseEvent('tool_result', { id, name: 'task', preview: resultPreview });
@@ -1408,10 +1411,22 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         }
       }
 
-      // Stop if tool results have consumed too much of the context window
-      if (toolResultChars > maxToolBudgetChars) {
-        writeSseEvent('turn_end', { iteration, reason: 'context_budget' });
-        break;
+      // Check if conversation has grown beyond the token budget
+      const currentTokens = estimateMessagesTokens(openRouterMessages);
+      if (currentTokens > conversationBudgetTokens) {
+        // Try compacting old tool results before giving up
+        const reclaimed = compactToolResults(openRouterMessages, 4);
+        if (reclaimed > 0) {
+          const afterCompaction = estimateMessagesTokens(openRouterMessages);
+          if (afterCompaction > conversationBudgetTokens) {
+            writeSseEvent('turn_end', { iteration, reason: 'context_budget' });
+            break;
+          }
+          // Compaction freed enough space — continue
+        } else {
+          writeSseEvent('turn_end', { iteration, reason: 'context_budget' });
+          break;
+        }
       }
 
       // Check remaining time before next call

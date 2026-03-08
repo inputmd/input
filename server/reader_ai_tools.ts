@@ -20,6 +20,71 @@ export interface ReaderAiFileEntry {
   size: number;
 }
 
+/**
+ * Rough token estimate from character count.
+ * ~3.5 chars per token for English text / code is a reasonable approximation.
+ */
+export function estimateTokens(chars: number): number {
+  return Math.ceil(chars / 3.5);
+}
+
+/**
+ * Estimate token usage of an OpenRouter messages array.
+ * This is deliberately rough — used for budget decisions, not billing.
+ */
+export function estimateMessagesTokens(messages: OpenRouterMessage[]): number {
+  let chars = 0;
+  for (const msg of messages) {
+    if ('content' in msg && typeof msg.content === 'string') {
+      chars += msg.content.length;
+    }
+    if ('tool_calls' in msg && Array.isArray(msg.tool_calls)) {
+      for (const tc of msg.tool_calls) {
+        chars += (tc.function?.name?.length ?? 0) + (tc.function?.arguments?.length ?? 0) + 20;
+      }
+    }
+  }
+  return estimateTokens(chars);
+}
+
+/**
+ * Compact old tool result messages in the conversation when approaching
+ * the context budget. Replaces lengthy tool results from earlier turns
+ * with short summaries, preserving the most recent results in full.
+ *
+ * Returns the number of chars reclaimed.
+ */
+export function compactToolResults(
+  messages: OpenRouterMessage[],
+  preserveRecentToolResults: number,
+): number {
+  // Find all tool result messages
+  const toolResultIndices: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if ('role' in msg && msg.role === 'tool' && 'tool_call_id' in msg) {
+      toolResultIndices.push(i);
+    }
+  }
+
+  // Preserve the N most recent tool results
+  const toCompact = toolResultIndices.slice(0, -preserveRecentToolResults || toolResultIndices.length);
+  let reclaimed = 0;
+
+  for (const idx of toCompact) {
+    const msg = messages[idx] as { role: 'tool'; tool_call_id: string; content: string };
+    const original = msg.content;
+    if (original.length <= 200) continue; // already short
+
+    // Produce a compact summary: first 100 chars + size note
+    const compacted = `${original.slice(0, 100)}… [${original.length} chars, compacted]`;
+    reclaimed += original.length - compacted.length;
+    (messages[idx] as { role: 'tool'; tool_call_id: string; content: string }).content = compacted;
+  }
+
+  return reclaimed;
+}
+
 export interface ReaderAiToolCall {
   id: string;
   name: string;

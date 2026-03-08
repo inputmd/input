@@ -1,5 +1,17 @@
 import test from 'ava';
 import {
+  buildReaderAiProjectSystemPrompt,
+  compactToolResults,
+  estimateMessagesTokens,
+  estimateTokens,
+  executeReaderAiListFiles,
+  executeReaderAiProjectSyncTool,
+  executeReaderAiReadFile,
+  executeReaderAiSearchFiles,
+  type OpenRouterMessage,
+  READER_AI_PROJECT_SUBAGENT_TOOLS,
+  READER_AI_PROJECT_TOOLS,
+  type ReaderAiFileEntry,
   READER_AI_SUBAGENT_TOOLS,
   READER_AI_TOOL_RESULT_MAX_CHARS,
   READER_AI_TOOLS,
@@ -405,4 +417,200 @@ test('stream parser handles CRLF line endings', async (t) => {
   const stream = makeStream([new TextEncoder().encode(raw)]);
   const result = await parseReaderAiUpstreamStream(stream, () => {});
   t.is(result.content, 'hi');
+});
+
+// ── Project-mode tools ──
+
+const sampleFiles: ReaderAiFileEntry[] = [
+  { path: 'README.md', content: '# Hello\n\nWelcome to the project.', size: 30 },
+  { path: 'src/index.ts', content: 'import { foo } from "./foo";\nconsole.log(foo());', size: 48 },
+  { path: 'src/foo.ts', content: 'export function foo() {\n  return "bar";\n}', size: 42 },
+  { path: 'package.json', content: '{"name": "test", "version": "1.0.0"}', size: 36 },
+];
+
+test('read_file returns file content with line numbers', (t) => {
+  const result = executeReaderAiReadFile(sampleFiles, { path: 'src/index.ts' });
+  t.true(result.includes('src/index.ts'));
+  t.true(result.includes('1: import { foo }'));
+  t.true(result.includes('2: console.log'));
+});
+
+test('read_file returns error for missing file', (t) => {
+  const result = executeReaderAiReadFile(sampleFiles, { path: 'nonexistent.ts' });
+  t.true(result.includes('file not found'));
+});
+
+test('read_file supports case-insensitive path matching', (t) => {
+  const result = executeReaderAiReadFile(sampleFiles, { path: 'README.MD' });
+  t.true(result.includes('# Hello'));
+});
+
+test('read_file respects start_line and end_line', (t) => {
+  const result = executeReaderAiReadFile(sampleFiles, { path: 'src/foo.ts', start_line: 2, end_line: 2 });
+  t.true(result.includes('2:   return "bar";'));
+  t.false(result.includes('1:'));
+  t.false(result.includes('3:'));
+});
+
+test('search_files finds matches across files', (t) => {
+  const result = executeReaderAiSearchFiles(sampleFiles, { query: 'foo' });
+  t.true(result.includes('src/index.ts'));
+  t.true(result.includes('src/foo.ts'));
+});
+
+test('search_files returns no matches message', (t) => {
+  const result = executeReaderAiSearchFiles(sampleFiles, { query: 'xyznonexistent' });
+  t.is(result, 'No matches found.');
+});
+
+test('search_files respects glob filter', (t) => {
+  const result = executeReaderAiSearchFiles(sampleFiles, { query: 'foo', glob: '*.ts' });
+  // Should not match files that don't end with .ts at root level
+  t.false(result.includes('README.md'));
+});
+
+test('search_files reports no files for non-matching glob', (t) => {
+  const result = executeReaderAiSearchFiles(sampleFiles, { query: 'foo', glob: '*.py' });
+  t.true(result.includes('No files matching glob'));
+});
+
+test('list_files lists all files', (t) => {
+  const result = executeReaderAiListFiles(sampleFiles, {});
+  t.true(result.includes('4 files'));
+  t.true(result.includes('README.md'));
+  t.true(result.includes('src/index.ts'));
+  t.true(result.includes('package.json'));
+});
+
+test('list_files filters by path prefix', (t) => {
+  const result = executeReaderAiListFiles(sampleFiles, { path: 'src' });
+  t.true(result.includes('2 files'));
+  t.true(result.includes('src/index.ts'));
+  t.true(result.includes('src/foo.ts'));
+  t.false(result.includes('README.md'));
+});
+
+test('list_files returns error for empty path', (t) => {
+  const result = executeReaderAiListFiles(sampleFiles, { path: 'nonexistent' });
+  t.true(result.includes('no files under path'));
+});
+
+test('project sync tool dispatches read_file', (t) => {
+  const result = executeReaderAiProjectSyncTool('read_file', '{"path":"README.md"}', sampleFiles);
+  t.true(result.includes('# Hello'));
+});
+
+test('project sync tool dispatches search_files', (t) => {
+  const result = executeReaderAiProjectSyncTool('search_files', '{"query":"foo"}', sampleFiles);
+  t.true(result.includes('match'));
+});
+
+test('project sync tool dispatches list_files', (t) => {
+  const result = executeReaderAiProjectSyncTool('list_files', '{}', sampleFiles);
+  t.true(result.includes('4 files'));
+});
+
+test('project sync tool returns error for unknown tool', (t) => {
+  const result = executeReaderAiProjectSyncTool('unknown_tool', '{}', sampleFiles);
+  t.true(result.includes('unknown tool'));
+});
+
+test('READER_AI_PROJECT_TOOLS contains expected tools', (t) => {
+  const names = READER_AI_PROJECT_TOOLS.map((t) => t.function.name);
+  t.true(names.includes('read_file'));
+  t.true(names.includes('search_files'));
+  t.true(names.includes('list_files'));
+  t.true(names.includes('task'));
+});
+
+test('READER_AI_PROJECT_SUBAGENT_TOOLS excludes task', (t) => {
+  const names = READER_AI_PROJECT_SUBAGENT_TOOLS.map((t) => t.function.name);
+  t.true(names.includes('read_file'));
+  t.false(names.includes('task'));
+});
+
+test('project system prompt includes file tree and tools', (t) => {
+  const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, 'README.md');
+  t.true(prompt.includes('read_file'));
+  t.true(prompt.includes('search_files'));
+  t.true(prompt.includes('list_files'));
+  t.true(prompt.includes('task'));
+  t.true(prompt.includes('README.md'));
+  t.true(prompt.includes('src/index.ts'));
+  t.true(prompt.includes('currently viewing'));
+  t.true(prompt.includes('4 files'));
+});
+
+test('project system prompt works without current doc', (t) => {
+  const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, null);
+  t.false(prompt.includes('currently viewing'));
+  t.true(prompt.includes('4 files'));
+});
+
+// ── Token estimation ──
+
+test('estimateTokens returns positive number', (t) => {
+  t.true(estimateTokens(100) > 0);
+  t.true(estimateTokens(0) === 0);
+});
+
+test('estimateMessagesTokens sums message content', (t) => {
+  const messages: OpenRouterMessage[] = [
+    { role: 'system', content: 'Hello world' },
+    { role: 'user', content: 'Test message' },
+  ];
+  const tokens = estimateMessagesTokens(messages);
+  t.true(tokens > 0);
+  t.true(tokens < 20); // should be modest for short messages
+});
+
+test('estimateMessagesTokens counts tool call arguments', (t) => {
+  const messages: OpenRouterMessage[] = [
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: '1', type: 'function', function: { name: 'read_file', arguments: '{"path":"foo.ts"}' } }],
+    },
+  ];
+  const tokens = estimateMessagesTokens(messages);
+  t.true(tokens > 0);
+});
+
+// ── Tool result compaction ──
+
+test('compactToolResults truncates old tool results', (t) => {
+  const longResult = 'x'.repeat(1000);
+  const messages: OpenRouterMessage[] = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'hello' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 't1', content: longResult },
+    { role: 'assistant', content: null, tool_calls: [{ id: 't2', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 't2', content: longResult },
+  ];
+  const reclaimed = compactToolResults(messages, 1);
+  t.true(reclaimed > 0);
+  // First tool result should be compacted, second preserved
+  const firstToolResult = (messages[3] as { content: string }).content;
+  const secondToolResult = (messages[5] as { content: string }).content;
+  t.true(firstToolResult.length < 200);
+  t.is(secondToolResult.length, 1000);
+});
+
+test('compactToolResults skips short results', (t) => {
+  const messages: OpenRouterMessage[] = [
+    { role: 'tool', tool_call_id: 't1', content: 'short' },
+  ];
+  const reclaimed = compactToolResults(messages, 0);
+  t.is(reclaimed, 0);
+  t.is((messages[0] as { content: string }).content, 'short');
+});
+
+test('compactToolResults returns 0 when nothing to compact', (t) => {
+  const messages: OpenRouterMessage[] = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'hi' },
+  ];
+  const reclaimed = compactToolResults(messages, 1);
+  t.is(reclaimed, 0);
 });
