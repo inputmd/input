@@ -8,6 +8,10 @@ export interface ReaderAiModel {
 
 export const FEATURED_READER_AI_MODELS = [
   { label: 'nemotron 3 nano 30b', aliases: ['nemotron 3 nano 30b'] },
+  {
+    label: 'stepfun step 3.5 flash',
+    aliases: ['stepfun step 3.5 flash', 'stepfun step-3.5-flash', 'step-3.5-flash'],
+  },
   { label: 'arcee ai trinity mini', aliases: ['arcee ai trinity mini', 'arcee-ai trinity mini', 'trinity mini'] },
   {
     label: 'arcee ai trinity large preview',
