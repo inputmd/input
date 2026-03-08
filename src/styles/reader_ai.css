@@ -348,9 +348,6 @@
 .reader-ai-status {
   padding: 8px 14px;
   font-size: 12px;
-}
-
-.reader-ai-status {
   color: var(--text-secondary);
 }
 
