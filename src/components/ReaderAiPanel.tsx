@@ -593,99 +593,115 @@ export function ReaderAiPanel({
           </div>
         ) : null}
         {messages.map((message, index) => (
-          <div key={`${message.role}-${index}`} class={`reader-ai-message reader-ai-message--${message.role}`}>
-            <div class="reader-ai-message-role">
-              {message.role === 'user' ? (
-                <>
-                  <span>You</span>
-                  {editingIndex === index ? (
-                    <span class="reader-ai-message-actions">
-                      <button
-                        type="button"
-                        class="reader-ai-message-action-btn"
-                        onClick={cancelEdit}
-                        disabled={sending}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        class="reader-ai-message-action-btn"
-                        onClick={() => void applyEdit()}
-                        disabled={sending || !selectedModel || editingDraft.trim().length === 0}
-                      >
-                        Save
-                      </button>
-                    </span>
-                  ) : (
-                    <span class="reader-ai-message-actions">
-                      {!sending && index === lastUserMessageIndex ? (
+          <div key={`${message.role}-${index}`}>
+            <div class={`reader-ai-message reader-ai-message--${message.role}`}>
+              <div class="reader-ai-message-role">
+                {message.role === 'user' ? (
+                  <>
+                    <span>You</span>
+                    {editingIndex === index ? (
+                      <span class="reader-ai-message-actions">
                         <button
                           type="button"
                           class="reader-ai-message-action-btn"
-                          onClick={() => void onRetryLastUserMessage()}
+                          onClick={cancelEdit}
+                          disabled={sending}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          class="reader-ai-message-action-btn"
+                          onClick={() => void applyEdit()}
+                          disabled={sending || !selectedModel || editingDraft.trim().length === 0}
+                        >
+                          Save
+                        </button>
+                      </span>
+                    ) : (
+                      <span class="reader-ai-message-actions">
+                        {!sending && index === lastUserMessageIndex ? (
+                          <button
+                            type="button"
+                            class="reader-ai-message-action-btn"
+                            onClick={() => void onRetryLastUserMessage()}
+                            disabled={sending || !selectedModel}
+                          >
+                            Retry
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          class="reader-ai-message-action-btn"
+                          onClick={() => {
+                            setEditingIndex(index);
+                            setEditingDraft(message.content);
+                          }}
                           disabled={sending || !selectedModel}
                         >
-                          Retry
+                          Edit
                         </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        class="reader-ai-message-action-btn"
-                        onClick={() => {
-                          setEditingIndex(index);
-                          setEditingDraft(message.content);
-                        }}
-                        disabled={sending || !selectedModel}
-                      >
-                        Edit
-                      </button>
-                    </span>
-                  )}
-                </>
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span>Reader AI</span>
+                    {message.edited ? <span class="reader-ai-message-edited">Edited</span> : null}
+                  </>
+                )}
+              </div>
+              {message.role === 'assistant' ? (
+                <div
+                  class="reader-ai-message-content rendered-markdown"
+                  dangerouslySetInnerHTML={{
+                    __html:
+                      sending && index === messageCount - 1 && !message.content.trim()
+                        ? '<p>Thinking...</p>'
+                        : parseMarkdownToHtml(message.content),
+                  }}
+                />
+              ) : editingIndex === index ? (
+                <textarea
+                  ref={editInputRef}
+                  class="reader-ai-inline-edit-input"
+                  value={editingDraft}
+                  onInput={(event) => setEditingDraft(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                      event.preventDefault();
+                      void applyEdit();
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      cancelEdit();
+                    }
+                  }}
+                  rows={3}
+                  disabled={sending || !selectedModel}
+                />
               ) : (
-                <>
-                  <span>Reader AI</span>
-                  {message.edited ? <span class="reader-ai-message-edited">Edited</span> : null}
-                </>
+                <div class="reader-ai-message-content">{message.content}</div>
               )}
             </div>
-            {message.role === 'assistant' ? (
-              <div
-                class="reader-ai-message-content rendered-markdown"
-                dangerouslySetInnerHTML={{
-                  __html:
-                    sending && index === messageCount - 1 && !message.content.trim()
-                      ? '<p>Thinking...</p>'
-                      : parseMarkdownToHtml(message.content),
-                }}
-              />
-            ) : editingIndex === index ? (
-              <textarea
-                ref={editInputRef}
-                class="reader-ai-inline-edit-input"
-                value={editingDraft}
-                onInput={(event) => setEditingDraft(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                    event.preventDefault();
-                    void applyEdit();
-                  }
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    cancelEdit();
-                  }
-                }}
-                rows={3}
-                disabled={sending || !selectedModel}
-              />
-            ) : (
-              <div class="reader-ai-message-content">{message.content}</div>
-            )}
+            {index === lastUserMessageIndex ? (
+              <>
+                {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
+                {sending && toolStatus && toolLog.length === 0 ? (
+                  <div class="reader-ai-tool-status">{toolStatus}</div>
+                ) : null}
+              </>
+            ) : null}
           </div>
         ))}
-        {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
-        {sending && toolStatus && toolLog.length === 0 ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
+        {lastUserMessageIndex === -1 ? (
+          <>
+            {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
+            {sending && toolStatus && toolLog.length === 0 ? (
+              <div class="reader-ai-tool-status">{toolStatus}</div>
+            ) : null}
+          </>
+        ) : null}
         {!sending && suggestProjectMode ? (
           <div class="reader-ai-suggest-project-mode" role="status" aria-live="polite">
             <div class="reader-ai-suggest-project-mode-copy">
