@@ -190,6 +190,8 @@ export async function askReaderAiStream(
   currentDocPath?: string | null,
   editModeCurrentDocOnly?: boolean,
 ): Promise<void> {
+  // Resolve current_doc_path: projectContext takes precedence when present
+  const resolvedDocPath = projectContext?.currentDocPath ?? currentDocPath ?? null;
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
     credentials: 'same-origin',
@@ -200,11 +202,9 @@ export async function askReaderAiStream(
       source,
       messages,
       ...(summary ? { summary } : {}),
-      ...(typeof currentDocPath === 'string' && currentDocPath ? { current_doc_path: currentDocPath } : {}),
+      ...(typeof resolvedDocPath === 'string' && resolvedDocPath ? { current_doc_path: resolvedDocPath } : {}),
       ...(editModeCurrentDocOnly ? { edit_mode_current_doc_only: true } : {}),
-      ...(projectContext
-        ? { project_id: projectContext.projectId, current_doc_path: projectContext.currentDocPath }
-        : {}),
+      ...(projectContext ? { project_id: projectContext.projectId } : {}),
     }),
   });
   if (!res.ok) throw await responseToApiError(res);
