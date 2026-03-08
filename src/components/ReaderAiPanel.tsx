@@ -199,7 +199,7 @@ export function ReaderAiPanel({
   const composerPlaceholder = !authenticated
     ? 'Sign in to enable chat'
     : repoModeEnabled
-      ? 'Ask about this repo...'
+      ? 'Ask about this project...'
       : 'Ask about this document...';
 
   useEffect(() => {
@@ -454,10 +454,10 @@ export function ReaderAiPanel({
             class={`reader-ai-repo-mode-label${repoModeDisabledReason ? ' reader-ai-repo-mode-label--disabled' : ''}`}
           >
             {repoModeLoading
-              ? 'Loading repo...'
+              ? 'Loading files...'
               : repoModeEnabled && repoModeFileCount > 0
-                ? `Repo mode (${repoModeFileCount} files)`
-                : 'Repo mode'}
+                ? `Project mode (${repoModeFileCount} files)`
+                : 'Project mode'}
           </span>
         </div>
       ) : null}

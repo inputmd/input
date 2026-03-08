@@ -2289,12 +2289,19 @@ export function App() {
   const REPO_MODE_MAX_FILES = 100;
   const REPO_MODE_MAX_FILE_SIZE = 50 * 1024 * 1024;
 
-  const repoModeAvailable = repoAccessMode !== null;
+  const isGistContext = currentGistId !== null && gistFiles !== null;
+  const repoModeAvailable = repoAccessMode !== null || isGistContext;
 
   const repoModeFileCount = readerAiRepoFiles?.length ?? 0;
 
   const repoModeDisabledReason = useMemo((): string | null => {
     if (!repoModeAvailable) return null;
+    if (isGistContext) {
+      const fileCount = gistFiles ? Object.keys(gistFiles).length : 0;
+      if (fileCount === 0) return 'No files in gist';
+      if (fileCount > REPO_MODE_MAX_FILES) return `Too many files (${fileCount}, max ${REPO_MODE_MAX_FILES})`;
+      return null;
+    }
     // Check against the sidebar files list (all files) when available
     const allFiles = repoSidebarFiles.length > 0 ? repoSidebarFiles : repoFiles;
     if (allFiles.length === 0) return null; // tree not loaded yet — allow toggle, will validate on fetch
@@ -2303,9 +2310,9 @@ export function App() {
     if (oversized)
       return `File too large: ${oversized.path} (${Math.round((oversized.size ?? 0) / 1024 / 1024)}MB, max 50MB)`;
     return null;
-  }, [repoModeAvailable, repoSidebarFiles, repoFiles]);
+  }, [repoModeAvailable, isGistContext, gistFiles, repoSidebarFiles, repoFiles]);
 
-  // Reset repo mode when navigating away from a repo
+  // Reset repo mode when navigating away from a repo/gist
   useEffect(() => {
     if (!repoModeAvailable) {
       setReaderAiRepoMode(false);
@@ -2367,7 +2374,14 @@ export function App() {
       setReaderAiRepoModeLoading(true);
       try {
         let files: RepoFileEntry[];
-        if (repoAccessMode === 'installed' && installationId && selectedRepo) {
+        if (isGistContext && gistFiles) {
+          // Build file entries from gist files (already loaded)
+          files = Object.values(gistFiles).map((f) => ({
+            path: f.filename,
+            content: f.content,
+            size: f.size,
+          }));
+        } else if (repoAccessMode === 'installed' && installationId && selectedRepo) {
           files = await getRepoTarball(installationId, selectedRepo);
         } else if (repoAccessMode === 'public' && publicRepoRef) {
           files = await getPublicRepoTarball(publicRepoRef.owner, publicRepoRef.repo);
@@ -2389,7 +2403,7 @@ export function App() {
         setReaderAiRepoModeLoading(false);
       }
     },
-    [repoAccessMode, installationId, selectedRepo, publicRepoRef, showRateLimitToastIfNeeded, readerAiProjectId],
+    [repoAccessMode, installationId, selectedRepo, publicRepoRef, showRateLimitToastIfNeeded, readerAiProjectId, isGistContext, gistFiles],
   );
 
   const streamReaderAiAssistant = useCallback(
