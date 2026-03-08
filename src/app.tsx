@@ -437,37 +437,15 @@ function persistReaderAiMessagesToHistory(
   for (const key of Object.keys(nextEntries)) {
     if (!trimmedOrder.includes(key)) delete nextEntries[key];
   }
-  console.debug('[reader-ai] persisting history', {
-    historyKey,
-    messageCount: normalizedMessages.length,
-    hasSummary: Boolean(summary),
-    orderLength: trimmedOrder.length,
-  });
   try {
     if (trimmedOrder.length === 0) {
       localStorage.removeItem(READER_AI_HISTORY_KEY);
-      const persisted = localStorage.getItem(READER_AI_HISTORY_KEY);
-      console.debug('[reader-ai] persisted history clear check', {
-        removed: persisted === null,
-      });
       return;
     }
     const payload = JSON.stringify({ order: trimmedOrder, entries: nextEntries });
     localStorage.setItem(READER_AI_HISTORY_KEY, payload);
     const persistedRaw = localStorage.getItem(READER_AI_HISTORY_KEY);
-    if (!persistedRaw) {
-      console.warn('[reader-ai] persist check failed: history key missing after write', { historyKey });
-      return;
-    }
-    const persistedStore = JSON.parse(persistedRaw) as ReaderAiHistoryStore;
-    const persistedEntry = persistedStore.entries?.[historyKey];
-    const persistedMessages = normalizeReaderAiMessages(persistedEntry?.messages);
-    console.debug('[reader-ai] persisted history check', {
-      historyKey,
-      persisted: persistedMessages.length === normalizedMessages.length,
-      persistedMessageCount: persistedMessages.length,
-      expectedMessageCount: normalizedMessages.length,
-    });
+    if (!persistedRaw) return;
   } catch {
     console.error('[reader-ai] persist history failed', { historyKey });
   }
@@ -2510,6 +2488,7 @@ export function App() {
       setReaderAiError(null);
       setReaderAiSuggestProjectMode(false);
       let received = false;
+      let separateNextTurnOutput = false;
 
       let effectiveProjectId = readerAiProjectId;
       const projectCurrentDocPath =
@@ -2594,6 +2573,23 @@ export function App() {
               setReaderAiStagedChanges(changes);
               setReaderAiDocumentEditedContent(typeof documentContent === 'string' ? documentContent : null);
               if (suggestedCommitMessage) setReaderAiSuggestedCommitMessage(suggestedCommitMessage);
+            },
+            onTurnStart: (iteration) => {
+              if (iteration <= 0 || !separateNextTurnOutput) return;
+              setReaderAiMessages((current) => {
+                if (current.length === 0) return current;
+                const updated = [...current];
+                const lastIndex = updated.length - 1;
+                const last = updated[lastIndex];
+                if (last.role !== 'assistant' || !last.content.trim()) return current;
+                if (last.content.endsWith('\n\n')) return current;
+                updated[lastIndex] = { ...last, content: `${last.content}\n\n` };
+                return updated;
+              });
+              separateNextTurnOutput = false;
+            },
+            onTurnEnd: (_iteration, reason) => {
+              if (reason === 'tool_calls') separateNextTurnOutput = true;
             },
             onDelta: (delta) => {
               if (!delta) return;

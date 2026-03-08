@@ -1414,6 +1414,7 @@ export function buildReaderAiProjectSystemPrompt(
           '- You are in focused edit mode for the current document.',
           `- Only edit this file: ${currentDocPath}`,
           '- Do not create or delete files.',
+          '- Do not delegate edits to subagents; make edits directly with edit_file.',
         ]
       : []),
     '',

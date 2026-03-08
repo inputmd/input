@@ -1389,7 +1389,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     tools = editModeCurrentDocOnly
       ? READER_AI_PROJECT_TOOLS.filter((tool) => {
           const name = tool.function.name;
-          return name !== 'create_file' && name !== 'delete_file';
+          return name !== 'create_file' && name !== 'delete_file' && name !== 'task';
         })
       : READER_AI_PROJECT_TOOLS;
   } else {
@@ -1465,6 +1465,50 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     }
     if (tc.name === 'edit_document') return executeReaderAiEditDocumentTool(tc.arguments, documentEditState);
     return executeReaderAiSyncTool(tc.name, tc.arguments, documentEditState.lines);
+  };
+
+  let stagedChangesEmitted = false;
+  const emitStagedChangesIfAny = () => {
+    if (stagedChangesEmitted || ctx.res.writableEnded) return;
+    const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
+    const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
+    if (!hasProjectStagedChanges && !hasDocumentStagedChange) return;
+
+    const allChanges = hasProjectStagedChanges
+      ? stagedChanges!.getChanges()
+      : [
+          {
+            path: currentDocPath || 'current-document.md',
+            type: 'edit' as const,
+            original: source,
+            modified: documentEditState.stagedContent!,
+            diff: documentEditState.stagedDiff!,
+          },
+        ];
+    const changes = allChanges.map((c) => ({
+      path: c.path,
+      type: c.type,
+      diff: c.diff,
+    }));
+    const edits = allChanges.filter((c) => c.type === 'edit').map((c) => c.path);
+    const creates = allChanges.filter((c) => c.type === 'create').map((c) => c.path);
+    const deletes = allChanges.filter((c) => c.type === 'delete').map((c) => c.path);
+    const parts: string[] = [];
+    if (edits.length === 1) parts.push(`Update ${edits[0]}`);
+    else if (edits.length > 1) parts.push(`Update ${edits.length} files`);
+    if (creates.length === 1) parts.push(`add ${creates[0]}`);
+    else if (creates.length > 1) parts.push(`add ${creates.length} files`);
+    if (deletes.length === 1) parts.push(`delete ${deletes[0]}`);
+    else if (deletes.length > 1) parts.push(`delete ${deletes.length} files`);
+    const suggestedCommitMessage = parts.join(', ') || 'Apply AI-suggested changes';
+    ctx.res.write(
+      `event: staged_changes\ndata: ${JSON.stringify({
+        changes,
+        suggested_commit_message: suggestedCommitMessage,
+        ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
+      })}\n\n`,
+    );
+    stagedChangesEmitted = true;
   };
 
   try {
@@ -1646,6 +1690,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       if (!ctx.res.headersSent) throw new ClientError('Reader AI request timed out', 504);
       if (!ctx.res.writableEnded) {
+        emitStagedChangesIfAny();
         ctx.res.write('data: [DONE]\n\n');
         ctx.res.end();
       }
@@ -1654,6 +1699,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     if (ctx.res.headersSent) {
       console.warn('Reader AI stream failed after response start:', err);
       if (!ctx.res.writableEnded) {
+        emitStagedChangesIfAny();
         ctx.res.write('data: [DONE]\n\n');
         ctx.res.end();
       }
@@ -1665,45 +1711,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   }
 
   // Emit staged changes if any edits were made
-  const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
-  const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
-  if (!ctx.res.writableEnded && (hasProjectStagedChanges || hasDocumentStagedChange)) {
-    const allChanges = hasProjectStagedChanges
-      ? stagedChanges!.getChanges()
-      : [
-          {
-            path: currentDocPath || 'current-document.md',
-            type: 'edit' as const,
-            original: source,
-            modified: documentEditState.stagedContent!,
-            diff: documentEditState.stagedDiff!,
-          },
-        ];
-    const changes = allChanges.map((c) => ({
-      path: c.path,
-      type: c.type,
-      diff: c.diff,
-    }));
-    // Generate a suggested commit message from the changes
-    const edits = allChanges.filter((c) => c.type === 'edit').map((c) => c.path);
-    const creates = allChanges.filter((c) => c.type === 'create').map((c) => c.path);
-    const deletes = allChanges.filter((c) => c.type === 'delete').map((c) => c.path);
-    const parts: string[] = [];
-    if (edits.length === 1) parts.push(`Update ${edits[0]}`);
-    else if (edits.length > 1) parts.push(`Update ${edits.length} files`);
-    if (creates.length === 1) parts.push(`add ${creates[0]}`);
-    else if (creates.length > 1) parts.push(`add ${creates.length} files`);
-    if (deletes.length === 1) parts.push(`delete ${deletes[0]}`);
-    else if (deletes.length > 1) parts.push(`delete ${deletes.length} files`);
-    const suggestedCommitMessage = parts.join(', ') || 'Apply AI-suggested changes';
-    ctx.res.write(
-      `event: staged_changes\ndata: ${JSON.stringify({
-        changes,
-        suggested_commit_message: suggestedCommitMessage,
-        ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
-      })}\n\n`,
-    );
-  }
+  emitStagedChangesIfAny();
 
   if (!ctx.res.writableEnded) {
     ctx.res.write('data: [DONE]\n\n');

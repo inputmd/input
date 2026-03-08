@@ -736,6 +736,7 @@ export function ReaderAiPanel({
           />
         ) : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
+        {composerAtTop ? null : <div class="reader-ai-messages-bottom-spacer" aria-hidden="true" />}
         {composerAtTop ? null : composer}
       </div>
       {statusText ? <div class="reader-ai-status">{statusText}</div> : null}
