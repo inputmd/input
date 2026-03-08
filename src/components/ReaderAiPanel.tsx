@@ -650,15 +650,19 @@ export function ReaderAiPanel({
                 )}
               </div>
               {message.role === 'assistant' ? (
-                <div
-                  class="reader-ai-message-content rendered-markdown"
-                  dangerouslySetInnerHTML={{
-                    __html:
-                      sending && index === messageCount - 1 && !message.content.trim()
-                        ? '<p>Thinking...</p>'
-                        : parseMarkdownToHtml(message.content),
-                  }}
-                />
+                sending && index === messageCount - 1 && !message.content.trim() ? (
+                  <div class="reader-ai-thinking">
+                    <span class="reader-ai-thinking-spinner" aria-hidden="true" />
+                    <span>Thinking...</span>
+                  </div>
+                ) : (
+                  <div
+                    class="reader-ai-message-content rendered-markdown"
+                    dangerouslySetInnerHTML={{
+                      __html: parseMarkdownToHtml(message.content),
+                    }}
+                  />
+                )
               ) : editingIndex === index ? (
                 <textarea
                   ref={editInputRef}
