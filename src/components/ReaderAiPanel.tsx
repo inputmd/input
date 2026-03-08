@@ -84,7 +84,7 @@ export function ReaderAiPanel({
     return null;
   }, [modelsLoading, modelsError, selectedModel]);
   const composerInputDisabled = sending || !selectedModel || !authenticated;
-  const composerPlaceholder = authenticated ? 'Ask AI...' : 'Sign in to enable chat';
+  const composerPlaceholder = authenticated ? 'Ask about this document...' : 'Sign in to enable chat';
 
   useEffect(() => {
     const root = messagesRef.current;
