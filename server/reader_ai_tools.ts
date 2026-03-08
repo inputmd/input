@@ -488,6 +488,12 @@ export class StagedChanges {
   hasChanges(): boolean {
     return this.changes.size > 0;
   }
+
+  /** Discard all staged changes and restore original file contents. */
+  reset(files: ReaderAiFileEntry[]): void {
+    this.changes.clear();
+    this.workingFiles = new Map(files.map((f) => [f.path, f.content]));
+  }
 }
 
 /** Generate a simple unified diff between two strings. */

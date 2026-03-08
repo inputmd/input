@@ -71,6 +71,7 @@ import {
   listReaderAiModels,
   type ReaderAiModel,
   readerAiModelPriorityRank,
+  resetReaderAiProjectSession,
 } from './reader_ai';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
@@ -2408,7 +2409,6 @@ export function App() {
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
-      setReaderAiStagedChanges([]);
       setReaderAiError(null);
       let received = false;
 
@@ -2569,7 +2569,8 @@ export function App() {
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
     setReaderAiError(null);
-  }, [readerAiHistoryDocumentKey]);
+    if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
+  }, [readerAiHistoryDocumentKey, readerAiProjectId]);
 
   const onReaderAiRetryLastMessage = useCallback(async () => {
     if (readerAiSending || !readerAiRetryAvailable) return;

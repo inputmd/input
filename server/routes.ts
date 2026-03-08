@@ -1175,6 +1175,7 @@ interface ReaderAiProjectSession {
   id: string;
   userId: number;
   files: ReaderAiFileEntry[];
+  stagedChanges: StagedChanges;
   createdAt: number;
   lastAccessedAt: number;
 }
@@ -1231,11 +1232,24 @@ async function handleReaderAiProjectCreate(ctx: RouteContext): Promise<void> {
     id,
     userId: session.githubUserId,
     files,
+    stagedChanges: new StagedChanges(files),
     createdAt: now,
     lastAccessedAt: now,
   });
 
   json(ctx.res, 200, { project_id: id, file_count: files.length });
+}
+
+async function handleReaderAiProjectReset(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+
+  const projectId = ctx.match[1];
+  const ps = getProjectSession(projectId, session.githubUserId);
+  if (ps) {
+    ps.stagedChanges.reset(ps.files);
+  }
+  json(ctx.res, 200, { reset: true });
 }
 
 async function handleReaderAiProjectDelete(ctx: RouteContext): Promise<void> {
@@ -1365,8 +1379,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   // Reserve 25% for system prompt + file tree, 15% for output, 60% for conversation + tool results
   const conversationBudgetTokens = Math.floor(maxContextTokens * 0.60);
 
-  // Staging layer for file edits in project mode
-  const stagedChanges = isProjectMode ? new StagedChanges(resolvedProjectFiles) : undefined;
+  // Staging layer for file edits in project mode — reuse from project session if available
+  const projectSession = projectId ? readerAiProjectSessions.get(projectId) : undefined;
+  const stagedChanges = projectSession ? projectSession.stagedChanges : isProjectMode ? new StagedChanges(resolvedProjectFiles) : undefined;
 
   const executeSyncToolCall = (tc: ReaderAiToolCall): string => {
     if (isProjectMode) {
@@ -1763,6 +1778,7 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
   { method: 'POST', pattern: /^\/api\/ai\/project$/, handler: handleReaderAiProjectCreate },
+  { method: 'POST', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/reset$/, handler: handleReaderAiProjectReset },
   { method: 'DELETE', pattern: /^\/api\/ai\/project\/([a-f0-9]+)$/i, handler: handleReaderAiProjectDelete },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },
 ];
