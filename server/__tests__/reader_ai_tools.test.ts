@@ -223,6 +223,7 @@ test('READER_AI_TOOLS contains task tool', (t) => {
   t.true(names.includes('task'));
   t.true(names.includes('read_document'));
   t.true(names.includes('search_document'));
+  t.true(names.includes('edit_document'));
 });
 
 test('READER_AI_SUBAGENT_TOOLS excludes task tool', (t) => {
@@ -230,6 +231,7 @@ test('READER_AI_SUBAGENT_TOOLS excludes task tool', (t) => {
   t.false(names.includes('task'));
   t.true(names.includes('read_document'));
   t.true(names.includes('search_document'));
+  t.false(names.includes('edit_document'));
 });
 
 // ── buildReaderAiSystemPrompt ──
@@ -258,6 +260,11 @@ test('system prompt mentions task tool', (t) => {
   const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000);
   t.true(prompt.includes('task'));
   t.true(prompt.includes('subagent'));
+});
+
+test('system prompt mentions edit_document tool', (t) => {
+  const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000);
+  t.true(prompt.includes('edit_document'));
 });
 
 test('system prompt includes document info', (t) => {
@@ -542,6 +549,13 @@ test('project system prompt works without current doc', (t) => {
   const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, null);
   t.false(prompt.includes('currently viewing'));
   t.true(prompt.includes('4 files'));
+});
+
+test('project system prompt includes focused edit guidance when enabled', (t) => {
+  const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, 'README.md', true);
+  t.true(prompt.includes('focused edit mode'));
+  t.true(prompt.includes('Only edit this file: README.md'));
+  t.true(prompt.includes('Do not create or delete files'));
 });
 
 // ── Token estimation ──
