@@ -358,7 +358,7 @@ export const READER_AI_PROJECT_TOOLS = [
     function: {
       name: 'task',
       description:
-        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. a reviewer, a research agent). The subagent has access to read_file, search_files, and list_files for the same project (read-only). Multiple task calls in the same turn run in parallel (up to 4).',
+        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. a reviewer, a research agent). In project mode, subagents can use the same project tools and stage edits in the same shared staging area. Multiple task calls in the same turn run in parallel (up to 4).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -1396,7 +1396,7 @@ export function buildReaderAiProjectSystemPrompt(
     '- edit_file: Make a surgical edit — find exact old_text and replace with new_text. Always read_file first.',
     '- create_file: Create a new file. Fails if the file already exists.',
     '- delete_file: Delete a file from the project.',
-    '- task: Spawn an independent subagent for parallel or specialized work (read-only access).',
+    '- task: Spawn an independent subagent for parallel or specialized work (shared staging access).',
     '',
     'Guidelines:',
     '- Use search_files to locate relevant code before answering questions about the project.',
@@ -1444,6 +1444,8 @@ export interface ReaderAiSubagentOptions {
   source: string;
   /** Project mode: all files in the repo/gist. When set, subagent uses project tools. */
   projectFiles?: ReaderAiFileEntry[];
+  /** Project mode: shared staging area for subagent edits. */
+  stagedChanges?: StagedChanges;
   openRouterHeaders: Record<string, string>;
   signal: AbortSignal;
   /** Override fetch for testing. Defaults to global fetch. */
@@ -1451,7 +1453,17 @@ export interface ReaderAiSubagentOptions {
 }
 
 export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions): Promise<string> {
-  const { model, prompt, lines, source, projectFiles, openRouterHeaders, signal, fetchFn = fetch } = options;
+  const {
+    model,
+    prompt,
+    lines,
+    source,
+    projectFiles,
+    stagedChanges,
+    openRouterHeaders,
+    signal,
+    fetchFn = fetch,
+  } = options;
   const isProjectMode = projectFiles && projectFiles.length > 0;
 
   const defaultSystemPrompt = isProjectMode
@@ -1462,6 +1474,9 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
         '- read_file: Read a file by path. Returns line-numbered text.',
         '- search_files: Search across all files (case-insensitive). Use glob to filter.',
         '- list_files: List files in the project.',
+        '- edit_file: Edit file content with exact old_text/new_text replacement.',
+        '- create_file: Create a new file in the project.',
+        '- delete_file: Delete a file from the project.',
         '',
         `Project: ${projectFiles.length} files.`,
         '',
@@ -1530,7 +1545,7 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
 
     for (const tc of result.toolCalls) {
       const toolResult = isProjectMode
-        ? executeReaderAiProjectSyncTool(tc.name, tc.arguments, projectFiles)
+        ? executeReaderAiProjectSyncTool(tc.name, tc.arguments, projectFiles, stagedChanges)
         : executeReaderAiSyncTool(tc.name, tc.arguments, lines);
       messages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
     }

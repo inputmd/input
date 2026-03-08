@@ -1623,6 +1623,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                 lines,
                 source,
                 projectFiles: isProjectMode ? resolvedProjectFiles : undefined,
+                stagedChanges: isProjectMode ? stagedChanges : undefined,
                 openRouterHeaders,
                 signal: abortController.signal,
               });
