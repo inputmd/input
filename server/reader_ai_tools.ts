@@ -243,9 +243,56 @@ export const READER_AI_PROJECT_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'edit_file',
+      description:
+        'Make a surgical edit to a file. Finds the exact old_text in the file and replaces it with new_text. The old_text must match exactly (including whitespace and indentation). Returns a unified diff of the change. Always read_file first to see the current content before editing.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'File path relative to the project root.' },
+          old_text: { type: 'string' as const, description: 'The exact text to find and replace. Must match exactly.' },
+          new_text: { type: 'string' as const, description: 'The replacement text.' },
+        },
+        required: ['path', 'old_text', 'new_text'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_file',
+      description:
+        'Create a new file in the project. Fails if the file already exists — use edit_file to modify existing files.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'File path relative to the project root.' },
+          content: { type: 'string' as const, description: 'The full content of the new file.' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'delete_file',
+      description: 'Delete a file from the project.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string' as const, description: 'File path relative to the project root.' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'task',
       description:
-        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. a reviewer, a research agent). The subagent has access to read_file, search_files, and list_files for the same project. Multiple task calls in the same turn run in parallel (up to 4).',
+        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. a reviewer, a research agent). The subagent has access to read_file, search_files, and list_files for the same project (read-only). Multiple task calls in the same turn run in parallel (up to 4).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -334,6 +381,190 @@ export function executeReaderAiSearchDocument(
     return `${result.slice(0, READER_AI_TOOL_RESULT_MAX_CHARS)}\n\n... (too many matches, try a more specific query)`;
   }
   return result;
+}
+
+// ── Staged changes (in-memory editing layer) ──
+
+export interface StagedChange {
+  path: string;
+  type: 'edit' | 'create' | 'delete';
+  /** Original content (null for creates). */
+  original: string | null;
+  /** Modified content (null for deletes). */
+  modified: string | null;
+  /** Unified diff for display. */
+  diff: string;
+}
+
+/**
+ * Mutable staging area for file edits during an agentic loop.
+ * Tracks accumulated changes without modifying the original file entries.
+ */
+export class StagedChanges {
+  private changes = new Map<string, StagedChange>();
+  private workingFiles: Map<string, string>;
+
+  constructor(files: ReaderAiFileEntry[]) {
+    this.workingFiles = new Map(files.map((f) => [f.path, f.content]));
+  }
+
+  /** Get the current working content of a file (with staged edits applied). */
+  getContent(path: string): string | undefined {
+    return this.workingFiles.get(path);
+  }
+
+  /** Check if a file exists in the working set (including creates, excluding deletes). */
+  hasFile(path: string): boolean {
+    return this.workingFiles.has(path);
+  }
+
+  /** Get all files as ReaderAiFileEntry[] reflecting staged changes. */
+  getWorkingFiles(): ReaderAiFileEntry[] {
+    const result: ReaderAiFileEntry[] = [];
+    for (const [path, content] of this.workingFiles) {
+      result.push({ path, content, size: content.length });
+    }
+    return result;
+  }
+
+  editFile(path: string, oldText: string, newText: string): string {
+    const content = this.workingFiles.get(path);
+    if (content === undefined) return `(file not found: ${path})`;
+    if (oldText === newText) return '(old_text and new_text are identical — no change made)';
+
+    const index = content.indexOf(oldText);
+    if (index === -1) {
+      // Try to give a helpful error
+      const lower = content.toLowerCase();
+      const lowerOld = oldText.toLowerCase();
+      if (lower.includes(lowerOld)) {
+        return '(old_text not found — a case-insensitive match exists. The old_text must match exactly, including case.)';
+      }
+      return '(old_text not found in file — it must match the file content exactly, including whitespace and indentation. Use read_file to verify the current content.)';
+    }
+
+    // Check for ambiguity — multiple matches
+    const secondIndex = content.indexOf(oldText, index + 1);
+    if (secondIndex !== -1) {
+      return '(old_text matches multiple locations in the file — provide more surrounding context to make it unique.)';
+    }
+
+    const updated = content.slice(0, index) + newText + content.slice(index + oldText.length);
+    this.workingFiles.set(path, updated);
+
+    const existing = this.changes.get(path);
+    const original = existing?.original ?? content;
+    const diff = generateUnifiedDiff(path, original, updated);
+    this.changes.set(path, { path, type: 'edit', original, modified: updated, diff });
+
+    return `Edited ${path}:\n${diff}`;
+  }
+
+  createFile(path: string, content: string): string {
+    if (this.workingFiles.has(path)) {
+      return `(file already exists: ${path} — use edit_file to modify it)`;
+    }
+    this.workingFiles.set(path, content);
+    const diff = generateUnifiedDiff(path, '', content);
+    this.changes.set(path, { path, type: 'create', original: null, modified: content, diff });
+    return `Created ${path} (${content.length} bytes):\n${diff}`;
+  }
+
+  deleteFile(path: string): string {
+    const content = this.workingFiles.get(path);
+    if (content === undefined) return `(file not found: ${path})`;
+    this.workingFiles.delete(path);
+    const existing = this.changes.get(path);
+    const original = existing?.original ?? content;
+    const diff = generateUnifiedDiff(path, original, '');
+    this.changes.set(path, { path, type: 'delete', original, modified: null, diff });
+    return `Deleted ${path}`;
+  }
+
+  getChanges(): StagedChange[] {
+    return [...this.changes.values()];
+  }
+
+  hasChanges(): boolean {
+    return this.changes.size > 0;
+  }
+}
+
+/** Generate a simple unified diff between two strings. */
+export function generateUnifiedDiff(path: string, oldContent: string, newContent: string): string {
+  const oldLines = oldContent ? oldContent.split('\n') : [];
+  const newLines = newContent ? newContent.split('\n') : [];
+  const result: string[] = [`--- a/${path}`, `+++ b/${path}`];
+
+  // Simple diff: find changed regions by comparing lines
+  let i = 0;
+  let j = 0;
+  while (i < oldLines.length || j < newLines.length) {
+    // Find next difference
+    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+      i++;
+      j++;
+      continue;
+    }
+
+    // Found a difference — collect the hunk
+    const hunkStartOld = Math.max(0, i - 3);
+    const hunkStartNew = Math.max(0, j - 3);
+
+    // Find the end of the differing region
+    let diffEndOld = i;
+    let diffEndNew = j;
+
+    // Advance through differing lines
+    while (diffEndOld < oldLines.length || diffEndNew < newLines.length) {
+      if (diffEndOld < oldLines.length && diffEndNew < newLines.length && oldLines[diffEndOld] === newLines[diffEndNew]) {
+        // Check if we have 3 matching lines (end of hunk)
+        let matchCount = 0;
+        while (
+          diffEndOld + matchCount < oldLines.length &&
+          diffEndNew + matchCount < newLines.length &&
+          oldLines[diffEndOld + matchCount] === newLines[diffEndNew + matchCount]
+        ) {
+          matchCount++;
+          if (matchCount >= 3) break;
+        }
+        if (matchCount >= 3) break;
+        diffEndOld++;
+        diffEndNew++;
+      } else {
+        if (diffEndOld < oldLines.length) diffEndOld++;
+        if (diffEndNew < newLines.length) diffEndNew++;
+      }
+    }
+
+    const hunkEndOld = Math.min(oldLines.length, diffEndOld + 3);
+    const hunkEndNew = Math.min(newLines.length, diffEndNew + 3);
+
+    result.push(`@@ -${hunkStartOld + 1},${hunkEndOld - hunkStartOld} +${hunkStartNew + 1},${hunkEndNew - hunkStartNew} @@`);
+
+    // Context before
+    for (let k = hunkStartOld; k < i; k++) {
+      result.push(` ${oldLines[k]}`);
+    }
+    // Removed lines
+    for (let k = i; k < diffEndOld; k++) {
+      result.push(`-${oldLines[k]}`);
+    }
+    // Added lines
+    for (let k = j; k < diffEndNew; k++) {
+      result.push(`+${newLines[k]}`);
+    }
+    // Context after
+    for (let k = diffEndOld; k < hunkEndOld; k++) {
+      result.push(` ${oldLines[k]}`);
+    }
+
+    i = hunkEndOld;
+    j = hunkEndNew;
+  }
+
+  if (result.length === 2) return '(no changes)';
+  return result.join('\n');
 }
 
 // ── Project-mode tool execution ──
@@ -509,26 +740,54 @@ export function executeReaderAiSyncTool(toolName: string, argsJson: string, line
 }
 
 /** Execute a synchronous (non-task) tool — project mode. */
-export function executeReaderAiProjectSyncTool(toolName: string, argsJson: string, files: ReaderAiFileEntry[]): string {
+export function executeReaderAiProjectSyncTool(
+  toolName: string,
+  argsJson: string,
+  files: ReaderAiFileEntry[],
+  stagedChanges?: StagedChanges,
+): string {
   let args: Record<string, unknown>;
   try {
     args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {};
   } catch {
     return `(invalid JSON arguments: ${argsJson})`;
   }
+  // For read/search/list, use the working file set if staging is active
+  const workingFiles = stagedChanges ? stagedChanges.getWorkingFiles() : files;
   switch (toolName) {
     case 'read_file':
       return executeReaderAiReadFile(
-        files,
+        workingFiles,
         args as { path: string; start_line?: number; end_line?: number },
       );
     case 'search_files':
       return executeReaderAiSearchFiles(
-        files,
+        workingFiles,
         args as { query: string; glob?: string; context_lines?: number },
       );
     case 'list_files':
-      return executeReaderAiListFiles(files, args as { path?: string });
+      return executeReaderAiListFiles(workingFiles, args as { path?: string });
+    case 'edit_file': {
+      if (!stagedChanges) return '(edit_file is not available in read-only mode)';
+      const a = args as { path?: string; old_text?: string; new_text?: string };
+      if (!a.path) return '(path is required)';
+      if (typeof a.old_text !== 'string') return '(old_text is required)';
+      if (typeof a.new_text !== 'string') return '(new_text is required)';
+      return stagedChanges.editFile(a.path, a.old_text, a.new_text);
+    }
+    case 'create_file': {
+      if (!stagedChanges) return '(create_file is not available in read-only mode)';
+      const a = args as { path?: string; content?: string };
+      if (!a.path) return '(path is required)';
+      if (typeof a.content !== 'string') return '(content is required)';
+      return stagedChanges.createFile(a.path, a.content);
+    }
+    case 'delete_file': {
+      if (!stagedChanges) return '(delete_file is not available in read-only mode)';
+      const a = args as { path?: string };
+      if (!a.path) return '(path is required)';
+      return stagedChanges.deleteFile(a.path);
+    }
     default:
       return `(unknown tool: ${toolName})`;
   }
@@ -700,22 +959,27 @@ export function buildReaderAiProjectSystemPrompt(
     : '';
 
   return [
-    'You are an assistant with full access to a project. You can read any file, search across the codebase, and analyze the project structure.',
+    'You are an assistant with full access to a project. You can read any file, search across the codebase, analyze the project structure, and make edits.',
     '',
     'You have tools available:',
     '- read_file: Read a file by path. Returns line-numbered text. Use start_line/end_line for specific sections.',
     '- search_files: Search across all files for matching text (case-insensitive). Use glob to filter by file pattern.',
     '- list_files: List files in the project or a subdirectory.',
-    '- task: Spawn an independent subagent for parallel or specialized work. The subagent has read_file, search_files, and list_files access but cannot spawn further subagents.',
+    '- edit_file: Make a surgical edit — find exact old_text and replace with new_text. Always read_file first.',
+    '- create_file: Create a new file. Fails if the file already exists.',
+    '- delete_file: Delete a file from the project.',
+    '- task: Spawn an independent subagent for parallel or specialized work (read-only access).',
     '',
     'Guidelines:',
     '- Use search_files to locate relevant code before answering questions about the project.',
-    '- Use read_file to examine files in detail. Read files before making claims about their contents.',
+    '- Use read_file to examine files in detail. Always read a file before editing it.',
+    '- For edit_file, old_text must match exactly — including whitespace and indentation.',
     '- Cite file paths and line numbers when referencing specific code.',
     '- If you need to understand project structure, start with list_files.',
     '- If the answer is not in the project, say so plainly.',
     '- Use the task tool when a problem benefits from independent analysis.',
     '- Prefer targeted reads and searches over reading entire large files.',
+    '- All edits are staged for user review — they are not applied until the user approves them.',
     '',
     `Project: ${totalFiles} files, ${totalSizeLabel} total.${currentDocSection}`,
     '',

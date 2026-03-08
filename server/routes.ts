@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
@@ -36,6 +37,7 @@ import {
   type ReaderAiStreamParseResult,
   type ReaderAiToolCall,
   readUpstreamError,
+  StagedChanges,
 } from './reader_ai_tools';
 import {
   clearRememberedInstallationForUser,
@@ -113,7 +115,9 @@ interface ReaderAiChatBody {
   source?: unknown;
   messages?: unknown;
   summary?: unknown;
-  /** Project mode: all files in the repo/gist, sent when repo mode toggle is on. */
+  /** Project mode: server-side project session ID (preferred). */
+  project_id?: unknown;
+  /** Project mode: inline files (legacy fallback, used if project_id is absent). */
   project_files?: unknown;
   /** The path of the currently-viewed document (for project mode context). */
   current_doc_path?: unknown;
@@ -1162,6 +1166,90 @@ function normalizeProjectFiles(raw: unknown): ReaderAiFileEntry[] | null {
   return files.length > 0 ? files : null;
 }
 
+// ── Project session cache (avoids resending all files on every chat request) ──
+
+const READER_AI_PROJECT_SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const READER_AI_MAX_PROJECT_SESSIONS = 50;
+
+interface ReaderAiProjectSession {
+  id: string;
+  userId: number;
+  files: ReaderAiFileEntry[];
+  createdAt: number;
+  lastAccessedAt: number;
+}
+
+const readerAiProjectSessions = new Map<string, ReaderAiProjectSession>();
+
+function pruneProjectSessions(): void {
+  const now = Date.now();
+  for (const [id, session] of readerAiProjectSessions) {
+    if (now - session.lastAccessedAt > READER_AI_PROJECT_SESSION_TTL_MS) {
+      readerAiProjectSessions.delete(id);
+    }
+  }
+}
+
+function getProjectSession(id: string, userId: number): ReaderAiProjectSession | null {
+  const session = readerAiProjectSessions.get(id);
+  if (!session) return null;
+  if (session.userId !== userId) return null;
+  if (Date.now() - session.lastAccessedAt > READER_AI_PROJECT_SESSION_TTL_MS) {
+    readerAiProjectSessions.delete(id);
+    return null;
+  }
+  session.lastAccessedAt = Date.now();
+  return session;
+}
+
+async function handleReaderAiProjectCreate(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+
+  const body = (await readJson(ctx.req)) as { files?: unknown } | null;
+  const files = normalizeProjectFiles(body?.files);
+  if (!files) throw new ClientError('files array is required and must not be empty', 400);
+
+  // Prune expired sessions and enforce limit
+  pruneProjectSessions();
+  if (readerAiProjectSessions.size >= READER_AI_MAX_PROJECT_SESSIONS) {
+    // Evict oldest session
+    let oldestId: string | null = null;
+    let oldestTime = Infinity;
+    for (const [id, ps] of readerAiProjectSessions) {
+      if (ps.lastAccessedAt < oldestTime) {
+        oldestTime = ps.lastAccessedAt;
+        oldestId = id;
+      }
+    }
+    if (oldestId) readerAiProjectSessions.delete(oldestId);
+  }
+
+  const id = randomBytes(16).toString('hex');
+  const now = Date.now();
+  readerAiProjectSessions.set(id, {
+    id,
+    userId: session.githubUserId,
+    files,
+    createdAt: now,
+    lastAccessedAt: now,
+  });
+
+  json(ctx.res, 200, { project_id: id, file_count: files.length });
+}
+
+async function handleReaderAiProjectDelete(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+
+  const projectId = ctx.match[1];
+  const ps = readerAiProjectSessions.get(projectId);
+  if (ps && ps.userId === session.githubUserId) {
+    readerAiProjectSessions.delete(projectId);
+  }
+  json(ctx.res, 200, { deleted: true });
+}
+
 async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
@@ -1176,9 +1264,18 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const existingSummary =
     typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
 
-  // Project mode: parse project_files if provided
-  const projectFiles = normalizeProjectFiles(body?.project_files);
-  const isProjectMode = projectFiles !== null;
+  // Project mode: resolve from project session cache (preferred) or inline files (fallback)
+  let projectFiles: ReaderAiFileEntry[] | null = null;
+  const projectId = typeof body?.project_id === 'string' ? body.project_id.trim() : '';
+  if (projectId) {
+    const ps = getProjectSession(projectId, session.githubUserId);
+    if (!ps) throw new ClientError('Project session not found or expired', 404);
+    projectFiles = ps.files;
+  } else {
+    projectFiles = normalizeProjectFiles(body?.project_files);
+  }
+  const resolvedProjectFiles = projectFiles ?? undefined;
+  const isProjectMode = resolvedProjectFiles !== undefined;
   const currentDocPath = typeof body?.current_doc_path === 'string' ? body.current_doc_path : null;
 
   let chatMessages: ReaderAiChatMessage[];
@@ -1223,7 +1320,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   let systemPrompt: string;
   let tools: typeof READER_AI_TOOLS | typeof READER_AI_PROJECT_TOOLS;
   if (isProjectMode) {
-    systemPrompt = buildReaderAiProjectSystemPrompt(projectFiles, currentDocPath);
+    systemPrompt = buildReaderAiProjectSystemPrompt(resolvedProjectFiles, currentDocPath);
     tools = READER_AI_PROJECT_TOOLS;
   } else {
     const maxPreviewChars =
@@ -1267,9 +1364,13 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const maxContextTokens = contextTokens > 0 ? contextTokens : 32_000;
   // Reserve 25% for system prompt + file tree, 15% for output, 60% for conversation + tool results
   const conversationBudgetTokens = Math.floor(maxContextTokens * 0.60);
+
+  // Staging layer for file edits in project mode
+  const stagedChanges = isProjectMode ? new StagedChanges(resolvedProjectFiles) : undefined;
+
   const executeSyncToolCall = (tc: ReaderAiToolCall): string => {
     if (isProjectMode) {
-      return executeReaderAiProjectSyncTool(tc.name, tc.arguments, projectFiles);
+      return executeReaderAiProjectSyncTool(tc.name, tc.arguments, resolvedProjectFiles, stagedChanges);
     }
     return executeReaderAiSyncTool(tc.name, tc.arguments, lines);
   };
@@ -1385,7 +1486,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                 systemPrompt: taskSystemPrompt,
                 lines,
                 source,
-                projectFiles: isProjectMode ? projectFiles : undefined,
+                projectFiles: isProjectMode ? resolvedProjectFiles : undefined,
                 openRouterHeaders,
                 signal: abortController.signal,
               });
@@ -1470,6 +1571,16 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     throw err;
   } finally {
     ctx.req.off('close', onClientClose);
+  }
+
+  // Emit staged changes if any edits were made
+  if (!ctx.res.writableEnded && stagedChanges?.hasChanges()) {
+    const changes = stagedChanges.getChanges().map((c) => ({
+      path: c.path,
+      type: c.type,
+      diff: c.diff,
+    }));
+    ctx.res.write(`event: staged_changes\ndata: ${JSON.stringify({ changes })}\n\n`);
   }
 
   if (!ctx.res.writableEnded) {
@@ -1651,6 +1762,8 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: PUBLIC_REPO_TARBALL_PATTERN, handler: handlePublicRepoTarball },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
+  { method: 'POST', pattern: /^\/api\/ai\/project$/, handler: handleReaderAiProjectCreate },
+  { method: 'DELETE', pattern: /^\/api\/ai\/project\/([a-f0-9]+)$/i, handler: handleReaderAiProjectDelete },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },
 ];
 

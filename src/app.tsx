@@ -66,10 +66,11 @@ import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import {
   askReaderAiStream,
+  createReaderAiProjectSession,
+  deleteReaderAiProjectSession,
   listReaderAiModels,
   type ReaderAiModel,
   readerAiModelPriorityRank,
-  type ReaderAiProjectFile,
 } from './reader_ai';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
@@ -773,10 +774,13 @@ export function App() {
   const [readerAiSending, setReaderAiSending] = useState(false);
   const [readerAiRetryAvailable, setReaderAiRetryAvailable] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
+  const [readerAiToolLog, setReaderAiToolLog] = useState<Array<{ type: 'call' | 'result'; name: string; detail?: string }>>([]);
+  const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>>([]);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [readerAiRepoMode, setReaderAiRepoMode] = useState(false);
   const [readerAiRepoModeLoading, setReaderAiRepoModeLoading] = useState(false);
   const [readerAiRepoFiles, setReaderAiRepoFiles] = useState<RepoFileEntry[] | null>(null);
+  const [readerAiProjectId, setReaderAiProjectId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -2305,8 +2309,12 @@ export function App() {
     if (!repoModeAvailable) {
       setReaderAiRepoMode(false);
       setReaderAiRepoFiles(null);
+      if (readerAiProjectId) {
+        void deleteReaderAiProjectSession(readerAiProjectId);
+        setReaderAiProjectId(null);
+      }
     }
-  }, [repoModeAvailable]);
+  }, [repoModeAvailable, readerAiProjectId]);
 
   // Auto-enable repo mode when all files are already cached
   useEffect(() => {
@@ -2323,6 +2331,12 @@ export function App() {
     if (cached && cached.length > 0) {
       setReaderAiRepoFiles(cached);
       setReaderAiRepoMode(true);
+      // Upload to server for project session
+      void createReaderAiProjectSession(cached).then((ps) => {
+        setReaderAiProjectId(ps.projectId);
+      }).catch(() => {
+        // Non-fatal — chat will fall back to inline files if project session is missing
+      });
     }
   }, [
     repoModeAvailable,
@@ -2342,6 +2356,10 @@ export function App() {
       if (!enabled) {
         setReaderAiRepoMode(false);
         setReaderAiRepoFiles(null);
+        if (readerAiProjectId) {
+          void deleteReaderAiProjectSession(readerAiProjectId);
+          setReaderAiProjectId(null);
+        }
         return;
       }
 
@@ -2355,18 +2373,22 @@ export function App() {
         } else {
           return;
         }
+        // Upload files to server and get a project session ID
+        const ps = await createReaderAiProjectSession(files);
         setReaderAiRepoFiles(files);
+        setReaderAiProjectId(ps.projectId);
         setReaderAiRepoMode(true);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
         setReaderAiError(err instanceof Error ? err.message : 'Failed to load repo files');
         setReaderAiRepoMode(false);
         setReaderAiRepoFiles(null);
+        setReaderAiProjectId(null);
       } finally {
         setReaderAiRepoModeLoading(false);
       }
     },
-    [repoAccessMode, installationId, selectedRepo, publicRepoRef, showRateLimitToastIfNeeded],
+    [repoAccessMode, installationId, selectedRepo, publicRepoRef, showRateLimitToastIfNeeded, readerAiProjectId],
   );
 
   const streamReaderAiAssistant = useCallback(
@@ -2385,14 +2407,16 @@ export function App() {
       setReaderAiRetryAvailable(false);
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
+      setReaderAiToolLog([]);
+      setReaderAiStagedChanges([]);
       setReaderAiError(null);
       let received = false;
 
-      // Build project context if repo mode is active
-      let projectContext: { files: ReaderAiProjectFile[]; currentDocPath: string | null } | undefined;
-      if (readerAiRepoMode && readerAiRepoFiles && readerAiRepoFiles.length > 0) {
+      // Build project context if repo mode is active (send project_id, not files)
+      let projectContext: { projectId: string; currentDocPath: string | null } | undefined;
+      if (readerAiRepoMode && readerAiProjectId) {
         projectContext = {
-          files: readerAiRepoFiles,
+          projectId: readerAiProjectId,
           currentDocPath: currentRepoDocPath,
         };
       }
@@ -2405,18 +2429,33 @@ export function App() {
           {
             signal: controller.signal,
             onSummary: (summary) => setReaderAiSummary(summary),
-            onToolCall: (name) => {
+            onToolCall: (event) => {
               const labels: Record<string, string> = {
                 read_document: 'Reading document…',
                 search_document: 'Searching document…',
                 read_file: 'Reading file…',
                 search_files: 'Searching files…',
                 list_files: 'Listing files…',
+                edit_file: 'Editing file…',
+                create_file: 'Creating file…',
+                delete_file: 'Deleting file…',
                 task: 'Running subagent…',
               };
-              setReaderAiToolStatus(labels[name] ?? `Running ${name}…`);
+              setReaderAiToolStatus(labels[event.name] ?? `Running ${event.name}…`);
+              const argsObj = typeof event.arguments === 'object' ? event.arguments : undefined;
+              const detail = argsObj
+                ? (argsObj as Record<string, unknown>).path as string | undefined ??
+                  (argsObj as Record<string, unknown>).query as string | undefined
+                : undefined;
+              setReaderAiToolLog((log) => [...log, { type: 'call', name: event.name, detail: typeof detail === 'string' ? detail : undefined }]);
             },
-            onToolResult: () => setReaderAiToolStatus(null),
+            onToolResult: (event) => {
+              setReaderAiToolStatus(null);
+              setReaderAiToolLog((log) => [...log, { type: 'result', name: event.name, detail: event.preview }]);
+            },
+            onStagedChanges: (changes) => {
+              setReaderAiStagedChanges(changes);
+            },
             onDelta: (delta) => {
               if (!delta) return;
               received = true;
@@ -2485,7 +2524,7 @@ export function App() {
         setReaderAiToolStatus(null);
       }
     },
-    [readerAiSelectedModel, readerAiSource, readerAiSummary, readerAiRepoMode, readerAiRepoFiles, currentRepoDocPath],
+    [readerAiSelectedModel, readerAiSource, readerAiSummary, readerAiRepoMode, readerAiProjectId, currentRepoDocPath],
   );
 
   const onReaderAiSend = useCallback(
@@ -2527,6 +2566,8 @@ export function App() {
     setReaderAiSummary('');
     setReaderAiRetryAvailable(false);
     setReaderAiToolStatus(null);
+    setReaderAiToolLog([]);
+    setReaderAiStagedChanges([]);
     setReaderAiError(null);
   }, [readerAiHistoryDocumentKey]);
 
@@ -4080,6 +4121,8 @@ export function App() {
               messages={readerAiMessages}
               sending={readerAiSending}
               toolStatus={readerAiToolStatus}
+              toolLog={readerAiToolLog}
+              stagedChanges={readerAiStagedChanges}
               error={readerAiError}
               onSend={onReaderAiSend}
               onEditMessage={onReaderAiEditMessage}

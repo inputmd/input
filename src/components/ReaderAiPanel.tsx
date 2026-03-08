@@ -1,13 +1,19 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowRight, ChevronDown, CircleStop, MoreHorizontal } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight, CircleStop, MoreHorizontal } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseMarkdownToHtml } from '../markdown';
-import { type ReaderAiModel, readerAiModelPriorityRank } from '../reader_ai';
+import { type ReaderAiModel, type ReaderAiStagedChange, readerAiModelPriorityRank } from '../reader_ai';
 
 export interface ReaderAiMessage {
   role: 'user' | 'assistant';
   content: string;
   edited?: boolean;
+}
+
+export interface ReaderAiToolLogEntry {
+  type: 'call' | 'result';
+  name: string;
+  detail?: string;
 }
 
 interface ReaderAiPanelProps {
@@ -20,6 +26,8 @@ interface ReaderAiPanelProps {
   messages: ReaderAiMessage[];
   sending: boolean;
   toolStatus: string | null;
+  toolLog: ReaderAiToolLogEntry[];
+  stagedChanges: ReaderAiStagedChange[];
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
@@ -44,6 +52,96 @@ function isPublicDatasetModel(model: ReaderAiModel): boolean {
   return id.includes('gpt-oss-120b') || id.includes('gpt-oss-20b');
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  read_document: 'Read document',
+  search_document: 'Search document',
+  read_file: 'Read file',
+  search_files: 'Search files',
+  list_files: 'List files',
+  edit_file: 'Edit file',
+  create_file: 'Create file',
+  delete_file: 'Delete file',
+  task: 'Subagent',
+};
+
+function ToolLogSection({ entries }: { entries: ReaderAiToolLogEntry[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (entries.length === 0) return null;
+
+  // Group into call/result pairs
+  const callCount = entries.filter((e) => e.type === 'call').length;
+  const summary = `${callCount} tool call${callCount === 1 ? '' : 's'}`;
+
+  return (
+    <div class="reader-ai-tool-log">
+      <button type="button" class="reader-ai-tool-log-toggle" onClick={() => setExpanded(!expanded)}>
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <span>{summary}</span>
+      </button>
+      {expanded ? (
+        <div class="reader-ai-tool-log-entries">
+          {entries
+            .filter((e) => e.type === 'call')
+            .map((entry, i) => (
+              <div key={i} class="reader-ai-tool-log-entry">
+                <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
+                {entry.detail ? (
+                  <span class="reader-ai-tool-log-detail">{entry.detail.length > 60 ? `${entry.detail.slice(0, 60)}…` : entry.detail}</span>
+                ) : null}
+              </div>
+            ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StagedChangesSection({ changes }: { changes: ReaderAiStagedChange[] }) {
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  if (changes.length === 0) return null;
+
+  const togglePath = (path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const typeLabel = (type: string) => {
+    if (type === 'create') return 'new';
+    if (type === 'delete') return 'del';
+    return 'mod';
+  };
+
+  return (
+    <div class="reader-ai-staged-changes">
+      <div class="reader-ai-staged-changes-header">
+        Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
+      </div>
+      {changes.map((change) => (
+        <div key={change.path} class="reader-ai-staged-change">
+          <button
+            type="button"
+            class="reader-ai-staged-change-header"
+            onClick={() => togglePath(change.path)}
+          >
+            {expandedPaths.has(change.path) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span class={`reader-ai-staged-change-type reader-ai-staged-change-type--${change.type}`}>
+              {typeLabel(change.type)}
+            </span>
+            <span class="reader-ai-staged-change-path">{change.path}</span>
+          </button>
+          {expandedPaths.has(change.path) ? (
+            <pre class="reader-ai-staged-change-diff">{change.diff}</pre>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ReaderAiPanel({
   authenticated,
   models,
@@ -54,6 +152,8 @@ export function ReaderAiPanel({
   messages,
   sending,
   toolStatus,
+  toolLog,
+  stagedChanges,
   error,
   onSend,
   onEditMessage,
@@ -472,6 +572,8 @@ export function ReaderAiPanel({
           </div>
         ))}
         {sending && toolStatus ? <div class="reader-ai-tool-status">{toolStatus}</div> : null}
+        {!sending && toolLog.length > 0 ? <ToolLogSection entries={toolLog} /> : null}
+        {!sending && stagedChanges.length > 0 ? <StagedChangesSection changes={stagedChanges} /> : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : composer}
       </div>

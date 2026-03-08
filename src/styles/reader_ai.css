@@ -550,6 +550,154 @@
   transform: translateX(13px);
 }
 
+/* ── Tool call log ── */
+
+.reader-ai-tool-log {
+  margin: 2px 0;
+}
+
+.reader-ai-tool-log-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.reader-ai-tool-log-toggle:hover {
+  color: var(--text);
+  background: var(--btn-hover);
+}
+
+.reader-ai-tool-log-entries {
+  padding: 4px 0 2px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reader-ai-tool-log-entry {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.reader-ai-tool-log-name {
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.reader-ai-tool-log-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+/* ── Staged changes ── */
+
+.reader-ai-staged-changes {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.reader-ai-staged-changes-header {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--btn-bg) 50%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.reader-ai-staged-change {
+  border-bottom: 1px solid var(--border);
+}
+
+.reader-ai-staged-change:last-child {
+  border-bottom: 0;
+}
+
+.reader-ai-staged-change-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reader-ai-staged-change-header:hover {
+  background: var(--btn-hover);
+}
+
+.reader-ai-staged-change-type {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.reader-ai-staged-change-type--edit {
+  color: #b58900;
+  background: color-mix(in srgb, #b58900 15%, transparent);
+}
+
+.reader-ai-staged-change-type--create {
+  color: #2aa198;
+  background: color-mix(in srgb, #2aa198 15%, transparent);
+}
+
+.reader-ai-staged-change-type--delete {
+  color: #dc322f;
+  background: color-mix(in srgb, #dc322f 15%, transparent);
+}
+
+.reader-ai-staged-change-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+}
+
+.reader-ai-staged-change-diff {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--bg) 60%, var(--toolbar-bg) 40%);
+  border-top: 1px solid var(--border);
+  white-space: pre;
+  color: var(--text-secondary);
+}
+
 @media (max-width: 1023px) {
   .app-body--with-reader-ai main {
     margin-right: 0;

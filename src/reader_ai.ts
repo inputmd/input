@@ -19,11 +19,30 @@ type ReaderAiModelsResponse = {
   models?: ReaderAiModel[];
 };
 
+export interface ReaderAiStagedChange {
+  path: string;
+  type: 'edit' | 'create' | 'delete';
+  diff: string;
+}
+
+export interface ReaderAiToolCallEvent {
+  id?: string;
+  name: string;
+  arguments?: Record<string, unknown> | string;
+}
+
+export interface ReaderAiToolResultEvent {
+  id?: string;
+  name: string;
+  preview?: string;
+}
+
 interface ReaderAiStreamOptions {
   onDelta: (delta: string) => void;
   onSummary?: (summary: string) => void;
-  onToolCall?: (name: string, args?: Record<string, unknown> | string) => void;
-  onToolResult?: (name: string, preview?: string) => void;
+  onToolCall?: (event: ReaderAiToolCallEvent) => void;
+  onToolResult?: (event: ReaderAiToolResultEvent) => void;
+  onStagedChanges?: (changes: ReaderAiStagedChange[]) => void;
   onStreamError?: (message: string) => void;
   onTurnStart?: (iteration: number) => void;
   onTurnEnd?: (iteration: number, reason: string) => void;
@@ -90,13 +109,44 @@ export interface ReaderAiProjectFile {
   size: number;
 }
 
+export interface ReaderAiProjectSession {
+  projectId: string;
+  fileCount: number;
+}
+
+export async function createReaderAiProjectSession(
+  files: ReaderAiProjectFile[],
+): Promise<ReaderAiProjectSession> {
+  const res = await fetch('/api/ai/project', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files }),
+  });
+  if (!res.ok) throw await responseToApiError(res);
+  const data = (await res.json()) as { project_id?: string; file_count?: number };
+  if (!data.project_id) throw new Error('Missing project_id in response');
+  return { projectId: data.project_id, fileCount: data.file_count ?? files.length };
+}
+
+export async function deleteReaderAiProjectSession(projectId: string): Promise<void> {
+  try {
+    await fetch(`/api/ai/project/${encodeURIComponent(projectId)}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+  } catch {
+    // Best-effort cleanup — ignore errors.
+  }
+}
+
 export async function askReaderAiStream(
   model: string,
   source: string,
   messages: { role: 'user' | 'assistant'; content: string }[],
   options: ReaderAiStreamOptions,
   summary?: string,
-  projectContext?: { files: ReaderAiProjectFile[]; currentDocPath: string | null },
+  projectContext?: { projectId: string; currentDocPath: string | null },
 ): Promise<void> {
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
@@ -108,7 +158,9 @@ export async function askReaderAiStream(
       source,
       messages,
       ...(summary ? { summary } : {}),
-      ...(projectContext ? { project_files: projectContext.files, current_doc_path: projectContext.currentDocPath } : {}),
+      ...(projectContext
+        ? { project_id: projectContext.projectId, current_doc_path: projectContext.currentDocPath }
+        : {}),
     }),
   });
   if (!res.ok) throw await responseToApiError(res);
@@ -150,8 +202,8 @@ export async function askReaderAiStream(
       } else if (eventType === 'tool_call') {
         if (options.onToolCall) {
           try {
-            const parsed = JSON.parse(data) as { name?: string; arguments?: Record<string, unknown> | string };
-            if (typeof parsed.name === 'string') options.onToolCall(parsed.name, parsed.arguments);
+            const parsed = JSON.parse(data) as { id?: string; name?: string; arguments?: Record<string, unknown> | string };
+            if (typeof parsed.name === 'string') options.onToolCall({ name: parsed.name, id: parsed.id, arguments: parsed.arguments });
           } catch {
             // Ignore malformed tool_call event.
           }
@@ -159,10 +211,19 @@ export async function askReaderAiStream(
       } else if (eventType === 'tool_result') {
         if (options.onToolResult) {
           try {
-            const parsed = JSON.parse(data) as { name?: string; preview?: string };
-            if (typeof parsed.name === 'string') options.onToolResult(parsed.name, parsed.preview);
+            const parsed = JSON.parse(data) as { id?: string; name?: string; preview?: string };
+            if (typeof parsed.name === 'string') options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview });
           } catch {
             // Ignore malformed tool_result event.
+          }
+        }
+      } else if (eventType === 'staged_changes') {
+        if (options.onStagedChanges) {
+          try {
+            const parsed = JSON.parse(data) as { changes?: ReaderAiStagedChange[] };
+            if (Array.isArray(parsed.changes)) options.onStagedChanges(parsed.changes);
+          } catch {
+            // Ignore malformed staged_changes event.
           }
         }
       } else if (eventType === 'turn_start') {
