@@ -1173,17 +1173,28 @@ function normalizeProjectFiles(raw: unknown): ReaderAiFileEntry[] | null {
 
 const READER_AI_PROJECT_SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const READER_AI_MAX_PROJECT_SESSIONS = 50;
+const READER_AI_MAX_PROJECT_SESSIONS_TOTAL_BYTES = 1024 * 1024 * 1024; // 1GB
 
 interface ReaderAiProjectSession {
   id: string;
   userId: number;
   files: ReaderAiFileEntry[];
   stagedChanges: StagedChanges;
+  /** Total size of files in this session (bytes). */
+  totalFileSize: number;
   createdAt: number;
   lastAccessedAt: number;
 }
 
 const readerAiProjectSessions = new Map<string, ReaderAiProjectSession>();
+
+function projectSessionsTotalBytes(): number {
+  let total = 0;
+  for (const ps of readerAiProjectSessions.values()) {
+    total += ps.totalFileSize;
+  }
+  return total;
+}
 
 function pruneProjectSessions(): void {
   const now = Date.now();
@@ -1191,6 +1202,22 @@ function pruneProjectSessions(): void {
     if (now - session.lastAccessedAt > READER_AI_PROJECT_SESSION_TTL_MS) {
       readerAiProjectSessions.delete(id);
     }
+  }
+}
+
+/** Evict oldest sessions until total memory is under the budget. */
+function evictProjectSessionsToFit(requiredBytes: number): void {
+  while (projectSessionsTotalBytes() + requiredBytes > READER_AI_MAX_PROJECT_SESSIONS_TOTAL_BYTES) {
+    let oldestId: string | null = null;
+    let oldestTime = Infinity;
+    for (const [id, ps] of readerAiProjectSessions) {
+      if (ps.lastAccessedAt < oldestTime) {
+        oldestTime = ps.lastAccessedAt;
+        oldestId = id;
+      }
+    }
+    if (!oldestId) break;
+    readerAiProjectSessions.delete(oldestId);
   }
 }
 
@@ -1214,20 +1241,15 @@ async function handleReaderAiProjectCreate(ctx: RouteContext): Promise<void> {
   const files = normalizeProjectFiles(body?.files);
   if (!files) throw new ClientError('files array is required and must not be empty', 400);
 
-  // Prune expired sessions and enforce limit
+  const newSessionSize = files.reduce((sum, f) => sum + f.size, 0);
+
+  // Prune expired sessions and enforce limits
   pruneProjectSessions();
   if (readerAiProjectSessions.size >= READER_AI_MAX_PROJECT_SESSIONS) {
-    // Evict oldest session
-    let oldestId: string | null = null;
-    let oldestTime = Infinity;
-    for (const [id, ps] of readerAiProjectSessions) {
-      if (ps.lastAccessedAt < oldestTime) {
-        oldestTime = ps.lastAccessedAt;
-        oldestId = id;
-      }
-    }
-    if (oldestId) readerAiProjectSessions.delete(oldestId);
+    evictProjectSessionsToFit(newSessionSize);
   }
+  // Enforce total memory budget
+  evictProjectSessionsToFit(newSessionSize);
 
   const id = randomBytes(16).toString('hex');
   const now = Date.now();
@@ -1236,6 +1258,7 @@ async function handleReaderAiProjectCreate(ctx: RouteContext): Promise<void> {
     userId: session.githubUserId,
     files,
     stagedChanges: new StagedChanges(files),
+    totalFileSize: newSessionSize,
     createdAt: now,
     lastAccessedAt: now,
   });
