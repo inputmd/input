@@ -1648,8 +1648,19 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         }
         writeSseEvent('tool_call', { id: tc.id, name: tc.name, arguments: parsedArgs ?? tc.arguments });
 
-        if (tc.name === 'task' && parsedArgs) {
-          taskCalls.push({ tc, parsedArgs });
+        if (tc.name === 'task') {
+          if (parsedArgs) {
+            taskCalls.push({ tc, parsedArgs });
+          } else {
+            // Task call with malformed JSON — return an error tool result rather than
+            // silently falling through to the sync tool path (which would return "unknown tool: task").
+            openRouterMessages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: '(task tool arguments could not be parsed as JSON — please provide valid JSON with a "prompt" field)',
+            });
+            writeSseEvent('tool_result', { id: tc.id, name: 'task', preview: '(invalid JSON arguments)' });
+          }
         } else {
           syncCalls.push({ tc, parsedArgs });
         }
