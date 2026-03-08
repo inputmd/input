@@ -473,6 +473,13 @@ export interface StagedChange {
 /**
  * Mutable staging area for file edits during an agentic loop.
  * Tracks accumulated changes without modifying the original file entries.
+ *
+ * Thread-safety: In Node.js (single-threaded), concurrent subagents sharing
+ * this instance are safe because each mutation (editFile/createFile/deleteFile)
+ * runs synchronously without crossing await boundaries. The `editFile` method
+ * uses exact `indexOf` matching on current content, so if a concurrent subagent
+ * modifies the same file, the old_text will fail to match — acting as optimistic
+ * locking. Reads (getContent/getWorkingFiles) always reflect the latest state.
  */
 export class StagedChanges {
   private changes = new Map<string, StagedChange>();
