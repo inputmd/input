@@ -1599,6 +1599,12 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       ctx.res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`);
     };
 
+    // SSE keepalive: send a comment every 15s to prevent intermediary proxy idle-timeout kills
+    const keepaliveInterval = setInterval(() => {
+      if (ctx.res.writableEnded) return;
+      ctx.res.write(': keepalive\n\n');
+    }, 15_000);
+
     // Agentic tool-call loop
     let currentBody: ReadableStream<Uint8Array> | null = firstUpstream.body;
     for (let iteration = 0; iteration < READER_AI_MAX_TOOL_ITERATIONS; iteration++) {
@@ -1786,6 +1792,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     }
     throw err;
   } finally {
+    clearInterval(keepaliveInterval);
     ctx.req.off('close', onClientClose);
   }
 
