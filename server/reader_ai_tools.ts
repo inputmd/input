@@ -869,14 +869,24 @@ export function executeReaderAiEditDocumentTool(argsJson: string, state: ReaderA
   return JSON.stringify(success);
 }
 
+const READER_AI_MAX_REGEX_PATTERN_LENGTH = 200;
+
 /** Build a line-matching function from query + is_regex flag. Returns null on invalid regex. */
 function buildLineMatcher(query: string, isRegex?: boolean): ((line: string) => boolean) | null {
   if (isRegex) {
+    if (query.length > READER_AI_MAX_REGEX_PATTERN_LENGTH) return null;
     try {
-      const re = new RegExp(query, 'i');
+      // Use the 'v' (unicodeSets) flag where supported to get stricter parsing,
+      // but fall back to 'i' only. The main defense is the length limit above.
+      const re = new RegExp(query, 'iv');
       return (line: string) => re.test(line);
     } catch {
-      return null;
+      try {
+        const re = new RegExp(query, 'i');
+        return (line: string) => re.test(line);
+      } catch {
+        return null;
+      }
     }
   }
   const lower = query.toLowerCase();
