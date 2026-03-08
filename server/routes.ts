@@ -1382,6 +1382,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   if (projectId) {
     const ps = getProjectSession(projectId, session.githubUserId);
     if (!ps) throw new ClientError('Project session not found or expired', 404);
+    // Touch TTL so long-running tool loops don't expire the session mid-request
+    ps.lastAccessedAt = Date.now();
     projectFiles = ps.files;
   } else {
     projectFiles = normalizeProjectFiles(body?.project_files);
