@@ -2346,11 +2346,23 @@ export function App() {
   ]);
 
   const onTogglePreview = useCallback(() => {
-    setPreviewVisible((v) => !v);
+    setPreviewVisible((visible) => {
+      const nextVisible = !visible;
+      if (nextVisible) {
+        setReaderAiVisible(false);
+      }
+      return nextVisible;
+    });
   }, []);
 
   const onToggleReaderAi = useCallback(() => {
-    setReaderAiVisible((visible) => !visible);
+    setReaderAiVisible((visible) => {
+      const nextVisible = !visible;
+      if (nextVisible) {
+        setPreviewVisible(false);
+      }
+      return nextVisible;
+    });
   }, []);
 
   const loadReaderAiModels = useCallback(async () => {

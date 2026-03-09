@@ -129,6 +129,7 @@ export function Toolbar({
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
+  const showPreviewAndAiGroup = showPreviewToggle && showAiToggle;
   const runAuthorMenuAction = (event: Event, action: () => void): void => {
     event.stopPropagation();
     action();
@@ -337,28 +338,6 @@ export function Toolbar({
                 Edit <ExternalLink size={14} aria-hidden="true" />
               </a>
             )}
-            {showPreviewToggle && (
-              <button
-                type="button"
-                class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
-                title={previewVisible ? 'Hide preview' : 'Show preview'}
-                aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
-                onClick={onTogglePreview}
-              >
-                <Eye size={16} />
-              </button>
-            )}
-            {showAiToggle && (
-              <button
-                type="button"
-                class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
-                title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
-                aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
-                onClick={onToggleAi}
-              >
-                <Sparkles size={16} />
-              </button>
-            )}
             {showCancel && (
               <button type="button" onClick={onCancel}>
                 Cancel
@@ -376,6 +355,57 @@ export function Toolbar({
               </button>
             )}
           </div>
+          {showPreviewToggle || showAiToggle ? (
+            <div class="toolbar-toggle-controls">
+              {showPreviewAndAiGroup ? (
+                <div class="toggle-button-group" role="group" aria-label="Preview and Reader AI controls">
+                  <button
+                    type="button"
+                    class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
+                    title={previewVisible ? 'Hide preview' : 'Show preview'}
+                    aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
+                    onClick={onTogglePreview}
+                  >
+                    <Eye size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
+                    title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                    aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                    onClick={onToggleAi}
+                  >
+                    <Sparkles size={16} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {showPreviewToggle && (
+                    <button
+                      type="button"
+                      class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
+                      title={previewVisible ? 'Hide preview' : 'Show preview'}
+                      aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
+                      onClick={onTogglePreview}
+                    >
+                      <Eye size={16} />
+                    </button>
+                  )}
+                  {showAiToggle && (
+                    <button
+                      type="button"
+                      class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
+                      title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                      aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                      onClick={onToggleAi}
+                    >
+                      <Sparkles size={16} />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          ) : null}
           {user ? (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>

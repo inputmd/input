@@ -224,7 +224,7 @@
   background: #2ea043;
 }
 
-.action-buttons .preview-toggle-btn,
+.toolbar-toggle-controls .preview-toggle-btn,
 .action-buttons .author-menu-trigger {
   display: inline-flex;
   align-items: center;
@@ -232,6 +232,34 @@
   min-width: 35px;
   width: 35px;
   padding: 0 2px;
+}
+
+.toolbar-toggle-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-button-group {
+  display: inline-flex;
+}
+
+.toggle-button-group .preview-toggle-btn {
+  border-radius: 0;
+}
+
+.toggle-button-group .preview-toggle-btn:first-child {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+
+.toggle-button-group .preview-toggle-btn:last-child {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.toggle-button-group .preview-toggle-btn + .preview-toggle-btn {
+  margin-left: -1px;
 }
 
 .preview-toggle-btn-off {
