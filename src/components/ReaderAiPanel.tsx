@@ -95,10 +95,12 @@ export function ReaderAiPanel({
   const [draft, setDraft] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
+  const [thinkingSeconds, setThinkingSeconds] = useState(0);
   const panelRef = useRef<HTMLElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const thinkingStartedAtRef = useRef<number | null>(null);
   const messageCount = messages.length;
   const canSend = authenticated && draft.trim().length > 0 && !sending && Boolean(selectedModel);
   const hasMessages = messageCount > 0;
@@ -130,6 +132,11 @@ export function ReaderAiPanel({
     : repoModeEnabled
       ? 'Ask about this project...'
       : 'Ask about this document...';
+  const isAssistantThinking =
+    sending &&
+    messageCount > 0 &&
+    messages[messageCount - 1].role === 'assistant' &&
+    messages[messageCount - 1].content.trim().length === 0;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length triggers scroll on new tool activity
   useEffect(() => {
@@ -149,6 +156,24 @@ export function ReaderAiPanel({
     input.focus();
     input.select();
   }, [editingIndex]);
+
+  useEffect(() => {
+    if (!isAssistantThinking) {
+      thinkingStartedAtRef.current = null;
+      setThinkingSeconds(0);
+      return;
+    }
+    if (thinkingStartedAtRef.current === null) {
+      thinkingStartedAtRef.current = Date.now();
+      setThinkingSeconds(0);
+    }
+    const intervalId = window.setInterval(() => {
+      const startedAt = thinkingStartedAtRef.current;
+      if (startedAt === null) return;
+      setThinkingSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
+    return () => window.clearInterval(intervalId);
+  }, [isAssistantThinking]);
 
   useLayoutEffect(() => {
     const input = composerInputRef.current;
@@ -493,7 +518,7 @@ export function ReaderAiPanel({
                 sending && index === messageCount - 1 && !message.content.trim() ? (
                   <div class="reader-ai-thinking">
                     <span class="reader-ai-thinking-spinner" aria-hidden="true" />
-                    <span>Thinking...</span>
+                    <span>{thinkingSeconds >= 5 ? `Thinking... (${thinkingSeconds} seconds)` : 'Thinking...'}</span>
                   </div>
                 ) : (
                   <div
