@@ -56,6 +56,7 @@ import {
   putRepoFile,
   type RepoContents,
   type RepoFileEntry,
+  type RepoTreeResult,
   rememberInstallState,
   repoRawFileUrl,
   SessionExpiredError,
@@ -247,6 +248,22 @@ function renamePathWithNewFolder(path: string, oldFolderPath: string, newFolderP
   if (!isPathInFolder(path, oldFolderPath)) return path;
   if (path === oldFolderPath) return newFolderPath;
   return `${newFolderPath}/${path.slice(oldFolderPath.length + 1)}`;
+}
+
+function repoDocFilesFromTree(result: RepoTreeResult, markdownOnly: boolean): RepoDocFile[] {
+  if (Array.isArray(result.entries) && result.entries.length > 0) {
+    return result.entries
+      .filter((entry) => entry.type === 'file')
+      .filter((entry) => (markdownOnly ? isMarkdownFileName(entry.path) : true))
+      .map((entry) => ({
+        name: entry.name,
+        path: entry.path,
+        sha: entry.sha,
+        size: entry.size,
+      }));
+  }
+  if (markdownOnly) return result.files.filter((file) => isMarkdownFileName(file.path));
+  return result.files;
 }
 
 function dirName(path: string): string {
@@ -1476,23 +1493,23 @@ export function App() {
 
   // --- Helpers ---
   const loadRepoMarkdownFiles = useCallback(async (instId: string, repoName: string): Promise<RepoDocFile[]> => {
-    const result = await getRepoTree(instId, repoName);
-    return result.files;
+    const result = await getRepoTree(instId, repoName, undefined, false);
+    return repoDocFilesFromTree(result, true);
   }, []);
 
   const loadRepoAllFiles = useCallback(async (instId: string, repoName: string): Promise<RepoDocFile[]> => {
     const result = await getRepoTree(instId, repoName, undefined, false);
-    return result.files;
+    return repoDocFilesFromTree(result, false);
   }, []);
 
   const loadPublicRepoMarkdownFiles = useCallback(async (owner: string, repo: string): Promise<RepoDocFile[]> => {
-    const result = await getPublicRepoTree(owner, repo);
-    return result.files;
+    const result = await getPublicRepoTree(owner, repo, undefined, false);
+    return repoDocFilesFromTree(result, true);
   }, []);
 
   const loadPublicRepoAllFiles = useCallback(async (owner: string, repo: string): Promise<RepoDocFile[]> => {
     const result = await getPublicRepoTree(owner, repo, undefined, false);
-    return result.files;
+    return repoDocFilesFromTree(result, false);
   }, []);
 
   // --- Data loaders ---

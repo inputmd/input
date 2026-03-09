@@ -1051,6 +1051,41 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
 }
 
 type GitTreeEntry = { path: string; type: string; sha: string; size?: number };
+type ApiTreeEntry = {
+  type: 'file' | 'dir' | 'symlink' | 'submodule';
+  name: string;
+  path: string;
+  sha: string;
+  size?: number;
+};
+
+function mapApiTreeEntryType(type: string): ApiTreeEntry['type'] | null {
+  if (type === 'blob') return 'file';
+  if (type === 'tree') return 'dir';
+  if (type === 'commit') return 'submodule';
+  // GitHub tree API may report symlinks as blob entries with mode 120000 in other endpoints.
+  // Keep explicit support for forward-compatibility.
+  if (type === 'symlink') return 'symlink';
+  return null;
+}
+
+function entriesFromTree(tree: GitTreeEntry[]): ApiTreeEntry[] {
+  const entries: ApiTreeEntry[] = [];
+  for (const entry of tree) {
+    const mapped = mapApiTreeEntryType(entry.type);
+    if (!mapped) continue;
+    const slash = entry.path.lastIndexOf('/');
+    entries.push({
+      type: mapped,
+      name: slash === -1 ? entry.path : entry.path.slice(slash + 1),
+      path: entry.path,
+      sha: entry.sha,
+      size: typeof entry.size === 'number' ? entry.size : undefined,
+    });
+  }
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+  return entries;
+}
 
 function filesFromTree(
   tree: GitTreeEntry[],
@@ -1091,7 +1126,11 @@ async function handleGetTree(ctx: RouteContext): Promise<void> {
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
   const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
   const data = (await ghRes.json()) as { tree: GitTreeEntry[]; truncated: boolean };
-  json(ctx.res, 200, { files: filesFromTree(data.tree, markdownOnly), truncated: data.truncated });
+  json(ctx.res, 200, {
+    files: filesFromTree(data.tree, markdownOnly),
+    entries: entriesFromTree(data.tree),
+    truncated: data.truncated,
+  });
 }
 
 async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
@@ -1113,7 +1152,11 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
     return;
   }
-  json(ctx.res, 200, { files: filesFromTree(data?.tree ?? [], markdownOnly), truncated: data?.truncated ?? false });
+  json(ctx.res, 200, {
+    files: filesFromTree(data?.tree ?? [], markdownOnly),
+    entries: entriesFromTree(data?.tree ?? []),
+    truncated: data?.truncated ?? false,
+  });
 }
 
 async function handleGetPublicGist(ctx: RouteContext): Promise<void> {

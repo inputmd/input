@@ -354,6 +354,13 @@ export async function getPublicRepoContents(
 }
 
 export interface RepoTreeResult {
+  entries?: Array<{
+    type: 'file' | 'dir' | 'symlink' | 'submodule';
+    name: string;
+    path: string;
+    sha: string;
+    size?: number;
+  }>;
   files: Array<{ name: string; path: string; sha: string; size?: number }>;
   truncated: boolean;
 }
