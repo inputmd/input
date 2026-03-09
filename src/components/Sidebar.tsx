@@ -652,8 +652,13 @@ export function Sidebar({
     }
   };
 
+  const allFilesAreText = totalFileCount > 0 && textFileCount === totalFileCount;
   const filterLabel =
-    fileFilter === 'text' ? `Text files (${textFileCount}/${totalFileCount})` : `All files (${totalFileCount})`;
+    fileFilter === 'text'
+      ? allFilesAreText
+        ? 'Text files'
+        : `Text files (${textFileCount}/${totalFileCount})`
+      : `All files (${totalFileCount})`;
   const filterControl = (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
