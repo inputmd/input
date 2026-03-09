@@ -885,6 +885,14 @@
   background: color-mix(in srgb, #dc322f 8%, transparent);
 }
 
+.reader-ai-diff-inline-change--add {
+  background: color-mix(in srgb, #2aa198 26%, transparent);
+}
+
+.reader-ai-diff-inline-change--del {
+  background: color-mix(in srgb, #dc322f 26%, transparent);
+}
+
 [data-theme="light"] .reader-ai-diff-line--add {
   color: #0d6e2d;
   background: color-mix(in srgb, #2ea043 10%, transparent);
@@ -893,6 +901,14 @@
 [data-theme="light"] .reader-ai-diff-line--del {
   color: #a0111f;
   background: color-mix(in srgb, #cf222e 10%, transparent);
+}
+
+[data-theme="light"] .reader-ai-diff-inline-change--add {
+  background: color-mix(in srgb, #2ea043 22%, transparent);
+}
+
+[data-theme="light"] .reader-ai-diff-inline-change--del {
+  background: color-mix(in srgb, #cf222e 22%, transparent);
 }
 
 @media (max-width: 1023px) {

@@ -1,25 +1,78 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { ReaderAiStagedChange } from '../reader_ai';
 
+function commonPrefixLength(a: string, b: string): number {
+  const limit = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < limit && a[i] === b[i]) i++;
+  return i;
+}
+
+function commonSuffixLength(a: string, b: string, prefix: number): number {
+  const max = Math.min(a.length, b.length) - prefix;
+  let i = 0;
+  while (i < max && a[a.length - 1 - i] === b[b.length - 1 - i]) i++;
+  return i;
+}
+
+function renderDiffContent(line: string, changedClass: string, pairLine?: string): ComponentChildren {
+  if (!pairLine) return line;
+  const content = line.slice(1);
+  const pairContent = pairLine.slice(1);
+  const prefix = commonPrefixLength(content, pairContent);
+  const suffix = commonSuffixLength(content, pairContent, prefix);
+  const changedEnd = content.length - suffix;
+  const unchangedPrefix = content.slice(0, prefix);
+  const changed = content.slice(prefix, changedEnd);
+  const unchangedSuffix = content.slice(changedEnd);
+
+  return (
+    <>
+      {line[0]}
+      {unchangedPrefix}
+      {changed ? <span class={changedClass}>{changed}</span> : null}
+      {unchangedSuffix}
+    </>
+  );
+}
+
 function DiffView({ diff }: { diff: string }) {
   const lines = diff.split('\n');
-  return (
-    <pre class="reader-ai-diff">
-      {lines.map((line, i) => {
-        let cls = 'reader-ai-diff-line';
-        if (line.startsWith('+++') || line.startsWith('---')) cls += ' reader-ai-diff-line--header';
-        else if (line.startsWith('@@')) cls += ' reader-ai-diff-line--hunk';
-        else if (line.startsWith('+')) cls += ' reader-ai-diff-line--add';
-        else if (line.startsWith('-')) cls += ' reader-ai-diff-line--del';
-        return (
-          <div key={i} class={cls}>
-            {line}
-          </div>
-        );
-      })}
-    </pre>
-  );
+  const renderedLines: ComponentChildren[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const next = lines[i + 1];
+    const isPair = line.startsWith('-') && next?.startsWith('+') && !line.startsWith('---') && !next.startsWith('+++');
+    if (isPair) {
+      renderedLines.push(
+        <div key={`${i}-del`} class="reader-ai-diff-line reader-ai-diff-line--del">
+          {renderDiffContent(line, 'reader-ai-diff-inline-change--del', next)}
+        </div>,
+      );
+      renderedLines.push(
+        <div key={`${i + 1}-add`} class="reader-ai-diff-line reader-ai-diff-line--add">
+          {renderDiffContent(next, 'reader-ai-diff-inline-change--add', line)}
+        </div>,
+      );
+      i++;
+      continue;
+    }
+
+    let cls = 'reader-ai-diff-line';
+    if (line.startsWith('+++') || line.startsWith('---')) cls += ' reader-ai-diff-line--header';
+    else if (line.startsWith('@@')) cls += ' reader-ai-diff-line--hunk';
+    else if (line.startsWith('+')) cls += ' reader-ai-diff-line--add';
+    else if (line.startsWith('-')) cls += ' reader-ai-diff-line--del';
+    renderedLines.push(
+      <div key={`${i}`} class={cls}>
+        {line}
+      </div>,
+    );
+  }
+
+  return <pre class="reader-ai-diff">{renderedLines}</pre>;
 }
 
 export function StagedChangesSection({
