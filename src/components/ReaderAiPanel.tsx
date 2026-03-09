@@ -364,6 +364,11 @@ export function ReaderAiPanel({
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
             event.preventDefault();
+            const input = event.currentTarget;
+            if (draft.length > 0) {
+              setDraft('');
+              input.style.height = 'auto';
+            }
             if (hasMessages && !sending) clearChat(true);
             return;
           }
