@@ -1,5 +1,6 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
+import { createPortal } from 'preact/compat';
 import { useEffect, useState } from 'preact/hooks';
 import type { ReaderAiStagedChange } from '../reader_ai';
 
@@ -91,6 +92,114 @@ function DiffView({ diff }: { diff: string }) {
   return <pre class="reader-ai-diff">{renderedLines}</pre>;
 }
 
+interface SideBySideRow {
+  left: string | null;
+  right: string | null;
+  kind: 'context' | 'add' | 'del' | 'replace' | 'meta';
+}
+
+function buildSideBySideRows(diff: string): SideBySideRow[] {
+  const rows: SideBySideRow[] = [];
+  const lines = diff.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('---') || line.startsWith('+++')) continue;
+    if (line.startsWith('@@')) {
+      rows.push({ left: line, right: line, kind: 'meta' });
+      continue;
+    }
+    if (line.startsWith('-')) {
+      const next = lines[i + 1];
+      if (next?.startsWith('+') && !next.startsWith('+++')) {
+        rows.push({ left: line.slice(1), right: next.slice(1), kind: 'replace' });
+        i++;
+        continue;
+      }
+      rows.push({ left: line.slice(1), right: null, kind: 'del' });
+      continue;
+    }
+    if (line.startsWith('+')) {
+      rows.push({ left: null, right: line.slice(1), kind: 'add' });
+      continue;
+    }
+    if (line.startsWith(' ')) {
+      const content = line.slice(1);
+      rows.push({ left: content, right: content, kind: 'context' });
+      continue;
+    }
+    rows.push({ left: line, right: line, kind: 'meta' });
+  }
+  return rows;
+}
+
+function SideBySideDiffModal({ changes, onClose }: { changes: ReaderAiStagedChange[]; onClose: () => void }) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div class="reader-ai-diff-popout-overlay" role="dialog" aria-modal="true" aria-label="Staged changes side by side">
+      <div class="reader-ai-diff-popout-backdrop" onClick={onClose} />
+      <div class="reader-ai-diff-popout">
+        <div class="reader-ai-diff-popout-header">
+          <div class="reader-ai-diff-popout-title">
+            Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
+          </div>
+          <button type="button" class="reader-ai-diff-popout-close" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div class="reader-ai-diff-popout-cols">
+          <div class="reader-ai-diff-popout-col-head">Original</div>
+          <div class="reader-ai-diff-popout-col-head">Updated</div>
+        </div>
+        <div class="reader-ai-diff-popout-grid">
+          {changes.map((change) => {
+            const rows = buildSideBySideRows(change.diff);
+            return (
+              <div key={change.path} class="reader-ai-diff-popout-file">
+                <div class="reader-ai-diff-popout-file-path">{change.path}</div>
+                {rows.map((row, idx) => (
+                  <div key={`${change.path}:${idx}`} class="reader-ai-diff-popout-row">
+                    <div
+                      class={`reader-ai-diff-popout-cell reader-ai-diff-popout-cell--left${
+                        row.kind === 'del' || row.kind === 'replace'
+                          ? ' reader-ai-diff-popout-cell--del'
+                          : row.kind === 'meta'
+                            ? ' reader-ai-diff-popout-cell--meta'
+                            : ''
+                      }`}
+                    >
+                      {row.left ?? ''}
+                    </div>
+                    <div
+                      class={`reader-ai-diff-popout-cell reader-ai-diff-popout-cell--right${
+                        row.kind === 'add' || row.kind === 'replace'
+                          ? ' reader-ai-diff-popout-cell--add'
+                          : row.kind === 'meta'
+                            ? ' reader-ai-diff-popout-cell--meta'
+                            : ''
+                      }`}
+                    >
+                      {row.right ?? ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function StagedChangesSection({
   changes,
   defaultCommitMessage,
@@ -112,6 +221,7 @@ export function StagedChangesSection({
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(changes.map((change) => change.path)));
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
+  const [popoutOpen, setPopoutOpen] = useState(false);
   const canApply = canApplyWithoutSaving || canApplyAndCommit;
   if (changes.length === 0) return null;
 
@@ -140,6 +250,15 @@ export function StagedChangesSection({
         <span>
           Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
         </span>
+        <button
+          type="button"
+          class="reader-ai-staged-changes-popout"
+          onClick={() => setPopoutOpen(true)}
+          title="Pop out side-by-side diff"
+          aria-label="Pop out side-by-side diff"
+        >
+          <Maximize2 size={13} />
+        </button>
       </div>
       {changes.map((change) => (
         <div key={change.path} class="reader-ai-staged-change">
@@ -197,6 +316,7 @@ export function StagedChangesSection({
           {disabledHint ?? 'Read-only — no write access'}
         </div>
       )}
+      {popoutOpen ? <SideBySideDiffModal changes={changes} onClose={() => setPopoutOpen(false)} /> : null}
     </div>
   );
 }
