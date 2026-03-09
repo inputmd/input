@@ -99,6 +99,7 @@ const READER_AI_VISIBLE_KEY = 'reader_ai_visible';
 const READER_AI_MODEL_KEY = 'reader_ai_model';
 const READER_AI_WIDTH_KEY = 'reader_ai_width_px';
 const READER_AI_HISTORY_KEY = 'reader_ai_history_v1';
+const SIDEBAR_VISIBLE_KEY = 'sidebar_visible';
 const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const DRAFT_TITLE_KEY = 'draft_title';
@@ -867,7 +868,17 @@ export function App() {
   const [repoSidebarFiles, setRepoSidebarFiles] = useState<RepoDocFile[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [failedImageUpload, setFailedImageUpload] = useState<PendingImageUpload | null>(null);
-  const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(null);
+  const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const saved = localStorage.getItem(SIDEBAR_VISIBLE_KEY);
+      if (saved === 'true') return true;
+      if (saved === 'false') return false;
+      return null;
+    } catch {
+      return null;
+    }
+  });
   const [sidebarFileFilter, setSidebarFileFilter] = useState<SidebarFileFilter>(() => {
     if (typeof window === 'undefined') return 'text';
     try {
@@ -1855,16 +1866,6 @@ export function App() {
   const handleRoute = useCallback(
     async (r: Route, authenticatedOverride?: boolean) => {
       const isAuthenticated = authenticatedOverride ?? Boolean(user);
-      const enteringDocumentRoute =
-        r.name === 'repoedit' ||
-        r.name === 'edit' ||
-        r.name === 'gist' ||
-        r.name === 'repofile' ||
-        r.name === 'sharefile';
-      if (enteringDocumentRoute && activeView !== 'content' && activeView !== 'edit') {
-        // Reentering an existing repo/gist should reset manual sidebar overrides.
-        setSidebarVisibilityOverride(null);
-      }
 
       switch (r.name) {
         case 'workspaces':
@@ -2264,6 +2265,16 @@ export function App() {
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
     } catch {}
   }, [sidebarWidth]);
+
+  useLayoutEffect(() => {
+    try {
+      if (sidebarVisibilityOverride === null) {
+        localStorage.removeItem(SIDEBAR_VISIBLE_KEY);
+      } else {
+        localStorage.setItem(SIDEBAR_VISIBLE_KEY, sidebarVisibilityOverride ? 'true' : 'false');
+      }
+    } catch {}
+  }, [sidebarVisibilityOverride]);
 
   useLayoutEffect(() => {
     try {
