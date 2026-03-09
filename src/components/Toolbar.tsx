@@ -44,6 +44,7 @@ interface ToolbarProps {
   draftMode: boolean;
   sidebarVisible: boolean;
   showShare: boolean;
+  shareMetadata: string | null;
   onShare: () => void;
   onViewInGitHub: () => void;
   showEdit: boolean;
@@ -91,6 +92,7 @@ export function Toolbar({
   draftMode,
   sidebarVisible,
   showShare,
+  shareMetadata,
   onShare,
   onViewInGitHub,
   showEdit,
@@ -143,6 +145,12 @@ export function Toolbar({
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content class="author-menu-content" sideOffset={6} align="end">
+          {shareMetadata ? (
+            <>
+              <DropdownMenu.Label class="user-menu-label">{shareMetadata}</DropdownMenu.Label>
+              <DropdownMenu.Separator class="user-menu-separator" />
+            </>
+          ) : null}
           <DropdownMenu.Item
             class="author-menu-item"
             onSelect={(event: Event) => {

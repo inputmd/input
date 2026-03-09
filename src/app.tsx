@@ -884,6 +884,8 @@ export function App() {
   const [readerAiRetryAfterProjectModeEnable, setReaderAiRetryAfterProjectModeEnable] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
+  const [currentGistCreatedAt, setCurrentGistCreatedAt] = useState<string | null>(null);
+  const [currentGistUpdatedAt, setCurrentGistUpdatedAt] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
   const [currentRepoDocSha, setCurrentRepoDocSha] = useState<string | null>(null);
   const [editingBackend, setEditingBackend] = useState<'gist' | 'repo' | null>(null);
@@ -1597,6 +1599,8 @@ export function App() {
           const data = await res.json();
           const files = data.files as Record<string, GistFile>;
           setGistFiles(files);
+          setCurrentGistCreatedAt(typeof data.created_at === 'string' ? data.created_at : null);
+          setCurrentGistUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null);
 
           const fileKeys = Object.keys(files);
           const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
@@ -1643,6 +1647,8 @@ export function App() {
 
         const gist = await getGist(id);
         setGistFiles(gist.files);
+        setCurrentGistCreatedAt(gist.created_at);
+        setCurrentGistUpdatedAt(gist.updated_at);
 
         const fileKeys = Object.keys(gist.files);
         const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
@@ -2094,6 +2100,8 @@ export function App() {
           try {
             const gist = await getGist(r.params.id);
             setGistFiles(gist.files);
+            setCurrentGistCreatedAt(gist.created_at);
+            setCurrentGistUpdatedAt(gist.updated_at);
 
             const fileKeys = Object.keys(gist.files);
             const targetName = r.params.filename ? safeDecodeURIComponent(r.params.filename) : fileKeys[0];
@@ -2242,6 +2250,12 @@ export function App() {
       localStorage.setItem(EDITOR_PREVIEW_VISIBLE_KEY, previewVisible ? 'true' : 'false');
     } catch {}
   }, [previewVisible]);
+
+  useEffect(() => {
+    if (currentGistId !== null) return;
+    setCurrentGistCreatedAt(null);
+    setCurrentGistUpdatedAt(null);
+  }, [currentGistId]);
 
   useLayoutEffect(() => {
     const wasRouteName = prevRouteNameRef.current;
@@ -3336,6 +3350,8 @@ export function App() {
         setCurrentGistId(gist.id);
         setCurrentFileName(filename);
         setGistFiles(gist.files);
+        setCurrentGistCreatedAt(gist.created_at);
+        setCurrentGistUpdatedAt(gist.updated_at);
         if (draftMode) {
           localStorage.removeItem(DRAFT_TITLE_KEY);
           localStorage.removeItem(DRAFT_CONTENT_KEY);
@@ -4533,6 +4549,16 @@ export function App() {
     currentRepoDocPath !== null &&
     (route.name === 'repoedit' || (route.name === 'repofile' && Boolean(user)));
   const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
+  const shareMenuMetadata = useMemo(() => {
+    if (!showHeaderShare) return null;
+    const timestamp = currentGistCreatedAt ?? currentGistUpdatedAt;
+    if (!timestamp) return null;
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return null;
+    const prefix = currentGistCreatedAt ? 'Created' : 'Updated';
+    const formatted = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+    return `${prefix} ${formatted}`;
+  }, [currentGistCreatedAt, currentGistUpdatedAt, showHeaderShare]);
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') &&
     repoAccessMode === 'installed' &&
@@ -4602,6 +4628,7 @@ export function App() {
         draftMode={draftMode}
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
+        shareMetadata={shareMenuMetadata}
         onShare={() => {
           void onShareLink();
         }}
