@@ -1,4 +1,4 @@
-import { responseToApiError } from './api_error';
+import { ApiError, responseToApiError } from './api_error';
 import { SyncedCache } from './synced_cache';
 import { type CacheEntry, readCacheTtlMs } from './util';
 
@@ -554,12 +554,38 @@ export async function renameRepoPathsAtomic(
   renames: RepoBatchRename[],
   message: string,
 ): Promise<void> {
+  await runRepoGitBatchMutation(installationId, repoFullName, { renames, message });
+}
+
+async function runRepoGitBatchMutation(
+  installationId: string,
+  repoFullName: string,
+  body: {
+    message: string;
+    renames?: RepoBatchRename[];
+    deletes?: string[];
+    creates?: RepoBatchCreateFile[];
+  },
+): Promise<void> {
   const { owner, repo } = splitFullName(repoFullName);
-  await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/git-batch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ renames, message }),
-  });
+  const url = `${installationUrl(installationId, 'repos', owner, repo)}/git-batch`;
+  let attemptedRetry = false;
+  while (true) {
+    try {
+      await authFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      break;
+    } catch (err) {
+      const isRetryableRefConflict =
+        err instanceof ApiError && err.status === 409 && err.code === 'repo_ref_conflict' && !attemptedRetry;
+      if (!isRetryableRefConflict) throw err;
+      attemptedRetry = true;
+      console.warn(`[github-app] git-batch ref conflict for ${repoFullName}; retrying once`);
+    }
+  }
   clearRepoContentsCacheForRepo(installationId, repoFullName);
 }
 
@@ -569,13 +595,7 @@ export async function deleteRepoPathsAtomic(
   paths: string[],
   message: string,
 ): Promise<void> {
-  const { owner, repo } = splitFullName(repoFullName);
-  await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/git-batch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deletes: paths, message }),
-  });
-  clearRepoContentsCacheForRepo(installationId, repoFullName);
+  await runRepoGitBatchMutation(installationId, repoFullName, { deletes: paths, message });
 }
 
 export async function createRepoFilesAtomic(
@@ -584,13 +604,7 @@ export async function createRepoFilesAtomic(
   files: RepoBatchCreateFile[],
   message: string,
 ): Promise<void> {
-  const { owner, repo } = splitFullName(repoFullName);
-  await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/git-batch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ creates: files, message }),
-  });
-  clearRepoContentsCacheForRepo(installationId, repoFullName);
+  await runRepoGitBatchMutation(installationId, repoFullName, { creates: files, message });
 }
 
 export async function createRepoFileShareLink(

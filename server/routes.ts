@@ -1342,7 +1342,10 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
     const err = (await updateRefRes.json().catch(() => null)) as GitHubApiError | null;
     if (updateRefRes.status === 401) throw new ClientError('Unauthorized', 401);
     if (updateRefRes.status === 409 || updateRefRes.status === 422) {
-      json(ctx.res, 409, { error: 'Repository changed while applying git batch update. Please retry.' });
+      json(ctx.res, 409, {
+        error: 'Repository changed while applying git batch update. Please retry.',
+        code: 'repo_ref_conflict',
+      });
       return;
     }
     respondGitHubError(ctx.res, updateRefRes, err?.message ?? 'Failed to update branch ref', updateRefPath);
