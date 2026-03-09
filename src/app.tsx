@@ -2966,15 +2966,6 @@ export function App() {
           throw new Error('Cannot apply changes: no write access');
         }
 
-        if (activeView === 'edit' && currentEditingDocPath && applied.includes(currentEditingDocPath)) {
-          const nextContent = modifiedMap.get(currentEditingDocPath);
-          if (typeof nextContent === 'string') {
-            // Keep the editor in sync when the current file was committed via repo/gist apply.
-            setEditContent(nextContent);
-            setHasUnsavedChanges(false);
-          }
-        }
-
         if (failed.length > 0 && applied.length > 0) {
           // Partial success
           setReaderAiStagedChanges((prev) => prev.filter((c) => !applied.includes(c.path)));
