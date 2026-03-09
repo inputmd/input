@@ -154,12 +154,6 @@ function sanitizeCreateNameInput(input: string): string {
   return normalized;
 }
 
-function createParentDisplayPrefix(path: string): string {
-  const parts = path.split('/').filter(Boolean);
-  if (parts.length === 0) return '';
-  return `${parts[parts.length - 1]}/`;
-}
-
 function isKeepMarkerPath(path: string): boolean {
   return /(?:^|\/)\.keep$/i.test(path);
 }
@@ -1002,7 +996,6 @@ export function Sidebar({
 
   const renderCreateRow = (depth: number) => {
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
-    const createPrefix = createParentDisplayPrefix(createParentPath);
     return (
       <div
         class="sidebar-file renaming"
@@ -1014,7 +1007,6 @@ export function Sidebar({
         ) : (
           <File size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
         )}
-        {createPrefix ? <span class="sidebar-create-prefix">{createPrefix}</span> : null}
         <input
           ref={newInputRef}
           class="sidebar-rename-input"
