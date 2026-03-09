@@ -1512,6 +1512,14 @@ export function App() {
     return repoDocFilesFromTree(result, false);
   }, []);
 
+  const refreshRepoTreeAfterWrite = useCallback(async (): Promise<RepoDocFile[] | null> => {
+    if (repoAccessMode !== 'installed' || !installationId || !selectedRepo) return null;
+    const files = await loadRepoAllFiles(installationId, selectedRepo);
+    setRepoSidebarFiles(files);
+    setRepoFiles(files.filter((file) => isMarkdownFileName(file.path)));
+    return files;
+  }, [repoAccessMode, installationId, selectedRepo, loadRepoAllFiles]);
+
   // --- Data loaders ---
   const loadGist = useCallback(
     async (id: string, filename: string | undefined, anonymous: boolean) => {
@@ -3382,16 +3390,7 @@ export function App() {
           navigate(routePath.gistEdit(currentGistId, filePath));
         } else {
           const result = await store.createFile(filePath);
-          const createdFile = {
-            name: fileNameFromPath(filePath),
-            path: result.content.path,
-            sha: result.content.sha,
-            size: 0,
-          };
-          if (isMarkdownFileName(createdFile.path)) {
-            setRepoFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
-          }
-          setRepoSidebarFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
+          await refreshRepoTreeAfterWrite();
           setHasUnsavedChanges(false);
           if (selectedRepoRef) {
             if (isMarkdownFileName(result.content.path)) {
@@ -3408,7 +3407,15 @@ export function App() {
         void showAlert(err instanceof Error ? err.message : 'Failed to create file');
       }
     },
-    [getActiveDocumentStore, currentGistId, navigate, showAlert, showRateLimitToastIfNeeded, selectedRepoRef],
+    [
+      getActiveDocumentStore,
+      currentGistId,
+      navigate,
+      showAlert,
+      showRateLimitToastIfNeeded,
+      selectedRepoRef,
+      refreshRepoTreeAfterWrite,
+    ],
   );
 
   const handleCreateDirectory = useCallback(
@@ -3423,17 +3430,8 @@ export function App() {
           setGistFiles(gist.files);
           setHasUnsavedChanges(false);
         } else {
-          const result = await store.createFile(seedFilePath);
-          const createdFile = {
-            name: fileNameFromPath(seedFilePath),
-            path: result.content.path,
-            sha: result.content.sha,
-            size: 0,
-          };
-          if (isMarkdownFileName(createdFile.path)) {
-            setRepoFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
-          }
-          setRepoSidebarFiles((prev) => [...prev, createdFile].sort((a, b) => a.path.localeCompare(b.path)));
+          await store.createFile(seedFilePath);
+          await refreshRepoTreeAfterWrite();
           setHasUnsavedChanges(false);
         }
       } catch (err) {
@@ -3441,7 +3439,7 @@ export function App() {
         void showAlert(err instanceof Error ? err.message : 'Failed to create directory');
       }
     },
-    [getActiveDocumentStore, showAlert, showRateLimitToastIfNeeded],
+    [getActiveDocumentStore, showAlert, showRateLimitToastIfNeeded, refreshRepoTreeAfterWrite],
   );
 
   const handleEditFile = useCallback(
@@ -3571,10 +3569,7 @@ export function App() {
           const repoFile = findRepoDocFile(repoSidebarFiles, filePath);
           if (!repoFile) return;
           await store.deleteFile(repoFile);
-          const remaining = repoFiles.filter((f) => f.path !== filePath);
-          const remainingSidebar = repoSidebarFiles.filter((f) => f.path !== filePath);
-          setRepoFiles(remaining);
-          setRepoSidebarFiles(remainingSidebar);
+          const remainingSidebar = (await refreshRepoTreeAfterWrite()) ?? [];
           const deletedCurrent = currentRepoDocPath === repoFile.path;
           if (deletedCurrent) {
             if (remainingSidebar.length > 0) {
@@ -3604,7 +3599,6 @@ export function App() {
     [
       getActiveDocumentStore,
       currentFileName,
-      repoFiles,
       repoSidebarFiles,
       currentRepoDocPath,
       navigate,
@@ -3614,6 +3608,7 @@ export function App() {
       showRateLimitToastIfNeeded,
       currentGistId,
       selectedRepoRef,
+      refreshRepoTreeAfterWrite,
     ],
   );
 
@@ -3676,11 +3671,10 @@ export function App() {
               break;
             }
           }
-          const remaining = repoFiles.filter((file) => !completedPaths.has(file.path));
-          const remainingSidebar = repoSidebarFiles.filter((file) => !completedPaths.has(file.path));
-          setRepoFiles(remaining);
-          setRepoSidebarFiles(remainingSidebar);
-          const deletedCurrent = currentRepoDocPath ? completedPaths.has(currentRepoDocPath) : false;
+          const remainingSidebar = (await refreshRepoTreeAfterWrite()) ?? [];
+          const deletedCurrent = currentRepoDocPath
+            ? !remainingSidebar.some((file) => file.path === currentRepoDocPath)
+            : false;
           if (deletedCurrent) {
             if (remainingSidebar.length > 0) {
               if (selectedRepoRef) {
@@ -3727,7 +3721,6 @@ export function App() {
       showConfirm,
       currentFileName,
       navigate,
-      repoFiles,
       currentRepoDocPath,
       handleSessionExpired,
       showAlert,
@@ -3736,6 +3729,7 @@ export function App() {
       showSuccessToast,
       dismissToast,
       selectedRepoRef,
+      refreshRepoTreeAfterWrite,
     ],
   );
 
@@ -3757,34 +3751,7 @@ export function App() {
           const oldFile = findRepoDocFile(repoSidebarFiles, oldPath);
           if (!oldFile) return;
           const created = await store.renameFile(oldFile, newPath);
-          const updatedSidebarFiles = repoSidebarFiles
-            .map((f) =>
-              f.path === oldPath
-                ? {
-                    name: fileNameFromPath(newPath),
-                    path: created.content.path,
-                    sha: created.content.sha,
-                    size: f.size,
-                  }
-                : f,
-            )
-            .sort((a, b) => a.path.localeCompare(b.path));
-          const updatedFiles = isMarkdownFileName(newPath)
-            ? repoFiles
-                .map((f) =>
-                  f.path === oldPath
-                    ? {
-                        name: fileNameFromPath(newPath),
-                        path: created.content.path,
-                        sha: created.content.sha,
-                        size: f.size,
-                      }
-                    : f,
-                )
-                .sort((a, b) => a.path.localeCompare(b.path))
-            : repoFiles.filter((f) => f.path !== oldPath);
-          setRepoSidebarFiles(updatedSidebarFiles);
-          setRepoFiles(updatedFiles);
+          await refreshRepoTreeAfterWrite();
           if (currentFileName === oldPath) {
             if (selectedRepoRef) {
               navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, created.content.path));
@@ -3812,13 +3779,13 @@ export function App() {
       getActiveDocumentStore,
       currentGistId,
       currentFileName,
-      repoFiles,
       repoSidebarFiles,
       navigate,
       handleSessionExpired,
       showAlert,
       showRateLimitToastIfNeeded,
       selectedRepoRef,
+      refreshRepoTreeAfterWrite,
     ],
   );
 
@@ -3895,28 +3862,17 @@ export function App() {
             dismissToast(renameToastId);
             return;
           }
-          const renamed = new Map<string, RepoDocFile>();
           for (const file of paths) {
             const nextPath = renamePathWithNewFolder(file.path, oldPath, newPath);
             try {
-              const created = await store.renameFile(file, nextPath);
-              renamed.set(file.path, {
-                name: fileNameFromPath(nextPath),
-                path: created.content.path,
-                sha: created.content.sha,
-                size: file.size,
-              });
+              await store.renameFile(file, nextPath);
               completedCount += 1;
             } catch (err) {
               batchError = err;
               break;
             }
           }
-          const updatedSidebarFiles = repoSidebarFiles
-            .map((file) => renamed.get(file.path) ?? file)
-            .sort((a, b) => a.path.localeCompare(b.path));
-          setRepoSidebarFiles(updatedSidebarFiles);
-          setRepoFiles(updatedSidebarFiles.filter((file) => isMarkdownFileName(file.path)));
+          if (completedCount > 0) await refreshRepoTreeAfterWrite();
           if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
             if (selectedRepoRef) {
               navigate(
@@ -3976,6 +3932,7 @@ export function App() {
       showSuccessToast,
       dismissToast,
       selectedRepoRef,
+      refreshRepoTreeAfterWrite,
     ],
   );
 
