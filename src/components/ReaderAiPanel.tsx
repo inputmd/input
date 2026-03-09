@@ -28,7 +28,7 @@ interface ReaderAiPanelProps {
   stagedChanges: ReaderAiStagedChange[];
   suggestedCommitMessage: string;
   applyingChanges: boolean;
-  stagedChangesInvalid: boolean;
+  stagedChangesDisabledHint?: string;
   canApplyWithoutSaving: boolean;
   canApplyAndCommit: boolean;
   onApplyWithoutSaving: () => void;
@@ -71,7 +71,7 @@ export function ReaderAiPanel({
   stagedChanges,
   suggestedCommitMessage,
   applyingChanges,
-  stagedChangesInvalid,
+  stagedChangesDisabledHint,
   canApplyWithoutSaving,
   canApplyAndCommit,
   onApplyWithoutSaving,
@@ -571,9 +571,7 @@ export function ReaderAiPanel({
             applying={applyingChanges}
             canApplyWithoutSaving={canApplyWithoutSaving}
             canApplyAndCommit={canApplyAndCommit}
-            disabledHint={
-              stagedChangesInvalid ? 'Staged changes are invalid. Regenerate the diff to apply changes.' : undefined
-            }
+            disabledHint={stagedChangesDisabledHint}
             onApplyWithoutSaving={onApplyWithoutSaving}
             onApplyAndCommit={onApplyAndCommit}
           />

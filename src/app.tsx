@@ -4473,6 +4473,10 @@ export function App() {
   const hasAllNonDeleteStagedContent = readerAiStagedChanges.every(
     (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
   );
+  const hasCurrentEditingStagedContent = Boolean(
+    currentEditingDocPath && typeof readerAiStagedFileContents[currentEditingDocPath] === 'string',
+  );
+  const canApplyFromInlineDocumentEdit = !readerAiProjectId && readerAiDocumentEditedContent !== null;
   const canApplyAndCommit =
     !readerAiStagedChangesInvalid &&
     hasAllNonDeleteStagedContent &&
@@ -4481,8 +4485,17 @@ export function App() {
   const canApplyWithoutSaving =
     !readerAiStagedChangesInvalid &&
     activeView === 'edit' &&
-    ((!readerAiProjectId && readerAiDocumentEditedContent !== null) ||
-      Boolean(currentEditingDocPath && typeof readerAiStagedFileContents[currentEditingDocPath] === 'string'));
+    (canApplyFromInlineDocumentEdit || hasCurrentEditingStagedContent);
+  const readerAiStagedChangesDisabledHint = readerAiStagedChangesInvalid
+    ? 'Staged changes are invalid. Regenerate the diff to apply changes.'
+    : !canApplyAndCommit &&
+        !canApplyWithoutSaving &&
+        activeView === 'edit' &&
+        Boolean(currentEditingDocPath) &&
+        !canApplyFromInlineDocumentEdit &&
+        !hasCurrentEditingStagedContent
+      ? 'No staged changes for the current file. Switch files or regenerate the diff.'
+      : undefined;
 
   return (
     <>
@@ -4613,7 +4626,7 @@ export function App() {
               stagedChanges={readerAiStagedChanges}
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
-              stagedChangesInvalid={readerAiStagedChangesInvalid}
+              stagedChangesDisabledHint={readerAiStagedChangesDisabledHint}
               canApplyWithoutSaving={canApplyWithoutSaving}
               canApplyAndCommit={canApplyAndCommit}
               onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
