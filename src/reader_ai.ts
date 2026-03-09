@@ -47,6 +47,7 @@ interface ReaderAiStreamOptions {
     changes: ReaderAiStagedChange[],
     suggestedCommitMessage?: string,
     documentContent?: string,
+    fileContents?: Record<string, string>,
   ) => void;
   onStreamError?: (message: string) => void;
   onTurnStart?: (iteration: number) => void;
@@ -140,6 +141,63 @@ export async function deleteReaderAiProjectSession(projectId: string): Promise<v
   } catch {
     // Best-effort cleanup — ignore errors.
   }
+}
+
+export interface ReaderAiApplyResult {
+  applied: string[];
+  failed: Array<{ path: string; error: string }>;
+}
+
+type ReaderAiApplyContext =
+  | { kind: 'gist'; gistId: string }
+  | { kind: 'repo'; installationId: string; repoFullName: string };
+
+export async function applyReaderAiChanges(
+  context: ReaderAiApplyContext,
+  changes: ReaderAiStagedChange[],
+  fileContents: Record<string, string>,
+  commitMessage?: string,
+): Promise<ReaderAiApplyResult> {
+  const body =
+    context.kind === 'gist'
+      ? {
+          context: { kind: 'gist' as const, gist_id: context.gistId },
+          changes,
+          file_contents: fileContents,
+          commit_message: commitMessage,
+        }
+      : {
+          context: {
+            kind: 'repo' as const,
+            installation_id: context.installationId,
+            repo_full_name: context.repoFullName,
+          },
+          changes,
+          file_contents: fileContents,
+          commit_message: commitMessage,
+        };
+  const res = await fetch('/api/ai/apply', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await responseToApiError(res);
+  const data = (await res.json()) as {
+    applied?: string[];
+    failed?: Array<{ path?: string; error?: string }>;
+  };
+  return {
+    applied: Array.isArray(data.applied) ? data.applied.filter((path): path is string => typeof path === 'string') : [],
+    failed: Array.isArray(data.failed)
+      ? data.failed
+          .map((entry) => ({
+            path: typeof entry.path === 'string' ? entry.path : '',
+            error: typeof entry.error === 'string' ? entry.error : 'Unknown error',
+          }))
+          .filter((entry) => entry.path.length > 0)
+      : [],
+  };
 }
 
 export async function askReaderAiStream(
@@ -266,12 +324,23 @@ export async function askReaderAiStream(
               changes?: ReaderAiStagedChange[];
               suggested_commit_message?: string;
               document_content?: string;
+              file_contents?: Record<string, unknown>;
             };
             if (Array.isArray(parsed.changes)) {
+              const fileContents =
+                parsed.file_contents && typeof parsed.file_contents === 'object'
+                  ? Object.fromEntries(
+                      Object.entries(parsed.file_contents).filter(
+                        (entry): entry is [string, string] =>
+                          typeof entry[0] === 'string' && typeof entry[1] === 'string',
+                      ),
+                    )
+                  : undefined;
               options.onStagedChanges(
                 parsed.changes,
                 parsed.suggested_commit_message,
                 typeof parsed.document_content === 'string' ? parsed.document_content : undefined,
+                fileContents,
               );
             }
           } catch {

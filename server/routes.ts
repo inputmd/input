@@ -1457,6 +1457,9 @@ function normalizeProjectFiles(raw: unknown): ReaderAiFileEntry[] | null {
 }
 
 // ── Project session cache (avoids resending all files on every chat request) ──
+// This is an in-memory, best-effort cache scoped to a single server process.
+// It improves chat/tool performance but is not a source of truth for writes.
+// Apply/commit flows must continue to work even if this cache expires or is absent.
 
 const READER_AI_PROJECT_SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const READER_AI_MAX_PROJECT_SESSIONS = 50;
@@ -1511,6 +1514,7 @@ function evictProjectSessionsToFit(requiredBytes: number): void {
 function getProjectSession(id: string, userId: number): ReaderAiProjectSession | null {
   const session = readerAiProjectSessions.get(id);
   if (!session) return null;
+  // Sessions are user-scoped; never allow cross-user lookup by project ID alone.
   if (session.userId !== userId) return null;
   if (Date.now() - session.lastAccessedAt > READER_AI_PROJECT_SESSION_TTL_MS) {
     readerAiProjectSessions.delete(id);
@@ -1615,6 +1619,173 @@ async function handleReaderAiProjectDelete(ctx: RouteContext): Promise<void> {
     readerAiProjectSessions.delete(projectId);
   }
   json(ctx.res, 200, { deleted: true });
+}
+
+async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  // This endpoint intentionally consumes staged changes + file_contents from the client.
+  // It does not read the project-session cache so apply remains valid across cache expiry.
+
+  const body = (await readJson(ctx.req)) as {
+    context?: {
+      kind?: unknown;
+      gist_id?: unknown;
+      installation_id?: unknown;
+      repo_full_name?: unknown;
+    };
+    changes?: unknown;
+    file_contents?: unknown;
+    commit_message?: unknown;
+  } | null;
+
+  const context = body?.context;
+  const kind = typeof context?.kind === 'string' ? context.kind : '';
+  const commitMessage =
+    typeof body?.commit_message === 'string' && body.commit_message.trim()
+      ? body.commit_message.trim()
+      : 'Apply AI-suggested changes';
+  const changesRaw = body?.changes;
+  const fileContentsRaw = body?.file_contents;
+
+  if (!Array.isArray(changesRaw) || changesRaw.length === 0) {
+    throw new ClientError('changes must be a non-empty array', 400);
+  }
+  if (!fileContentsRaw || typeof fileContentsRaw !== 'object') {
+    throw new ClientError('file_contents must be an object', 400);
+  }
+
+  const changes = changesRaw.map((entry) => {
+    if (!entry || typeof entry !== 'object') throw new ClientError('Invalid change entry', 400);
+    const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path.trim() : '';
+    const type = typeof (entry as { type?: unknown }).type === 'string' ? (entry as { type: string }).type : '';
+    if (!path) throw new ClientError('Change path is required', 400);
+    if (type !== 'edit' && type !== 'create' && type !== 'delete') throw new ClientError('Invalid change type', 400);
+    return { path, type } as { path: string; type: 'edit' | 'create' | 'delete' };
+  });
+
+  const fileContents = new Map(
+    Object.entries(fileContentsRaw as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string',
+    ),
+  );
+
+  const applied: string[] = [];
+  const failed: Array<{ path: string; error: string }> = [];
+
+  if (kind === 'gist') {
+    const gistId = typeof context?.gist_id === 'string' ? context.gist_id : '';
+    if (!gistId) throw new ClientError('context.gist_id is required', 400);
+    const gistUpdates: Record<string, { content: string } | null> = {};
+    for (const change of changes) {
+      if (change.type === 'delete') {
+        gistUpdates[change.path] = null;
+        continue;
+      }
+      const content = fileContents.get(change.path);
+      if (typeof content !== 'string') {
+        failed.push({ path: change.path, error: 'Modified content not found' });
+        continue;
+      }
+      gistUpdates[change.path] = { content };
+    }
+    if (Object.keys(gistUpdates).length > 0) {
+      const ghRes = await githubFetchWithUserToken(session, `/gists/${encodeURIComponent(gistId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: gistUpdates }),
+      });
+      if (!ghRes.ok) {
+        const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+        if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
+        respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', `/gists/${encodeURIComponent(gistId)}`);
+        return;
+      }
+      applied.push(...Object.keys(gistUpdates));
+    }
+    json(ctx.res, 200, { applied, failed });
+    return;
+  }
+
+  if (kind === 'repo') {
+    const installationId = typeof context?.installation_id === 'string' ? context.installation_id : '';
+    const repoFullName = typeof context?.repo_full_name === 'string' ? context.repo_full_name : '';
+    if (!installationId || !repoFullName) {
+      throw new ClientError('context.installation_id and context.repo_full_name are required', 400);
+    }
+    if (!session.installationId || session.installationId !== installationId) throw new ClientError('Forbidden', 403);
+    const { owner, repo } = splitRepoFullName(repoFullName);
+
+    for (const change of changes) {
+      try {
+        const normalizedPath = normalizeRepoRelativePath(change.path);
+        const contentsPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(normalizedPath)}`;
+        if (change.type === 'delete') {
+          const getRes = await githubFetchWithInstallationToken(installationId, contentsPath);
+          if (getRes.status === 404) {
+            failed.push({ path: change.path, error: 'File not found' });
+            continue;
+          }
+          if (!getRes.ok) {
+            const message = await readGitHubErrorMessage(getRes);
+            throw new Error(message);
+          }
+          const data = (await getRes.json().catch(() => null)) as { type?: string; sha?: string } | null;
+          if (!data || data.type !== 'file' || typeof data.sha !== 'string') {
+            failed.push({ path: change.path, error: 'Expected a file' });
+            continue;
+          }
+          const delRes = await githubFetchWithInstallationToken(installationId, contentsPath, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: normalizedPath, message: commitMessage, sha: data.sha }),
+          });
+          if (!delRes.ok) {
+            const message = await readGitHubErrorMessage(delRes);
+            throw new Error(message);
+          }
+          applied.push(change.path);
+          continue;
+        }
+
+        const content = fileContents.get(change.path);
+        if (typeof content !== 'string') {
+          failed.push({ path: change.path, error: 'Modified content not found' });
+          continue;
+        }
+        let sha: string | undefined;
+        if (change.type === 'edit') {
+          const getRes = await githubFetchWithInstallationToken(installationId, contentsPath);
+          if (getRes.ok) {
+            const data = (await getRes.json().catch(() => null)) as { type?: string; sha?: string } | null;
+            if (data?.type === 'file' && typeof data.sha === 'string') sha = data.sha;
+          }
+        }
+        const putRes = await githubFetchWithInstallationToken(installationId, contentsPath, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: normalizedPath,
+            message: commitMessage,
+            content: Buffer.from(content, 'utf8').toString('base64'),
+            ...(sha ? { sha } : {}),
+          }),
+        });
+        if (!putRes.ok) {
+          const message = await readGitHubErrorMessage(putRes);
+          throw new Error(message);
+        }
+        applied.push(change.path);
+      } catch (err) {
+        failed.push({ path: change.path, error: err instanceof Error ? err.message : 'Unknown error' });
+      }
+    }
+
+    json(ctx.res, 200, { applied, failed });
+    return;
+  }
+
+  throw new ClientError('context.kind must be "gist" or "repo"', 400);
 }
 
 async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
@@ -1754,7 +1925,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   // Reserve 25% for system prompt + file tree, 15% for output, 60% for conversation + tool results
   const conversationBudgetTokens = Math.floor(maxContextTokens * 0.6);
 
-  // Staging layer for file edits in project mode — reuse from project session if available
+  // Staging layer for chat edits in project mode.
+  // Reuse the cached stagedChanges when project_id resolves, otherwise fall back to
+  // ephemeral staging for inline project_files mode.
   const projectSession = projectId ? readerAiProjectSessions.get(projectId) : undefined;
   const stagedChanges = projectSession
     ? projectSession.stagedChanges
@@ -1809,6 +1982,13 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       type: c.type,
       diff: c.diff,
     }));
+    // Include full modified content so clients can apply without depending on
+    // a cached project session lookup.
+    const fileContents = Object.fromEntries(
+      allChanges
+        .filter((c) => c.type !== 'delete' && typeof c.modified === 'string')
+        .map((c) => [c.path, c.modified as string]),
+    );
     const edits = allChanges.filter((c) => c.type === 'edit').map((c) => c.path);
     const creates = allChanges.filter((c) => c.type === 'create').map((c) => c.path);
     const deletes = allChanges.filter((c) => c.type === 'delete').map((c) => c.path);
@@ -1823,6 +2003,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     ctx.res.write(
       `event: staged_changes\ndata: ${JSON.stringify({
         changes,
+        file_contents: fileContents,
         suggested_commit_message: suggestedCommitMessage,
         ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
       })}\n\n`,
@@ -2276,6 +2457,7 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: PUBLIC_REPO_TARBALL_PATTERN, handler: handlePublicRepoTarball },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
+  { method: 'POST', pattern: /^\/api\/ai\/apply$/, handler: handleReaderAiApply },
   { method: 'POST', pattern: /^\/api\/ai\/project$/, handler: handleReaderAiProjectCreate },
   { method: 'GET', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/files$/, handler: handleReaderAiProjectFiles },
   { method: 'POST', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/file$/, handler: handleReaderAiProjectFileUpdate },

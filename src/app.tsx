@@ -24,7 +24,6 @@ import {
   listGists,
   logout,
   updateGist,
-  updateGistFiles,
 } from './github';
 import {
   clearGitHubAppCaches,
@@ -36,7 +35,6 @@ import {
   createRepoFileShareLink,
   createRepoFilesAtomic,
   createSession,
-  deleteRepoFile,
   deleteRepoPathsAtomic,
   disconnectInstallation,
   getInstallationId,
@@ -71,6 +69,7 @@ import {
 import { useRoute } from './hooks/useRoute';
 import { parseMarkdownToHtml } from './markdown';
 import {
+  applyReaderAiChanges,
   askReaderAiStream,
   createReaderAiProjectSession,
   deleteReaderAiProjectSession,
@@ -2556,15 +2555,6 @@ export function App() {
     ],
   );
 
-  const fetchReaderAiProjectModifiedFiles = useCallback(async (projectId: string): Promise<Map<string, string>> => {
-    const res = await fetch(`/api/ai/project/${encodeURIComponent(projectId)}/files`, {
-      credentials: 'same-origin',
-    });
-    if (!res.ok) throw await responseToApiError(res);
-    const data = (await res.json()) as { files?: Array<{ path: string; content: string }> };
-    return new Map((data.files ?? []).map((file) => [file.path, file.content]));
-  }, []);
-
   const streamReaderAiAssistant = useCallback(
     async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
       const model = readerAiSelectedModel;
@@ -2692,41 +2682,20 @@ export function App() {
               setReaderAiToolStatus(detail);
               setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail }]);
             },
-            onStagedChanges: (changes, suggestedCommitMessage, documentContent) => {
+            onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
               setReaderAiStagedChanges(changes);
-              setReaderAiStagedFileContents((current) => {
+              setReaderAiStagedFileContents(() => {
                 const next: Record<string, string> = {};
+                const source = fileContents ?? {};
                 for (const change of changes) {
                   if (change.type === 'delete') continue;
-                  const cached = current[change.path];
-                  if (typeof cached === 'string') next[change.path] = cached;
+                  const content = source[change.path];
+                  if (typeof content === 'string') next[change.path] = content;
                 }
                 return next;
               });
               setReaderAiDocumentEditedContent(typeof documentContent === 'string' ? documentContent : null);
               if (suggestedCommitMessage) setReaderAiSuggestedCommitMessage(suggestedCommitMessage);
-              if (!effectiveProjectId) return;
-              if (!changes.some((change) => change.type !== 'delete')) return;
-              void fetchReaderAiProjectModifiedFiles(effectiveProjectId)
-                .then((modifiedMap) => {
-                  setReaderAiStagedFileContents((current) => {
-                    const next: Record<string, string> = {};
-                    for (const change of changes) {
-                      if (change.type === 'delete') continue;
-                      const content = modifiedMap.get(change.path);
-                      if (typeof content === 'string') {
-                        next[change.path] = content;
-                        continue;
-                      }
-                      const cached = current[change.path];
-                      if (typeof cached === 'string') next[change.path] = cached;
-                    }
-                    return next;
-                  });
-                })
-                .catch(() => {
-                  // Best-effort cache fill; apply can still use server project session when available.
-                });
             },
             onTurnStart: (iteration) => {
               if (iteration <= 0 || !separateNextTurnOutput) return;
@@ -2845,7 +2814,6 @@ export function App() {
       activeView,
       currentEditingDocPath,
       readerAiRepoFiles,
-      fetchReaderAiProjectModifiedFiles,
     ],
   );
 
@@ -2905,21 +2873,7 @@ export function App() {
 
       const applied: string[] = [];
       const failed: Array<{ path: string; error: string }> = [];
-      const cachedModifiedMap = new Map(Object.entries(readerAiStagedFileContents));
-      const getModifiedMapForApply = async (): Promise<Map<string, string>> => {
-        if (!readerAiProjectId) {
-          if (cachedModifiedMap.size > 0) return cachedModifiedMap;
-          throw new Error('No project session');
-        }
-        try {
-          return await fetchReaderAiProjectModifiedFiles(readerAiProjectId);
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 404 && cachedModifiedMap.size > 0) {
-            return cachedModifiedMap;
-          }
-          throw err;
-        }
-      };
+      const modifiedMap = new Map(Object.entries(readerAiStagedFileContents));
 
       try {
         if (activeView === 'edit') {
@@ -2936,8 +2890,6 @@ export function App() {
             throw new Error('No current editing document');
           }
 
-          const modifiedMap = await getModifiedMapForApply();
-
           const nextContent = modifiedMap.get(currentEditingDocPath);
           if (typeof nextContent !== 'string') {
             throw new Error(`No staged content found for ${currentEditingDocPath}`);
@@ -2953,58 +2905,23 @@ export function App() {
             setReaderAiError(`Applied current file changes. Ignored ${ignoredCount} change(s) in other files.`);
           }
         } else if (isGistContext && currentGistId) {
-          const modifiedMap = await getModifiedMapForApply();
-
-          // Gist mode: batch all changes into one PATCH call
-          const gistUpdates: Record<string, { content: string } | null> = {};
-          for (const change of readerAiStagedChanges) {
-            if (change.type === 'delete') {
-              gistUpdates[change.path] = null;
-            } else {
-              const content = modifiedMap.get(change.path);
-              if (content !== undefined) gistUpdates[change.path] = { content };
-            }
-          }
-          if (Object.keys(gistUpdates).length > 0) {
-            await updateGistFiles(currentGistId, gistUpdates);
-            applied.push(...Object.keys(gistUpdates));
-          }
+          const result = await applyReaderAiChanges(
+            { kind: 'gist', gistId: currentGistId },
+            readerAiStagedChanges,
+            readerAiStagedFileContents,
+            commitMessage,
+          );
+          applied.push(...result.applied);
+          failed.push(...result.failed);
         } else if (repoAccessMode === 'installed' && installationId && selectedRepo) {
-          const modifiedMap = await getModifiedMapForApply();
-
-          // Repo mode: apply each change via GitHub Contents API
-          const message = commitMessage || 'Apply AI-suggested changes';
-
-          for (const change of readerAiStagedChanges) {
-            try {
-              if (change.type === 'delete') {
-                const contents = await getRepoContents(installationId, selectedRepo, change.path);
-                if (!Array.isArray(contents) && contents.type === 'file') {
-                  await deleteRepoFile(installationId, selectedRepo, change.path, message, contents.sha);
-                }
-              } else {
-                const content = modifiedMap.get(change.path);
-                if (content === undefined) {
-                  failed.push({ path: change.path, error: 'Modified content not found' });
-                  continue;
-                }
-                const base64 = btoa(unescape(encodeURIComponent(content)));
-                let sha: string | undefined;
-                if (change.type === 'edit') {
-                  try {
-                    const contents = await getRepoContents(installationId, selectedRepo, change.path);
-                    if (!Array.isArray(contents) && contents.type === 'file') sha = contents.sha;
-                  } catch {
-                    // File may not exist — treat as create
-                  }
-                }
-                await putRepoFile(installationId, selectedRepo, change.path, message, base64, sha);
-              }
-              applied.push(change.path);
-            } catch (err) {
-              failed.push({ path: change.path, error: err instanceof Error ? err.message : 'Unknown error' });
-            }
-          }
+          const result = await applyReaderAiChanges(
+            { kind: 'repo', installationId, repoFullName: selectedRepo },
+            readerAiStagedChanges,
+            readerAiStagedFileContents,
+            commitMessage,
+          );
+          applied.push(...result.applied);
+          failed.push(...result.failed);
         } else {
           throw new Error('Cannot apply changes: no write access');
         }
@@ -3054,7 +2971,6 @@ export function App() {
       repoAccessMode,
       installationId,
       selectedRepo,
-      fetchReaderAiProjectModifiedFiles,
       showRateLimitToastIfNeeded,
     ],
   );

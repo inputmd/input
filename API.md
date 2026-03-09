@@ -37,8 +37,28 @@
 | `GET` | `/api/github-app/installations/:id/repos/:owner/:repo/tree?ref=...&markdown_only=...` | Lists files from an installed repo tree |
 | `POST` | `/api/share/repo-file` | Creates a private share token for an installed markdown file |
 | `POST` | `/api/ai/chat` | Streams Reader AI chat completions for markdown content |
+| `POST` | `/api/ai/apply` | Applies Reader AI staged changes to a gist or installed repo |
+| `POST` | `/api/ai/project` | Creates a temporary Reader AI project session from uploaded files |
+| `GET` | `/api/ai/project/:id/files` | Returns modified files currently staged in a project session |
+| `POST` | `/api/ai/project/:id/file` | Replaces or adds a file in a project session |
+| `POST` | `/api/ai/project/:id/reset` | Clears staged changes in a project session |
+| `DELETE` | `/api/ai/project/:id` | Deletes a project session |
 
 Sessions are stored server-side in SQLite (`DATABASE_PATH`) and keyed by an `HttpOnly` cookie. `installationId` is linked to the signed-in GitHub user and enforced on repo API routes.
+
+## Reader AI streaming events
+
+`POST /api/ai/chat` returns an SSE stream. In addition to OpenRouter-compatible `data:` deltas, the server emits typed events:
+
+- `event: summary` — summarized prior context when conversation compaction occurs.
+- `event: tool_call`, `event: tool_result`, `event: task_progress` — tool loop telemetry.
+- `event: staged_changes` — emitted when file changes are staged. Payload includes:
+  - `changes`: array of `{ path, type, diff }`
+  - `file_contents`: object map of `{ [path]: modifiedContent }` for non-delete changes
+  - `suggested_commit_message`: generated commit message suggestion
+  - `document_content`: full staged content in single-document edit mode (when available)
+
+`POST /api/ai/apply` accepts `changes` plus `file_contents` and applies them directly to GitHub (gist/repo) without requiring an active Reader AI project session.
 
 ## Gist proxy
 
