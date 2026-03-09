@@ -124,6 +124,7 @@ const MARKDOWN_LINK_PREVIEW_MAX_LINES = 18;
 const READER_AI_SOURCE_MAX_CHARS = 140_000;
 const READER_AI_HISTORY_MAX_ENTRIES = 12;
 const READER_AI_HISTORY_MAX_MESSAGES = 80;
+const READER_AI_HISTORY_MAX_APPLIED_CHANGES = 100;
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
@@ -339,6 +340,7 @@ interface ReaderAiHistoryEntry {
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
   stagedChangesInvalid?: boolean;
   stagedFileContents?: Record<string, string>;
+  appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>;
 }
 
 interface ReaderAiHistoryStore {
@@ -419,6 +421,24 @@ function normalizePersistedStagedChanges(value: unknown): {
   return { changes, invalid };
 }
 
+function normalizePersistedAppliedChanges(value: unknown): NonNullable<ReaderAiHistoryEntry['appliedChanges']> {
+  if (!Array.isArray(value)) return [];
+  const applied: NonNullable<ReaderAiHistoryEntry['appliedChanges']> = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path : '';
+    const type = typeof (entry as { type?: unknown }).type === 'string' ? (entry as { type: string }).type : '';
+    const appliedAt =
+      typeof (entry as { appliedAt?: unknown }).appliedAt === 'string'
+        ? (entry as { appliedAt: string }).appliedAt
+        : '';
+    if (!path || (type !== 'edit' && type !== 'create' && type !== 'delete') || !appliedAt) continue;
+    applied.push({ path, type, appliedAt });
+  }
+  if (applied.length <= READER_AI_HISTORY_MAX_APPLIED_CHANGES) return applied;
+  return applied.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
+}
+
 function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
   if (typeof window === 'undefined') return { order: [], entries: {} };
   try {
@@ -439,6 +459,7 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
           toolLog?: unknown;
           stagedChanges?: unknown;
           stagedFileContents?: unknown;
+          appliedChanges?: unknown;
         };
         const parsed: ReaderAiHistoryEntry = {
           messages: normalizeReaderAiMessages(entry.messages),
@@ -457,6 +478,8 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
           );
           if (Object.keys(contents).length > 0) parsed.stagedFileContents = contents;
         }
+        const normalizedAppliedChanges = normalizePersistedAppliedChanges(entry.appliedChanges);
+        if (normalizedAppliedChanges.length > 0) parsed.appliedChanges = normalizedAppliedChanges;
         entries[key] = parsed;
       }
     }
@@ -486,6 +509,7 @@ function persistReaderAiMessagesToHistory(
   toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>,
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>,
   stagedFileContents?: Record<string, string>,
+  appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>,
 ): void {
   if (typeof window === 'undefined') return;
   const store = loadReaderAiHistoryStore();
@@ -500,6 +524,8 @@ function persistReaderAiMessagesToHistory(
   if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;
   if (stagedChanges && stagedChanges.length > 0) entry.stagedChanges = stagedChanges;
   if (stagedFileContents && Object.keys(stagedFileContents).length > 0) entry.stagedFileContents = stagedFileContents;
+  if (appliedChanges && appliedChanges.length > 0)
+    entry.appliedChanges = appliedChanges.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
   nextEntries[historyKey] = entry;
   nextOrder.unshift(historyKey);
   const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
@@ -840,6 +866,9 @@ export function App() {
   >([]);
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
+  >([]);
+  const [readerAiAppliedChanges, setReaderAiAppliedChanges] = useState<
+    Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>
   >([]);
   const [readerAiStagedChangesInvalid, setReaderAiStagedChangesInvalid] = useState(false);
   const [readerAiStagedFileContents, setReaderAiStagedFileContents] = useState<Record<string, string>>({});
@@ -2362,6 +2391,7 @@ export function App() {
         setReaderAiStagedChanges(loaded.stagedChanges ?? []);
         setReaderAiStagedChangesInvalid(loaded.stagedChangesInvalid === true);
         setReaderAiStagedFileContents(loaded.stagedFileContents ?? {});
+        setReaderAiAppliedChanges(loaded.appliedChanges ?? []);
         setReaderAiError(null);
       }
       readerAiPrevHistoryKeyRef.current = readerAiHistoryDocumentKey;
@@ -2374,6 +2404,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
     setReaderAiStagedFileContents({});
     setReaderAiMessages([]);
@@ -2394,6 +2425,7 @@ export function App() {
       readerAiToolLog.length > 0 ? readerAiToolLog : undefined,
       readerAiStagedChanges.length > 0 ? readerAiStagedChanges : undefined,
       Object.keys(readerAiStagedFileContents).length > 0 ? readerAiStagedFileContents : undefined,
+      readerAiAppliedChanges.length > 0 ? readerAiAppliedChanges : undefined,
     );
   }, [
     readerAiHistoryEligible,
@@ -2403,6 +2435,7 @@ export function App() {
     readerAiToolLog,
     readerAiStagedChanges,
     readerAiStagedFileContents,
+    readerAiAppliedChanges,
   ]);
 
   useEffect(() => {
@@ -2884,6 +2917,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
     setReaderAiStagedFileContents({});
     setReaderAiDocumentEditedContent(null);
@@ -2900,7 +2934,23 @@ export function App() {
 
       const applied: string[] = [];
       const failed: Array<{ path: string; error: string }> = [];
+      const changeTypeByPath = new Map(readerAiStagedChanges.map((change) => [change.path, change.type]));
       const modifiedMap = new Map(Object.entries(readerAiStagedFileContents));
+      const recordAppliedChanges = (paths: string[]) => {
+        if (paths.length === 0) return;
+        const appliedAt = new Date().toISOString();
+        setReaderAiAppliedChanges((prev) => {
+          const next = [
+            ...prev,
+            ...paths.map((path) => ({
+              path,
+              type: (changeTypeByPath.get(path) ?? 'edit') as 'edit' | 'create' | 'delete',
+              appliedAt,
+            })),
+          ];
+          return next.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
+        });
+      };
       const hasCompleteStagedContent = readerAiStagedChanges.every(
         (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
       );
@@ -2927,6 +2977,7 @@ export function App() {
           setEditContent(nextContent);
           setHasUnsavedChanges(true);
           if (!canCommitToGist && !canCommitToRepo) {
+            if (currentPath) recordAppliedChanges([currentPath]);
             setReaderAiStagedChanges([]);
             setReaderAiStagedFileContents({});
             setReaderAiDocumentEditedContent(null);
@@ -2958,6 +3009,7 @@ export function App() {
 
         if (failed.length > 0 && applied.length > 0) {
           // Partial success
+          recordAppliedChanges(applied);
           setReaderAiStagedChanges((prev) => prev.filter((c) => !applied.includes(c.path)));
           setReaderAiStagedFileContents((prev) => {
             const next = { ...prev };
@@ -2971,6 +3023,7 @@ export function App() {
           setReaderAiError(`Failed to apply changes: ${failedPaths}`);
         } else {
           // Full success — clear staged changes
+          recordAppliedChanges(applied);
           setReaderAiStagedChanges([]);
           setReaderAiStagedFileContents({});
           if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
