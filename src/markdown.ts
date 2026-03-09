@@ -26,6 +26,12 @@ function escapeHtmlAttr(value: string): string {
 }
 
 marked.use({
+  tokenizer: {
+    // Disable setext headings (`text` followed by `---`/`===`) so lone dashes stay literal content.
+    lheading() {
+      return undefined;
+    },
+  },
   extensions: [
     {
       name: 'wikilink',
