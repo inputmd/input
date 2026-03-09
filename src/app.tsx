@@ -2363,6 +2363,29 @@ export function App() {
     });
   }, []);
 
+  const onOpenReaderAi = useCallback(() => {
+    setReaderAiVisible((visible) => {
+      if (visible) return true;
+      setPreviewVisible(false);
+      return true;
+    });
+  }, []);
+
+  const focusReaderAiComposerInput = useCallback(() => {
+    const focusWithRetry = (attempt: number) => {
+      requestAnimationFrame(() => {
+        const input = document.querySelector<HTMLTextAreaElement>('.reader-ai-panel .reader-ai-input');
+        if (input && !input.disabled) {
+          input.focus();
+          return;
+        }
+        if (attempt >= 8) return;
+        window.setTimeout(() => focusWithRetry(attempt + 1), 25);
+      });
+    };
+    focusWithRetry(0);
+  }, []);
+
   const loadReaderAiModels = useCallback(async () => {
     setReaderAiModelsLoading(true);
     setReaderAiModelsError(null);
@@ -2468,6 +2491,22 @@ export function App() {
     readerAiModelsLoading,
     showReaderAiToggleCandidate,
   ]);
+
+  const readerAiEnabled = showReaderAiToggleCandidate && readerAiConfigured;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== 'l') return;
+      if (!readerAiEnabled) return;
+      event.preventDefault();
+      onOpenReaderAi();
+      focusReaderAiComposerInput();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [focusReaderAiComposerInput, onOpenReaderAi, readerAiEnabled]);
 
   // ── Repo mode availability ──
   const REPO_MODE_MAX_FILES = 100;
@@ -4486,7 +4525,7 @@ export function App() {
     activeView === 'content' &&
     isMarkdownFileName(currentFileName) &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
-  const showReaderAiToggle = showReaderAiToggleCandidate && readerAiConfigured;
+  const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
