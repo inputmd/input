@@ -417,6 +417,7 @@ export function Sidebar({
     return map;
   }, [visibleNodes]);
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
+  const [createAtRoot, setCreateAtRoot] = useState(false);
 
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
@@ -563,6 +564,7 @@ export function Sidebar({
   };
 
   const focusTreeRow = (path: string) => {
+    setCreateAtRoot(false);
     setFocusedPath(path);
     rowRefs.current[path]?.focus();
   };
@@ -589,6 +591,7 @@ export function Sidebar({
   };
 
   const resolveCreateParentFromFocus = (): string => {
+    if (createAtRoot) return '';
     if (!focusedPath) return '';
     const index = visibleIndexByPath.get(focusedPath);
     if (index === undefined) return '';
@@ -699,6 +702,12 @@ export function Sidebar({
     await onMoveFile(draggedPath, targetFolderPath);
   };
 
+  const handleSidebarBackgroundClick = (event: MouseEvent) => {
+    if (event.target !== event.currentTarget) return;
+    setCreateAtRoot(true);
+    setFocusedPath(null);
+  };
+
   const renderFolderRow = (folder: SidebarFolderNode, depth: number) => {
     const collapsed = Boolean(collapsedFolders[folder.path]);
     const isRenaming = renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
@@ -718,7 +727,10 @@ export function Sidebar({
         data-folder-path={folder.path}
         style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
         onClick={() => toggleFolder(folder.path)}
-        onFocus={() => setFocusedPath(folder.path)}
+        onFocus={() => {
+          setCreateAtRoot(false);
+          setFocusedPath(folder.path);
+        }}
         onDragOver={(e) => {
           if (readOnly || !draggingFilePath) return;
           e.preventDefault();
@@ -852,7 +864,10 @@ export function Sidebar({
         draggable={!readOnly && file.editable && !isRenaming}
         style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
         onClick={() => !file.active && onSelectFile(file.path)}
-        onFocus={() => setFocusedPath(file.path)}
+        onFocus={() => {
+          setCreateAtRoot(false);
+          setFocusedPath(file.path);
+        }}
         onDblClick={() => {
           if (!readOnly && file.editable) void startRename({ kind: 'file', path: file.path });
         }}
@@ -1079,6 +1094,7 @@ export function Sidebar({
         role="tree"
         aria-label="Workspace files"
         onKeyDown={handleFilesKeyDown}
+        onClick={handleSidebarBackgroundClick}
         onDragOver={(e) => {
           if (readOnly || !draggingFilePath) return;
           e.preventDefault();
