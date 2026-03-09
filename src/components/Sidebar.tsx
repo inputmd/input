@@ -154,6 +154,12 @@ function sanitizeCreateNameInput(input: string): string {
   return normalized;
 }
 
+function createParentDisplayPrefix(path: string): string {
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length === 0) return '';
+  return `${parts[parts.length - 1]}/`;
+}
+
 function sortNodes(nodes: SidebarTreeNode[]): void {
   nodes.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
@@ -283,6 +289,19 @@ function resolveCreatePath(parentPath: string, input: string): string {
   const name = sanitizeCreateNameInput(input);
   if (!name) return '';
   return folder ? `${folder}/${name}` : name;
+}
+
+function hasSidebarTextExtension(name: string): boolean {
+  return /\.(?:md(?:own|wn)?|markdown|txt|ts|js|py|tsx|jsx|json|jsonc|yml|yaml|toml|css|scss|html|sh|sql|xml|csv|mdx|rst)$/i.test(
+    name,
+  );
+}
+
+function normalizeCreateFileName(name: string, fileFilter: SidebarFileFilter): string {
+  const sanitized = sanitizeCreateNameInput(name);
+  if (!sanitized) return '';
+  if (fileFilter !== 'text') return sanitized;
+  return hasSidebarTextExtension(sanitized) ? sanitized : `${sanitized}.md`;
 }
 
 function flattenVisibleTree(
@@ -459,7 +478,8 @@ export function Sidebar({
 
   const handleCreateSubmit = async () => {
     if (createInFlightRef.current) return;
-    const path = resolveCreatePath(createParentPath, newFileName);
+    const createName = createKind === 'directory' ? newFileName : normalizeCreateFileName(newFileName, fileFilter);
+    const path = resolveCreatePath(createParentPath, createName);
     if (!path) return;
 
     createInFlightRef.current = true;
@@ -956,6 +976,7 @@ export function Sidebar({
 
   const renderCreateRow = (depth: number) => {
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
+    const createPrefix = createParentDisplayPrefix(createParentPath);
     return (
       <div
         class="sidebar-file renaming"
@@ -967,7 +988,7 @@ export function Sidebar({
         ) : (
           <File size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
         )}
-        {createParentPath ? <span class="sidebar-create-prefix">{createParentPath}/</span> : null}
+        {createPrefix ? <span class="sidebar-create-prefix">{createPrefix}</span> : null}
         <input
           ref={newInputRef}
           class="sidebar-rename-input"
