@@ -2876,34 +2876,16 @@ export function App() {
       const modifiedMap = new Map(Object.entries(readerAiStagedFileContents));
 
       try {
-        if (activeView === 'edit') {
-          if (!readerAiProjectId && typeof readerAiDocumentEditedContent === 'string') {
-            setEditContent(readerAiDocumentEditedContent);
-            setHasUnsavedChanges(true);
-            setReaderAiStagedChanges([]);
-            setReaderAiStagedFileContents({});
-            setReaderAiDocumentEditedContent(null);
-            return;
+        if (activeView === 'edit' && !readerAiProjectId) {
+          if (typeof readerAiDocumentEditedContent !== 'string') {
+            throw new Error('No staged document content to apply');
           }
-
-          if (!currentEditingDocPath) {
-            throw new Error('No current editing document');
-          }
-
-          const nextContent = modifiedMap.get(currentEditingDocPath);
-          if (typeof nextContent !== 'string') {
-            throw new Error(`No staged content found for ${currentEditingDocPath}`);
-          }
-          setEditContent(nextContent);
+          setEditContent(readerAiDocumentEditedContent);
           setHasUnsavedChanges(true);
-          const ignoredCount = readerAiStagedChanges.filter((change) => change.path !== currentEditingDocPath).length;
           setReaderAiStagedChanges([]);
           setReaderAiStagedFileContents({});
           setReaderAiDocumentEditedContent(null);
-          if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
-          if (ignoredCount > 0) {
-            setReaderAiError(`Applied current file changes. Ignored ${ignoredCount} change(s) in other files.`);
-          }
+          return;
         } else if (isGistContext && currentGistId) {
           const result = await applyReaderAiChanges(
             { kind: 'gist', gistId: currentGistId },
@@ -2924,6 +2906,15 @@ export function App() {
           failed.push(...result.failed);
         } else {
           throw new Error('Cannot apply changes: no write access');
+        }
+
+        if (activeView === 'edit' && currentEditingDocPath && applied.includes(currentEditingDocPath)) {
+          const nextContent = modifiedMap.get(currentEditingDocPath);
+          if (typeof nextContent === 'string') {
+            // Keep the editor in sync when the current file was committed via repo/gist apply.
+            setEditContent(nextContent);
+            setHasUnsavedChanges(false);
+          }
         }
 
         if (failed.length > 0 && applied.length > 0) {
@@ -4427,12 +4418,7 @@ export function App() {
   const hasAllNonDeleteStagedContent = readerAiStagedChanges.every(
     (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
   );
-  const canApplyInEditView = Boolean(
-    (readerAiProjectId &&
-      currentEditingDocPath &&
-      typeof readerAiStagedFileContents[currentEditingDocPath] === 'string') ||
-      (!readerAiProjectId && readerAiDocumentEditedContent !== null),
-  );
+  const canApplyToEditorInEditView = !readerAiProjectId && readerAiDocumentEditedContent !== null;
 
   return (
     <>
@@ -4564,13 +4550,13 @@ export function App() {
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
               canApplyChanges={
-                (activeView === 'edit' && canApplyInEditView) ||
+                (activeView === 'edit' && canApplyToEditorInEditView) ||
                 (repoAccessMode === 'installed' &&
                   Boolean(installationId && selectedRepo) &&
                   hasAllNonDeleteStagedContent) ||
                 (isGistContext && Boolean(currentGistId && user) && hasAllNonDeleteStagedContent)
               }
-              applyToEditor={activeView === 'edit'}
+              applyToEditor={activeView === 'edit' && !readerAiProjectId}
               onApplyChanges={(msg) => void onReaderAiApplyChanges(msg)}
               error={readerAiError}
               onSend={onReaderAiSend}
