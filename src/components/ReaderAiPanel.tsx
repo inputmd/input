@@ -29,9 +29,10 @@ interface ReaderAiPanelProps {
   suggestedCommitMessage: string;
   applyingChanges: boolean;
   stagedChangesInvalid: boolean;
-  canApplyChanges: boolean;
-  applyToEditor?: boolean;
-  onApplyChanges: (commitMessage?: string) => void;
+  canApplyWithoutSaving: boolean;
+  canApplyAndCommit: boolean;
+  onApplyWithoutSaving: () => void;
+  onApplyAndCommit: (commitMessage?: string) => void;
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
@@ -71,9 +72,10 @@ export function ReaderAiPanel({
   suggestedCommitMessage,
   applyingChanges,
   stagedChangesInvalid,
-  canApplyChanges,
-  applyToEditor,
-  onApplyChanges,
+  canApplyWithoutSaving,
+  canApplyAndCommit,
+  onApplyWithoutSaving,
+  onApplyAndCommit,
   error,
   onSend,
   onEditMessage,
@@ -567,12 +569,13 @@ export function ReaderAiPanel({
             changes={stagedChanges}
             defaultCommitMessage={suggestedCommitMessage}
             applying={applyingChanges}
-            canApply={canApplyChanges}
+            canApplyWithoutSaving={canApplyWithoutSaving}
+            canApplyAndCommit={canApplyAndCommit}
             disabledHint={
               stagedChangesInvalid ? 'Staged changes are invalid. Regenerate the diff to apply changes.' : undefined
             }
-            applyToEditor={applyToEditor}
-            onApply={onApplyChanges}
+            onApplyWithoutSaving={onApplyWithoutSaving}
+            onApplyAndCommit={onApplyAndCommit}
           />
         ) : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}

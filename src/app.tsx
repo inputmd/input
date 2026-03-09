@@ -2898,7 +2898,7 @@ export function App() {
   }, [readerAiHistoryDocumentKey, readerAiProjectId]);
 
   const onReaderAiApplyChanges = useCallback(
-    async (commitMessage?: string) => {
+    async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
       if (readerAiApplyingChanges || readerAiStagedChanges.length === 0) return;
       setReaderAiApplyingChanges(true);
       setReaderAiError(null);
@@ -2917,6 +2917,28 @@ export function App() {
         Boolean(repoAccessMode === 'installed' && installationId && selectedRepo);
 
       try {
+        if (mode === 'without-saving') {
+          if (activeView !== 'edit') throw new Error('Cannot apply without saving outside edit view');
+          const currentPath = currentEditingDocPath;
+          const nextContent =
+            typeof readerAiDocumentEditedContent === 'string'
+              ? readerAiDocumentEditedContent
+              : currentPath
+                ? modifiedMap.get(currentPath)
+                : undefined;
+          if (typeof nextContent !== 'string') {
+            throw new Error('No staged document content to apply');
+          }
+          setEditContent(nextContent);
+          setHasUnsavedChanges(true);
+          if (!canCommitToGist && !canCommitToRepo) {
+            setReaderAiStagedChanges([]);
+            setReaderAiStagedFileContents({});
+            setReaderAiDocumentEditedContent(null);
+          }
+          return;
+        }
+
         if (canCommitToGist && currentGistId) {
           const result = await applyReaderAiChanges(
             { kind: 'gist', gistId: currentGistId },
@@ -2935,16 +2957,6 @@ export function App() {
           );
           applied.push(...result.applied);
           failed.push(...result.failed);
-        } else if (activeView === 'edit' && !readerAiProjectId) {
-          if (typeof readerAiDocumentEditedContent !== 'string') {
-            throw new Error('No staged document content to apply');
-          }
-          setEditContent(readerAiDocumentEditedContent);
-          setHasUnsavedChanges(true);
-          setReaderAiStagedChanges([]);
-          setReaderAiStagedFileContents({});
-          setReaderAiDocumentEditedContent(null);
-          return;
         } else {
           throw new Error('Cannot apply changes: no write access');
         }
@@ -4461,12 +4473,16 @@ export function App() {
   const hasAllNonDeleteStagedContent = readerAiStagedChanges.every(
     (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
   );
-  const canApplyViaCommit =
+  const canApplyAndCommit =
     !readerAiStagedChangesInvalid &&
     hasAllNonDeleteStagedContent &&
     ((repoAccessMode === 'installed' && Boolean(installationId && selectedRepo)) ||
       (isGistContext && Boolean(currentGistId && user)));
-  const canApplyToEditorInEditView = !canApplyViaCommit && !readerAiProjectId && readerAiDocumentEditedContent !== null;
+  const canApplyWithoutSaving =
+    !readerAiStagedChangesInvalid &&
+    activeView === 'edit' &&
+    ((!readerAiProjectId && readerAiDocumentEditedContent !== null) ||
+      Boolean(currentEditingDocPath && typeof readerAiStagedFileContents[currentEditingDocPath] === 'string'));
 
   return (
     <>
@@ -4598,9 +4614,10 @@ export function App() {
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
               stagedChangesInvalid={readerAiStagedChangesInvalid}
-              canApplyChanges={canApplyViaCommit || (activeView === 'edit' && canApplyToEditorInEditView)}
-              applyToEditor={activeView === 'edit' && canApplyToEditorInEditView}
-              onApplyChanges={(msg) => void onReaderAiApplyChanges(msg)}
+              canApplyWithoutSaving={canApplyWithoutSaving}
+              canApplyAndCommit={canApplyAndCommit}
+              onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
+              onApplyAndCommit={(msg) => void onReaderAiApplyChanges('commit', msg)}
               error={readerAiError}
               onSend={onReaderAiSend}
               onEditMessage={onReaderAiEditMessage}

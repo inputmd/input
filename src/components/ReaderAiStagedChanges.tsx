@@ -95,21 +95,24 @@ export function StagedChangesSection({
   changes,
   defaultCommitMessage,
   applying,
-  canApply,
+  canApplyWithoutSaving,
+  canApplyAndCommit,
   disabledHint,
-  applyToEditor,
-  onApply,
+  onApplyWithoutSaving,
+  onApplyAndCommit,
 }: {
   changes: ReaderAiStagedChange[];
   defaultCommitMessage: string;
   applying: boolean;
-  canApply: boolean;
+  canApplyWithoutSaving?: boolean;
+  canApplyAndCommit?: boolean;
   disabledHint?: string;
-  applyToEditor?: boolean;
-  onApply: (commitMessage?: string) => void;
+  onApplyWithoutSaving?: () => void;
+  onApplyAndCommit?: (commitMessage?: string) => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(changes.map((change) => change.path)));
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
+  const canApply = canApplyWithoutSaving || canApplyAndCommit;
   if (changes.length === 0) return null;
 
   useEffect(() => {
@@ -152,7 +155,7 @@ export function StagedChangesSection({
       ))}
       {canApply ? (
         <div class="reader-ai-staged-changes-footer">
-          {applyToEditor ? null : (
+          {canApplyAndCommit ? (
             <input
               type="text"
               class="reader-ai-staged-changes-commit-input"
@@ -162,20 +165,32 @@ export function StagedChangesSection({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !applying) {
                   e.preventDefault();
-                  onApply(commitMessage.trim() || undefined);
+                  onApplyAndCommit?.(commitMessage.trim() || undefined);
                 }
               }}
               disabled={applying}
             />
-          )}
-          <button
-            type="button"
-            class="reader-ai-staged-changes-apply"
-            onClick={() => onApply(applyToEditor ? undefined : commitMessage.trim() || undefined)}
-            disabled={applying}
-          >
-            {applying ? (applyToEditor ? 'Applying…' : 'Committing…') : applyToEditor ? 'Apply to editor' : 'Commit'}
-          </button>
+          ) : null}
+          {canApplyWithoutSaving ? (
+            <button
+              type="button"
+              class="reader-ai-staged-changes-apply"
+              onClick={() => onApplyWithoutSaving?.()}
+              disabled={applying}
+            >
+              {applying && !canApplyAndCommit ? 'Applying…' : 'Apply without saving'}
+            </button>
+          ) : null}
+          {canApplyAndCommit ? (
+            <button
+              type="button"
+              class="reader-ai-staged-changes-apply"
+              onClick={() => onApplyAndCommit?.(commitMessage.trim() || undefined)}
+              disabled={applying}
+            >
+              {applying ? 'Committing…' : 'Apply and commit'}
+            </button>
+          ) : null}
         </div>
       ) : (
         <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
