@@ -1684,17 +1684,18 @@ export function App() {
   );
 
   const loadRepoFile = useCallback(
-    async (owner: string, repo: string, path: string, forEdit: boolean) => {
+    async (
+      owner: string,
+      repo: string,
+      path: string,
+      forEdit: boolean,
+      options?: { suppressError?: boolean },
+    ): Promise<boolean> => {
       const instId = getInstallationId();
       const repoName = buildRepoFullName(owner, repo);
       if (!instId) {
         navigate(routePath.workspaces());
-        return;
-      }
-      const currentSelectedRepo = getSelectedRepo()?.full_name ?? null;
-      if (!currentSelectedRepo || currentSelectedRepo.toLowerCase() !== repoName.toLowerCase()) {
-        setSelectedRepo(repoName);
-        storeSelectedRepo({ full_name: repoName });
+        return false;
       }
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
       if (shouldShowLoading) {
@@ -1710,6 +1711,11 @@ export function App() {
         const contentBytes = contents.content ? decodeBase64ToBytes(contents.content) : new Uint8Array();
         const binary = isLikelyBinaryBytes(contentBytes);
         const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
+        const currentSelectedRepo = getSelectedRepo()?.full_name ?? null;
+        if (!currentSelectedRepo || currentSelectedRepo.toLowerCase() !== repoName.toLowerCase()) {
+          setSelectedRepo(repoName);
+          storeSelectedRepo({ full_name: repoName });
+        }
         setRepoAccessMode('installed');
         setPublicRepoRef(null);
         setCurrentRepoDocPath(contents.path);
@@ -1755,13 +1761,17 @@ export function App() {
           );
         }
         setViewPhase(null);
+        return true;
       } catch (err) {
         if (err instanceof SessionExpiredError) {
           handleSessionExpired();
-          return;
+          return false;
         }
         showRateLimitToastIfNeeded(err);
-        showError(err instanceof Error ? err.message : 'Failed to load file');
+        if (!options?.suppressError) {
+          showError(err instanceof Error ? err.message : 'Failed to load file');
+        }
+        return false;
       }
     },
     [
@@ -1981,18 +1991,20 @@ export function App() {
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
           const decodedPath = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
-          const repoFullName = buildRepoFullName(owner, repo);
-          const selectedRepoFullName = getSelectedRepo()?.full_name ?? selectedRepo;
           const instId = getInstallationId();
-          const useInstalledRepo =
-            Boolean(isAuthenticated && instId) &&
-            selectedRepoFullName !== null &&
-            selectedRepoFullName.toLowerCase() === repoFullName.toLowerCase();
-          if (useInstalledRepo) {
-            await loadRepoFile(owner, repo, decodedPath, false);
-          } else {
-            await loadPublicRepoFile(owner, repo, decodedPath);
+          const repoFullName = buildRepoFullName(owner, repo).toLowerCase();
+          const hasLoadedInstallationRepos =
+            Boolean(instId) && loadedReposInstallationId !== null && loadedReposInstallationId === instId;
+          const routeRepoIsInstalled = hasLoadedInstallationRepos
+            ? installationRepos.some((candidate) => candidate.full_name.toLowerCase() === repoFullName)
+            : (selectedRepo ?? '').toLowerCase() === repoFullName;
+          const shouldTryInstalled =
+            Boolean(isAuthenticated && instId) && (!hasLoadedInstallationRepos || routeRepoIsInstalled);
+          if (shouldTryInstalled) {
+            const loadedInstalled = await loadRepoFile(owner, repo, decodedPath, false, { suppressError: true });
+            if (loadedInstalled) return;
           }
+          await loadPublicRepoFile(owner, repo, decodedPath);
           return;
         }
         case 'sharefile':
@@ -2161,6 +2173,8 @@ export function App() {
       showRateLimitToastIfNeeded,
       defaultPreviewVisible,
       selectedRepo,
+      installationRepos,
+      loadedReposInstallationId,
     ],
   );
 
