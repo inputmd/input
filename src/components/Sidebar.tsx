@@ -345,7 +345,7 @@ function IndentGuides({ depth }: { depth: number }) {
   const guides = [];
   for (let i = 0; i < depth; i++) {
     guides.push(
-      <span key={i} class="sidebar-indent-guide" style={{ left: `${12 + i * INDENT_PX}px` }} aria-hidden="true" />,
+      <span key={i} class="sidebar-indent-guide" style={{ left: `${14.5 + i * INDENT_PX}px` }} aria-hidden="true" />,
     );
   }
   return <>{guides}</>;
