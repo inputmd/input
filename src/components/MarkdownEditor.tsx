@@ -1,7 +1,7 @@
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
-import { Compartment, EditorSelection, EditorState, Prec, Transaction } from '@codemirror/state';
+import { Compartment, EditorState, Prec } from '@codemirror/state';
 import {
   drawSelection,
   EditorView,
@@ -12,6 +12,12 @@ import {
 } from '@codemirror/view';
 import { tagHighlighter, tags } from '@lezer/highlight';
 import { useEffect, useRef } from 'preact/hooks';
+import {
+  buildExternalContentSyncTransaction,
+  isExternalSyncTransaction,
+  markdownListContinuation,
+  wrapWithMarker,
+} from './markdown_editor_commands';
 
 const markdownHighlighter = tagHighlighter([
   { tag: tags.heading, class: 'tok-heading' },
@@ -35,83 +41,6 @@ const markdownHighlighter = tagHighlighter([
   { tag: tags.comment, class: 'tok-comment' },
   { tag: tags.content, class: 'tok-content' },
 ]);
-
-/** Continue markdown lists on Enter: `- `, `* `, `+ `, `1. `, `1) `, `- [ ] `, etc. */
-function markdownListContinuation({ state, dispatch }: EditorView): boolean {
-  const { from, to } = state.selection.main;
-  if (from !== to) return false;
-
-  const line = state.doc.lineAt(from);
-  if (from !== line.to) return false;
-  const text = line.text;
-
-  const match = text.match(/^(\s*)([-*+]|\d+[.)]) (\[[ xX]\] )?/);
-  if (!match) return false;
-
-  const [fullMatch, indent, marker, checkbox] = match;
-
-  // Empty list item — clear the marker
-  if (text.trimEnd() === fullMatch.trimEnd()) {
-    dispatch(
-      state.update({
-        changes: { from: line.from, to: line.to, insert: indent },
-        selection: EditorSelection.cursor(line.from + indent.length),
-      }),
-    );
-    return true;
-  }
-
-  // Continue the list
-  let nextMarker = marker;
-  const numMatch = marker.match(/^(\d+)([.)])/);
-  if (numMatch) {
-    nextMarker = `${Number(numMatch[1]) + 1}${numMatch[2]}`;
-  }
-
-  const continuation = `\n${indent}${nextMarker} ${checkbox ? '[ ] ' : ''}`;
-  dispatch(
-    state.update({
-      changes: { from, to: from, insert: continuation },
-      selection: EditorSelection.cursor(from + continuation.length),
-    }),
-  );
-  return true;
-}
-
-function wrapWithMarker(view: EditorView, marker: string): boolean {
-  const { from, to } = view.state.selection.main;
-  const len = marker.length;
-  const doc = view.state.doc;
-
-  // Check if already wrapped — unwrap if so
-  const before = doc.sliceString(from - len, from);
-  const after = doc.sliceString(to, to + len);
-
-  if (before === marker && after === marker) {
-    const selected = view.state.sliceDoc(from, to);
-    view.dispatch(
-      view.state.update({
-        changes: { from: from - len, to: to + len, insert: selected },
-        selection: from === to ? EditorSelection.cursor(from - len) : EditorSelection.range(from - len, to - len),
-      }),
-    );
-    return true;
-  }
-
-  // Wrap
-  const selected = view.state.sliceDoc(from, to);
-  const replacement = `${marker}${selected}${marker}`;
-  view.dispatch(
-    view.state.update({
-      changes: { from, to, insert: replacement },
-      selection: from === to ? EditorSelection.cursor(from + len) : EditorSelection.range(from + len, to + len),
-    }),
-  );
-  return true;
-}
-
-// Annotation to mark dispatches that are external syncs (not user edits)
-const externalSync = Transaction.userEvent.of('external');
 
 interface MarkdownEditorProps {
   content: string;
@@ -153,7 +82,7 @@ export function MarkdownEditor({
       if (!update.docChanged) return;
       // Skip if this was our own external sync
       for (const tr of update.transactions) {
-        if (tr.annotation(Transaction.userEvent) === 'external') return;
+        if (isExternalSyncTransaction(tr)) return;
       }
       const doc = update.state.doc.toString();
       lastExternalContentRef.current = doc;
@@ -211,15 +140,9 @@ export function MarkdownEditor({
     if (content === lastExternalContentRef.current) return;
     lastExternalContentRef.current = content;
 
-    const currentDoc = view.state.doc.toString();
-    if (currentDoc === content) return;
-
-    const prevSel = view.state.selection.main;
-    view.dispatch({
-      changes: { from: 0, to: currentDoc.length, insert: content },
-      selection: EditorSelection.cursor(Math.min(prevSel.head, content.length)),
-      annotations: [externalSync, Transaction.addToHistory.of(false)],
-    });
+    const transaction = buildExternalContentSyncTransaction(view.state, content);
+    if (!transaction) return;
+    view.dispatch(transaction);
   }, [content]);
 
   // Sync readOnly
