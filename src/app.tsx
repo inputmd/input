@@ -4424,6 +4424,15 @@ export function App() {
     }
     navigate(routePath.repoFile(repoRef.owner, repoRef.repo, goToWorkspaceTarget.filePath));
   }, [goToWorkspaceTarget, navigate, onSelectRepo]);
+  const hasAllNonDeleteStagedContent = readerAiStagedChanges.every(
+    (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
+  );
+  const canApplyInEditView = Boolean(
+    (readerAiProjectId &&
+      currentEditingDocPath &&
+      typeof readerAiStagedFileContents[currentEditingDocPath] === 'string') ||
+      (!readerAiProjectId && readerAiDocumentEditedContent !== null),
+  );
 
   return (
     <>
@@ -4555,13 +4564,11 @@ export function App() {
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
               canApplyChanges={
-                (activeView === 'edit' &&
-                  Boolean(
-                    (readerAiProjectId && currentEditingDocPath) ||
-                      (!readerAiProjectId && readerAiDocumentEditedContent !== null),
-                  )) ||
-                (repoAccessMode === 'installed' && Boolean(installationId && selectedRepo)) ||
-                (isGistContext && Boolean(currentGistId && user))
+                (activeView === 'edit' && canApplyInEditView) ||
+                (repoAccessMode === 'installed' &&
+                  Boolean(installationId && selectedRepo) &&
+                  hasAllNonDeleteStagedContent) ||
+                (isGistContext && Boolean(currentGistId && user) && hasAllNonDeleteStagedContent)
               }
               applyToEditor={activeView === 'edit'}
               onApplyChanges={(msg) => void onReaderAiApplyChanges(msg)}
