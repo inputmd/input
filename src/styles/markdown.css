@@ -241,6 +241,10 @@
   margin-bottom: 0.2em;
 }
 
+.rendered-markdown li:has(> input[type="checkbox"]) {
+  list-style: none;
+}
+
 .rendered-markdown blockquote {
   padding: 0.1em 1em;
   color: var(--text-secondary);
@@ -587,7 +591,15 @@
 }
 
 .rendered-markdown input[type="checkbox"] {
-  margin-right: 0.45em;
+  margin-right: 0;
+  position: relative;
+  top: 1px;
+  transform: scale(0.8);
+  transform-origin: left center;
+}
+
+.rendered-markdown li:has(> input[type="checkbox"]) > input[type="checkbox"] {
+  margin-left: -1.3em;
 }
 
 .rendered-markdown--claude-chat {
