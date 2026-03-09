@@ -28,6 +28,7 @@ interface ReaderAiPanelProps {
   stagedChanges: ReaderAiStagedChange[];
   suggestedCommitMessage: string;
   applyingChanges: boolean;
+  stagedChangesInvalid: boolean;
   canApplyChanges: boolean;
   applyToEditor?: boolean;
   onApplyChanges: (commitMessage?: string) => void;
@@ -69,6 +70,7 @@ export function ReaderAiPanel({
   stagedChanges,
   suggestedCommitMessage,
   applyingChanges,
+  stagedChangesInvalid,
   canApplyChanges,
   applyToEditor,
   onApplyChanges,
@@ -566,6 +568,9 @@ export function ReaderAiPanel({
             defaultCommitMessage={suggestedCommitMessage}
             applying={applyingChanges}
             canApply={canApplyChanges}
+            disabledHint={
+              stagedChangesInvalid ? 'Staged changes are invalid. Regenerate the diff to apply changes.' : undefined
+            }
             applyToEditor={applyToEditor}
             onApply={onApplyChanges}
           />

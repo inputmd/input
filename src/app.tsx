@@ -336,6 +336,7 @@ interface ReaderAiHistoryEntry {
   summary?: string;
   toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>;
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
+  stagedChangesInvalid?: boolean;
   stagedFileContents?: Record<string, string>;
 }
 
@@ -392,6 +393,31 @@ function normalizeReaderAiMessages(value: unknown): ReaderAiMessage[] {
   return normalized.slice(-READER_AI_HISTORY_MAX_MESSAGES);
 }
 
+function normalizePersistedStagedChanges(value: unknown): {
+  changes: NonNullable<ReaderAiHistoryEntry['stagedChanges']>;
+  invalid: boolean;
+} {
+  if (value === undefined) return { changes: [], invalid: false };
+  if (!Array.isArray(value)) return { changes: [], invalid: true };
+  const changes: NonNullable<ReaderAiHistoryEntry['stagedChanges']> = [];
+  let invalid = false;
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      invalid = true;
+      continue;
+    }
+    const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path : '';
+    const type = typeof (entry as { type?: unknown }).type === 'string' ? (entry as { type: string }).type : '';
+    const diff = typeof (entry as { diff?: unknown }).diff === 'string' ? (entry as { diff: string }).diff : '';
+    if (!path || (type !== 'edit' && type !== 'create' && type !== 'delete') || !diff) {
+      invalid = true;
+      continue;
+    }
+    changes.push({ path, type, diff });
+  }
+  return { changes, invalid };
+}
+
 function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
   if (typeof window === 'undefined') return { order: [], entries: {} };
   try {
@@ -419,8 +445,9 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
         if (typeof entry.summary === 'string' && entry.summary) parsed.summary = entry.summary;
         if (Array.isArray(entry.toolLog) && entry.toolLog.length > 0)
           parsed.toolLog = entry.toolLog as ReaderAiHistoryEntry['toolLog'];
-        if (Array.isArray(entry.stagedChanges) && entry.stagedChanges.length > 0)
-          parsed.stagedChanges = entry.stagedChanges as ReaderAiHistoryEntry['stagedChanges'];
+        const normalizedStagedChanges = normalizePersistedStagedChanges(entry.stagedChanges);
+        if (normalizedStagedChanges.changes.length > 0) parsed.stagedChanges = normalizedStagedChanges.changes;
+        if (normalizedStagedChanges.invalid) parsed.stagedChangesInvalid = true;
         if (entry.stagedFileContents && typeof entry.stagedFileContents === 'object') {
           const contents = Object.fromEntries(
             Object.entries(entry.stagedFileContents).filter(
@@ -825,6 +852,7 @@ export function App() {
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
   >([]);
+  const [readerAiStagedChangesInvalid, setReaderAiStagedChangesInvalid] = useState(false);
   const [readerAiStagedFileContents, setReaderAiStagedFileContents] = useState<Record<string, string>>({});
   const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
   const [readerAiSuggestedCommitMessage, setReaderAiSuggestedCommitMessage] = useState('');
@@ -2337,6 +2365,7 @@ export function App() {
         setReaderAiSummary(loaded.summary ?? '');
         setReaderAiToolLog(loaded.toolLog ?? []);
         setReaderAiStagedChanges(loaded.stagedChanges ?? []);
+        setReaderAiStagedChangesInvalid(loaded.stagedChangesInvalid === true);
         setReaderAiStagedFileContents(loaded.stagedFileContents ?? {});
         setReaderAiError(null);
       }
@@ -2350,6 +2379,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiStagedChangesInvalid(false);
     setReaderAiStagedFileContents({});
     setReaderAiMessages([]);
     setReaderAiSummary('');
@@ -2684,6 +2714,7 @@ export function App() {
             },
             onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
               setReaderAiStagedChanges(changes);
+              setReaderAiStagedChangesInvalid(false);
               setReaderAiStagedFileContents(() => {
                 const next: Record<string, string> = {};
                 const source = fileContents ?? {};
@@ -2858,6 +2889,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiStagedChangesInvalid(false);
     setReaderAiStagedFileContents({});
     setReaderAiDocumentEditedContent(null);
     setReaderAiError(null);
@@ -4549,12 +4581,14 @@ export function App() {
               stagedChanges={readerAiStagedChanges}
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
+              stagedChangesInvalid={readerAiStagedChangesInvalid}
               canApplyChanges={
-                (activeView === 'edit' && canApplyToEditorInEditView) ||
-                (repoAccessMode === 'installed' &&
-                  Boolean(installationId && selectedRepo) &&
-                  hasAllNonDeleteStagedContent) ||
-                (isGistContext && Boolean(currentGistId && user) && hasAllNonDeleteStagedContent)
+                !readerAiStagedChangesInvalid &&
+                ((activeView === 'edit' && canApplyToEditorInEditView) ||
+                  (repoAccessMode === 'installed' &&
+                    Boolean(installationId && selectedRepo) &&
+                    hasAllNonDeleteStagedContent) ||
+                  (isGistContext && Boolean(currentGistId && user) && hasAllNonDeleteStagedContent))
               }
               applyToEditor={activeView === 'edit' && !readerAiProjectId}
               onApplyChanges={(msg) => void onReaderAiApplyChanges(msg)}

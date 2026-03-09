@@ -96,6 +96,7 @@ export function StagedChangesSection({
   defaultCommitMessage,
   applying,
   canApply,
+  disabledHint,
   applyToEditor,
   onApply,
 }: {
@@ -103,6 +104,7 @@ export function StagedChangesSection({
   defaultCommitMessage: string;
   applying: boolean;
   canApply: boolean;
+  disabledHint?: string;
   applyToEditor?: boolean;
   onApply: (commitMessage?: string) => void;
 }) {
@@ -177,7 +179,7 @@ export function StagedChangesSection({
         </div>
       ) : (
         <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
-          Read-only — no write access
+          {disabledHint ?? 'Read-only — no write access'}
         </div>
       )}
     </div>
