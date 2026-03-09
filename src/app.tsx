@@ -2608,6 +2608,7 @@ export function App() {
       setReaderAiError(null);
       setReaderAiSuggestProjectMode(false);
       let received = false;
+      let receivedStagedChanges = false;
       let separateNextTurnOutput = false;
 
       let effectiveProjectId = readerAiProjectId;
@@ -2713,6 +2714,7 @@ export function App() {
               setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail }]);
             },
             onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
+              receivedStagedChanges = changes.length > 0;
               setReaderAiStagedChanges(changes);
               setReaderAiStagedChangesInvalid(false);
               setReaderAiStagedFileContents(() => {
@@ -2776,11 +2778,14 @@ export function App() {
           activeView === 'edit',
         );
         if (!received) {
+          const fallback = receivedStagedChanges
+            ? 'Done — see the proposed changes above.'
+            : 'No response.';
           setReaderAiMessages((current) => {
             if (current.length === 0) {
               return assistantEdited
-                ? [{ role: 'assistant', content: 'No response.', edited: true }]
-                : [{ role: 'assistant', content: 'No response.' }];
+                ? [{ role: 'assistant', content: fallback, edited: true }]
+                : [{ role: 'assistant', content: fallback }];
             }
             const updated = [...current];
             const lastIndex = updated.length - 1;
@@ -2788,12 +2793,12 @@ export function App() {
             if (last.role !== 'assistant') {
               updated.push(
                 assistantEdited
-                  ? { role: 'assistant', content: 'No response.', edited: true }
-                  : { role: 'assistant', content: 'No response.' },
+                  ? { role: 'assistant', content: fallback, edited: true }
+                  : { role: 'assistant', content: fallback },
               );
               return updated;
             }
-            if (!last.content.trim()) updated[lastIndex] = { ...last, content: 'No response.' };
+            if (!last.content.trim()) updated[lastIndex] = { ...last, content: fallback };
             return updated;
           });
         }
@@ -2921,7 +2926,7 @@ export function App() {
           if (activeView !== 'edit') throw new Error('Cannot apply without saving outside edit view');
           const currentPath = currentEditingDocPath;
           const nextContent =
-            typeof readerAiDocumentEditedContent === 'string'
+            !readerAiProjectId && typeof readerAiDocumentEditedContent === 'string'
               ? readerAiDocumentEditedContent
               : currentPath
                 ? modifiedMap.get(currentPath)
