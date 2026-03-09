@@ -2906,9 +2906,36 @@ export function App() {
       const applied: string[] = [];
       const failed: Array<{ path: string; error: string }> = [];
       const modifiedMap = new Map(Object.entries(readerAiStagedFileContents));
+      const hasCompleteStagedContent = readerAiStagedChanges.every(
+        (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
+      );
+      const canCommitToGist =
+        !readerAiStagedChangesInvalid && hasCompleteStagedContent && Boolean(isGistContext && currentGistId && user);
+      const canCommitToRepo =
+        !readerAiStagedChangesInvalid &&
+        hasCompleteStagedContent &&
+        Boolean(repoAccessMode === 'installed' && installationId && selectedRepo);
 
       try {
-        if (activeView === 'edit' && !readerAiProjectId) {
+        if (canCommitToGist && currentGistId) {
+          const result = await applyReaderAiChanges(
+            { kind: 'gist', gistId: currentGistId },
+            readerAiStagedChanges,
+            readerAiStagedFileContents,
+            commitMessage,
+          );
+          applied.push(...result.applied);
+          failed.push(...result.failed);
+        } else if (canCommitToRepo && installationId && selectedRepo) {
+          const result = await applyReaderAiChanges(
+            { kind: 'repo', installationId, repoFullName: selectedRepo },
+            readerAiStagedChanges,
+            readerAiStagedFileContents,
+            commitMessage,
+          );
+          applied.push(...result.applied);
+          failed.push(...result.failed);
+        } else if (activeView === 'edit' && !readerAiProjectId) {
           if (typeof readerAiDocumentEditedContent !== 'string') {
             throw new Error('No staged document content to apply');
           }
@@ -2918,24 +2945,6 @@ export function App() {
           setReaderAiStagedFileContents({});
           setReaderAiDocumentEditedContent(null);
           return;
-        } else if (isGistContext && currentGistId) {
-          const result = await applyReaderAiChanges(
-            { kind: 'gist', gistId: currentGistId },
-            readerAiStagedChanges,
-            readerAiStagedFileContents,
-            commitMessage,
-          );
-          applied.push(...result.applied);
-          failed.push(...result.failed);
-        } else if (repoAccessMode === 'installed' && installationId && selectedRepo) {
-          const result = await applyReaderAiChanges(
-            { kind: 'repo', installationId, repoFullName: selectedRepo },
-            readerAiStagedChanges,
-            readerAiStagedFileContents,
-            commitMessage,
-          );
-          applied.push(...result.applied);
-          failed.push(...result.failed);
         } else {
           throw new Error('Cannot apply changes: no write access');
         }
@@ -2989,11 +2998,13 @@ export function App() {
       readerAiProjectId,
       activeView,
       currentEditingDocPath,
+      user,
       isGistContext,
       currentGistId,
       repoAccessMode,
       installationId,
       selectedRepo,
+      readerAiStagedChangesInvalid,
       showRateLimitToastIfNeeded,
     ],
   );
@@ -4450,7 +4461,12 @@ export function App() {
   const hasAllNonDeleteStagedContent = readerAiStagedChanges.every(
     (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
   );
-  const canApplyToEditorInEditView = !readerAiProjectId && readerAiDocumentEditedContent !== null;
+  const canApplyViaCommit =
+    !readerAiStagedChangesInvalid &&
+    hasAllNonDeleteStagedContent &&
+    ((repoAccessMode === 'installed' && Boolean(installationId && selectedRepo)) ||
+      (isGistContext && Boolean(currentGistId && user)));
+  const canApplyToEditorInEditView = !canApplyViaCommit && !readerAiProjectId && readerAiDocumentEditedContent !== null;
 
   return (
     <>
@@ -4582,15 +4598,8 @@ export function App() {
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
               stagedChangesInvalid={readerAiStagedChangesInvalid}
-              canApplyChanges={
-                !readerAiStagedChangesInvalid &&
-                ((activeView === 'edit' && canApplyToEditorInEditView) ||
-                  (repoAccessMode === 'installed' &&
-                    Boolean(installationId && selectedRepo) &&
-                    hasAllNonDeleteStagedContent) ||
-                  (isGistContext && Boolean(currentGistId && user) && hasAllNonDeleteStagedContent))
-              }
-              applyToEditor={activeView === 'edit' && !readerAiProjectId}
+              canApplyChanges={canApplyViaCommit || (activeView === 'edit' && canApplyToEditorInEditView)}
+              applyToEditor={activeView === 'edit' && canApplyToEditorInEditView}
               onApplyChanges={(msg) => void onReaderAiApplyChanges(msg)}
               error={readerAiError}
               onSend={onReaderAiSend}
