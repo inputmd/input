@@ -274,6 +274,7 @@
 }
 
 .rendered-markdown pre {
+  white-space: pre-wrap;
   padding: 12px;
   border-radius: 6px;
   background: var(--btn-bg);
@@ -282,7 +283,6 @@
 }
 
 .rendered-markdown pre code {
-  font-size: inherit;
   padding: 0;
   background: transparent;
   border-radius: 0;
