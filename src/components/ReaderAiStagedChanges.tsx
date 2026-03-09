@@ -223,11 +223,12 @@ export function StagedChangesSection({
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
   const [popoutOpen, setPopoutOpen] = useState(false);
   const canApply = canApplyWithoutSaving || canApplyAndCommit;
-  if (changes.length === 0) return null;
 
   useEffect(() => {
     setExpandedPaths(new Set(changes.map((change) => change.path)));
   }, [changes]);
+
+  if (changes.length === 0) return null;
 
   const togglePath = (path: string) => {
     setExpandedPaths((prev) => {
