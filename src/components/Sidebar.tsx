@@ -160,6 +160,10 @@ function createParentDisplayPrefix(path: string): string {
   return `${parts[parts.length - 1]}/`;
 }
 
+function isKeepMarkerPath(path: string): boolean {
+  return /(?:^|\/)\.keep$/i.test(path);
+}
+
 function sortNodes(nodes: SidebarTreeNode[]): void {
   nodes.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
@@ -215,6 +219,8 @@ function buildTree(files: SidebarFile[]): SidebarFolderNode {
         folder.hasActiveDescendant = true;
       }
     }
+
+    if (isKeepMarkerPath(file.path)) continue;
 
     parent.children.push({
       kind: 'file',

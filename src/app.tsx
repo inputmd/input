@@ -178,6 +178,18 @@ function isSidebarTextFileName(name: string | null | undefined): boolean {
   );
 }
 
+function isKeepFilePath(path: string | null | undefined): boolean {
+  return Boolean(path && /(?:^|\/)\.keep$/i.test(path));
+}
+
+function isSidebarTextListPath(path: string): boolean {
+  return isSidebarTextFileName(path) || isKeepFilePath(path);
+}
+
+function isVisibleSidebarFilePath(path: string): boolean {
+  return !isKeepFilePath(path);
+}
+
 function isSafeImageFileName(name: string | null | undefined): boolean {
   if (!name) return false;
   return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(name);
@@ -3388,7 +3400,7 @@ export function App() {
         const store = getActiveDocumentStore();
         if (!store) return;
 
-        const seedFilePath = `${directoryPath}/index.md`;
+        const seedFilePath = `${directoryPath}/.keep`;
         if (store.kind === 'gist') {
           const gist = await store.createFile(seedFilePath);
           setGistFiles(gist.files);
@@ -4206,7 +4218,7 @@ export function App() {
           size: gistFiles[path]?.size,
         }))
         .sort((a, b) => a.path.localeCompare(b.path));
-      return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextFileName(file.path)) : files;
+      return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextListPath(file.path)) : files;
     }
     const sourceFiles = repoSidebarFiles;
     if (sourceFiles.length > 0 && currentRepoDocPath) {
@@ -4218,19 +4230,19 @@ export function App() {
         deemphasized: !isSidebarTextFileName(f.path),
         size: f.size,
       }));
-      return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextFileName(file.path)) : files;
+      return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextListPath(file.path)) : files;
     }
     return [];
   }, [gistFiles, currentFileName, repoSidebarFiles, currentRepoDocPath, sidebarFileFilter]);
   const sidebarFileCounts = useMemo(() => {
     if (gistFiles) {
-      const allPaths = Object.keys(gistFiles);
+      const allPaths = Object.keys(gistFiles).filter(isVisibleSidebarFilePath);
       return {
         text: allPaths.filter((path) => isSidebarTextFileName(path)).length,
         total: allPaths.length,
       };
     }
-    const sourceFiles = repoSidebarFiles;
+    const sourceFiles = repoSidebarFiles.filter((file) => isVisibleSidebarFilePath(file.path));
     if (sourceFiles.length > 0 && currentRepoDocPath) {
       return {
         text: sourceFiles.filter((file) => isSidebarTextFileName(file.path)).length,
