@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import type { ReaderAiStagedChange } from '../reader_ai';
 
 function DiffView({ diff }: { diff: string }) {
@@ -37,9 +37,13 @@ export function StagedChangesSection({
   applyToEditor?: boolean;
   onApply: (commitMessage?: string) => void;
 }) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(changes.map((change) => change.path)));
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
   if (changes.length === 0) return null;
+
+  useEffect(() => {
+    setExpandedPaths(new Set(changes.map((change) => change.path)));
+  }, [changes]);
 
   const togglePath = (path: string) => {
     setExpandedPaths((prev) => {
