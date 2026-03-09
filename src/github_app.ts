@@ -240,6 +240,11 @@ export interface RepoFileShareLink {
   expiresAt: string;
 }
 
+export interface RepoBatchRename {
+  from: string;
+  to: string;
+}
+
 export interface SharedRepoFile {
   owner: string;
   repo: string;
@@ -534,6 +539,21 @@ export async function deleteRepoFile(
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, message, sha }),
+  });
+  clearRepoContentsCacheForRepo(installationId, repoFullName);
+}
+
+export async function renameRepoPathsAtomic(
+  installationId: string,
+  repoFullName: string,
+  renames: RepoBatchRename[],
+  message: string,
+): Promise<void> {
+  const { owner, repo } = splitFullName(repoFullName);
+  await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/git-batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ renames, message }),
   });
   clearRepoContentsCacheForRepo(installationId, repoFullName);
 }

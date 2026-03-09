@@ -1051,6 +1051,7 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
 }
 
 type GitTreeEntry = { path: string; type: string; sha: string; size?: number };
+type GitBlobTreeEntry = GitTreeEntry & { mode: string; type: 'blob' };
 type ApiTreeEntry = {
   type: 'file' | 'dir' | 'symlink' | 'submodule';
   name: string;
@@ -1114,6 +1115,18 @@ function markdownOnlyTreeQuery(url: URL): boolean {
   return !(value === '0' || value === 'false' || value === 'no');
 }
 
+function normalizeRepoRelativePath(input: string): string {
+  const normalized = input
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^\/+|\/+$/g, '');
+  if (!normalized) throw new ClientError('Invalid path', 400);
+  const parts = normalized.split('/');
+  if (parts.some((part) => !part || part === '.' || part === '..')) throw new ClientError('Invalid path', 400);
+  return normalized;
+}
+
 async function handleGetTree(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
@@ -1157,6 +1170,139 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
     entries: entriesFromTree(data?.tree ?? []),
     truncated: data?.truncated ?? false,
   });
+}
+
+async function handleGitBatchRename(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  const installationId = requireMatchedInstallation(ctx, session, 1);
+  const owner = ctx.match[2];
+  const repo = ctx.match[3];
+
+  const body = await readJson(ctx.req);
+  const message = requireString(body, 'message');
+  const renamesRaw = body?.renames;
+  if (!Array.isArray(renamesRaw) || renamesRaw.length === 0)
+    throw new ClientError('renames must be a non-empty array', 400);
+
+  const renames = renamesRaw.map((item) => {
+    if (!item || typeof item !== 'object') throw new ClientError('Invalid rename entry', 400);
+    const from = normalizeRepoRelativePath(requireString(item, 'from'));
+    const to = normalizeRepoRelativePath(requireString(item, 'to'));
+    return { from, to };
+  });
+  if (renames.some((entry) => entry.from === entry.to))
+    throw new ClientError('Rename source and destination must differ', 400);
+
+  const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
+  const repoData = (await repoRes.json().catch(() => null)) as { default_branch?: string; message?: string } | null;
+  if (!repoRes.ok || typeof repoData?.default_branch !== 'string' || !repoData.default_branch) {
+    if (repoRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, repoRes, repoData?.message ?? 'Failed to load repository metadata', repoPath);
+    return;
+  }
+  const branch = repoData.default_branch;
+
+  const refPath = `${repoPath}/git/ref/heads/${encodeURIComponent(branch)}`;
+  const refRes = await githubFetchWithInstallationToken(installationId, refPath);
+  const refData = (await refRes.json().catch(() => null)) as { object?: { sha?: string }; message?: string } | null;
+  if (!refRes.ok || typeof refData?.object?.sha !== 'string') {
+    if (refRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, refRes, refData?.message ?? 'Failed to load branch ref', refPath);
+    return;
+  }
+  const headSha = refData.object.sha;
+
+  const commitPath = `${repoPath}/git/commits/${encodeURIComponent(headSha)}`;
+  const commitRes = await githubFetchWithInstallationToken(installationId, commitPath);
+  const commitData = (await commitRes.json().catch(() => null)) as { tree?: { sha?: string }; message?: string } | null;
+  if (!commitRes.ok || typeof commitData?.tree?.sha !== 'string') {
+    if (commitRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, commitRes, commitData?.message ?? 'Failed to load HEAD commit', commitPath);
+    return;
+  }
+  const baseTreeSha = commitData.tree.sha;
+
+  const treePath = `${repoPath}/git/trees/${encodeURIComponent(baseTreeSha)}?recursive=1`;
+  const treeRes = await githubFetchWithInstallationToken(installationId, treePath);
+  const treeData = (await treeRes.json().catch(() => null)) as { tree?: GitTreeEntry[]; message?: string } | null;
+  if (!treeRes.ok || !Array.isArray(treeData?.tree)) {
+    if (treeRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, treeRes, treeData?.message ?? 'Failed to load repository tree', treePath);
+    return;
+  }
+
+  const blobsByPath = new Map<string, GitBlobTreeEntry>();
+  for (const entry of treeData.tree as Array<GitTreeEntry & { mode?: string }>) {
+    if (entry.type !== 'blob') continue;
+    if (typeof entry.mode !== 'string') continue;
+    blobsByPath.set(entry.path, { ...entry, mode: entry.mode, type: 'blob' });
+  }
+
+  const seenDestination = new Set<string>();
+  const renameSources = new Set(renames.map((entry) => entry.from));
+  for (const entry of renames) {
+    if (seenDestination.has(entry.to)) throw new ClientError(`Duplicate destination path: ${entry.to}`, 400);
+    seenDestination.add(entry.to);
+    if (!blobsByPath.has(entry.from)) throw new ClientError(`Source file not found: ${entry.from}`, 404);
+    if (blobsByPath.has(entry.to) && !renameSources.has(entry.to)) {
+      throw new ClientError(`Destination already exists: ${entry.to}`, 409);
+    }
+  }
+
+  const treeMutations: Array<{ path: string; mode: string; type: 'blob'; sha: string | null }> = [];
+  for (const entry of renames) {
+    const source = blobsByPath.get(entry.from);
+    if (!source) continue;
+    treeMutations.push({ path: entry.from, mode: source.mode, type: 'blob', sha: null });
+    treeMutations.push({ path: entry.to, mode: source.mode, type: 'blob', sha: source.sha });
+  }
+
+  const createTreePath = `${repoPath}/git/trees`;
+  const createTreeRes = await githubFetchWithInstallationToken(installationId, createTreePath, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base_tree: baseTreeSha, tree: treeMutations }),
+  });
+  const createdTree = (await createTreeRes.json().catch(() => null)) as { sha?: string; message?: string } | null;
+  if (!createTreeRes.ok || typeof createdTree?.sha !== 'string') {
+    if (createTreeRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, createTreeRes, createdTree?.message ?? 'Failed to create tree', createTreePath);
+    return;
+  }
+
+  const createCommitPath = `${repoPath}/git/commits`;
+  const createCommitRes = await githubFetchWithInstallationToken(installationId, createCommitPath, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, tree: createdTree.sha, parents: [headSha] }),
+  });
+  const createdCommit = (await createCommitRes.json().catch(() => null)) as { sha?: string; message?: string } | null;
+  if (!createCommitRes.ok || typeof createdCommit?.sha !== 'string') {
+    if (createCommitRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, createCommitRes, createdCommit?.message ?? 'Failed to create commit', createCommitPath);
+    return;
+  }
+
+  const updateRefPath = `${repoPath}/git/refs/heads/${encodeURIComponent(branch)}`;
+  const updateRefRes = await githubFetchWithInstallationToken(installationId, updateRefPath, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sha: createdCommit.sha, force: false }),
+  });
+  if (!updateRefRes.ok) {
+    const err = (await updateRefRes.json().catch(() => null)) as GitHubApiError | null;
+    if (updateRefRes.status === 401) throw new ClientError('Unauthorized', 401);
+    if (updateRefRes.status === 409 || updateRefRes.status === 422) {
+      json(ctx.res, 409, { error: 'Repository changed while applying rename. Please retry.' });
+      return;
+    }
+    respondGitHubError(ctx.res, updateRefRes, err?.message ?? 'Failed to update branch ref', updateRefPath);
+    return;
+  }
+
+  json(ctx.res, 200, { commitSha: createdCommit.sha, previousHeadSha: headSha, renamed: renames.length });
 }
 
 async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
@@ -2036,6 +2182,7 @@ async function handlePublicRepoTarball(ctx: RouteContext): Promise<void> {
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const RAW_CONTENT_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const TREE_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tree$/;
+const GIT_BATCH_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/git-batch$/;
 const PUBLIC_REPO_CONTENTS_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const PUBLIC_REPO_RAW_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const PUBLIC_REPO_TREE_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tree$/;
@@ -2065,6 +2212,7 @@ const routes: RouteDef[] = [
   { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
   { method: 'GET', pattern: RAW_CONTENT_PATTERN, handler: handleGetRawContent },
   { method: 'GET', pattern: TREE_PATTERN, handler: handleGetTree },
+  { method: 'POST', pattern: GIT_BATCH_PATTERN, handler: handleGitBatchRename },
   { method: 'GET', pattern: TARBALL_PATTERN, handler: handleRepoTarball },
   { method: 'GET', pattern: PUBLIC_REPO_CONTENTS_PATTERN, handler: handleGetPublicRepoContents },
   { method: 'GET', pattern: PUBLIC_REPO_RAW_PATTERN, handler: handleGetPublicRepoRaw },

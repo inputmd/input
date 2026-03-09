@@ -58,6 +58,7 @@ import {
   type RepoFileEntry,
   type RepoTreeResult,
   rememberInstallState,
+  renameRepoPathsAtomic,
   repoRawFileUrl,
   SessionExpiredError,
   setInstallationId,
@@ -3857,22 +3858,23 @@ export function App() {
             return;
           }
         } else {
+          if (!installationId || !selectedRepo) return;
           const paths = repoSidebarFiles.filter((file) => isPathInFolder(file.path, oldPath));
           if (paths.length === 0) {
             dismissToast(renameToastId);
             return;
           }
-          for (const file of paths) {
-            const nextPath = renamePathWithNewFolder(file.path, oldPath, newPath);
-            try {
-              await store.renameFile(file, nextPath);
-              completedCount += 1;
-            } catch (err) {
-              batchError = err;
-              break;
-            }
-          }
-          if (completedCount > 0) await refreshRepoTreeAfterWrite();
+          await renameRepoPathsAtomic(
+            installationId,
+            selectedRepo,
+            paths.map((file) => ({
+              from: file.path,
+              to: renamePathWithNewFolder(file.path, oldPath, newPath),
+            })),
+            `Rename folder "${oldPath}" to "${newPath}"`,
+          );
+          completedCount = paths.length;
+          await refreshRepoTreeAfterWrite();
           if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
             if (selectedRepoRef) {
               navigate(
@@ -3885,17 +3887,6 @@ export function App() {
             } else {
               navigate(routePath.workspaces());
             }
-          }
-          if (batchError) {
-            showRateLimitToastIfNeeded(batchError);
-            const total = paths.length;
-            const remainingCount = Math.max(0, total - completedCount);
-            const message = isPartialRepoRenameError(batchError)
-              ? `${batchError instanceof Error ? batchError.message : 'Rename partially completed.'} Refresh the workspace and verify both old/new paths before continuing.`
-              : `Folder rename partially completed (${completedCount}/${total}). ${remainingCount} file(s) remain at the old path. Run rename again to resume.`;
-            dismissToast(renameToastId);
-            void showAlert(message);
-            return;
           }
         }
         dismissToast(renameToastId);
@@ -3931,6 +3922,8 @@ export function App() {
       showRateLimitToastIfNeeded,
       showSuccessToast,
       dismissToast,
+      installationId,
+      selectedRepo,
       selectedRepoRef,
       refreshRepoTreeAfterWrite,
     ],
