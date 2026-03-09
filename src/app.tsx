@@ -475,12 +475,6 @@ function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
 function loadReaderAiEntryFromHistory(historyKey: string): ReaderAiHistoryEntry {
   const store = loadReaderAiHistoryStore();
   const entry = store.entries[historyKey] ?? { messages: [] };
-  console.debug('[reader-ai] loaded history', {
-    historyKey,
-    messageCount: entry.messages.length,
-    hasSummary: Boolean(entry.summary),
-    knownKeys: store.order,
-  });
   return entry;
 }
 
@@ -498,7 +492,6 @@ function persistReaderAiMessagesToHistory(
   const nextOrder = store.order.filter((key) => key !== historyKey);
   const normalizedMessages = normalizeReaderAiMessages(messages);
   if (normalizedMessages.length === 0) {
-    console.debug('[reader-ai] skip persist for empty messages (no explicit clear)', { historyKey });
     return;
   }
   const entry: ReaderAiHistoryEntry = { messages: normalizedMessages };
@@ -517,12 +510,9 @@ function persistReaderAiMessagesToHistory(
       localStorage.removeItem(READER_AI_HISTORY_KEY);
       return;
     }
-    const payload = JSON.stringify({ order: trimmedOrder, entries: nextEntries });
-    localStorage.setItem(READER_AI_HISTORY_KEY, payload);
-    const persistedRaw = localStorage.getItem(READER_AI_HISTORY_KEY);
-    if (!persistedRaw) return;
+    localStorage.setItem(READER_AI_HISTORY_KEY, JSON.stringify({ order: trimmedOrder, entries: nextEntries }));
   } catch {
-    console.error('[reader-ai] persist history failed', { historyKey });
+    return;
   }
 }
 
@@ -539,13 +529,11 @@ function clearReaderAiMessagesFromHistory(historyKey: string): void {
   try {
     if (trimmedOrder.length === 0) {
       localStorage.removeItem(READER_AI_HISTORY_KEY);
-      console.debug('[reader-ai] cleared history key and removed store', { historyKey });
       return;
     }
     localStorage.setItem(READER_AI_HISTORY_KEY, JSON.stringify({ order: trimmedOrder, entries: nextEntries }));
-    console.debug('[reader-ai] cleared history key', { historyKey, remainingKeys: trimmedOrder });
   } catch {
-    console.error('[reader-ai] clear history failed', { historyKey });
+    return;
   }
 }
 
@@ -2352,10 +2340,6 @@ export function App() {
     if (readerAiHistoryEligible && readerAiHistoryDocumentKey) {
       if (prevHistoryKey !== readerAiHistoryDocumentKey) {
         readerAiSkipPersistHistoryKeyRef.current = readerAiHistoryDocumentKey;
-        console.debug('[reader-ai] switching history context', {
-          from: prevHistoryKey,
-          to: readerAiHistoryDocumentKey,
-        });
         readerAiAbortRef.current?.abort();
         readerAiAbortRef.current = null;
         setReaderAiSending(false);
@@ -2390,9 +2374,6 @@ export function App() {
     if (!readerAiHistoryEligible || !readerAiHistoryDocumentKey) return;
     if (readerAiSkipPersistHistoryKeyRef.current === readerAiHistoryDocumentKey) {
       readerAiSkipPersistHistoryKeyRef.current = null;
-      console.debug('[reader-ai] skipping first persist after history load', {
-        historyKey: readerAiHistoryDocumentKey,
-      });
       return;
     }
     persistReaderAiMessagesToHistory(
@@ -2778,9 +2759,7 @@ export function App() {
           activeView === 'edit',
         );
         if (!received) {
-          const fallback = receivedStagedChanges
-            ? 'Done — see the proposed changes above.'
-            : 'No response.';
+          const fallback = receivedStagedChanges ? 'Done — see the proposed changes above.' : 'No response.';
           setReaderAiMessages((current) => {
             if (current.length === 0) {
               return assistantEdited
