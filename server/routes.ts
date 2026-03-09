@@ -1716,6 +1716,155 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
     if (!session.installationId || session.installationId !== installationId) throw new ClientError('Forbidden', 403);
     const { owner, repo } = splitRepoFullName(repoFullName);
 
+    if (changes.length > 1) {
+      const normalizedChanges = changes.map((change) => ({
+        ...change,
+        normalizedPath: normalizeRepoRelativePath(change.path),
+      }));
+      const seenPaths = new Set<string>();
+      const candidateChanges: Array<(typeof normalizedChanges)[number]> = [];
+      for (const change of normalizedChanges) {
+        if (seenPaths.has(change.normalizedPath)) {
+          failed.push({ path: change.path, error: 'Duplicate path in staged changes' });
+          continue;
+        }
+        seenPaths.add(change.normalizedPath);
+        if (change.type !== 'delete' && typeof fileContents.get(change.path) !== 'string') {
+          failed.push({ path: change.path, error: 'Modified content not found' });
+          continue;
+        }
+        candidateChanges.push(change);
+      }
+
+      if (candidateChanges.length === 0) {
+        json(ctx.res, 200, { applied, failed });
+        return;
+      }
+
+      try {
+        const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+        const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
+        const repoData = (await repoRes.json().catch(() => null)) as { default_branch?: string } | null;
+        const branch = typeof repoData?.default_branch === 'string' ? repoData.default_branch : '';
+        if (!branch) throw new Error('Failed to load repository metadata');
+
+        const refPath = `${repoPath}/git/ref/heads/${encodeURIComponent(branch)}`;
+        const refRes = await githubFetchWithInstallationToken(installationId, refPath);
+        const refData = (await refRes.json().catch(() => null)) as { object?: { sha?: string } } | null;
+        const headSha = typeof refData?.object?.sha === 'string' ? refData.object.sha : '';
+        if (!headSha) throw new Error('Failed to load branch ref');
+
+        const commitPath = `${repoPath}/git/commits/${encodeURIComponent(headSha)}`;
+        const commitRes = await githubFetchWithInstallationToken(installationId, commitPath);
+        const commitData = (await commitRes.json().catch(() => null)) as { tree?: { sha?: string } } | null;
+        const baseTreeSha = typeof commitData?.tree?.sha === 'string' ? commitData.tree.sha : '';
+        if (!baseTreeSha) throw new Error('Failed to load HEAD commit');
+
+        const treePath = `${repoPath}/git/trees/${encodeURIComponent(baseTreeSha)}?recursive=1`;
+        const treeRes = await githubFetchWithInstallationToken(installationId, treePath);
+        const treeData = (await treeRes.json().catch(() => null)) as { tree?: GitTreeEntry[] } | null;
+        if (!Array.isArray(treeData?.tree)) throw new Error('Failed to load repository tree');
+
+        const blobsByPath = new Map<string, GitBlobTreeEntry>();
+        for (const entry of treeData.tree as Array<GitTreeEntry & { mode?: string }>) {
+          if (entry.type !== 'blob') continue;
+          if (typeof entry.mode !== 'string') continue;
+          blobsByPath.set(entry.path, { ...entry, type: 'blob', mode: entry.mode });
+        }
+
+        const treeMutations: Array<{ path: string; mode: string; type: 'blob'; sha?: null; content?: string }> = [];
+        const applyablePaths: string[] = [];
+
+        for (const change of candidateChanges) {
+          const existing = blobsByPath.get(change.normalizedPath);
+          if (change.type === 'delete') {
+            if (!existing) {
+              failed.push({ path: change.path, error: 'File not found' });
+              continue;
+            }
+            treeMutations.push({ path: change.normalizedPath, mode: existing.mode, type: 'blob', sha: null });
+            applyablePaths.push(change.path);
+            continue;
+          }
+
+          const content = fileContents.get(change.path);
+          if (typeof content !== 'string') {
+            failed.push({ path: change.path, error: 'Modified content not found' });
+            continue;
+          }
+
+          if (change.type === 'edit') {
+            if (!existing) {
+              failed.push({ path: change.path, error: 'File not found' });
+              continue;
+            }
+            treeMutations.push({
+              path: change.normalizedPath,
+              mode: existing.mode,
+              type: 'blob',
+              content,
+            });
+            applyablePaths.push(change.path);
+            continue;
+          }
+
+          if (existing) {
+            failed.push({ path: change.path, error: 'File already exists' });
+            continue;
+          }
+          treeMutations.push({
+            path: change.normalizedPath,
+            mode: '100644',
+            type: 'blob',
+            content,
+          });
+          applyablePaths.push(change.path);
+        }
+
+        if (treeMutations.length === 0) {
+          json(ctx.res, 200, { applied, failed });
+          return;
+        }
+
+        const createTreePath = `${repoPath}/git/trees`;
+        const createTreeRes = await githubFetchWithInstallationToken(installationId, createTreePath, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base_tree: baseTreeSha, tree: treeMutations }),
+        });
+        const createdTree = (await createTreeRes.json().catch(() => null)) as { sha?: string } | null;
+        if (typeof createdTree?.sha !== 'string') throw new Error('Failed to create tree');
+
+        const createCommitPath = `${repoPath}/git/commits`;
+        const createCommitRes = await githubFetchWithInstallationToken(installationId, createCommitPath, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: commitMessage, tree: createdTree.sha, parents: [headSha] }),
+        });
+        const createdCommit = (await createCommitRes.json().catch(() => null)) as { sha?: string } | null;
+        if (typeof createdCommit?.sha !== 'string') throw new Error('Failed to create commit');
+
+        const updateRefPath = `${repoPath}/git/refs/heads/${encodeURIComponent(branch)}`;
+        await githubFetchWithInstallationToken(installationId, updateRefPath, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sha: createdCommit.sha, force: false }),
+        });
+
+        applied.push(...applyablePaths);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        const alreadyFailedPaths = new Set(failed.map((entry) => entry.path));
+        for (const change of candidateChanges) {
+          if (alreadyFailedPaths.has(change.path)) continue;
+          failed.push({ path: change.path, error: message });
+        }
+      }
+
+      json(ctx.res, 200, { applied, failed });
+      return;
+    }
+
     for (const change of changes) {
       try {
         const normalizedPath = normalizeRepoRelativePath(change.path);
