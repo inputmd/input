@@ -94,8 +94,8 @@
 }
 
 /* List markers */
-.doc-editor .cm-editor .tok-list {
-  color: var(--text-secondary);
+.doc-editor .cm-editor .tok-list.tok-processingInstruction {
+  color: color-mix(in srgb, var(--text-secondary) 85%, var(--text));
 }
 
 /* Blockquote markers */
