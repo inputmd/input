@@ -28,14 +28,6 @@
   padding: 0;
 }
 
-.doc-editor .cm-activeLine {
-  background: transparent;
-}
-
-.doc-editor .cm-editor.cm-focused .cm-activeLine {
-  background: color-mix(in srgb, var(--selection-bg) 15%, transparent);
-}
-
 .doc-editor .cm-selectionBackground {
   background: color-mix(in srgb, var(--selection-bg) 40%, transparent) !important;
 }
@@ -60,10 +52,6 @@
   font-weight: 600;
   color: var(--text);
 }
-
-.doc-editor .cm-editor .tok-heading1 { font-size: 1.4em; }
-.doc-editor .cm-editor .tok-heading2 { font-size: 1.2em; }
-.doc-editor .cm-editor .tok-heading3 { font-size: 1.1em; }
 
 /* Hash marks for headings */
 .doc-editor .cm-editor .tok-heading.tok-processingInstruction {

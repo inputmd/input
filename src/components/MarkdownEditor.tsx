@@ -5,7 +5,6 @@ import { Compartment, EditorSelection, EditorState, Prec, Transaction } from '@c
 import {
   drawSelection,
   EditorView,
-  highlightActiveLine,
   highlightSpecialChars,
   keymap,
   placeholder as placeholderExt,
@@ -93,10 +92,7 @@ function wrapWithMarker(view: EditorView, marker: string): boolean {
     view.dispatch(
       view.state.update({
         changes: { from: from - len, to: to + len, insert: selected },
-        selection:
-          from === to
-            ? EditorSelection.cursor(from - len)
-            : EditorSelection.range(from - len, to - len),
+        selection: from === to ? EditorSelection.cursor(from - len) : EditorSelection.range(from - len, to - len),
       }),
     );
     return true;
@@ -108,10 +104,7 @@ function wrapWithMarker(view: EditorView, marker: string): boolean {
   view.dispatch(
     view.state.update({
       changes: { from, to, insert: replacement },
-      selection:
-        from === to
-          ? EditorSelection.cursor(from + len)
-          : EditorSelection.range(from + len, to + len),
+      selection: from === to ? EditorSelection.cursor(from + len) : EditorSelection.range(from + len, to + len),
     }),
   );
   return true;
@@ -173,7 +166,6 @@ export function MarkdownEditor({
         highlightSpecialChars(),
         history(),
         drawSelection(),
-        highlightActiveLine(),
         indentOnInput(),
         syntaxHighlighting(markdownHighlighter),
         bracketMatching(),
