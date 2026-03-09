@@ -11,6 +11,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 import { tagHighlighter, tags } from '@lezer/highlight';
+import type { InlineParser, MarkdownExtension } from '@lezer/markdown';
 import { useEffect, useRef } from 'preact/hooks';
 import {
   buildExternalContentSyncTransaction,
@@ -41,6 +42,30 @@ const markdownHighlighter = tagHighlighter([
   { tag: tags.comment, class: 'tok-comment' },
   { tag: tags.content, class: 'tok-content' },
 ]);
+
+const wikiLinkInlineParser: InlineParser = {
+  name: 'WikiLink',
+  before: 'Link',
+  parse(cx, next, pos) {
+    if (next !== 91 || cx.char(pos + 1) !== 91) return -1; // `[[`
+
+    for (let index = pos + 2; index < cx.end; index += 1) {
+      const ch = cx.char(index);
+      if (ch === 10 || ch === 13) return -1; // don't span lines
+      if (ch === 93 && cx.char(index + 1) === 93) {
+        if (index === pos + 2) return -1; // disallow empty `[[ ]]`
+        return cx.addElement(cx.elt('WikiLink', pos, index + 2));
+      }
+    }
+
+    return -1;
+  },
+};
+
+const wikiLinkMarkdownExtension: MarkdownExtension = {
+  defineNodes: [{ name: 'WikiLink', style: tags.link }],
+  parseInline: [wikiLinkInlineParser],
+};
 
 interface MarkdownEditorProps {
   content: string;
@@ -98,7 +123,7 @@ export function MarkdownEditor({
         indentOnInput(),
         syntaxHighlighting(markdownHighlighter),
         bracketMatching(),
-        markdown(),
+        markdown({ extensions: [wikiLinkMarkdownExtension] }),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
