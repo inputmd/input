@@ -746,7 +746,8 @@
 
 .reader-ai-staged-changes-footer {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 6px;
   padding: 6px 8px;
   border-top: 1px solid var(--border);
@@ -760,8 +761,8 @@
 }
 
 .reader-ai-staged-changes-commit-input {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  min-width: 100%;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--input-bg);
@@ -781,23 +782,31 @@
   opacity: 0.6;
 }
 
+.reader-ai-staged-changes-actions {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+
 .reader-ai-staged-changes-apply {
   font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
   color: #ffffff;
-  background: var(--focus-border);
-  border: 1px solid color-mix(in srgb, var(--focus-border) 86%, transparent);
+  background: var(--success-color);
+  border: 1px solid color-mix(in srgb, var(--success-color) 86%, transparent);
   border-radius: 4px;
   padding: 3px 10px;
   cursor: pointer;
-  flex-shrink: 0;
+  flex: 0 0 auto;
 }
 
 .reader-ai-staged-changes-apply:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--focus-border) 86%, #000000 14%);
+  background: color-mix(in srgb, var(--success-color) 86%, #000000 14%);
 }
 
 .reader-ai-staged-changes-apply:disabled {

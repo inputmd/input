@@ -290,25 +290,29 @@ export function StagedChangesSection({
               disabled={applying}
             />
           ) : null}
-          {canApplyWithoutSaving ? (
-            <button
-              type="button"
-              class="reader-ai-staged-changes-apply"
-              onClick={() => onApplyWithoutSaving?.()}
-              disabled={applying}
-            >
-              {applying && !canApplyAndCommit ? 'Applying…' : 'Apply without saving'}
-            </button>
-          ) : null}
-          {canApplyAndCommit ? (
-            <button
-              type="button"
-              class="reader-ai-staged-changes-apply"
-              onClick={() => onApplyAndCommit?.(commitMessage.trim() || undefined)}
-              disabled={applying}
-            >
-              {applying ? 'Committing…' : 'Apply and commit'}
-            </button>
+          {canApplyWithoutSaving || canApplyAndCommit ? (
+            <div class="reader-ai-staged-changes-actions">
+              {canApplyWithoutSaving ? (
+                <button
+                  type="button"
+                  class="reader-ai-staged-changes-apply"
+                  onClick={() => onApplyWithoutSaving?.()}
+                  disabled={applying}
+                >
+                  {applying && !canApplyAndCommit ? 'Applying…' : 'Apply without saving'}
+                </button>
+              ) : null}
+              {canApplyAndCommit ? (
+                <button
+                  type="button"
+                  class="reader-ai-staged-changes-apply"
+                  onClick={() => onApplyAndCommit?.(commitMessage.trim() || undefined)}
+                  disabled={applying}
+                >
+                  {applying ? 'Committing…' : 'Apply and commit'}
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : (
