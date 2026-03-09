@@ -245,6 +245,11 @@ export interface RepoBatchRename {
   to: string;
 }
 
+export interface RepoBatchCreateFile {
+  path: string;
+  content: string;
+}
+
 export interface SharedRepoFile {
   owner: string;
   repo: string;
@@ -554,6 +559,36 @@ export async function renameRepoPathsAtomic(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ renames, message }),
+  });
+  clearRepoContentsCacheForRepo(installationId, repoFullName);
+}
+
+export async function deleteRepoPathsAtomic(
+  installationId: string,
+  repoFullName: string,
+  paths: string[],
+  message: string,
+): Promise<void> {
+  const { owner, repo } = splitFullName(repoFullName);
+  await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/git-batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deletes: paths, message }),
+  });
+  clearRepoContentsCacheForRepo(installationId, repoFullName);
+}
+
+export async function createRepoFilesAtomic(
+  installationId: string,
+  repoFullName: string,
+  files: RepoBatchCreateFile[],
+  message: string,
+): Promise<void> {
+  const { owner, repo } = splitFullName(repoFullName);
+  await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/git-batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ creates: files, message }),
   });
   clearRepoContentsCacheForRepo(installationId, repoFullName);
 }

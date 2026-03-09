@@ -34,8 +34,10 @@ import {
   consumeInstallState,
   createInstallState,
   createRepoFileShareLink,
+  createRepoFilesAtomic,
   createSession,
   deleteRepoFile,
+  deleteRepoPathsAtomic,
   disconnectInstallation,
   getInstallationId,
   getInstallUrl,
@@ -3431,7 +3433,13 @@ export function App() {
           setGistFiles(gist.files);
           setHasUnsavedChanges(false);
         } else {
-          await store.createFile(seedFilePath);
+          if (!installationId || !selectedRepo) return;
+          await createRepoFilesAtomic(
+            installationId,
+            selectedRepo,
+            [{ path: seedFilePath, content: '' }],
+            `Create folder "${directoryPath}"`,
+          );
           await refreshRepoTreeAfterWrite();
           setHasUnsavedChanges(false);
         }
@@ -3440,7 +3448,14 @@ export function App() {
         void showAlert(err instanceof Error ? err.message : 'Failed to create directory');
       }
     },
-    [getActiveDocumentStore, showAlert, showRateLimitToastIfNeeded, refreshRepoTreeAfterWrite],
+    [
+      getActiveDocumentStore,
+      showAlert,
+      showRateLimitToastIfNeeded,
+      refreshRepoTreeAfterWrite,
+      installationId,
+      selectedRepo,
+    ],
   );
 
   const handleEditFile = useCallback(
@@ -3661,17 +3676,14 @@ export function App() {
             }
           }
         } else {
-          const completedPaths = new Set<string>();
-          for (const file of repoTargets) {
-            try {
-              await store.deleteFile(file);
-              completedPaths.add(file.path);
-              completedCount += 1;
-            } catch (err) {
-              batchError = err;
-              break;
-            }
-          }
+          if (!installationId || !selectedRepo) return;
+          await deleteRepoPathsAtomic(
+            installationId,
+            selectedRepo,
+            repoTargets.map((file) => file.path),
+            `Delete folder "${folderPath}"`,
+          );
+          completedCount = repoTargets.length;
           const remainingSidebar = (await refreshRepoTreeAfterWrite()) ?? [];
           const deletedCurrent = currentRepoDocPath
             ? !remainingSidebar.some((file) => file.path === currentRepoDocPath)
@@ -3729,6 +3741,8 @@ export function App() {
       showRateLimitToastIfNeeded,
       showSuccessToast,
       dismissToast,
+      installationId,
+      selectedRepo,
       selectedRepoRef,
       refreshRepoTreeAfterWrite,
     ],

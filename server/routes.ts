@@ -1172,7 +1172,7 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
   });
 }
 
-async function handleGitBatchRename(ctx: RouteContext): Promise<void> {
+async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
   const installationId = requireMatchedInstallation(ctx, session, 1);
@@ -1181,18 +1181,31 @@ async function handleGitBatchRename(ctx: RouteContext): Promise<void> {
 
   const body = await readJson(ctx.req);
   const message = requireString(body, 'message');
-  const renamesRaw = body?.renames;
-  if (!Array.isArray(renamesRaw) || renamesRaw.length === 0)
-    throw new ClientError('renames must be a non-empty array', 400);
-
-  const renames = renamesRaw.map((item) => {
-    if (!item || typeof item !== 'object') throw new ClientError('Invalid rename entry', 400);
-    const from = normalizeRepoRelativePath(requireString(item, 'from'));
-    const to = normalizeRepoRelativePath(requireString(item, 'to'));
-    return { from, to };
-  });
-  if (renames.some((entry) => entry.from === entry.to))
+  const renames = Array.isArray(body?.renames)
+    ? body.renames.map((item) => {
+        if (!item || typeof item !== 'object') throw new ClientError('Invalid rename entry', 400);
+        const from = normalizeRepoRelativePath(requireString(item, 'from'));
+        const to = normalizeRepoRelativePath(requireString(item, 'to'));
+        return { from, to };
+      })
+    : [];
+  const deletes = Array.isArray(body?.deletes)
+    ? body.deletes.map((path) => normalizeRepoRelativePath(String(path)))
+    : [];
+  const creates = Array.isArray(body?.creates)
+    ? body.creates.map((item) => {
+        if (!item || typeof item !== 'object') throw new ClientError('Invalid create entry', 400);
+        const path = normalizeRepoRelativePath(requireString(item, 'path'));
+        const content = typeof item.content === 'string' ? item.content : '';
+        return { path, content };
+      })
+    : [];
+  if (renames.length === 0 && deletes.length === 0 && creates.length === 0) {
+    throw new ClientError('At least one of renames, deletes, or creates is required', 400);
+  }
+  if (renames.some((entry) => entry.from === entry.to)) {
     throw new ClientError('Rename source and destination must differ', 400);
+  }
 
   const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
@@ -1240,23 +1253,57 @@ async function handleGitBatchRename(ctx: RouteContext): Promise<void> {
     blobsByPath.set(entry.path, { ...entry, mode: entry.mode, type: 'blob' });
   }
 
-  const seenDestination = new Set<string>();
+  const deletePaths = new Set<string>(deletes);
   const renameSources = new Set(renames.map((entry) => entry.from));
+  const plannedDeletes = new Set<string>([...deletes, ...renameSources]);
+  const plannedCreates = new Set<string>();
+
   for (const entry of renames) {
-    if (seenDestination.has(entry.to)) throw new ClientError(`Duplicate destination path: ${entry.to}`, 400);
-    seenDestination.add(entry.to);
+    if (plannedCreates.has(entry.to)) throw new ClientError(`Duplicate destination path: ${entry.to}`, 400);
+    plannedCreates.add(entry.to);
+  }
+  for (const entry of creates) {
+    if (plannedCreates.has(entry.path)) throw new ClientError(`Duplicate create path: ${entry.path}`, 400);
+    plannedCreates.add(entry.path);
+  }
+
+  for (const entry of renames) {
     if (!blobsByPath.has(entry.from)) throw new ClientError(`Source file not found: ${entry.from}`, 404);
-    if (blobsByPath.has(entry.to) && !renameSources.has(entry.to)) {
+    if (blobsByPath.has(entry.to) && !plannedDeletes.has(entry.to)) {
       throw new ClientError(`Destination already exists: ${entry.to}`, 409);
     }
   }
+  for (const path of deletePaths) {
+    if (!blobsByPath.has(path)) throw new ClientError(`Delete target not found: ${path}`, 404);
+  }
+  for (const entry of creates) {
+    if (blobsByPath.has(entry.path) && !plannedDeletes.has(entry.path)) {
+      throw new ClientError(`Create destination already exists: ${entry.path}`, 409);
+    }
+  }
 
-  const treeMutations: Array<{ path: string; mode: string; type: 'blob'; sha: string | null }> = [];
+  const treeMutations: Array<{
+    path: string;
+    mode: string;
+    type: 'blob';
+    sha?: string | null;
+    content?: string;
+  }> = [];
+  for (const path of deletePaths) {
+    const source = blobsByPath.get(path);
+    if (!source) continue;
+    treeMutations.push({ path, mode: source.mode, type: 'blob', sha: null });
+  }
   for (const entry of renames) {
     const source = blobsByPath.get(entry.from);
     if (!source) continue;
-    treeMutations.push({ path: entry.from, mode: source.mode, type: 'blob', sha: null });
+    if (!deletePaths.has(entry.from)) {
+      treeMutations.push({ path: entry.from, mode: source.mode, type: 'blob', sha: null });
+    }
     treeMutations.push({ path: entry.to, mode: source.mode, type: 'blob', sha: source.sha });
+  }
+  for (const entry of creates) {
+    treeMutations.push({ path: entry.path, mode: '100644', type: 'blob', content: entry.content });
   }
 
   const createTreePath = `${repoPath}/git/trees`;
@@ -1295,14 +1342,20 @@ async function handleGitBatchRename(ctx: RouteContext): Promise<void> {
     const err = (await updateRefRes.json().catch(() => null)) as GitHubApiError | null;
     if (updateRefRes.status === 401) throw new ClientError('Unauthorized', 401);
     if (updateRefRes.status === 409 || updateRefRes.status === 422) {
-      json(ctx.res, 409, { error: 'Repository changed while applying rename. Please retry.' });
+      json(ctx.res, 409, { error: 'Repository changed while applying git batch update. Please retry.' });
       return;
     }
     respondGitHubError(ctx.res, updateRefRes, err?.message ?? 'Failed to update branch ref', updateRefPath);
     return;
   }
 
-  json(ctx.res, 200, { commitSha: createdCommit.sha, previousHeadSha: headSha, renamed: renames.length });
+  json(ctx.res, 200, {
+    commitSha: createdCommit.sha,
+    previousHeadSha: headSha,
+    renamed: renames.length,
+    deleted: deletes.length,
+    created: creates.length,
+  });
 }
 
 async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
@@ -2212,7 +2265,7 @@ const routes: RouteDef[] = [
   { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
   { method: 'GET', pattern: RAW_CONTENT_PATTERN, handler: handleGetRawContent },
   { method: 'GET', pattern: TREE_PATTERN, handler: handleGetTree },
-  { method: 'POST', pattern: GIT_BATCH_PATTERN, handler: handleGitBatchRename },
+  { method: 'POST', pattern: GIT_BATCH_PATTERN, handler: handleGitBatchMutation },
   { method: 'GET', pattern: TARBALL_PATTERN, handler: handleRepoTarball },
   { method: 'GET', pattern: PUBLIC_REPO_CONTENTS_PATTERN, handler: handleGetPublicRepoContents },
   { method: 'GET', pattern: PUBLIC_REPO_RAW_PATTERN, handler: handleGetPublicRepoRaw },
