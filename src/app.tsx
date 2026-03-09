@@ -788,6 +788,7 @@ export function App() {
   const [contentAlertDownloadName, setContentAlertDownloadName] = useState<string | null>(null);
   const [readerAiVisible, setReaderAiVisible] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
+    if (route.name === 'new') return false;
     try {
       return localStorage.getItem(READER_AI_VISIBLE_KEY) === 'true';
     } catch {
@@ -896,6 +897,8 @@ export function App() {
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
+  const prevRouteNameRef = useRef(route.name);
+  const readerAiSkipPersistVisibleRef = useRef(false);
   const editContentRef = useRef(editContent);
   editContentRef.current = editContent;
   const activeView = viewPhase ?? viewFromRoute(route);
@@ -2198,10 +2201,36 @@ export function App() {
   }, [previewVisible]);
 
   useLayoutEffect(() => {
+    const wasRouteName = prevRouteNameRef.current;
+    const onNewRoute = route.name === 'new';
+    const leftNewRoute = wasRouteName === 'new' && !onNewRoute;
+    prevRouteNameRef.current = route.name;
+
+    if (onNewRoute) {
+      setReaderAiVisible(false);
+      return;
+    }
+
+    if (!leftNewRoute) return;
+
+    readerAiSkipPersistVisibleRef.current = true;
+    try {
+      setReaderAiVisible(localStorage.getItem(READER_AI_VISIBLE_KEY) === 'true');
+    } catch {
+      setReaderAiVisible(false);
+    }
+  }, [route.name]);
+
+  useLayoutEffect(() => {
+    if (route.name === 'new') return;
+    if (readerAiSkipPersistVisibleRef.current) {
+      readerAiSkipPersistVisibleRef.current = false;
+      return;
+    }
     try {
       localStorage.setItem(READER_AI_VISIBLE_KEY, readerAiVisible ? 'true' : 'false');
     } catch {}
-  }, [readerAiVisible]);
+  }, [readerAiVisible, route.name]);
 
   useLayoutEffect(() => {
     try {
