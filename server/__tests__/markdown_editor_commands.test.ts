@@ -5,7 +5,6 @@ import {
   buildExternalContentSyncTransaction,
   externalSyncAnnotation,
   isExternalSyncTransaction,
-  markdownListContinuation,
   wrapWithMarker,
 } from '../../src/components/markdown_editor_commands.ts';
 
@@ -41,32 +40,6 @@ test('wrapWithMarker unwraps selected text when markers already surround selecti
   t.is(view.state.doc.toString(), 'hello world');
   t.is(view.state.selection.main.from, 0);
   t.is(view.state.selection.main.to, 5);
-});
-
-test('markdownListContinuation inserts next ordered marker', (t) => {
-  const view = makeMockView('1. item', EditorSelection.cursor('1. item'.length));
-  const handled = markdownListContinuation(view);
-
-  t.true(handled);
-  t.is(view.state.doc.toString(), '1. item\n2. ');
-  t.is(view.state.selection.main.head, '1. item\n2. '.length);
-});
-
-test('markdownListContinuation clears empty list item marker', (t) => {
-  const view = makeMockView('- ', EditorSelection.cursor(2));
-  const handled = markdownListContinuation(view);
-
-  t.true(handled);
-  t.is(view.state.doc.toString(), '');
-  t.is(view.state.selection.main.head, 0);
-});
-
-test('markdownListContinuation returns false for non-list text', (t) => {
-  const view = makeMockView('plain text', EditorSelection.cursor('plain text'.length));
-  const handled = markdownListContinuation(view);
-
-  t.false(handled);
-  t.is(view.state.doc.toString(), 'plain text');
 });
 
 test('buildExternalContentSyncTransaction emits external non-history transaction', (t) => {

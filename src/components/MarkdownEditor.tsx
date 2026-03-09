@@ -16,7 +16,6 @@ import { useEffect, useRef } from 'preact/hooks';
 import {
   buildExternalContentSyncTransaction,
   isExternalSyncTransaction,
-  markdownListContinuation,
   wrapWithMarker,
 } from './markdown_editor_commands';
 
@@ -136,7 +135,6 @@ export function MarkdownEditor({
         }),
         Prec.high(
           keymap.of([
-            { key: 'Enter', run: markdownListContinuation },
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },
             { key: 'Tab', run: indentMore, shift: indentLess },

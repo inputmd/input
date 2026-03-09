@@ -1,47 +1,6 @@
 import { EditorSelection, type EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 
-/** Continue markdown lists on Enter: `- `, `* `, `+ `, `1. `, `1) `, `- [ ] `, etc. */
-export function markdownListContinuation({ state, dispatch }: EditorView): boolean {
-  const { from, to } = state.selection.main;
-  if (from !== to) return false;
-
-  const line = state.doc.lineAt(from);
-  if (from !== line.to) return false;
-  const text = line.text;
-
-  const match = text.match(/^(\s*)([-*+]|\d+[.)]) (\[[ xX]\] )?/);
-  if (!match) return false;
-
-  const [fullMatch, indent, marker, checkbox] = match;
-
-  // Empty list item clears the marker and keeps the indentation.
-  if (text.trimEnd() === fullMatch.trimEnd()) {
-    dispatch(
-      state.update({
-        changes: { from: line.from, to: line.to, insert: indent },
-        selection: EditorSelection.cursor(line.from + indent.length),
-      }),
-    );
-    return true;
-  }
-
-  let nextMarker = marker;
-  const numMatch = marker.match(/^(\d+)([.)])/);
-  if (numMatch) {
-    nextMarker = `${Number(numMatch[1]) + 1}${numMatch[2]}`;
-  }
-
-  const continuation = `\n${indent}${nextMarker} ${checkbox ? '[ ] ' : ''}`;
-  dispatch(
-    state.update({
-      changes: { from, to: from, insert: continuation },
-      selection: EditorSelection.cursor(from + continuation.length),
-    }),
-  );
-  return true;
-}
-
 export function wrapWithMarker(view: EditorView, marker: string): boolean {
   const { from, to } = view.state.selection.main;
   const len = marker.length;
