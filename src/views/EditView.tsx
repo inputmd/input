@@ -1,5 +1,7 @@
+import type { EditorView } from '@codemirror/view';
 import type { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { MarkdownEditor } from '../components/MarkdownEditor';
 
 interface EditViewProps {
   content: string;
@@ -9,7 +11,7 @@ interface EditViewProps {
   onTogglePreview: () => void;
   onContentChange: (content: string) => void;
   onPreviewImageClick?: (image: HTMLImageElement) => void;
-  onEditorPaste?: (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => void;
+  onEditorPaste?: (event: ClipboardEvent, view: EditorView) => void;
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
@@ -36,7 +38,6 @@ export function EditView({
   locked = false,
   imageUploadIssue,
 }: EditViewProps) {
-  const editorRef = useRef<HTMLTextAreaElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
   const [splitPercent, setSplitPercent] = useState(52);
 
@@ -72,82 +73,6 @@ export function EditView({
     event.preventDefault();
   };
 
-  const handleEditorKeyDown = (e: JSX.TargetedKeyboardEvent<HTMLTextAreaElement>) => {
-    if (locked) return;
-    const isMod = e.metaKey || e.ctrlKey;
-    const ta = e.currentTarget;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const value = content;
-
-    const wrapSelection = (marker: string) => {
-      const selected = value.slice(start, end);
-      const next = `${value.slice(0, start)}${marker}${selected}${marker}${value.slice(end)}`;
-      onContentChange(next);
-      requestAnimationFrame(() => {
-        if (start === end) {
-          const cursor = start + marker.length;
-          ta.selectionStart = cursor;
-          ta.selectionEnd = cursor;
-          return;
-        }
-        ta.selectionStart = start + marker.length;
-        ta.selectionEnd = end + marker.length;
-      });
-    };
-
-    if (isMod && (e.key === 'b' || e.key === 'B')) {
-      e.preventDefault();
-      wrapSelection('**');
-      return;
-    }
-
-    if (isMod && (e.key === 'i' || e.key === 'I')) {
-      e.preventDefault();
-      wrapSelection('*');
-      return;
-    }
-
-    if (e.key !== 'Tab') return;
-    e.preventDefault();
-
-    if (!e.shiftKey) {
-      // Tab: insert \t or indent selected lines
-      if (start === end) {
-        const next = `${value.slice(0, start)}\t${value.slice(end)}`;
-        onContentChange(next);
-        requestAnimationFrame(() => {
-          ta.selectionStart = ta.selectionEnd = start + 1;
-        });
-      } else {
-        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-        const block = value.slice(lineStart, end);
-        const indented = block.replace(/^/gm, '\t');
-        const next = value.slice(0, lineStart) + indented + value.slice(end);
-        const addedChars = indented.length - block.length;
-        onContentChange(next);
-        requestAnimationFrame(() => {
-          ta.selectionStart = start + 1;
-          ta.selectionEnd = end + addedChars;
-        });
-      }
-    } else {
-      // Shift+Tab: un-indent selected lines
-      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-      const block = value.slice(lineStart, end);
-      const dedented = block.replace(/^\t/gm, '');
-      const removedChars = block.length - dedented.length;
-      if (removedChars === 0) return;
-      const next = value.slice(0, lineStart) + dedented + value.slice(end);
-      const firstLineHadTab = block.startsWith('\t');
-      onContentChange(next);
-      requestAnimationFrame(() => {
-        ta.selectionStart = firstLineHadTab ? start - 1 : start;
-        ta.selectionEnd = end - removedChars;
-      });
-    }
-  };
-
   const layoutStyle =
     previewVisible && canRenderPreview ? { gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` } : undefined;
 
@@ -181,14 +106,11 @@ export function EditView({
             <span>Reader AI is working. Editing is temporarily locked.</span>
           </div>
         ) : null}
-        <textarea
+        <MarkdownEditor
           class="doc-editor"
-          ref={editorRef}
-          placeholder="Write your markdown here..."
-          value={content}
-          onInput={(e) => onContentChange((e.target as HTMLTextAreaElement).value)}
+          content={content}
+          onContentChange={onContentChange}
           onPaste={onEditorPaste}
-          onKeyDown={handleEditorKeyDown}
           readOnly={locked}
         />
         {previewVisible && canRenderPreview && (

@@ -1377,8 +1377,7 @@ export function App() {
   }, [failedImageUpload]);
 
   const handleEditorPaste = useCallback(
-    async (event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>) => {
-      const editor = event.currentTarget;
+    async (event: ClipboardEvent, view: import('@codemirror/view').EditorView) => {
       const clipboardItems = Array.from(event.clipboardData?.items ?? []);
       const imageItem = clipboardItems.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
       if (!imageItem) return;
@@ -1408,10 +1407,9 @@ export function App() {
         const failedToken = `[image-upload:${uploadId}:failed:${imageName}]`;
         const finalMarkdown = `![${imageName}](./.assets/${imageName})`;
 
-        const currentValue = editor.value;
-        const start = editor.selectionStart;
-        const end = editor.selectionEnd;
-        const next = `${currentValue.slice(0, start)}${uploadingToken}${currentValue.slice(end)}`;
+        const { from, to } = view.state.selection.main;
+        const currentValue = view.state.doc.toString();
+        const next = `${currentValue.slice(0, from)}${uploadingToken}${currentValue.slice(to)}`;
         setEditContent(next);
         setHasUnsavedChanges(true);
 

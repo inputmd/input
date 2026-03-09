@@ -1,0 +1,145 @@
+/* CodeMirror editor theming — inherits from app CSS custom properties */
+
+.doc-editor .cm-editor {
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--editor-font-size);
+  line-height: var(--reader-editor-line-height);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.doc-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.doc-editor .cm-scroller {
+  overflow: auto;
+  padding: 24px 27px;
+  font-family: inherit;
+}
+
+.doc-editor .cm-content {
+  caret-color: var(--text);
+  padding: 0;
+}
+
+.doc-editor .cm-line {
+  padding: 0;
+}
+
+.doc-editor .cm-activeLine {
+  background: transparent;
+}
+
+.doc-editor .cm-editor.cm-focused .cm-activeLine {
+  background: color-mix(in srgb, var(--selection-bg) 15%, transparent);
+}
+
+.doc-editor .cm-selectionBackground {
+  background: color-mix(in srgb, var(--selection-bg) 40%, transparent) !important;
+}
+
+.doc-editor .cm-editor.cm-focused .cm-selectionBackground {
+  background: var(--selection-bg) !important;
+}
+
+.doc-editor .cm-cursor {
+  border-left-color: var(--text);
+}
+
+.doc-editor .cm-placeholder {
+  color: var(--text-secondary);
+  font-style: normal;
+}
+
+/* Markdown syntax highlighting */
+
+/* Headings */
+.doc-editor .cm-editor .tok-heading {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.doc-editor .cm-editor .tok-heading1 { font-size: 1.4em; }
+.doc-editor .cm-editor .tok-heading2 { font-size: 1.2em; }
+.doc-editor .cm-editor .tok-heading3 { font-size: 1.1em; }
+
+/* Hash marks for headings */
+.doc-editor .cm-editor .tok-heading.tok-processingInstruction {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* Bold */
+.doc-editor .cm-editor .tok-strong {
+  font-weight: 700;
+}
+
+/* Italic */
+.doc-editor .cm-editor .tok-emphasis {
+  font-style: italic;
+}
+
+/* Inline code */
+.doc-editor .cm-editor .tok-monospace {
+  color: color-mix(in srgb, var(--text) 85%, var(--ansi-cyan));
+  background: color-mix(in srgb, var(--btn-bg) 50%, transparent);
+  border-radius: 3px;
+  padding: 1px 3px;
+}
+
+/* Code blocks / fenced code */
+.doc-editor .cm-editor .tok-meta {
+  color: var(--text-secondary);
+}
+
+/* Links */
+.doc-editor .cm-editor .tok-link {
+  color: var(--focus-border);
+  text-decoration: none;
+}
+
+.doc-editor .cm-editor .tok-url {
+  color: color-mix(in srgb, var(--focus-border) 70%, var(--text-secondary));
+}
+
+/* List markers */
+.doc-editor .cm-editor .tok-list {
+  color: var(--text-secondary);
+}
+
+/* Blockquote markers */
+.doc-editor .cm-editor .tok-quote {
+  color: var(--text-secondary);
+}
+
+/* Horizontal rules */
+.doc-editor .cm-editor .tok-contentSeparator {
+  color: var(--text-secondary);
+}
+
+/* Strikethrough */
+.doc-editor .cm-editor .tok-strikethrough {
+  text-decoration: line-through;
+}
+
+/* Tab size */
+.doc-editor .cm-editor .cm-content {
+  tab-size: 2;
+}
+
+/* Scrollbar styling to match existing */
+.doc-editor .cm-scroller::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.doc-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: var(--btn-bg);
+  border-radius: 4px;
+}
+
+.doc-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}

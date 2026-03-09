@@ -76,23 +76,12 @@
 }
 
 .doc-editor {
-  font-family: var(--font-mono);
-  font-size: var(--editor-font-size);
-  line-height: var(--reader-editor-line-height);
   flex: 1;
   min-height: calc(100vh - 128px);
-  padding: 24px 27px;
   border: 0px solid var(--border);
   border-radius: 0;
   background: var(--input-bg);
-  color: var(--text);
-  outline: none;
-  resize: vertical;
-  tab-size: 2;
-}
-
-.doc-editor:focus {
-  border-color: var(--border);
+  overflow: hidden;
 }
 
 .editor-splitter,
@@ -140,7 +129,6 @@
   .doc-editor {
     min-height: 0;
     height: 100%;
-    resize: none;
   }
 
   .editor-splitter {
