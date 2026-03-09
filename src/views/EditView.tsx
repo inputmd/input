@@ -63,13 +63,15 @@ export function EditView({
       const next = (relativeX / startRect.width) * 100;
       setSplitPercent(Math.max(25, Math.min(75, next)));
     };
-    const onUp = () => {
+    const cleanupPointerListeners = () => {
       window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointerup', cleanupPointerListeners);
+      window.removeEventListener('pointercancel', cleanupPointerListeners);
     };
 
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointerup', cleanupPointerListeners);
+    window.addEventListener('pointercancel', cleanupPointerListeners);
     event.preventDefault();
   };
 

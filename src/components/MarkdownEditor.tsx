@@ -218,7 +218,7 @@ export function MarkdownEditor({
     view.dispatch({
       changes: { from: 0, to: currentDoc.length, insert: content },
       selection: EditorSelection.cursor(Math.min(prevSel.head, content.length)),
-      annotations: externalSync,
+      annotations: [externalSync, Transaction.addToHistory.of(false)],
     });
   }, [content]);
 
