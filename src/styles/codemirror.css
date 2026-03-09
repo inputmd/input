@@ -4,7 +4,6 @@
   height: 100%;
   font-family: var(--font-mono);
   font-size: var(--editor-font-size);
-  line-height: var(--reader-editor-line-height);
   background: var(--input-bg);
   color: var(--text);
 }
@@ -17,6 +16,8 @@
   overflow: auto;
   padding: 24px 27px;
   font-family: inherit;
+  font-size: inherit;
+  line-height: var(--reader-editor-line-height);
 }
 
 .doc-editor .cm-content {
