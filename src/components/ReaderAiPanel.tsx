@@ -101,6 +101,7 @@ export function ReaderAiPanel({
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const thinkingStartedAtRef = useRef<number | null>(null);
+  const pendingFocusAfterClearRef = useRef(false);
   const messageCount = messages.length;
   const canSend = authenticated && draft.trim().length > 0 && !sending && Boolean(selectedModel);
   const hasMessages = messageCount > 0;
@@ -183,6 +184,14 @@ export function ReaderAiPanel({
   });
 
   useEffect(() => {
+    if (hasMessages || !pendingFocusAfterClearRef.current) return;
+    pendingFocusAfterClearRef.current = false;
+    const input = composerInputRef.current;
+    if (!input || input.disabled) return;
+    requestAnimationFrame(() => input.focus());
+  }, [hasMessages]);
+
+  useEffect(() => {
     const panel = panelRef.current;
     const messages = messagesRef.current;
     if (!panel || !messages) return;
@@ -242,8 +251,9 @@ export function ReaderAiPanel({
     cancelEdit();
   };
 
-  const clearChat = () => {
+  const clearChat = (focusComposer: boolean) => {
     if (!hasMessages) return;
+    pendingFocusAfterClearRef.current = focusComposer;
     onClear();
   };
 
@@ -270,7 +280,7 @@ export function ReaderAiPanel({
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
-            <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={clearChat}>
+            <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={() => clearChat(true)}>
               <span>Clear chat</span>
               <span class="reader-ai-composer-menu-item-shortcut" aria-hidden="true">
                 {clearChatShortcutLabel}
@@ -354,7 +364,7 @@ export function ReaderAiPanel({
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
             event.preventDefault();
-            if (hasMessages && !sending) onClear();
+            if (hasMessages && !sending) clearChat(true);
             return;
           }
           if (event.key === 'Enter' && !event.shiftKey) {
