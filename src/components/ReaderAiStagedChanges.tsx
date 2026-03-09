@@ -3,6 +3,9 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { ReaderAiStagedChange } from '../reader_ai';
 
+const LONG_DIFF_LINE_CLIP_THRESHOLD = 220;
+const LONG_DIFF_LINE_CONTEXT_CHARS = 48;
+
 function commonPrefixLength(a: string, b: string): number {
   const limit = Math.min(a.length, b.length);
   let i = 0;
@@ -27,13 +30,26 @@ function renderDiffContent(line: string, changedClass: string, pairLine?: string
   const unchangedPrefix = content.slice(0, prefix);
   const changed = content.slice(prefix, changedEnd);
   const unchangedSuffix = content.slice(changedEnd);
+  const shouldClip = content.length > LONG_DIFF_LINE_CLIP_THRESHOLD;
+  const clippedPrefix =
+    shouldClip && unchangedPrefix.length > LONG_DIFF_LINE_CONTEXT_CHARS
+      ? unchangedPrefix.slice(-LONG_DIFF_LINE_CONTEXT_CHARS)
+      : unchangedPrefix;
+  const clippedSuffix =
+    shouldClip && unchangedSuffix.length > LONG_DIFF_LINE_CONTEXT_CHARS
+      ? unchangedSuffix.slice(0, LONG_DIFF_LINE_CONTEXT_CHARS)
+      : unchangedSuffix;
+  const hasLeadingClip = shouldClip && clippedPrefix !== unchangedPrefix;
+  const hasTrailingClip = shouldClip && clippedSuffix !== unchangedSuffix;
 
   return (
     <>
       {line[0]}
-      {unchangedPrefix}
+      {hasLeadingClip ? <span class="reader-ai-diff-inline-ellipsis">…</span> : null}
+      {clippedPrefix}
       {changed ? <span class={changedClass}>{changed}</span> : null}
-      {unchangedSuffix}
+      {clippedSuffix}
+      {hasTrailingClip ? <span class="reader-ai-diff-inline-ellipsis">…</span> : null}
     </>
   );
 }

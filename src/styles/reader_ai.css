@@ -893,6 +893,10 @@
   background: color-mix(in srgb, #dc322f 26%, transparent);
 }
 
+.reader-ai-diff-inline-ellipsis {
+  opacity: 0.7;
+}
+
 [data-theme="light"] .reader-ai-diff-line--add {
   color: #0d6e2d;
   background: color-mix(in srgb, #2ea043 10%, transparent);
