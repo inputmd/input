@@ -41,6 +41,7 @@ import {
   readUpstreamRateLimitMessage,
   StagedChanges,
 } from './reader_ai_tools';
+import { handleSandboxesApiRequest } from './sandboxes/router';
 import {
   clearRememberedInstallationForUser,
   consumeOAuthState,
@@ -2621,6 +2622,10 @@ export async function handleApiRequest(
   url: URL,
   pathname: string,
 ): Promise<boolean> {
+  if (pathname.startsWith('/api/sandboxes')) {
+    return handleSandboxesApiRequest(req, res, url, pathname);
+  }
+
   for (const route of routes) {
     const match = pathname.match(route.pattern);
     if (!match) continue;

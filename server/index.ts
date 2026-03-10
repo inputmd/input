@@ -9,6 +9,8 @@ import { startInstallationTokenCacheCleanup } from './github_client';
 import { json } from './http_helpers';
 import { startRateLimitCleanup } from './rate_limit';
 import { handleApiRequest } from './routes';
+import { startIdleReaper } from './sandboxes/lifecycle';
+import { handleTerminalUpgrade } from './sandboxes/terminal_ws';
 import { applySecurityHeaders } from './security_headers';
 import { startSessionCleanup } from './session';
 import { serveIndexHtml, serveStatic } from './static_files';
@@ -32,6 +34,7 @@ startInstallationTokenCacheCleanup();
 startGistCacheCleanup();
 startRateLimitCleanup();
 startSessionCleanup();
+startIdleReaper();
 
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   try {
@@ -82,6 +85,11 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     }
     json(res, 500, { error: 'Internal server error' });
   }
+});
+
+server.on('upgrade', (req, socket, head) => {
+  if (handleTerminalUpgrade(req, socket as import('node:net').Socket, head)) return;
+  socket.destroy();
 });
 
 server.listen(PORT, '0.0.0.0', () => {

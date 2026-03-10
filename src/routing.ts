@@ -21,7 +21,7 @@ interface RouteDef {
 }
 
 const GIST_ID_PATTERN = '[a-f0-9]{8,}';
-const RESERVED_ROOT_SEGMENTS = new Set(['api', 'edit', 'gist', 'input.md', 'repo', 's', 'workspaces']);
+const RESERVED_ROOT_SEGMENTS = new Set(['api', 'edit', 'gist', 'input.md', 'repo', 's', 'sandboxes', 'workspaces']);
 
 function isReservedRootSegment(value: string): boolean {
   return RESERVED_ROOT_SEGMENTS.has(value.toLowerCase());

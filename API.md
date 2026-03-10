@@ -18,6 +18,7 @@
 | `GET` | `/api/public/repos/:owner/:repo/tree?ref=...&markdown_only=...` | Lists files from a public repo tree |
 | `GET` | `/api/share/repo-file/:token` | Resolves a private repo-file share token |
 | `GET` | `/api/ai/models` | Lists available Reader AI models (requires server config) |
+| `GET` | `/api/sandboxes/health` | Returns Open Composer sandbox/composer capabilities |
 
 ### Authenticated (requires `input_session_id` cookie)
 
@@ -37,6 +38,19 @@
 | `GET` | `/api/github-app/installations/:id/repos/:owner/:repo/tree?ref=...&markdown_only=...` | Lists files from an installed repo tree |
 | `POST` | `/api/share/repo-file` | Creates a private share token for an installed markdown file |
 | `POST` | `/api/ai/chat` | Streams Reader AI chat completions for markdown content |
+| `GET` | `/api/sandboxes/session` | Returns authenticated Open Composer session details |
+| `GET` | `/api/sandboxes/key-status` | Returns whether a Codex API key is configured for the current user |
+| `POST` | `/api/sandboxes/key` | Stores or rotates the current user's Codex API key |
+| `DELETE` | `/api/sandboxes/key` | Deletes the current user's Codex API key |
+| `POST` | `/api/sandboxes/repos/:owner/:repo/runtime/start` | Provisions a Fly runner VM and clones the repo |
+| `POST` | `/api/sandboxes/repos/:owner/:repo/runtime/stop` | Stops the runner VM for the repo sandbox |
+| `GET` | `/api/sandboxes/repos/:owner/:repo/runtime/status` | Returns sandbox runtime state |
+| `POST` | `/api/sandboxes/repos/:owner/:repo/command` | Executes a shell command on the runner VM |
+| `GET` | `/api/sandboxes/repos/:owner/:repo/git/status` | Returns git working tree status from runner |
+| `POST` | `/api/sandboxes/repos/:owner/:repo/git/commit` | Creates a commit via Git Data API |
+| `POST` | `/api/sandboxes/repos/:owner/:repo/git/push` | Pushes the last commit to the branch ref |
+| `POST` | `/api/sandboxes/repos/:owner/:repo/git/pull` | Fetches and rebases on the runner |
+| `POST` | `/api/sandboxes/repos/:owner/:repo/compose` | Generates a command plan from a prompt |
 | `POST` | `/api/ai/apply` | Applies Reader AI staged changes to a gist or installed repo |
 | `POST` | `/api/ai/project` | Creates a temporary Reader AI project session from uploaded files |
 | `GET` | `/api/ai/project/:id/files` | Returns modified files currently staged in a project session |

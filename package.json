@@ -30,6 +30,7 @@
     "@types/diff": "^7.0.2",
     "@types/node": "^25.2.3",
     "@types/tar-stream": "^3.1.4",
+    "@types/ws": "^8.18.1",
     "ava": "^7.0.0",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
@@ -59,6 +60,7 @@
     "lucide-react": "^0.575.0",
     "marked": "^17.0.3",
     "preact": "^10.28.3",
-    "tar-stream": "^3.1.8"
+    "tar-stream": "^3.1.8",
+    "ws": "^8.19.0"
   }
 }

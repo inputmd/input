@@ -16,6 +16,11 @@ export const READER_AI_TIMEOUT_MS = 360_000;
 export const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MB
 export const SHARE_TOKEN_SECRET = process.env.SHARE_TOKEN_SECRET ?? '';
 export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
+export const SANDBOXES_KEY_ENCRYPTION_SECRET = process.env.SANDBOXES_KEY_ENCRYPTION_SECRET ?? '';
+
+export const FLY_API_TOKEN = process.env.FLY_API_TOKEN ?? '';
+export const FLY_RUNNER_APP = process.env.FLY_RUNNER_APP ?? '';
+export const RUNNER_AUTH_TOKEN = process.env.RUNNER_AUTH_TOKEN ?? '';
 const shareTokenTtlSecondsRaw = Number.parseInt(process.env.SHARE_TOKEN_TTL_SECONDS ?? '604800', 10);
 export const SHARE_TOKEN_TTL_SECONDS =
   Number.isFinite(shareTokenTtlSecondsRaw) && shareTokenTtlSecondsRaw > 0 ? shareTokenTtlSecondsRaw : 604800;

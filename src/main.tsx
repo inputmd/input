@@ -3,6 +3,7 @@ import { App } from './app';
 import { DialogProvider } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/ToastProvider';
+import { SandboxesApp } from './sandboxes/App';
 import '@fontsource/source-code-pro/400.css';
 import '@fontsource/source-code-pro/700.css';
 import '@fontsource-variable/inter/index.css';
@@ -16,13 +17,24 @@ import './styles/reader_ai.css';
 import './styles/documents.css';
 import './styles/dialog.css';
 
-render(
-  <ErrorBoundary fallbackMessage="The app failed to load.">
-    <DialogProvider>
-      <ToastProvider>
-        <App />
-      </ToastProvider>
-    </DialogProvider>
-  </ErrorBoundary>,
-  document.getElementById('app')!,
-);
+const isSandboxesPath = window.location.pathname === '/sandboxes' || window.location.pathname.startsWith('/sandboxes/');
+
+if (isSandboxesPath) {
+  render(
+    <ErrorBoundary fallbackMessage="The sandboxes app failed to load.">
+      <SandboxesApp />
+    </ErrorBoundary>,
+    document.getElementById('app')!,
+  );
+} else {
+  render(
+    <ErrorBoundary fallbackMessage="The app failed to load.">
+      <DialogProvider>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </DialogProvider>
+    </ErrorBoundary>,
+    document.getElementById('app')!,
+  );
+}

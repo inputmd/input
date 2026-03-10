@@ -1,0 +1,14 @@
+# This fly.toml is a template for runner VM configuration.
+# Runner VMs are provisioned dynamically via the Fly Machines API,
+# not deployed with `fly deploy`. This file documents the app config.
+
+app = 'input-sandbox-runner'
+primary_region = 'ewr'
+
+[build]
+
+[env]
+  PORT = '8080'
+
+# Runner VMs are created programmatically with auto_destroy = true.
+# No http_service or mounts — runner VMs are ephemeral.

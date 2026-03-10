@@ -123,6 +123,15 @@ export function WorkspacesView({
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    window.location.href = `/sandboxes/${repo.full_name}`;
+                  }}
+                  title="Open sandbox"
+                >
+                  Sandbox
+                </button>
+                <button
+                  type="button"
                   class="workspaces-repo-open-github-btn"
                   aria-label={`Open ${repo.full_name} on GitHub`}
                   title="Open on GitHub"

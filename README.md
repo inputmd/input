@@ -17,6 +17,9 @@ Multi-file markdown documents, backed by Gists & repos.
 - **Reader AI for markdown** — In rendered markdown view, toggle a
     right-side AI panel to ask questions about the current document using
     free OpenRouter models.
+- **Open Composer sandbox app** — Visit `/sandboxes` for a separate
+  browser terminal + prompt workspace experience using the same GitHub
+  login/session.
 
 ## Prerequisites
 
@@ -84,6 +87,10 @@ different port. The API server CORS allowlist uses this value.
 
 Auth sessions and remembered GitHub App installations are persisted in
 SQLite using `DATABASE_PATH` (default `./.data/input.db`).
+
+For Open Composer (`/sandboxes`), set `SANDBOXES_KEY_ENCRYPTION_SECRET`
+in `.env` so user-provided Codex API keys can be encrypted at rest.
+Without this secret, key setup and compose planning are disabled.
 
 Optional frontend cache tuning:
 
