@@ -3502,7 +3502,16 @@ export function App() {
           navigate(routePath.gistEdit(currentGistId, filePath));
         } else {
           const result = await store.createFile(filePath);
-          await refreshRepoTreeAfterWrite();
+          const createdFile: RepoDocFile = {
+            name: fileNameFromPath(result.content.path),
+            path: result.content.path,
+            sha: result.content.sha,
+            size: 0,
+          };
+          setRepoSidebarFiles((prev) => upsertRepoFile(prev, createdFile));
+          if (isMarkdownFileName(createdFile.path)) {
+            setRepoFiles((prev) => upsertRepoFile(prev, createdFile));
+          }
           setHasUnsavedChanges(false);
           if (selectedRepoRef) {
             if (isMarkdownFileName(result.content.path)) {
@@ -3519,15 +3528,7 @@ export function App() {
         void showAlert(err instanceof Error ? err.message : 'Failed to create file');
       }
     },
-    [
-      getActiveDocumentStore,
-      currentGistId,
-      navigate,
-      showAlert,
-      showRateLimitToastIfNeeded,
-      selectedRepoRef,
-      refreshRepoTreeAfterWrite,
-    ],
+    [getActiveDocumentStore, currentGistId, navigate, showAlert, showRateLimitToastIfNeeded, selectedRepoRef],
   );
 
   const handleCreateDirectory = useCallback(
@@ -3549,7 +3550,13 @@ export function App() {
             [{ path: seedFilePath, content: '' }],
             `Create folder "${directoryPath}"`,
           );
-          await refreshRepoTreeAfterWrite();
+          const createdSeedFile: RepoDocFile = {
+            name: fileNameFromPath(seedFilePath),
+            path: seedFilePath,
+            sha: '',
+            size: 0,
+          };
+          setRepoSidebarFiles((prev) => upsertRepoFile(prev, createdSeedFile));
           setHasUnsavedChanges(false);
         }
       } catch (err) {
@@ -3557,14 +3564,7 @@ export function App() {
         void showAlert(err instanceof Error ? err.message : 'Failed to create directory');
       }
     },
-    [
-      getActiveDocumentStore,
-      showAlert,
-      showRateLimitToastIfNeeded,
-      refreshRepoTreeAfterWrite,
-      installationId,
-      selectedRepo,
-    ],
+    [getActiveDocumentStore, showAlert, showRateLimitToastIfNeeded, installationId, selectedRepo],
   );
 
   const handleEditFile = useCallback(
