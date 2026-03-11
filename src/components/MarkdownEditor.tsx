@@ -94,8 +94,9 @@ export function MarkdownEditor({
   const onPasteRef = useRef(onPaste);
   onPasteRef.current = onPaste;
 
-  // Track the last content we set externally to avoid echo
-  const lastExternalContentRef = useRef(content);
+  // Track local content updates until the parent acknowledges them via props.
+  // This avoids replaying stale controlled values back into CodeMirror while typing.
+  const pendingLocalContentRef = useRef<string[]>([]);
 
   // Create editor on mount — intentionally empty deps
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect; content/readOnly/placeholder synced via separate effects
@@ -109,7 +110,10 @@ export function MarkdownEditor({
         if (isExternalSyncTransaction(tr)) return;
       }
       const doc = update.state.doc.toString();
-      lastExternalContentRef.current = doc;
+      pendingLocalContentRef.current.push(doc);
+      if (pendingLocalContentRef.current.length > 10) {
+        pendingLocalContentRef.current.shift();
+      }
       onContentChangeRef.current(doc);
     };
 
@@ -159,9 +163,19 @@ export function MarkdownEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    // Skip if we already know about this content (it came from us)
-    if (content === lastExternalContentRef.current) return;
-    lastExternalContentRef.current = content;
+    const currentDoc = view.state.doc.toString();
+    if (content === currentDoc) {
+      pendingLocalContentRef.current = [];
+      return;
+    }
+
+    const pendingIndex = pendingLocalContentRef.current.indexOf(content);
+    if (pendingIndex >= 0) {
+      pendingLocalContentRef.current = pendingLocalContentRef.current.slice(pendingIndex + 1);
+      return;
+    }
+
+    pendingLocalContentRef.current = [];
 
     const transaction = buildExternalContentSyncTransaction(view.state, content);
     if (!transaction) return;
