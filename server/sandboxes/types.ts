@@ -2,8 +2,6 @@ import type { Session } from '../types';
 
 export type SandboxesSession = Session;
 
-export type SandboxProviderId = 'openai';
-
 export type SandboxState = 'provisioning' | 'hydrating' | 'ready' | 'stopping' | 'stopped' | 'failed';
 
 export interface SandboxRecord {
@@ -31,11 +29,17 @@ export interface CommandRunResult {
   truncated: boolean;
 }
 
-export interface ComposeResult {
-  provider: SandboxProviderId;
-  model: string;
+export interface AgentStep {
+  type: 'tool_call' | 'message';
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: string;
+  text?: string;
+}
+
+export interface AgentResult {
+  steps: AgentStep[];
   summary: string;
-  suggestedCommands: string[];
-  notes: string[];
-  usedRemoteModel: boolean;
+  model: string;
+  changedFiles: string[];
 }

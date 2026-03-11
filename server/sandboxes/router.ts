@@ -21,7 +21,7 @@ function requireJsonContentType(req: http.IncomingMessage): void {
 }
 import { getRememberedInstallationForUser } from '../session';
 import { checkSandboxesRateLimit, requireSandboxesSession } from './auth';
-import { composeForRepo, composerCapabilities } from './composer';
+import { runAgent } from './agent';
 import {
   cloneRepoOnRunner,
   destroyRunnerMachine,
@@ -93,7 +93,6 @@ async function handleSession(req: http.IncomingMessage, res: http.ServerResponse
       avatar_url: session.githubAvatarUrl,
       name: session.githubName,
     },
-    capabilities: composerCapabilities(),
     key: sandboxesUserApiKeyStatus(session.githubUserId),
   });
 }
@@ -453,7 +452,7 @@ async function handleGitPull(
   json(res, 200, { ok: true });
 }
 
-async function handleCompose(
+async function handleAgentRun(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   owner: string,
@@ -463,22 +462,33 @@ async function handleCompose(
   if (!session) return;
   if (!checkSandboxesRateLimit(req, res, session)) return;
 
-  const installationId = resolveInstallationId(session);
   const repoFullName = `${owner}/${repo}`;
   const sandbox = getSandboxByUserRepo(session.githubUserId, repoFullName);
-  let branch = sandbox?.branch;
-  if (!branch) {
-    const repoInfo = await getRepoDefaultBranch(installationId, owner, repo);
-    branch = repoInfo.defaultBranch;
+  if (!sandbox || !sandbox.flyMachineId || sandbox.state !== 'ready') {
+    throw new ClientError('Sandbox is not running', 409);
   }
 
   const body = await readJson(req);
-  const prompt = typeof body?.prompt === 'string' ? body.prompt : '';
-  const model = typeof body?.model === 'string' ? body.model : null;
-  const apiKey = getSandboxesUserApiKey(session.githubUserId);
-  if (!apiKey) throw new ClientError('Codex API key required. Set your key in settings.', 428);
+  const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';
+  if (!prompt) throw new ClientError('prompt is required', 400);
+  if (prompt.length > 20_000) throw new ClientError('prompt is too long', 400);
 
-  const result = await composeForRepo(repoFullName, branch, prompt, model, apiKey);
+  const model = typeof body?.model === 'string' ? body.model : undefined;
+  const apiKey = getSandboxesUserApiKey(session.githubUserId);
+  if (!apiKey) throw new ClientError('API key required. Set your key in settings.', 428);
+
+  touchSandboxActivity(sandbox.id);
+
+  const result = await runAgent({
+    machineId: sandbox.flyMachineId,
+    repoFullName,
+    branch: sandbox.branch,
+    prompt,
+    model,
+    apiKey,
+  });
+
+  touchSandboxActivity(sandbox.id);
   json(res, 200, { result });
 }
 
@@ -499,7 +509,7 @@ export async function handleSandboxesApiRequest(
     // Global endpoints
     if (pathname === '/api/sandboxes/health' && req.method === 'GET') {
       if (!checkSandboxesRateLimit(req, res, null)) return true;
-      json(res, 200, { ok: true, capabilities: composerCapabilities() });
+      json(res, 200, { ok: true });
       return true;
     }
 
@@ -560,8 +570,8 @@ export async function handleSandboxesApiRequest(
         await handleGitPull(req, res, owner, repo);
         return true;
       }
-      if (rest === 'compose' && req.method === 'POST') {
-        await handleCompose(req, res, owner, repo);
+      if (rest === 'agent/run' && req.method === 'POST') {
+        await handleAgentRun(req, res, owner, repo);
         return true;
       }
 

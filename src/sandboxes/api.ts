@@ -1,8 +1,7 @@
 import { ApiError } from '../api_error';
 import type {
+  AgentResult,
   CommandRunResult,
-  ComposeResult,
-  ComposerCapabilities,
   GitStatusResult,
   SandboxesKeyStatus,
   SandboxesSessionResponse,
@@ -50,8 +49,8 @@ export async function getSandboxesSession(): Promise<SandboxesSessionResponse> {
   }
 }
 
-export async function getSandboxesHealth(): Promise<{ ok: boolean; capabilities: ComposerCapabilities }> {
-  return apiFetch<{ ok: boolean; capabilities: ComposerCapabilities }>('/api/sandboxes/health');
+export async function getSandboxesHealth(): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>('/api/sandboxes/health');
 }
 
 export async function getSandboxesKeyStatus(): Promise<SandboxesKeyStatus> {
@@ -121,15 +120,15 @@ export async function pullSandboxChanges(owner: string, repo: string): Promise<{
   return apiFetch(`${repoBase(owner, repo)}/git/pull`, { method: 'POST' });
 }
 
-// --- Compose ---
+// --- Agent ---
 
-export async function composeSandbox(
+export async function runAgentOnSandbox(
   owner: string,
   repo: string,
   prompt: string,
   model: string,
-): Promise<ComposeResult> {
-  const payload = await apiFetch<{ result: ComposeResult }>(`${repoBase(owner, repo)}/compose`, {
+): Promise<AgentResult> {
+  const payload = await apiFetch<{ result: AgentResult }>(`${repoBase(owner, repo)}/agent/run`, {
     method: 'POST',
     body: JSON.stringify({ prompt, model }),
   });

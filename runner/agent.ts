@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
 import http from 'node:http';
+import { dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -174,6 +176,47 @@ async function handleClone(req: http.IncomingMessage, res: http.ServerResponse):
   }
 }
 
+const MAX_WRITE_BYTES = 2 * 1024 * 1024; // 2 MB per file write
+
+async function handleWrite(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let body: { path?: string; content?: string };
+  try {
+    body = JSON.parse(await readBody(req)) as { path?: string; content?: string };
+  } catch {
+    jsonResponse(res, 400, { error: 'Invalid JSON' });
+    return;
+  }
+
+  const filePath = typeof body.path === 'string' ? body.path.trim() : '';
+  const content = typeof body.content === 'string' ? body.content : '';
+
+  if (!filePath) {
+    jsonResponse(res, 400, { error: 'path is required' });
+    return;
+  }
+
+  if (Buffer.byteLength(content, 'utf8') > MAX_WRITE_BYTES) {
+    jsonResponse(res, 400, { error: 'content too large' });
+    return;
+  }
+
+  // Resolve and prevent path traversal
+  const resolved = resolve(WORK_DIR, filePath);
+  if (!resolved.startsWith(WORK_DIR + '/') && resolved !== WORK_DIR) {
+    jsonResponse(res, 400, { error: 'invalid path — must be within workspace' });
+    return;
+  }
+
+  try {
+    await mkdir(dirname(resolved), { recursive: true });
+    await writeFile(resolved, content, 'utf8');
+    jsonResponse(res, 200, { ok: true });
+  } catch (err) {
+    const e = err as Error;
+    jsonResponse(res, 500, { error: `Write failed: ${e.message}` });
+  }
+}
+
 async function handleGitStatus(_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   try {
     const [branchResult, statusResult, headResult] = await Promise.all([
@@ -221,6 +264,11 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/clone' && req.method === 'POST') {
       await handleClone(req, res);
+      return;
+    }
+
+    if (pathname === '/write' && req.method === 'POST') {
+      await handleWrite(req, res);
       return;
     }
 

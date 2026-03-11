@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import './styles.css';
 import { ApiError } from '../api_error';
 import {
   commitSandboxChanges,
-  composeSandbox,
   deleteSandboxesKey,
   getSandboxesHealth,
   getSandboxesKeyStatus,
@@ -12,14 +11,16 @@ import {
   getSandboxRuntimeStatus,
   pullSandboxChanges,
   pushSandboxChanges,
+  runAgentOnSandbox,
   runSandboxCommand,
   setSandboxesKey,
   startSandboxRuntime,
   stopSandboxRuntime,
 } from './api';
 import type {
+  AgentResult,
+  AgentStep,
   CommandRunResult,
-  ComposeResult,
   SandboxesKeyStatus,
   SandboxesSessionResponse,
   SandboxRecord,
@@ -58,21 +59,47 @@ function stateLabel(state: SandboxState): string {
   return labels[state] ?? state;
 }
 
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}...`;
+}
+
+function AgentStepView({ step }: { step: AgentStep }) {
+  if (step.type === 'message') {
+    return <pre class="agent-step agent-message">{step.text}</pre>;
+  }
+  const inputSummary =
+    step.toolName === 'write_file'
+      ? String(step.toolInput?.path ?? '')
+      : step.toolName === 'read_file'
+        ? String(step.toolInput?.path ?? '')
+        : String(step.toolInput?.command ?? '');
+  return (
+    <div class="agent-step agent-tool-call">
+      <div class="agent-tool-header">
+        [{step.toolName}] {inputSummary}
+      </div>
+      {step.toolOutput ? <pre class="agent-tool-output">{truncate(step.toolOutput, 2000)}</pre> : null}
+    </div>
+  );
+}
+
 export function SandboxesApp() {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<SandboxesSessionResponse>({ authenticated: false });
   const [sandbox, setSandbox] = useState<SandboxRecord | null>(null);
   const [command, setCommand] = useState('ls -la');
   const [commandRunning, setCommandRunning] = useState(false);
-  const [composing, setComposing] = useState(false);
+  const [agentRunning, setAgentRunning] = useState(false);
   const [starting, setStarting] = useState(false);
   const [logs, setLogs] = useState<TerminalLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Compose state
+  // Agent state
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState('gpt-5-mini');
-  const [composeResult, setComposeResult] = useState<ComposeResult | null>(null);
+  const [model, setModel] = useState('gpt-4.1-mini');
+  const [agentResult, setAgentResult] = useState<AgentResult | null>(null);
+  const agentResultRef = useRef<HTMLElement>(null);
 
   // Git state
   const [changedFiles, setChangedFiles] = useState<string[]>([]);
@@ -86,11 +113,11 @@ export function SandboxesApp() {
 
   const repoParts = parseRepoFromPath(window.location.pathname);
 
-  // Poll for state transitions when sandbox is in a transitional state
-  // (e.g. provisioning/hydrating after a page reload during start, or stopping)
+  // Poll for state transitions
   useEffect(() => {
     if (!repoParts || !sandbox) return;
-    const transitional = sandbox.state === 'provisioning' || sandbox.state === 'hydrating' || sandbox.state === 'stopping';
+    const transitional =
+      sandbox.state === 'provisioning' || sandbox.state === 'hydrating' || sandbox.state === 'stopping';
     if (!transitional) return;
 
     const interval = setInterval(async () => {
@@ -117,11 +144,8 @@ export function SandboxesApp() {
   useEffect(() => {
     void (async () => {
       try {
-        const [sessionResponse, health] = await Promise.all([getSandboxesSession(), getSandboxesHealth()]);
-        setSession({
-          ...sessionResponse,
-          capabilities: sessionResponse.capabilities ?? health.capabilities,
-        });
+        const [sessionResponse] = await Promise.all([getSandboxesSession(), getSandboxesHealth()]);
+        setSession(sessionResponse);
         if (sessionResponse.authenticated) {
           const currentKeyStatus = sessionResponse.key ?? (await getSandboxesKeyStatus());
           setKeyStatus(currentKeyStatus);
@@ -137,6 +161,13 @@ export function SandboxesApp() {
       }
     })();
   }, []);
+
+  // Scroll agent results into view when they arrive
+  useEffect(() => {
+    if (agentResult && agentResultRef.current) {
+      agentResultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [agentResult]);
 
   const appendLog = (entry: Omit<TerminalLogEntry, 'id'>): void => {
     setLogs((prev) => [...prev, { id: nextLogId(), ...entry }].slice(-500));
@@ -195,21 +226,25 @@ export function SandboxesApp() {
     }
   };
 
-  const onCompose = async (): Promise<void> => {
+  const onRunAgent = async (): Promise<void> => {
     if (!repoParts || !prompt.trim()) return;
     if (!keyStatus.configured) {
-      setError('Set your Codex API key before composing.');
+      setError('Set your OpenAI API key before running the agent.');
       return;
     }
     setError(null);
-    setComposing(true);
+    setAgentRunning(true);
+    setAgentResult(null);
     try {
-      const result = await composeSandbox(repoParts.owner, repoParts.repo, prompt, model);
-      setComposeResult(result);
+      const result = await runAgentOnSandbox(repoParts.owner, repoParts.repo, prompt, model);
+      setAgentResult(result);
+      if (result.changedFiles.length > 0) {
+        setChangedFiles(result.changedFiles);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to compose');
+      setError(err instanceof Error ? err.message : 'Agent failed');
     } finally {
-      setComposing(false);
+      setAgentRunning(false);
     }
   };
 
@@ -293,13 +328,12 @@ export function SandboxesApp() {
   };
 
   const onDeleteApiKey = async (): Promise<void> => {
-    if (!window.confirm('Delete your stored Codex API key?')) return;
+    if (!window.confirm('Delete your stored API key?')) return;
     setError(null);
     setKeySaving(true);
     try {
       const status = await deleteSandboxesKey();
       setKeyStatus(status);
-      setComposeResult(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete API key');
     } finally {
@@ -316,19 +350,8 @@ export function SandboxesApp() {
   }
 
   if (!repoParts) {
-    return (
-      <main class="sandboxes-root">
-        <section class="sandboxes-empty">
-          <h1>Sandbox</h1>
-          <p>
-            Navigate to <code>/sandboxes/:owner/:repo</code> to open a repository sandbox.
-          </p>
-          <p>
-            Or go to <a href="/workspaces">My Repos</a> and click "Sandbox".
-          </p>
-        </section>
-      </main>
-    );
+    window.location.replace('/workspaces');
+    return null;
   }
 
   if (!session.authenticated) {
@@ -365,7 +388,9 @@ export function SandboxesApp() {
           </p>
         </div>
         <div class="sandboxes-meta">
-          <span>Codex key: {keyStatus.configured ? `configured (${keyStatus.masked ?? ''})` : 'not configured'}</span>
+          <span>
+            API key: {keyStatus.configured ? `configured (${keyStatus.masked ?? ''})` : 'not configured'}
+          </span>
         </div>
       </header>
 
@@ -386,7 +411,7 @@ export function SandboxesApp() {
             )}
           </div>
 
-          <h2>Codex API Key</h2>
+          <h2>OpenAI API Key</h2>
           <div class="sandboxes-key-box">
             <div class="sandboxes-inline">
               <input
@@ -409,59 +434,38 @@ export function SandboxesApp() {
               </button>
             </div>
             <small class="sandboxes-muted">
-              {keyStatus.configured ? `Stored (${keyStatus.masked ?? 'configured'}).` : 'Required for Compose.'}
+              {keyStatus.configured
+                ? `Stored (${keyStatus.masked ?? 'configured'}).`
+                : 'Required to run the coding agent.'}
             </small>
           </div>
 
-          <h2>Compose</h2>
-          <textarea
-            class="sandboxes-textarea"
-            value={prompt}
-            onInput={(event) => setPrompt((event.target as HTMLTextAreaElement).value)}
-            placeholder="Describe what you want to do in this repo."
-          />
-          <div class="sandboxes-inline">
-            <input
-              type="text"
-              value={model}
-              onInput={(event) => setModel((event.target as HTMLInputElement).value)}
-              placeholder="Model"
-            />
-            <button
-              type="button"
-              class="sandboxes-button"
-              onClick={onCompose}
-              disabled={composing || !keyStatus.configured}
-            >
-              {composing ? 'Composing...' : 'Compose'}
-            </button>
-          </div>
-
-          {composeResult ? (
-            <article class="sandboxes-card">
-              <h3>{composeResult.summary}</h3>
-              <p>
-                Provider: {composeResult.provider} | Model: {composeResult.model}
-              </p>
-              <h4>Suggested Commands</h4>
-              <ul>
-                {composeResult.suggestedCommands.map((item) => (
-                  <li key={item}>
-                    <code>{item}</code>
-                  </li>
-                ))}
-              </ul>
-              {composeResult.notes.length ? (
-                <>
-                  <h4>Notes</h4>
-                  <ul>
-                    {composeResult.notes.map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
-                  </ul>
-                </>
-              ) : null}
-            </article>
+          {isReady ? (
+            <>
+              <h2>Agent</h2>
+              <textarea
+                class="sandboxes-textarea"
+                value={prompt}
+                onInput={(event) => setPrompt((event.target as HTMLTextAreaElement).value)}
+                placeholder="Describe what you want the agent to do in this repo."
+              />
+              <div class="sandboxes-inline">
+                <input
+                  type="text"
+                  value={model}
+                  onInput={(event) => setModel((event.target as HTMLInputElement).value)}
+                  placeholder="Model"
+                />
+                <button
+                  type="button"
+                  class="sandboxes-button"
+                  onClick={onRunAgent}
+                  disabled={agentRunning || !keyStatus.configured || !prompt.trim()}
+                >
+                  {agentRunning ? 'Running...' : 'Run Agent'}
+                </button>
+              </div>
+            </>
           ) : null}
         </aside>
 
@@ -498,6 +502,31 @@ export function SandboxesApp() {
               {isActive ? stateLabel(sandbox!.state) : 'Start the sandbox to run commands.'}
             </p>
           )}
+
+          {agentResult ? (
+            <section class="sandboxes-agent-result" ref={agentResultRef}>
+              <h3>Agent Result ({agentResult.model})</h3>
+              <div class="agent-steps">
+                {agentResult.steps.map((step, i) => (
+                  <AgentStepView key={i} step={step} />
+                ))}
+              </div>
+              {agentResult.changedFiles.length > 0 ? (
+                <div class="agent-changed-files">
+                  <h4>
+                    {agentResult.changedFiles.length} file{agentResult.changedFiles.length !== 1 ? 's' : ''} changed
+                  </h4>
+                  <ul>
+                    {agentResult.changedFiles.map((f) => (
+                      <li key={f}>
+                        <code>{f}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
         </section>
 
         {isReady ? (

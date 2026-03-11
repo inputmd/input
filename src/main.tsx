@@ -17,9 +17,12 @@ import './styles/reader_ai.css';
 import './styles/documents.css';
 import './styles/dialog.css';
 
-const isSandboxesPath = window.location.pathname === '/sandboxes' || window.location.pathname.startsWith('/sandboxes/');
+const isSandboxesPath = window.location.pathname.startsWith('/sandboxes/');
 
-if (isSandboxesPath) {
+// Bare /sandboxes has no repo context — redirect to workspaces where Sandbox buttons live
+if (window.location.pathname === '/sandboxes' || window.location.pathname === '/sandboxes/') {
+  window.location.replace('/workspaces');
+} else if (isSandboxesPath) {
   render(
     <ErrorBoundary fallbackMessage="The sandboxes app failed to load.">
       <SandboxesApp />

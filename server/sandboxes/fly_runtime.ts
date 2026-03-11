@@ -162,6 +162,25 @@ async function runOnRunner(
   return (await res.json()) as CommandRunResult;
 }
 
+export async function writeFileOnRunner(
+  machineId: string,
+  filePath: string,
+  content: string,
+): Promise<void> {
+  const url = `${runnerBaseUrl(machineId)}/write`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: runnerHeaders(),
+    body: JSON.stringify({ path: filePath, content }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new ClientError(`Failed to write file on runner: ${text || 'unknown error'}`, 502);
+  }
+}
+
 export async function cloneRepoOnRunner(
   machineId: string,
   repoUrl: string,

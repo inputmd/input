@@ -200,6 +200,84 @@
   text-align: center;
 }
 
+/* Agent result display */
+.sandboxes-agent-result {
+  margin-top: 0.7rem;
+  border: 1px solid rgba(20, 33, 61, 0.15);
+  border-radius: 10px;
+  padding: 0.65rem;
+  background: #fff;
+}
+
+.sandboxes-agent-result h3 {
+  margin: 0 0 0.5rem;
+}
+
+.agent-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.agent-step {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.agent-message {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f0f4f8;
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+
+.agent-tool-call {
+  border: 1px solid rgba(20, 33, 61, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.agent-tool-header {
+  background: #e8edf2;
+  padding: 0.35rem 0.5rem;
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: #14213d;
+}
+
+.agent-tool-output {
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  background: #0b132b;
+  color: #dbeafe;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.agent-changed-files {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(20, 33, 61, 0.1);
+}
+
+.agent-changed-files h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+.agent-changed-files ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.agent-changed-files li {
+  font-size: 0.8rem;
+}
+
 @media (max-width: 1140px) {
   .sandboxes-grid {
     grid-template-columns: 1fr;

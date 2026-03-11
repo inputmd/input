@@ -8,10 +8,6 @@ export interface SandboxesUser {
   name: string | null;
 }
 
-export interface ComposerCapabilities {
-  requiresUserKey: true;
-}
-
 export interface SandboxesKeyStatus {
   configured: boolean;
   masked: string | null;
@@ -20,7 +16,6 @@ export interface SandboxesKeyStatus {
 export interface SandboxesSessionResponse {
   authenticated: boolean;
   user?: SandboxesUser;
-  capabilities?: ComposerCapabilities;
   key?: SandboxesKeyStatus;
 }
 
@@ -50,13 +45,19 @@ export interface CommandRunResult {
   truncated: boolean;
 }
 
-export interface ComposeResult {
-  provider: 'openai';
-  model: string;
+export interface AgentStep {
+  type: 'tool_call' | 'message';
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: string;
+  text?: string;
+}
+
+export interface AgentResult {
+  steps: AgentStep[];
   summary: string;
-  suggestedCommands: string[];
-  notes: string[];
-  usedRemoteModel: boolean;
+  model: string;
+  changedFiles: string[];
 }
 
 export interface GitStatusResult {
