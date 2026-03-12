@@ -48,6 +48,56 @@ interface ReaderAiPanelProps {
   onToggleRepoMode: (enabled: boolean) => void;
 }
 
+const INLINE_SPINNER_HOST_TAGS = new Set(['P', 'LI', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TD', 'TH']);
+
+function getLastMeaningfulNode(root: ParentNode): ChildNode | null {
+  for (let node = root.lastChild; node; node = node.previousSibling) {
+    if (node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()) continue;
+    return node;
+  }
+  return null;
+}
+
+function findInlineSpinnerHost(root: HTMLElement): HTMLElement {
+  let current: ChildNode | null = getLastMeaningfulNode(root);
+
+  while (current) {
+    if (current.nodeType === Node.TEXT_NODE) return root;
+    if (!(current instanceof HTMLElement)) return root;
+    if (INLINE_SPINNER_HOST_TAGS.has(current.tagName)) {
+      const nested = getLastMeaningfulNode(current);
+      if (!nested) return current;
+      current = nested;
+      continue;
+    }
+    const nested = getLastMeaningfulNode(current);
+    if (!nested) return root;
+    current = nested;
+  }
+
+  return root;
+}
+
+function ReaderAiAssistantMessage({ content, streaming }: { content: string; streaming: boolean }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    root.innerHTML = parseMarkdownToHtml(content);
+    if (!streaming) return;
+
+    const spinner = document.createElement('span');
+    spinner.className = 'reader-ai-thinking-spinner reader-ai-thinking-spinner--inline';
+    spinner.setAttribute('aria-hidden', 'true');
+
+    const host = findInlineSpinnerHost(root);
+    host.append(' ', spinner);
+  }, [content, streaming]);
+
+  return <div ref={contentRef} class="reader-ai-message-content rendered-markdown" />;
+}
+
 function displayModelName(name: string): string {
   return name.replace(/\s+\(free\)\s*$/i, '');
 }
@@ -536,11 +586,9 @@ export function ReaderAiPanel({
                     <span>{thinkingSeconds >= 5 ? `Thinking... (${thinkingSeconds} seconds)` : 'Thinking...'}</span>
                   </div>
                 ) : (
-                  <div
-                    class="reader-ai-message-content rendered-markdown"
-                    dangerouslySetInnerHTML={{
-                      __html: parseMarkdownToHtml(message.content),
-                    }}
+                  <ReaderAiAssistantMessage
+                    content={message.content}
+                    streaming={sending && index === messageCount - 1}
                   />
                 )
               ) : editingIndex === index ? (

@@ -339,6 +339,12 @@
   animation: reader-ai-thinking-spin 0.8s linear infinite;
 }
 
+.reader-ai-thinking-spinner--inline {
+  display: inline-block;
+  vertical-align: text-bottom;
+  margin-left: 2px;
+}
+
 @keyframes reader-ai-thinking-spin {
   to {
     transform: rotate(360deg);
