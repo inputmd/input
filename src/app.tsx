@@ -4349,11 +4349,10 @@ export function App() {
       return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextListPath(file.path)) : files;
     }
     const sourceFiles = repoSidebarFiles;
-    if (sourceFiles.length > 0 && currentRepoDocPath) {
-      const currentPath = currentRepoDocPath;
+    if (sourceFiles.length > 0) {
       const files = sourceFiles.map((f) => ({
         path: f.path,
-        active: f.path === currentPath,
+        active: f.path === currentRepoDocPath,
         editable: isMarkdownFileName(f.path),
         deemphasized: !isSidebarTextFileName(f.path),
         size: f.size,
@@ -4371,14 +4370,14 @@ export function App() {
       };
     }
     const sourceFiles = repoSidebarFiles.filter((file) => isVisibleSidebarFilePath(file.path));
-    if (sourceFiles.length > 0 && currentRepoDocPath) {
+    if (sourceFiles.length > 0) {
       return {
         text: sourceFiles.filter((file) => isSidebarTextFileName(file.path)).length,
         total: sourceFiles.length,
       };
     }
     return { text: 0, total: 0 };
-  }, [gistFiles, repoSidebarFiles, currentRepoDocPath]);
+  }, [gistFiles, repoSidebarFiles]);
   const sidebarWorkspaceKey = useMemo(() => {
     if (currentGistId) return `gist:${currentGistId}`;
     if (repoAccessMode === 'installed' && selectedRepo) return `repo:${selectedRepo}`;
@@ -4612,9 +4611,7 @@ export function App() {
     return `${prefix} ${formatted}`;
   }, [currentGistCreatedAt, currentGistUpdatedAt, showHeaderShare]);
   const inRepoContext =
-    (activeView === 'content' || activeView === 'edit') &&
-    repoAccessMode === 'installed' &&
-    (currentRepoDocPath !== null || (editingBackend === 'repo' && selectedRepo !== null));
+    (activeView === 'content' || activeView === 'edit') && repoAccessMode === 'installed' && selectedRepo !== null;
   const showHeaderLeftLoading = activeView === 'loading' && Boolean(user);
   const goToWorkspaceTarget = useMemo<GoToWorkspaceTarget | null>(() => {
     if (route.name !== 'repofile' || !user || !installationId) return null;
