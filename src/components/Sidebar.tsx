@@ -285,6 +285,11 @@ function parentFolderPath(path: string): string {
   return slash === -1 ? '' : path.slice(0, slash);
 }
 
+function fileNameFromPath(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash === -1 ? path : path.slice(slash + 1);
+}
+
 function resolveCreatePath(parentPath: string, input: string): string {
   const folder = sanitizePathInput(parentPath);
   const name = sanitizeCreateNameInput(input);
@@ -545,7 +550,7 @@ export function Sidebar({
     }
     cancelRenameOnBlurRef.current = false;
     setRenamingTarget(target);
-    setRenameValue(target.path);
+    setRenameValue(target.kind === 'file' ? fileNameFromPath(target.path) : target.path);
   };
 
   const toggleFolder = (path: string) => {
