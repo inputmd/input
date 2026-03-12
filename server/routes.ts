@@ -119,6 +119,7 @@ interface ReaderAiModelEntry {
  */
 const FEATURED_MODEL_PATTERNS = [
   'nemotron 3 nano 30b',
+  'nemotron 3 super',
   'step-3.5-flash',
   'step 3.5 flash',
   'trinity mini',
