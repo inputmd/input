@@ -783,6 +783,8 @@ function viewFromRoute(route: Route): ActiveView {
   switch (route.name) {
     case 'workspaces':
       return 'workspaces';
+    case 'repodocuments':
+      return isSubdomainMode() ? 'content' : 'workspaces';
     case 'repofile':
     case 'sharefile':
     case 'gist':
