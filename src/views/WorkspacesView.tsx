@@ -1,4 +1,5 @@
-import { ExternalLink, Globe, Lock } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { Ellipsis, ExternalLink, Globe, Lock } from 'lucide-react';
 import { useEffect, useRef } from 'preact/hooks';
 import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
@@ -78,11 +79,31 @@ export function WorkspacesView({
         </div>
         <div class="workspaces-actions">
           <button type="button" class="workspaces-connect-btn" onClick={() => void onConnect()}>
-            Configure
+            Configure Repos
           </button>
-          <button type="button" onClick={() => void onDisconnect()} disabled={!installationId}>
-            Disconnect
-          </button>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                type="button"
+                class="doc-actions-menu-trigger"
+                aria-label="Workspace actions"
+                title="Workspace actions"
+                disabled={!installationId}
+              >
+                <Ellipsis size={16} aria-hidden="true" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content class="doc-actions-menu-content" sideOffset={6} align="end">
+                <DropdownMenu.Item
+                  class="doc-actions-menu-item doc-actions-menu-item-danger"
+                  onSelect={() => void onDisconnect()}
+                >
+                  Disconnect all repos
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         </div>
       </div>
       {repoListLoading ? (
