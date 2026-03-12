@@ -2712,6 +2712,7 @@ export function App() {
       let received = false;
       let receivedStagedChanges = false;
       let separateNextTurnOutput = false;
+      let streamErrorMessage: string | null = null;
 
       let effectiveProjectId = readerAiProjectId;
       const projectCurrentDocPath =
@@ -2849,6 +2850,10 @@ export function App() {
             onTurnEnd: (_iteration, reason) => {
               if (reason === 'tool_calls') separateNextTurnOutput = true;
             },
+            onStreamError: (message) => {
+              streamErrorMessage = message;
+              setReaderAiError(message);
+            },
             onDelta: (delta) => {
               if (!delta) return;
               received = true;
@@ -2880,7 +2885,8 @@ export function App() {
           activeView === 'edit',
         );
         if (!received) {
-          const fallback = receivedStagedChanges ? 'Done — see the proposed changes above.' : 'No response.';
+          const fallback =
+            streamErrorMessage ?? (receivedStagedChanges ? 'Done — see the proposed changes above.' : 'No response.');
           setReaderAiMessages((current) => {
             if (current.length === 0) {
               return assistantEdited
