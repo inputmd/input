@@ -2103,7 +2103,7 @@ export function App() {
               setCurrentRepoDocSha(null);
               setRepoFiles([]);
               setRepoSidebarFiles([]);
-              setEditTitle(cacheFile.filename.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
+              setEditTitle(fileNameFromPath(cacheFile.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
               setEditContent(cacheFile.content ?? '');
               setHasUnsavedChanges(false);
               setViewPhase(null);
@@ -2132,7 +2132,7 @@ export function App() {
             setCurrentRepoDocSha(null);
             setRepoFiles([]);
             setRepoSidebarFiles([]);
-            setEditTitle(file.filename.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
+            setEditTitle(fileNameFromPath(file.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
             setEditContent(file.content ?? '');
             setViewPhase(null);
           } catch (err) {
@@ -3496,6 +3496,36 @@ export function App() {
     [activeView, readerAiEditLocked, hasUnsavedChanges, navigateToSidebarFile, showConfirm, showFailureToast],
   );
 
+  const handleClearSelectedFile = useCallback(async () => {
+    if (!currentRepoDocPath && !currentFileName) return;
+    if (activeView === 'edit' && readerAiEditLocked) {
+      showFailureToast('Reader AI is working. Wait for it to finish before clearing the current file.');
+      return;
+    }
+    if (activeView === 'edit' && hasUnsavedChanges) {
+      const discard = await showConfirm('You have unsaved changes. Discard them and stop editing this file?');
+      if (!discard) return;
+    }
+    setHasUnsavedChanges(false);
+    setCurrentRepoDocPath(null);
+    setCurrentRepoDocSha(null);
+    setCurrentFileName(null);
+    setEditingBackend(null);
+    setEditTitle('');
+    setEditContent('');
+    clearRenderedContent();
+    setViewPhase(null);
+  }, [
+    activeView,
+    clearRenderedContent,
+    currentFileName,
+    currentRepoDocPath,
+    hasUnsavedChanges,
+    readerAiEditLocked,
+    showConfirm,
+    showFailureToast,
+  ]);
+
   const handleCreateFile = useCallback(
     async (filePath: string) => {
       try {
@@ -4709,6 +4739,9 @@ export function App() {
               fileFilter={sidebarFileFilter}
               onFileFilterChange={setSidebarFileFilter}
               onSelectFile={handleSelectFile}
+              onClearSelection={() => {
+                void handleClearSelectedFile();
+              }}
               onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}
               onViewFolderOnGitHub={handleViewFolderOnGitHub}

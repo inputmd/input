@@ -34,6 +34,7 @@ interface SidebarProps {
   disabled?: boolean;
   readOnly?: boolean;
   onSelectFile: (path: string) => void;
+  onClearSelection?: () => void;
   onEditFile: (path: string) => void;
   onViewOnGitHub: (path: string) => void;
   onViewFolderOnGitHub: (path: string) => void;
@@ -360,6 +361,7 @@ export function Sidebar({
   disabled = false,
   readOnly = false,
   onSelectFile,
+  onClearSelection,
   onEditFile,
   onViewOnGitHub,
   onViewFolderOnGitHub,
@@ -705,6 +707,7 @@ export function Sidebar({
     if (event.target !== event.currentTarget) return;
     setCreateAtRoot(true);
     setFocusedPath(null);
+    onClearSelection?.();
   };
 
   const renderFolderRow = (folder: SidebarFolderNode, depth: number) => {
