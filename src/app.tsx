@@ -2783,10 +2783,10 @@ export function App() {
                 read_file: 'Reading file…',
                 search_files: 'Searching files…',
                 list_files: 'Listing files…',
-                edit_file: 'Editing file…',
-                edit_document: 'Editing document…',
-                create_file: 'Creating file…',
-                delete_file: 'Deleting file…',
+                propose_edit_file: 'Proposing file edit…',
+                propose_edit_document: 'Proposing document edit…',
+                propose_create_file: 'Proposing file creation…',
+                propose_delete_file: 'Proposing file deletion…',
                 task: 'Running subagent…',
               };
               setReaderAiToolStatus(labels[event.name] ?? `Running ${event.name}…`);

@@ -165,9 +165,9 @@ export const READER_AI_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'edit_document',
+      name: 'propose_edit_document',
       description:
-        'Edit the current document. Supports exact-text replacement (old_text/new_text), line-range replacement (start_line/end_line/new_text), and batched edits via edits[]. Set dry_run=true to preview without applying. Returns structured JSON including diff and errors.',
+        'Propose an edit to the current document. Supports exact-text replacement (old_text/new_text), line-range replacement (start_line/end_line/new_text), and batched edits via edits[]. Set dry_run=true to preview without staging. Proposed changes are shown to the user for approval or rejection. Returns structured JSON including diff and errors.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -214,7 +214,7 @@ export const READER_AI_TOOLS = [
     function: {
       name: 'task',
       description:
-        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. an Electric Monk that must believe a position fully, a research agent, a reviewer). The subagent has access to read_document and search_document for the same document. Multiple task calls in the same turn run in parallel (up to 4).',
+        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this only when the user explicitly asks for a subagent-style workflow or a skill/instruction explicitly requires one, or when a distinct specialized role is clearly necessary. The subagent has access to read_document and search_document for the same document. Multiple task calls in the same turn run in parallel (up to 4).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -312,9 +312,9 @@ export const READER_AI_PROJECT_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'edit_file',
+      name: 'propose_edit_file',
       description:
-        'Make a surgical edit to a file. Finds the exact old_text in the file and replaces it with new_text. The old_text must match exactly (including whitespace and indentation). Returns a unified diff of the change. Always read_file first to see the current content before editing.',
+        'Propose a surgical edit to a file. Finds the exact old_text in the file and replaces it with new_text. The old_text must match exactly (including whitespace and indentation). Returns a unified diff of the staged proposal. The user is prompted to approve or reject it. Always read_file first to see the current content before proposing an edit.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -329,9 +329,9 @@ export const READER_AI_PROJECT_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'create_file',
+      name: 'propose_create_file',
       description:
-        'Create a new file in the project. Fails if the file already exists — use edit_file to modify existing files.',
+        'Propose creating a new file in the project. The user is prompted to approve or reject it. Fails if the file already exists — use propose_edit_file to modify existing files.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -345,8 +345,8 @@ export const READER_AI_PROJECT_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'delete_file',
-      description: 'Delete a file from the project.',
+      name: 'propose_delete_file',
+      description: 'Propose deleting a file from the project. The user is prompted to approve or reject it.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -361,7 +361,7 @@ export const READER_AI_PROJECT_TOOLS = [
     function: {
       name: 'task',
       description:
-        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this for tasks that need a fresh perspective or a dedicated role (e.g. a reviewer, a research agent). In project mode, subagents can use the same project tools and stage edits in the same shared staging area. Multiple task calls in the same turn run in parallel (up to 4).',
+        'Spawn an independent subagent with its own system prompt and context. The subagent runs a separate LLM session and returns its full output. Use this only when the user explicitly asks for a subagent-style workflow or a skill/instruction explicitly requires one, or when a distinct specialized role is clearly necessary. In project mode, subagents can use the same project tools and stage edits in the same shared staging area. Multiple task calls in the same turn run in parallel (up to 4).',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -384,7 +384,7 @@ export const READER_AI_PROJECT_TOOLS = [
 
 // Subagent tools — subset available to task subagents (no nested task spawning)
 export const READER_AI_SUBAGENT_TOOLS = READER_AI_TOOLS.filter(
-  (t) => t.function.name !== 'task' && t.function.name !== 'edit_document',
+  (t) => t.function.name !== 'task' && t.function.name !== 'propose_edit_document',
 );
 export const READER_AI_PROJECT_SUBAGENT_TOOLS = READER_AI_PROJECT_TOOLS.filter((t) => t.function.name !== 'task');
 
@@ -547,7 +547,7 @@ export class StagedChanges {
 
   createFile(path: string, content: string): string {
     if (this.workingFiles.has(path)) {
-      return `(file already exists: ${path} — use edit_file to modify it)`;
+      return `(file already exists: ${path} — use propose_edit_file to modify it)`;
     }
     this.workingFiles.set(path, content);
     const diff = generateUnifiedDiff(path, '', content);
@@ -611,7 +611,7 @@ interface ReaderAiEditDocumentOp {
 
 interface ReaderAiEditDocumentFailure {
   ok: false;
-  tool: 'edit_document';
+  tool: 'propose_edit_document';
   error: {
     code:
       | 'invalid_json'
@@ -628,7 +628,7 @@ interface ReaderAiEditDocumentFailure {
 
 interface ReaderAiEditDocumentSuccess {
   ok: true;
-  tool: 'edit_document';
+  tool: 'propose_edit_document';
   dry_run: boolean;
   applied: boolean;
   path: string;
@@ -649,7 +649,7 @@ function makeEditDocumentFailure(
 ): ReaderAiEditDocumentFailure {
   return {
     ok: false,
-    tool: 'edit_document',
+    tool: 'propose_edit_document',
     error: { ...error, ...(details ? { details } : {}) },
   };
 }
@@ -877,7 +877,7 @@ export function executeReaderAiEditDocumentTool(argsJson: string, state: ReaderA
 
   const success: ReaderAiEditDocumentSuccess = {
     ok: true,
-    tool: 'edit_document',
+    tool: 'propose_edit_document',
     dry_run: dryRun,
     applied: !dryRun,
     path,
@@ -1127,23 +1127,23 @@ export function executeReaderAiProjectSyncTool(
       );
     case 'list_files':
       return executeReaderAiListFiles(workingFiles, args as { path?: string });
-    case 'edit_file': {
-      if (!stagedChanges) return '(edit_file is not available in read-only mode)';
+    case 'propose_edit_file': {
+      if (!stagedChanges) return '(propose_edit_file is not available in read-only mode)';
       const a = args as { path?: string; old_text?: string; new_text?: string };
       if (!a.path) return '(path is required)';
       if (typeof a.old_text !== 'string') return '(old_text is required)';
       if (typeof a.new_text !== 'string') return '(new_text is required)';
       return stagedChanges.editFile(a.path, a.old_text, a.new_text);
     }
-    case 'create_file': {
-      if (!stagedChanges) return '(create_file is not available in read-only mode)';
+    case 'propose_create_file': {
+      if (!stagedChanges) return '(propose_create_file is not available in read-only mode)';
       const a = args as { path?: string; content?: string };
       if (!a.path) return '(path is required)';
       if (typeof a.content !== 'string') return '(content is required)';
       return stagedChanges.createFile(a.path, a.content);
     }
-    case 'delete_file': {
-      if (!stagedChanges) return '(delete_file is not available in read-only mode)';
+    case 'propose_delete_file': {
+      if (!stagedChanges) return '(propose_delete_file is not available in read-only mode)';
       const a = args as { path?: string };
       if (!a.path) return '(path is required)';
       return stagedChanges.deleteFile(a.path);
@@ -1282,17 +1282,18 @@ export function buildReaderAiSystemPrompt(
     'You have tools available:',
     '- read_document: Read all or part of the document by line range. Returns numbered lines.',
     '- search_document: Search for text in the document (case-insensitive). Returns matching lines with context.',
-    '- edit_document: Replace exact old_text with new_text in the current document and stage the result for the user to apply.',
-    '- task: Spawn an independent subagent with its own system prompt and fresh context. The subagent can read and search the document but cannot spawn further subagents. Use this when you need a separate perspective, a dedicated role (e.g. a reviewer or advocate), or parallel research. Multiple task calls in the same response run concurrently. Each subagent returns its complete output as the tool result.',
+    '- propose_edit_document: Propose an edit to the current document. Use this whenever you want to change the document so the user can explicitly approve or reject the proposal.',
+    '- task: Spawn an independent subagent with its own system prompt and fresh context. The subagent can read and search the document but cannot spawn further subagents. Avoid this by default. Use it only when the user explicitly asks for a subagent-style workflow, a skill/instruction explicitly requires one, or a distinct specialized role is clearly necessary. Multiple task calls in the same response run concurrently. Each subagent returns its complete output as the tool result.',
     '',
     'Guidelines:',
     '- For specific questions, use search_document to find relevant sections.',
     '- Cite line numbers when referencing specific parts.',
     '- If the document content already visible contains the answer, respond directly without tools.',
-    '- If the user asks you to make a document change, use edit_document instead of only describing edits.',
+    '- If you suggest or intend any document change, call propose_edit_document instead of only describing the edit in text.',
+    '- Prefer making the proposal yourself instead of asking a subagent to do it.',
     '- If the document lacks the answer, say so plainly.',
     '- Do not use markdown tables in responses; use short headings and bullet lists instead.',
-    '- Use the task tool when a problem benefits from independent analysis by a subagent with a dedicated role or perspective.',
+    '- Do not use the task tool unless the user explicitly asks for it, a skill/instruction explicitly requires it, or a distinct specialized role is clearly necessary.',
     '- You can only see the current document. If the user asks about other files, the broader project, or the repository, begin your response with the exact marker `<<SUGGEST_PROJECT_MODE>>` (on its own line) before your reply. This signals the UI to offer the user a way to enable project-wide access. Do not mention this marker to the user or explain it.',
     '',
     ...(currentDocPath ? [`Current document path: ${currentDocPath}`, ''] : []),
@@ -1363,34 +1364,35 @@ export function buildReaderAiProjectSystemPrompt(
   }
 
   return [
-    'You are an assistant with full access to a project. You can read any file, search across the codebase, analyze the project structure, and make edits.',
+    'You are an assistant with full access to a project. You can read any file, search across the codebase, analyze the project structure, and propose edits.',
     '',
     'You have tools available:',
     '- read_file: Read a file by path. Returns line-numbered text. Use start_line/end_line for specific sections.',
     '- search_files: Search across all files for matching text (case-insensitive). Use glob to filter by file pattern.',
     '- list_files: List files in the project or a subdirectory.',
-    '- edit_file: Make a surgical edit — find exact old_text and replace with new_text. Always read_file first.',
-    '- create_file: Create a new file. Fails if the file already exists.',
-    '- delete_file: Delete a file from the project.',
-    '- task: Spawn an independent subagent for parallel or specialized work (shared staging access).',
+    '- propose_edit_file: Propose a surgical edit — find exact old_text and replace with new_text. Always read_file first. The user will be prompted to approve or reject the proposal.',
+    '- propose_create_file: Propose creating a new file. The user will be prompted to approve or reject the proposal.',
+    '- propose_delete_file: Propose deleting a file. The user will be prompted to approve or reject the proposal.',
+    '- task: Spawn an independent subagent for parallel or specialized work (shared staging access). Avoid this by default.',
     '',
     'Guidelines:',
     '- Use search_files to locate relevant code before answering questions about the project.',
     '- Use read_file to examine files in detail. Always read a file before editing it.',
-    '- For edit_file, old_text must match exactly — including whitespace and indentation.',
+    '- For propose_edit_file, old_text must match exactly — including whitespace and indentation.',
     '- Cite file paths and line numbers when referencing specific code.',
     '- If you need to understand project structure, start with list_files.',
     '- If the answer is not in the project, say so plainly.',
     '- Do not use markdown tables in responses; use short headings and bullet lists instead.',
-    '- Use the task tool when a problem benefits from independent analysis.',
+    '- If you suggest or intend a file change, use propose_edit_file, propose_create_file, or propose_delete_file instead of only describing the change in text.',
+    '- Do not use the task tool unless the user explicitly asks for it, a skill/instruction explicitly requires it, or a distinct specialized role is clearly necessary.',
     '- Prefer targeted reads and searches over reading entire large files.',
-    '- All edits are staged for user review — they are not applied until the user approves them.',
+    '- All proposed file changes are staged for user review — they are not applied until the user approves them.',
     ...(editModeCurrentDocOnly && currentDocPath
       ? [
           '- You are in focused edit mode for the current document.',
           `- Only edit this file: ${currentDocPath}`,
           '- Do not create or delete files.',
-          '- Do not delegate edits to subagents; make edits directly with edit_file.',
+          '- Do not delegate edits to subagents; make edit proposals directly with propose_edit_file.',
         ]
       : []),
     '',
@@ -1481,12 +1483,14 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
         '- read_file: Read a file by path. Returns line-numbered text.',
         '- search_files: Search across all files (case-insensitive). Use glob to filter.',
         '- list_files: List files in the project.',
-        '- edit_file: Edit file content with exact old_text/new_text replacement.',
-        '- create_file: Create a new file in the project.',
-        '- delete_file: Delete a file from the project.',
+        '- propose_edit_file: Propose a file edit with exact old_text/new_text replacement. The user will review it.',
+        '- propose_create_file: Propose creating a new file. The user will review it.',
+        '- propose_delete_file: Propose deleting a file. The user will review it.',
         '',
         `Project: ${projectFiles.length} files.`,
         '',
+        'Avoid using more subagents unless the user message explicitly asks for them or a higher-level instruction explicitly requires them.',
+        'If you suggest code changes, make them through the proposal tools so the user can review them.',
         'Complete the task described in the user message. Be thorough and detailed.',
       ].join('\n')
     : [

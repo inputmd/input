@@ -2030,7 +2030,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     tools = editModeCurrentDocOnly
       ? READER_AI_PROJECT_TOOLS.filter((tool) => {
           const name = tool.function.name;
-          return name !== 'create_file' && name !== 'delete_file' && name !== 'task';
+          return name !== 'propose_create_file' && name !== 'propose_delete_file' && name !== 'task';
         })
       : READER_AI_PROJECT_TOOLS;
   } else {
@@ -2095,10 +2095,10 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         } catch {
           // Let the tool handler return its own invalid JSON error.
         }
-        if (tc.name === 'create_file' || tc.name === 'delete_file') {
+        if (tc.name === 'propose_create_file' || tc.name === 'propose_delete_file') {
           return `(tool ${tc.name} is not available while editing the current document)`;
         }
-        if ((tc.name === 'read_file' || tc.name === 'edit_file') && args && typeof args.path === 'string') {
+        if ((tc.name === 'read_file' || tc.name === 'propose_edit_file') && args && typeof args.path === 'string') {
           if (args.path !== currentDocPath) {
             return `(tool ${tc.name} is restricted to the current document: ${currentDocPath})`;
           }
@@ -2106,7 +2106,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       }
       return executeReaderAiProjectSyncTool(tc.name, tc.arguments, resolvedProjectFiles, stagedChanges);
     }
-    if (tc.name === 'edit_document') return executeReaderAiEditDocumentTool(tc.arguments, documentEditState);
+    if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(tc.arguments, documentEditState);
     return executeReaderAiSyncTool(tc.name, tc.arguments, documentEditState.lines);
   };
 

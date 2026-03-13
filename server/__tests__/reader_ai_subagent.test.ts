@@ -319,7 +319,11 @@ test('project subagent can edit shared staged changes', async (t) => {
     callCount++;
     if (callCount === 1) {
       return toolCallStreamResponse([
-        { id: 'call_e', name: 'edit_file', arguments: '{"path":"a.txt","old_text":"hello","new_text":"HELLO"}' },
+        {
+          id: 'call_e',
+          name: 'propose_edit_file',
+          arguments: '{"path":"a.txt","old_text":"hello","new_text":"HELLO"}',
+        },
       ]);
     }
     secondCallBody = typeof init?.body === 'string' ? init.body : '';

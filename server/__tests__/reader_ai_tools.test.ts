@@ -130,7 +130,7 @@ test('read_document single line', (t) => {
 
 // ── executeReaderAiEditDocumentTool ──
 
-test('edit_document supports line-range replacement', (t) => {
+test('propose_edit_document supports line-range replacement', (t) => {
   const state = {
     source: 'a\nb\nc\nd',
     lines: ['a', 'b', 'c', 'd'],
@@ -146,7 +146,7 @@ test('edit_document supports line-range replacement', (t) => {
   t.truthy(state.stagedContent);
 });
 
-test('edit_document supports atomic batched edits', (t) => {
+test('propose_edit_document supports atomic batched edits', (t) => {
   const state = {
     source: 'one\ntwo\nthree',
     lines: ['one', 'two', 'three'],
@@ -165,7 +165,7 @@ test('edit_document supports atomic batched edits', (t) => {
   t.is(state.source, 'ONE\nTWO\nthree');
 });
 
-test('edit_document batch failures are atomic', (t) => {
+test('propose_edit_document batch failures are atomic', (t) => {
   const state = {
     source: 'alpha\nbeta',
     lines: ['alpha', 'beta'],
@@ -184,7 +184,7 @@ test('edit_document batch failures are atomic', (t) => {
   t.is(state.stagedContent, null);
 });
 
-test('edit_document dry_run previews without applying', (t) => {
+test('propose_edit_document dry_run previews without applying', (t) => {
   const state = {
     source: 'left right',
     lines: ['left right'],
@@ -201,7 +201,7 @@ test('edit_document dry_run previews without applying', (t) => {
   t.is(state.stagedContent, null);
 });
 
-test('edit_document returns structured invalid_json error', (t) => {
+test('propose_edit_document returns structured invalid_json error', (t) => {
   const state = {
     source: 'x',
     lines: ['x'],
@@ -215,7 +215,7 @@ test('edit_document returns structured invalid_json error', (t) => {
   t.is(parsed.error?.code, 'invalid_json');
 });
 
-test('edit_document returns ambiguity hints', (t) => {
+test('propose_edit_document returns ambiguity hints', (t) => {
   const state = {
     source: 'repeat\nx\nrepeat\ny\nrepeat',
     lines: ['repeat', 'x', 'repeat', 'y', 'repeat'],
@@ -334,7 +334,7 @@ test('READER_AI_TOOLS contains task tool', (t) => {
   t.true(names.includes('task'));
   t.true(names.includes('read_document'));
   t.true(names.includes('search_document'));
-  t.true(names.includes('edit_document'));
+  t.true(names.includes('propose_edit_document'));
 });
 
 test('READER_AI_SUBAGENT_TOOLS excludes task tool', (t) => {
@@ -342,7 +342,7 @@ test('READER_AI_SUBAGENT_TOOLS excludes task tool', (t) => {
   t.false(names.includes('task'));
   t.true(names.includes('read_document'));
   t.true(names.includes('search_document'));
-  t.false(names.includes('edit_document'));
+  t.false(names.includes('propose_edit_document'));
 });
 
 // ── buildReaderAiSystemPrompt ──
@@ -373,9 +373,15 @@ test('system prompt mentions task tool', (t) => {
   t.true(prompt.includes('subagent'));
 });
 
-test('system prompt mentions edit_document tool', (t) => {
+test('system prompt mentions propose_edit_document tool', (t) => {
   const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000);
-  t.true(prompt.includes('edit_document'));
+  t.true(prompt.includes('propose_edit_document'));
+});
+
+test('system prompt discourages task by default and requires proposal tools for edits', (t) => {
+  const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000);
+  t.true(prompt.includes('Do not use the task tool unless the user explicitly asks for it'));
+  t.true(prompt.includes('call propose_edit_document instead of only describing the edit in text'));
 });
 
 test('system prompt includes document info', (t) => {
@@ -641,6 +647,7 @@ test('READER_AI_PROJECT_TOOLS contains expected tools', (t) => {
 test('READER_AI_PROJECT_SUBAGENT_TOOLS excludes task', (t) => {
   const names = READER_AI_PROJECT_SUBAGENT_TOOLS.map((t) => t.function.name);
   t.true(names.includes('read_file'));
+  t.true(names.includes('propose_edit_file'));
   t.false(names.includes('task'));
 });
 
@@ -649,6 +656,7 @@ test('project system prompt includes file tree and tools', (t) => {
   t.true(prompt.includes('read_file'));
   t.true(prompt.includes('search_files'));
   t.true(prompt.includes('list_files'));
+  t.true(prompt.includes('propose_edit_file'));
   t.true(prompt.includes('task'));
   t.true(prompt.includes('README.md'));
   t.true(prompt.includes('src/index.ts'));
@@ -667,6 +675,13 @@ test('project system prompt includes focused edit guidance when enabled', (t) =>
   t.true(prompt.includes('focused edit mode'));
   t.true(prompt.includes('Only edit this file: README.md'));
   t.true(prompt.includes('Do not create or delete files'));
+  t.true(prompt.includes('Do not delegate edits to subagents'));
+});
+
+test('project system prompt discourages task by default and requires proposal tools for edits', (t) => {
+  const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, 'README.md');
+  t.true(prompt.includes('Do not use the task tool unless the user explicitly asks for it'));
+  t.true(prompt.includes('use propose_edit_file, propose_create_file, or propose_delete_file'));
 });
 
 // ── Token estimation ──
