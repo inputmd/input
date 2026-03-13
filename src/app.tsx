@@ -68,6 +68,7 @@ import {
   tryBuildRepoFilesFromCache,
 } from './github_app';
 import { useRoute } from './hooks/useRoute';
+import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
 import { parseMarkdownToHtml } from './markdown';
 import {
   applyReaderAiChanges,
@@ -923,17 +924,25 @@ async function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality
   });
 }
 
-async function maybeResizePastedImage(file: File): Promise<{ bytes: Uint8Array; extension: string; resized: boolean }> {
+async function maybeResizePastedImage(file: File): Promise<{
+  bytes: Uint8Array;
+  extension: string;
+  resized: boolean;
+  dimensions: ImageDimensions | null;
+}> {
   const originalBytes = new Uint8Array(await file.arrayBuffer());
   const originalExtension = extensionFromMimeType(file.type);
-
-  if (file.size <= PASTED_IMAGE_RESIZE_THRESHOLD_BYTES || !isResizableImageType(file.type)) {
-    return { bytes: originalBytes, extension: originalExtension, resized: false };
-  }
 
   try {
     const bitmap = await createImageBitmap(file);
     const { width, height } = bitmap;
+    const originalDimensions = { width, height };
+
+    if (file.size <= PASTED_IMAGE_RESIZE_THRESHOLD_BYTES || !isResizableImageType(file.type)) {
+      bitmap.close();
+      return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: originalDimensions };
+    }
+
     const longest = Math.max(width, height);
     const scale = longest > PASTED_IMAGE_MAX_SIDE_PX ? PASTED_IMAGE_MAX_SIDE_PX / longest : 1;
     const targetWidth = Math.max(1, Math.round(width * scale));
@@ -944,23 +953,30 @@ async function maybeResizePastedImage(file: File): Promise<{ bytes: Uint8Array; 
     const context = canvas.getContext('2d');
     if (!context) {
       bitmap.close();
-      return { bytes: originalBytes, extension: originalExtension, resized: false };
+      return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: originalDimensions };
     }
     context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
     bitmap.close();
 
     const outputMimeType = file.type === 'image/jpeg' || file.type === 'image/jpg' ? 'image/jpeg' : 'image/webp';
     const resizedBlob = await canvasToBlob(canvas, outputMimeType, PASTED_IMAGE_QUALITY);
-    if (!resizedBlob) return { bytes: originalBytes, extension: originalExtension, resized: false };
+    if (!resizedBlob) {
+      return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: originalDimensions };
+    }
 
     const resizedBytes = new Uint8Array(await resizedBlob.arrayBuffer());
     if (resizedBytes.length >= originalBytes.length) {
-      return { bytes: originalBytes, extension: originalExtension, resized: false };
+      return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: originalDimensions };
     }
 
-    return { bytes: resizedBytes, extension: extensionFromMimeType(outputMimeType), resized: true };
+    return {
+      bytes: resizedBytes,
+      extension: extensionFromMimeType(outputMimeType),
+      resized: true,
+      dimensions: { width: targetWidth, height: targetHeight },
+    };
   } catch {
-    return { bytes: originalBytes, extension: originalExtension, resized: false };
+    return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: null };
   }
 }
 
@@ -1702,14 +1718,13 @@ export function App() {
         const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const uploadingToken = `[image-upload:${uploadId}:pending:${imageName}]`;
         const failedToken = `[image-upload:${uploadId}:failed:${imageName}]`;
-        const finalMarkdown = `![${imageName}](./.assets/${imageName})`;
-
         const { from, to } = view.state.selection.main;
         view.dispatch({ changes: { from, to, insert: uploadingToken } });
 
         void (async () => {
           try {
             const processed = await maybeResizePastedImage(file);
+            const finalMarkdown = buildImageMarkdown(imageName, `./.assets/${imageName}`, processed.dimensions);
             const upload: PendingImageUpload = {
               id: uploadId,
               installationId,

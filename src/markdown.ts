@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify';
 import matter from 'gray-matter';
 import { marked } from 'marked';
+import { parseImageDimensionTitle } from './image_markdown';
 import { encodePathForHref, isExternalHttpHref } from './util';
 
 marked.setOptions({
@@ -614,6 +615,13 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
       return;
     }
     img.setAttribute('src', resolvedSrc);
+
+    const dimensions = parseImageDimensionTitle(img.getAttribute('title'));
+    if (!dimensions) return;
+
+    img.setAttribute('width', String(dimensions.width));
+    img.setAttribute('height', String(dimensions.height));
+    img.removeAttribute('title');
   });
 
   applySmartPunctuation(template.content);
