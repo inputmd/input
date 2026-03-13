@@ -105,7 +105,7 @@ const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
-const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft';
+const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft_v2';
 const DEFAULT_SIDEBAR_WIDTH_PX = 220;
 const MIN_SIDEBAR_WIDTH_PX = 180;
 const MAX_SIDEBAR_WIDTH_PX = 420;
@@ -183,8 +183,13 @@ function isPartialRepoRenameError(err: unknown): boolean {
   return /rename partially completed/i.test(err.message);
 }
 
-function repoNewDraftKey(installationId: string, repoFullName: string, field: 'title' | 'content'): string {
-  return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${field}`;
+function repoNewDraftKey(
+  installationId: string,
+  repoFullName: string,
+  path: string,
+  field: 'title' | 'content',
+): string {
+  return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${path}:${field}`;
 }
 
 function isTxtFileName(name: string | null | undefined): boolean {
@@ -2182,8 +2187,8 @@ export function App() {
           setPreviewVisible(defaultPreviewVisible());
           const routeFileName = fileNameFromPath(path);
           const fallbackTitle = routeFileName.replace(/\.(?:md(?:own|wn)?|markdown)$/i, '') || DEFAULT_NEW_FILENAME;
-          setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, 'title')) || fallbackTitle);
-          setEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, 'content')) ?? '');
+          setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'title')) || fallbackTitle);
+          setEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'content')) ?? '');
           setViewPhase(null);
           return;
         }
@@ -2516,9 +2521,10 @@ export function App() {
     const instId = installationId ?? getInstallationId();
     const repoName = selectedRepo ?? getSelectedRepo()?.full_name ?? null;
     if (!instId || !repoName) return;
-    localStorage.setItem(repoNewDraftKey(instId, repoName, 'title'), editTitle);
-    localStorage.setItem(repoNewDraftKey(instId, repoName, 'content'), editContent);
-  }, [route.name, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle, editContent]);
+    const path = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
+    localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'title'), editTitle);
+    localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'content'), editContent);
+  }, [route, route.name, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle, editContent]);
 
   useEffect(() => {
     void installationId;
@@ -3661,8 +3667,8 @@ export function App() {
         if (isMarkdownFileName(createdFile.path)) {
           setRepoFiles((prev) => upsertRepoFile(prev, createdFile));
         }
-        localStorage.removeItem(repoNewDraftKey(instId, repoName, 'title'));
-        localStorage.removeItem(repoNewDraftKey(instId, repoName, 'content'));
+        localStorage.removeItem(repoNewDraftKey(instId, repoName, path, 'title'));
+        localStorage.removeItem(repoNewDraftKey(instId, repoName, path, 'content'));
         setCurrentRepoDocPath(result.content.path);
         setCurrentRepoDocSha(result.content.sha);
 
