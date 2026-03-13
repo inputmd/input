@@ -47,11 +47,11 @@ function renderDiffContent(line: string, changedClass: string, pairLine?: string
   return (
     <>
       {line[0]}
-      {hasLeadingClip ? <span class="reader-ai-diff-inline-ellipsis">...</span> : null}
+      {hasLeadingClip ? <span class="reader-ai-diff-inline-ellipsis">…</span> : null}
       {clippedPrefix}
       {changed ? <span class={changedClass}>{changed}</span> : null}
       {clippedSuffix}
-      {hasTrailingClip ? <span class="reader-ai-diff-inline-ellipsis">...</span> : null}
+      {hasTrailingClip ? <span class="reader-ai-diff-inline-ellipsis">…</span> : null}
     </>
   );
 }

@@ -153,6 +153,8 @@ It supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\].
 
 We ask for minimal permissions, and do not log your data.`;
 const DOCUMENT_DRAFTS_STORAGE_KEY = 'document_drafts_v1';
+const MAX_DOCUMENT_DRAFTS = 10;
+const MAX_DOCUMENT_DRAFT_CONTENT_BYTES = 512 * 1024;
 
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
@@ -878,8 +880,16 @@ function loadDocumentDraft(key: string): PersistedDocumentDraft | null {
 }
 
 function saveDocumentDraft(key: string, draft: PersistedDocumentDraft): void {
+  if (new Blob([draft.content]).size > MAX_DOCUMENT_DRAFT_CONTENT_BYTES) return;
   const store = loadDocumentDraftStore();
   store[key] = draft;
+  const entries = Object.entries(store);
+  if (entries.length > MAX_DOCUMENT_DRAFTS) {
+    entries.sort((a, b) => a[1].updatedAtMs - b[1].updatedAtMs);
+    for (const [k] of entries.slice(0, entries.length - MAX_DOCUMENT_DRAFTS)) {
+      delete store[k];
+    }
+  }
   persistDocumentDraftStore(store);
 }
 
