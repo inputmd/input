@@ -230,6 +230,30 @@ function isLikelyBinaryBytes(bytes: Uint8Array): boolean {
   return suspicious / length > 0.2;
 }
 
+async function fetchFullGistFileText(
+  file: Pick<GistFile, 'filename' | 'raw_url'>,
+): Promise<{ ok: true; content: string } | { ok: false; error: string } | { ok: false; binary: true }> {
+  const rawUrl = file.raw_url?.trim();
+  if (!rawUrl) return { ok: false, error: 'No raw_url available for this file.' };
+
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return { ok: false, error: 'Invalid raw_url.' };
+  }
+
+  if (url.hostname !== 'gist.githubusercontent.com') {
+    return { ok: false, error: 'Unsupported raw_url host.' };
+  }
+
+  const res = await fetch(rawUrl, { redirect: 'error' });
+  if (!res.ok) return { ok: false, error: `Failed to load full content (${res.status}).` };
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (isSafeImageFileName(file.filename) || isLikelyBinaryBytes(bytes)) return { ok: false, binary: true };
+  return { ok: true, content: new TextDecoder().decode(bytes) };
+}
+
 function safeDecodeURIComponent(s: string): string {
   try {
     return decodeURIComponent(s);
@@ -1756,6 +1780,20 @@ export function App() {
           }
         }
         if (forEdit) {
+          if (binary) {
+            void showAlert(
+              isSafeImageFileName(contents.name)
+                ? 'Images cannot be edited in the editor.'
+                : 'Binary files cannot be edited in the editor.',
+            );
+            if (owner && repo && contents.path) {
+              navigate(routePath.repoFile(owner, repo, contents.path));
+            } else {
+              navigate(routePath.workspaces());
+            }
+            setViewPhase(null);
+            return true;
+          }
           setEditingBackend('repo');
           setEditTitle(contents.name.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
           setEditContent(decoded);
@@ -1800,6 +1838,7 @@ export function App() {
       navigate,
       handleSessionExpired,
       showError,
+      showAlert,
       repoFiles,
       loadRepoMarkdownFiles,
       renderDocumentContent,
@@ -2116,6 +2155,59 @@ export function App() {
             const cacheName = r.params.filename ? safeDecodeURIComponent(r.params.filename) : cacheKeys[0];
             const cacheFile = cacheName ? cachedFiles[cacheName] : null;
             if (cacheFile) {
+              if (isSafeImageFileName(cacheFile.filename)) {
+                void showAlert('Images cannot be edited in the editor.');
+                navigate(routePath.gistView(r.params.id, cacheFile.filename));
+                return;
+              }
+
+              const needsFullContent = cacheFile.truncated || cacheFile.content == null;
+              if (needsFullContent) {
+                setViewPhase('loading');
+                let full: Awaited<ReturnType<typeof fetchFullGistFileText>>;
+                try {
+                  full = await fetchFullGistFileText(cacheFile);
+                } catch (err) {
+                  showRateLimitToastIfNeeded(err);
+                  void showAlert(err instanceof Error ? err.message : 'Failed to load full file content');
+                  setViewPhase(null);
+                  navigate(routePath.gistView(r.params.id, cacheFile.filename));
+                  return;
+                }
+
+                if (!full.ok) {
+                  if ('binary' in full) {
+                    void showAlert('Binary files cannot be edited in the editor.');
+                  } else {
+                    void showAlert(`Failed to load full file content. ${full.error}`);
+                  }
+                  setViewPhase(null);
+                  navigate(routePath.gistView(r.params.id, cacheFile.filename));
+                  return;
+                }
+
+                setGistFiles((prev) => {
+                  if (!prev) return prev;
+                  const current = prev[cacheFile.filename];
+                  if (!current) return prev;
+                  return {
+                    ...prev,
+                    [cacheFile.filename]: { ...current, content: full.content, truncated: false },
+                  };
+                });
+                setEditingBackend('gist');
+                setCurrentGistId(r.params.id);
+                setCurrentFileName(cacheFile.filename);
+                setCurrentRepoDocPath(null);
+                setCurrentRepoDocSha(null);
+                setRepoFiles([]);
+                setRepoSidebarFiles([]);
+                setEditTitle(fileNameFromPath(cacheFile.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
+                setEditContent(full.content);
+                setHasUnsavedChanges(false);
+                setViewPhase(null);
+                return;
+              }
               setEditingBackend('gist');
               setCurrentGistId(r.params.id);
               setCurrentFileName(cacheFile.filename);
@@ -2145,6 +2237,34 @@ export function App() {
               return;
             }
 
+            if (isSafeImageFileName(file.filename)) {
+              void showAlert('Images cannot be edited in the editor.');
+              navigate(routePath.gistView(gist.id, file.filename));
+              return;
+            }
+
+            let editableContent = file.content ?? '';
+            if (file.truncated || file.content == null) {
+              const full = await fetchFullGistFileText(file);
+              if (!full.ok) {
+                if ('binary' in full) {
+                  void showAlert('Binary files cannot be edited in the editor.');
+                  navigate(routePath.gistView(gist.id, file.filename));
+                  return;
+                }
+                void showAlert(`Failed to load full file content. ${full.error}`);
+                navigate(routePath.gistView(gist.id, file.filename));
+                return;
+              }
+              editableContent = full.content;
+              setGistFiles((prev) => {
+                const base = prev ?? gist.files;
+                const current = base[file.filename];
+                if (!current) return base;
+                return { ...base, [file.filename]: { ...current, content: full.content, truncated: false } };
+              });
+            }
+
             setEditingBackend('gist');
             setCurrentGistId(gist.id);
             setCurrentFileName(file.filename);
@@ -2153,7 +2273,7 @@ export function App() {
             setRepoFiles([]);
             setRepoSidebarFiles([]);
             setEditTitle(fileNameFromPath(file.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-            setEditContent(file.content ?? '');
+            setEditContent(editableContent);
             setViewPhase(null);
           } catch (err) {
             showRateLimitToastIfNeeded(err);
@@ -2193,6 +2313,7 @@ export function App() {
       startGitHubSignIn,
       handleSessionExpired,
       showRateLimitToastIfNeeded,
+      showAlert,
       defaultPreviewVisible,
       selectedRepo,
       installationRepos,
