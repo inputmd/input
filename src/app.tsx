@@ -1217,9 +1217,11 @@ export function App() {
     currentDocumentDraft.content !== currentDocumentContent;
   const currentDocumentLabel = currentFileName ?? currentRepoDocPath ?? 'this document';
   const readerAiEditEligible = routeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
-  const readerAiHistoryEligible =
-    (routeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript)) ||
-    readerAiEditEligible;
+  const readerAiContentEligible =
+    routeView === 'content' &&
+    ((renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript)) ||
+      (contentLoadPending && isMarkdownFileName(currentFileName)));
+  const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
   const readerAiEditLocked = activeView === 'edit' && (readerAiSending || readerAiApplyingChanges);
   const readerAiHistoryDocumentKey = useMemo(
     () =>
