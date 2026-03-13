@@ -4470,8 +4470,10 @@ export function App() {
     return 'none';
   }, [currentGistId, publicRepoRef, repoAccessMode, selectedRepo]);
 
-  const sidebarEligible = activeView === 'content' || activeView === 'edit';
-  const sidebarDisabled = activeView === 'edit' && draftMode;
+  // Keep the sidebar visible during intra-view loading. `activeView` can become "loading"
+  // while fetching file contents, which would otherwise unmount the sidebar briefly.
+  const sidebarEligible = routeView === 'content' || routeView === 'edit';
+  const sidebarDisabled = routeView === 'edit' && draftMode;
   const isAnonymousGistWorkspace = currentGistId !== null && !user;
   const defaultShowSidebar =
     isDesktopWidth && !sidebarDisabled && (!!user || repoAccessMode === 'public' || currentGistId !== null);
