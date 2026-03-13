@@ -267,8 +267,8 @@
 }
 
 .github-signin-btn-toggle {
-  min-width: 32px;
-  width: 32px;
+  min-width: 28px !important;
+  width: 28px !important;
   padding: 0;
   border-left-color: rgba(255, 255, 255, 0.25);
   border-top-left-radius: 0;
