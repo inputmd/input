@@ -215,6 +215,9 @@
 }
 
 .github-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: #238636;
   border-color: #2ea043;
   color: #ffffff;
@@ -222,6 +225,37 @@
 
 .github-signin-btn:hover {
   background: #2ea043;
+}
+
+.github-signin-group {
+  display: inline-flex;
+}
+
+.github-signin-btn-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.github-signin-btn-toggle {
+  min-width: 32px;
+  width: 32px;
+  padding: 0;
+  border-left-color: rgba(255, 255, 255, 0.25);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.github-signin-btn-toggle:hover,
+.github-signin-btn-toggle[data-state="open"] {
+  background: #2ea043;
+}
+
+.github-signin-group .github-signin-btn + .github-signin-btn {
+  margin-left: -1px;
+}
+
+.github-signin-menu-content {
+  min-width: 250px;
 }
 
 .toolbar-toggle-controls .preview-toggle-btn,

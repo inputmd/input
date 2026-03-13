@@ -1024,7 +1024,7 @@ export function App() {
   }, []);
 
   const startGitHubSignIn = useCallback(
-    (returnTo: string, options?: { force?: boolean; guardKey?: string }) => {
+    (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
       const normalizedReturnTo = returnTo.startsWith('/') ? returnTo : `/${returnTo}`;
       const currentPath = window.location.pathname;
       try {
@@ -1060,7 +1060,10 @@ export function App() {
       } catch {
         // Best effort only; continue with OAuth redirect.
       }
-      window.location.assign(`/api/auth/github/start?return_to=${encodeURIComponent(normalizedReturnTo)}`);
+      const authUrl = new URL('/api/auth/github/start', window.location.origin);
+      authUrl.searchParams.set('return_to', normalizedReturnTo);
+      if (options?.includeGists === false) authUrl.searchParams.set('include_gists', '0');
+      window.location.assign(authUrl.toString());
       return true;
     },
     [showError],
@@ -4573,21 +4576,24 @@ export function App() {
     },
     [readerAiEditLocked],
   );
-  const handleSignInWithGitHub = useCallback(() => {
-    if (isSubdomainMode()) {
-      const { protocol, hostname, port } = window.location;
-      const apexHost = hostname.endsWith('.input.md')
-        ? 'input.md'
-        : hostname.endsWith('.localhost')
-          ? port
-            ? `localhost:${port}`
-            : 'localhost'
-          : 'input.md';
-      window.location.assign(`${protocol}//${apexHost}/input.md`);
-      return;
-    }
-    startGitHubSignIn(`/${routePath.workspaces()}`, { force: true });
-  }, [startGitHubSignIn]);
+  const handleSignInWithGitHub = useCallback(
+    (options?: { includeGists?: boolean }) => {
+      if (isSubdomainMode()) {
+        const { protocol, hostname, port } = window.location;
+        const apexHost = hostname.endsWith('.input.md')
+          ? 'input.md'
+          : hostname.endsWith('.localhost')
+            ? port
+              ? `localhost:${port}`
+              : 'localhost'
+            : 'input.md';
+        window.location.assign(`${protocol}//${apexHost}/input.md`);
+        return;
+      }
+      startGitHubSignIn(`/${routePath.workspaces()}`, { force: true, includeGists: options?.includeGists });
+    },
+    [startGitHubSignIn],
+  );
   const showHeaderEdit =
     activeView === 'content' &&
     isMarkdownFileName(currentFileName) &&

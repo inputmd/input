@@ -61,7 +61,7 @@ interface ToolbarProps {
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
-  onSignInWithGitHub: () => void;
+  onSignInWithGitHub: (options?: { includeGists?: boolean }) => void;
   navigate: (route: string, options?: { replace?: boolean; state?: unknown }) => void;
   onOpenRepoMenu: () => void;
   onRetryRepos: () => void;
@@ -185,6 +185,35 @@ export function Toolbar({
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+  );
+  const signInButton = (
+    <div class="github-signin-group" role="group" aria-label="Sign in with GitHub options">
+      <button type="button" class="github-signin-btn github-signin-btn-main" onClick={() => onSignInWithGitHub()}>
+        Sign in with GitHub
+      </button>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            class="github-signin-btn github-signin-btn-toggle"
+            aria-label="More GitHub sign-in options"
+            title="More GitHub sign-in options"
+          >
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content class="user-menu-content github-signin-menu-content" sideOffset={6} align="end">
+            <DropdownMenu.Item class="user-menu-item" onSelect={() => onSignInWithGitHub()}>
+              Sign in with GitHub
+            </DropdownMenu.Item>
+            <DropdownMenu.Item class="user-menu-item" onSelect={() => onSignInWithGitHub({ includeGists: false })}>
+              Sign in with GitHub (no gists)
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+    </div>
   );
 
   return (
@@ -357,11 +386,7 @@ export function Toolbar({
               </button>
             )}
             {showShare && view === 'edit' && authorMenu}
-            {showSignInToSave && (
-              <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
-                Sign in with GitHub
-              </button>
-            )}
+            {showSignInToSave && signInButton}
           </div>
           {showPreviewToggle || showAiToggle ? (
             <div class="toolbar-toggle-controls">
@@ -448,9 +473,7 @@ export function Toolbar({
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           ) : !showSignInToSave ? (
-            <button type="button" class="github-signin-btn" onClick={onSignInWithGitHub}>
-              Sign in with GitHub
-            </button>
+            signInButton
           ) : null}
         </Tooltip.Provider>
       </div>

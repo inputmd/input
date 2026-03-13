@@ -529,13 +529,14 @@ async function handleAuthStart(ctx: RouteContext): Promise<void> {
   }
 
   const returnTo = normalizeReturnTo(ctx.url.searchParams.get('return_to'));
+  const includeGists = ctx.url.searchParams.get('include_gists') !== '0';
   const state = createOAuthState(returnTo);
   const redirectUri = `${oauthBaseUrl(ctx.req)}/api/auth/github/callback`;
   console.log(`[auth] OAuth start: redirect_uri=${redirectUri}, return_to=${returnTo}`);
   const authUrl = new URL('https://github.com/login/oauth/authorize');
   authUrl.searchParams.set('client_id', GITHUB_CLIENT_ID);
   authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('scope', 'gist read:user');
+  authUrl.searchParams.set('scope', includeGists ? 'gist read:user' : 'read:user');
   authUrl.searchParams.set('state', state);
   redirect(ctx.res, authUrl.toString());
 }
