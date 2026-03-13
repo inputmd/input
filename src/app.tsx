@@ -960,14 +960,15 @@ export function App() {
   const readerAiSkipPersistVisibleRef = useRef(false);
   const editContentRef = useRef(editContent);
   editContentRef.current = editContent;
-  const activeView = viewPhase ?? viewFromRoute(route);
+  const routeView = viewFromRoute(route);
+  const activeView = viewPhase ?? routeView;
   const currentEditingDocPath = useMemo(
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
   );
-  const readerAiEditEligible = activeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
+  const readerAiEditEligible = routeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
   const readerAiHistoryEligible =
-    (activeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript)) ||
+    (routeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript)) ||
     readerAiEditEligible;
   const readerAiEditLocked = activeView === 'edit' && (readerAiSending || readerAiApplyingChanges);
   const readerAiHistoryDocumentKey = useMemo(
@@ -4600,6 +4601,7 @@ export function App() {
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible;
+  const readerAiToggleDisabled = viewPhase === 'loading';
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
     repoAccessMode === 'installed' &&
@@ -4711,6 +4713,7 @@ export function App() {
         onTogglePreview={onTogglePreview}
         showAiToggle={showReaderAiToggle}
         aiVisible={showReaderAiPanel}
+        aiDisabled={readerAiToggleDisabled}
         onToggleAi={onToggleReaderAi}
         showCancel={showEditorCancel}
         onCancel={onCancel}

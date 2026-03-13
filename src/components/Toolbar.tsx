@@ -54,6 +54,7 @@ interface ToolbarProps {
   onTogglePreview: () => void;
   showAiToggle: boolean;
   aiVisible: boolean;
+  aiDisabled?: boolean;
   onToggleAi: () => void;
   showCancel: boolean;
   onCancel: () => void;
@@ -102,6 +103,7 @@ export function Toolbar({
   onTogglePreview,
   showAiToggle,
   aiVisible,
+  aiDisabled = false,
   onToggleAi,
   showCancel,
   onCancel,
@@ -406,6 +408,7 @@ export function Toolbar({
                     class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
                     title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
                     aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                    disabled={aiDisabled}
                     onClick={onToggleAi}
                   >
                     <Sparkles size={16} />
@@ -430,6 +433,7 @@ export function Toolbar({
                       class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
                       title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
                       aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                      disabled={aiDisabled}
                       onClick={onToggleAi}
                     >
                       <Sparkles size={16} />
