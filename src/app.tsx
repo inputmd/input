@@ -985,6 +985,12 @@ function viewFromRoute(route: Route): ActiveView {
   }
 }
 
+function routeShowsHeaderLeftControls(route: Route, authenticated: boolean): boolean {
+  if (!authenticated) return false;
+  const view = viewFromRoute(route);
+  return view === 'content' || view === 'edit';
+}
+
 interface PendingDraftRestoreState {
   documentDraftKey: string;
   content: string;
@@ -1044,6 +1050,7 @@ export function App() {
   const [renderedHtml, setRenderedHtml] = useState('');
   const [renderMode, setRenderMode] = useState<'ansi' | 'markdown' | 'image'>('ansi');
   const [contentLoadPending, setContentLoadPending] = useState(false);
+  const [preserveHeaderLeftControlsWhileLoading, setPreserveHeaderLeftControlsWhileLoading] = useState(false);
   const [contentImagePreview, setContentImagePreview] = useState<{ src: string; alt: string } | null>(null);
   const [isClaudeTranscript, setIsClaudeTranscript] = useState(false);
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
@@ -2621,6 +2628,11 @@ export function App() {
   useEffect(() => {
     if (!initialized.current) return;
     if (route === prevRoute.current) return;
+    const shouldPreserveHeaderLeftControls =
+      Boolean(user) &&
+      routeShowsHeaderLeftControls(prevRoute.current, true) &&
+      routeShowsHeaderLeftControls(route, true);
+    setPreserveHeaderLeftControlsWhileLoading(shouldPreserveHeaderLeftControls);
     if (isContentRoute(route) && !shouldPreserveVerifiedContent) {
       clearRenderedContent();
       setContentLoadPending(true);
@@ -2629,7 +2641,12 @@ export function App() {
     }
     prevRoute.current = route;
     handleRoute(route);
-  }, [clearRenderedContent, handleRoute, isContentRoute, route, shouldPreserveVerifiedContent]);
+  }, [clearRenderedContent, handleRoute, isContentRoute, route, shouldPreserveVerifiedContent, user]);
+
+  useEffect(() => {
+    if (viewPhase === 'loading') return;
+    setPreserveHeaderLeftControlsWhileLoading(false);
+  }, [viewPhase]);
 
   useEffect(() => {
     if (!postSaveVerification) return;
@@ -5530,6 +5547,7 @@ export function App() {
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
         showLeftLoading={showHeaderLeftLoading}
+        preserveLeftControlsWhileLoading={preserveHeaderLeftControlsWhileLoading}
         // Show only when a public repo file can be switched into an installed workspace:
         // route is a repo file, user is signed in with an installation, and the URL repo
         // matches one of the user's installation repos.

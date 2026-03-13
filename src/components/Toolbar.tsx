@@ -81,6 +81,7 @@ interface ToolbarProps {
   onToggleSidebar: () => void;
   onEdit: () => void;
   showLeftLoading: boolean;
+  preserveLeftControlsWhileLoading?: boolean;
   showGoToWorkspace: boolean;
   onGoToWorkspace: () => void;
 }
@@ -137,6 +138,7 @@ export function Toolbar({
   onToggleSidebar,
   onEdit,
   showLeftLoading,
+  preserveLeftControlsWhileLoading = false,
   showGoToWorkspace,
   onGoToWorkspace,
 }: ToolbarProps) {
@@ -144,6 +146,7 @@ export function Toolbar({
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!user;
   const showSidebarToggle = view === 'content' || view === 'edit';
+  const disableLeftControls = showLeftLoading && preserveLeftControlsWhileLoading;
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
@@ -263,17 +266,23 @@ export function Toolbar({
   return (
     <header class="toolbar">
       <div class="toolbar-left">
-        {showLeftLoading ? (
+        {showLeftLoading && !preserveLeftControlsWhileLoading ? (
           <div class="toolbar-left-loading" role="status" aria-label="Loading workspace">
             <span class="toolbar-spinner" aria-hidden="true" />
           </div>
         ) : (
           <>
+            {showLeftLoading ? (
+              <div class="toolbar-left-loading" role="status" aria-label="Loading workspace">
+                <span class="toolbar-spinner" aria-hidden="true" />
+              </div>
+            ) : null}
             {showSidebarToggle ? (
               <button
                 type="button"
                 class="document-menu-trigger"
                 onClick={onToggleSidebar}
+                disabled={disableLeftControls}
                 aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
                 title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
               >
@@ -287,11 +296,17 @@ export function Toolbar({
             {showGitHubApp && (
               <DropdownMenu.Root
                 onOpenChange={(open: boolean) => {
+                  if (disableLeftControls) return;
                   if (open) onOpenRepoMenu();
                 }}
               >
                 <DropdownMenu.Trigger asChild>
-                  <button type="button" class="repo-menu-trigger" aria-label="Navigation menu">
+                  <button
+                    type="button"
+                    class="repo-menu-trigger"
+                    aria-label="Navigation menu"
+                    disabled={disableLeftControls}
+                  >
                     {inRepoContext && selectedRepo ? (
                       <>
                         <RepoPrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
