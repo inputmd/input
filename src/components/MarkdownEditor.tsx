@@ -1,5 +1,5 @@
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@codemirror/commands';
-import { markdown } from '@codemirror/lang-markdown';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, Prec } from '@codemirror/state';
 import {
@@ -126,7 +126,7 @@ export function MarkdownEditor({
         indentOnInput(),
         syntaxHighlighting(markdownHighlighter),
         bracketMatching(),
-        markdown({ extensions: [{ remove: ['SetextHeading'] }, wikiLinkMarkdownExtension] }),
+        markdown({ base: markdownLanguage, extensions: [{ remove: ['SetextHeading'] }, wikiLinkMarkdownExtension] }),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),

@@ -110,7 +110,10 @@
 
 /* Strikethrough */
 .doc-editor .cm-editor .tok-strikethrough {
+  color: var(--text-secondary);
   text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
+  text-decoration-thickness: 1px;
 }
 
 /* Tab size */
