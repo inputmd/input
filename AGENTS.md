@@ -1,7 +1,7 @@
-Use conventional commit style. Don't include a scope on commit messages,
-except use feat(ui): for changes that primarily concern the user interface.
-Prefer single line commit messages. Never attempt simultaneous commits;
-create commits sequentially.
+Use conventional commit style, e.g. start repos with "fix:" for fixes.
+Don't include a scope on commit messages, except use feat(ui): for changes
+that primarily concern the user interface. Prefer single line commit messages.
+Never attempt simultaneous commits; create commits sequentially.
 
 Clean up dead code, types, or files after making changes.
 
