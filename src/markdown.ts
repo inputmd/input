@@ -13,6 +13,36 @@ function wikiSlug(raw: string): string {
   return raw.trim().toLowerCase().replace(/[/\\]/g, '-').replace(/\s+/g, '-');
 }
 
+function slugifyHeadingId(raw: string): string {
+  const text = raw
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const cleaned = text
+    .replace(/[^a-z0-9 _-]/g, '')
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return cleaned || 'section';
+}
+
+function assignHeadingIds(fragment: DocumentFragment): void {
+  const seen = new Map<string, number>();
+  fragment.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((heading) => {
+    const existingId = (heading.getAttribute('id') ?? '').trim();
+    if (existingId) {
+      seen.set(existingId, (seen.get(existingId) ?? 0) + 1);
+      return;
+    }
+
+    const base = slugifyHeadingId(heading.textContent ?? '');
+    const nextCount = (seen.get(base) ?? 0) + 1;
+    seen.set(base, nextCount);
+    const id = nextCount === 1 ? base : `${base}-${nextCount}`;
+    heading.setAttribute('id', id);
+  });
+}
+
 function normalizeWikiTargetPath(raw: string): string {
   const trimmed = raw.trim();
   const hasExplicitPathSeparators = /[/\\]/.test(trimmed);
@@ -560,6 +590,7 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
   const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
+  assignHeadingIds(template.content);
   const footnoteReferences = applyFootnoteReferences(template.content, extractedFootnotes.definitions);
   appendFootnotesSection(template.content, footnoteReferences, extractedFootnotes.definitions);
 

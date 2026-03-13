@@ -56,6 +56,23 @@ function isMissingWikiLink(anchor: HTMLAnchorElement): boolean {
   return anchor.classList.contains('missing-wikilink');
 }
 
+function decodeHashTargetId(hash: string): string | null {
+  const trimmed = hash.trim();
+  if (!trimmed || !trimmed.startsWith('#')) return null;
+  const raw = trimmed.slice(1);
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function safeCssEscape(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
+  return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+}
+
 export function ContentView({
   html,
   markdown,
@@ -89,6 +106,17 @@ export function ContentView({
   const [collapseAssistantMessages, setCollapseAssistantMessages] = useState(true);
   const isEmpty = html.trim().length === 0 && !imagePreview;
 
+  const scrollToHash = useCallback((hash: string, behavior: ScrollBehavior = 'auto') => {
+    const targetId = decodeHashTargetId(hash);
+    if (!targetId) return false;
+    const root = renderedMarkdownRef.current;
+    const selector = `#${safeCssEscape(targetId)}`;
+    const target = (root ? root.querySelector(selector) : null) ?? document.getElementById(targetId);
+    if (!(target instanceof HTMLElement)) return false;
+    target.scrollIntoView({ block: 'start', behavior });
+    return true;
+  }, []);
+
   useEffect(() => {
     if (!claudeTranscript) setCollapseAssistantMessages(true);
   }, [claudeTranscript]);
@@ -111,6 +139,21 @@ export function ContentView({
       clearHoverDelay();
     };
   }, [clearHoverDelay]);
+
+  useEffect(() => {
+    if (!markdown || loading) return;
+    if (!html) return;
+    const hash = window.location.hash;
+    if (!hash) return;
+    window.requestAnimationFrame(() => scrollToHash(hash, 'auto'));
+  }, [html, loading, markdown, scrollToHash]);
+
+  useEffect(() => {
+    if (!markdown) return;
+    const onHashChange = () => scrollToHash(window.location.hash, 'auto');
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [markdown, scrollToHash]);
 
   const updateSelectedClaudeMessage = useCallback(
     (messages: HTMLElement[], nextIndex: number, scrollMode: 'nearest' | 'vertical' = 'nearest') => {
@@ -290,9 +333,20 @@ export function ContentView({
     const resolved = new URL(href, window.location.href);
     if (resolved.origin !== window.location.origin) return;
 
+    if (resolved.pathname === window.location.pathname && resolved.search === window.location.search && resolved.hash) {
+      if (resolved.hash === window.location.hash) {
+        event.preventDefault();
+        scrollToHash(resolved.hash, 'smooth');
+      }
+      return;
+    }
+
     event.preventDefault();
     const route = resolved.pathname.replace(/^\//, '');
     onInternalLinkNavigate(route);
+    if (resolved.hash) {
+      window.history.replaceState(window.history.state, '', `${resolved.pathname}${resolved.search}${resolved.hash}`);
+    }
   };
 
   const resolveInternalRoute = useCallback((anchor: HTMLAnchorElement): string | null => {
