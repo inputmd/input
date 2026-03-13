@@ -116,6 +116,22 @@ const SIDEBAR_FILE_FILTER_KEY = 'sidebar_file_filter';
 const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
 const PASTED_IMAGE_MAX_SIDE_PX = 1600;
 const PASTED_IMAGE_QUALITY = 0.82;
+const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+}
+
+function sanitizeDroppedFileName(name: string): string {
+  const trimmed = name.trim().replace(/\\/g, '/');
+  const base = trimmed.split('/').filter(Boolean).at(-1) ?? '';
+  return base.replace(/\0/g, '').trim();
+}
 const OAUTH_REDIRECT_GUARD_KEY = 'oauth_redirect_guard';
 const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
 const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
@@ -3609,6 +3625,71 @@ export function App() {
     [getActiveDocumentStore, showAlert, showRateLimitToastIfNeeded, installationId, selectedRepo],
   );
 
+  const handleUploadFileToSidebar = useCallback(
+    async (file: File, targetFolderPath: string) => {
+      if (repoAccessMode !== 'installed' || !installationId || !selectedRepo) {
+        showFailureToast('File upload is only available in installed repositories.');
+        return;
+      }
+
+      const fileName = sanitizeDroppedFileName(file.name);
+      if (!fileName) {
+        showFailureToast('Invalid file name.');
+        return;
+      }
+
+      if (file.size > SIDEBAR_UPLOAD_MAX_BYTES) {
+        showFailureToast(`"${fileName}" is larger than 5 MB.`);
+        return;
+      }
+
+      const folder = targetFolderPath.trim().replace(/^\/+|\/+$/g, '');
+      const path = folder ? `${folder}/${fileName}` : fileName;
+
+      const confirmed = await showConfirm(`Upload "${fileName}" (${formatBytes(file.size)}) to "${path}"?`, {
+        title: 'Upload file',
+        confirmLabel: 'Upload',
+        defaultFocus: 'cancel',
+      });
+      if (!confirmed) return;
+
+      const uploadToastId = showLoadingToast('Uploading file...');
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const contentB64 = encodeBytesToBase64(bytes);
+        const result = await putRepoFile(installationId, selectedRepo, path, `Upload ${fileName}`, contentB64);
+        const createdFile: RepoDocFile = {
+          name: fileNameFromPath(result.content.path),
+          path: result.content.path,
+          sha: result.content.sha,
+          size: file.size,
+        };
+        setRepoSidebarFiles((prev) => upsertRepoFile(prev, createdFile));
+        if (isMarkdownFileName(createdFile.path)) {
+          setRepoFiles((prev) => upsertRepoFile(prev, createdFile));
+        }
+        showSuccessToast('File uploaded');
+      } catch (err) {
+        showRateLimitToastIfNeeded(err);
+        void showAlert(err instanceof Error ? err.message : 'Upload failed');
+      } finally {
+        dismissToast(uploadToastId);
+      }
+    },
+    [
+      repoAccessMode,
+      installationId,
+      selectedRepo,
+      showConfirm,
+      showLoadingToast,
+      dismissToast,
+      showFailureToast,
+      showSuccessToast,
+      showAlert,
+      showRateLimitToastIfNeeded,
+    ],
+  );
+
   const handleEditFile = useCallback(
     async (filePath: string) => {
       if (activeView === 'edit' && readerAiEditLocked) {
@@ -4762,6 +4843,7 @@ export function App() {
               onRenameFile={handleRenameFile}
               onRenameFolder={handleRenameFolder}
               onMoveFile={handleMoveFile}
+              onUploadFile={handleUploadFileToSidebar}
             />
             <div
               class="sidebar-splitter"

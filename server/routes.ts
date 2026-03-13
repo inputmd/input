@@ -9,6 +9,7 @@ import {
   GITHUB_CLIENT_SECRET,
   GITHUB_FETCH_TIMEOUT_MS,
   GITHUB_TOKEN,
+  MAX_UPLOAD_BYTES,
   OPENROUTER_API_KEY,
   READER_AI_TIMEOUT_MS,
   SHARE_TOKEN_SECRET,
@@ -814,6 +815,14 @@ async function handleGetContents(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, data);
 }
 
+function estimateBase64DecodedBytes(input: string): number {
+  const normalized = input.replace(/\s+/g, '');
+  if (!normalized) return 0;
+  const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0;
+  const decoded = Math.floor((normalized.length * 3) / 4) - padding;
+  return Math.max(0, decoded);
+}
+
 async function handlePutContents(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
@@ -826,6 +835,9 @@ async function handlePutContents(ctx: RouteContext): Promise<void> {
   const message = requireString(body, 'message');
   const content = body?.content;
   if (typeof content !== 'string') throw new ClientError('content is required');
+  if (estimateBase64DecodedBytes(content) > MAX_UPLOAD_BYTES) {
+    throw new ClientError('File too large (max 5 MB)', 413);
+  }
   const sha = typeof body?.sha === 'string' ? body.sha : undefined;
   const branch = typeof body?.branch === 'string' ? body.branch : undefined;
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
