@@ -146,36 +146,6 @@ function sanitizeMarkdownHref(href: string): string | null {
   return normalized;
 }
 
-function createQuestionLinkIndicator(className: string): HTMLSpanElement {
-  const span = document.createElement('span');
-  span.className = className;
-  span.setAttribute('aria-hidden', 'true');
-
-  const svgNs = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNs, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-
-  const circle = document.createElementNS(svgNs, 'circle');
-  circle.setAttribute('cx', '12');
-  circle.setAttribute('cy', '12');
-  circle.setAttribute('r', '10');
-
-  const pathTop = document.createElementNS(svgNs, 'path');
-  pathTop.setAttribute('d', 'M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3');
-
-  const pathBottom = document.createElementNS(svgNs, 'path');
-  pathBottom.setAttribute('d', 'M12 17h.01');
-
-  svg.append(circle, pathTop, pathBottom);
-  span.append(svg);
-  return span;
-}
-
 function createExternalLinkIndicator(className: string): HTMLSpanElement {
   const span = document.createElement('span');
   span.className = className;
@@ -604,12 +574,6 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
     }
 
     anchor.setAttribute('href', href);
-    const isFootnoteLink =
-      anchor.classList.contains('footnote-backref') ||
-      anchor.parentElement?.classList.contains('footnote-ref') === true;
-    if (href.startsWith('#') && !isFootnoteLink) {
-      anchor.insertAdjacentElement('afterend', createQuestionLinkIndicator('hash-link-indicator'));
-    }
 
     const isWikiLink = anchor.getAttribute('data-wikilink') === 'true';
     if (isWikiLink && options?.resolveWikiLinkMeta) {
