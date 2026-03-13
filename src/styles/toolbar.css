@@ -140,7 +140,25 @@
 
 .action-buttons {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.toolbar-save-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 35px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, var(--text-secondary) 28%);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.toolbar-save-status--warning {
+  border-color: color-mix(in srgb, var(--border) 35%, #d29922 65%);
+  color: color-mix(in srgb, var(--text) 82%, #d29922 18%);
 }
 
 .author-menu-trigger {

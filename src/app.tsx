@@ -750,6 +750,19 @@ interface PendingImageUpload {
   finalMarkdown: string;
 }
 
+interface PostSaveVerificationState {
+  routeKey: string;
+  status: 'verifying' | 'delayed';
+  kind: 'gist' | 'repo';
+  gistId?: string;
+  filename?: string;
+  expectedUpdatedAt?: string;
+  installationId?: string;
+  repoFullName?: string;
+  path?: string;
+  expectedSha?: string;
+}
+
 function extensionFromMimeType(mimeType: string): string {
   const mimeExt: Record<string, string> = {
     'image/png': 'png',
@@ -760,6 +773,33 @@ function extensionFromMimeType(mimeType: string): string {
     'image/svg+xml': 'svg',
   };
   return mimeExt[mimeType] ?? 'png';
+}
+
+function routeKeyForGist(gistId: string, filename?: string | null): string {
+  return `gist:${gistId}:${filename ?? ''}`;
+}
+
+function routeKeyForRepo(owner: string, repo: string, path: string): string {
+  return `repo:${owner.toLowerCase()}/${repo.toLowerCase()}:${path}`;
+}
+
+function routeKeyFromRoute(route: Route): string | null {
+  if (route.name === 'gist') {
+    const filename = route.params.filename ? safeDecodeURIComponent(route.params.filename) : undefined;
+    return routeKeyForGist(route.params.id, filename);
+  }
+  if (route.name === 'repofile') {
+    return routeKeyForRepo(
+      safeDecodeURIComponent(route.params.owner),
+      safeDecodeURIComponent(route.params.repo),
+      safeDecodeURIComponent(route.params.path).replace(/^\/+/, ''),
+    );
+  }
+  return null;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function isResizableImageType(mimeType: string): boolean {
@@ -942,6 +982,7 @@ export function App() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [failedImageUpload, setFailedImageUpload] = useState<PendingImageUpload | null>(null);
   const [pendingImageUploads, setPendingImageUploads] = useState<Set<string>>(() => new Set());
+  const [postSaveVerification, setPostSaveVerification] = useState<PostSaveVerificationState | null>(null);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -1003,6 +1044,12 @@ export function App() {
   editContentRef.current = editContent;
   const routeView = viewFromRoute(route);
   const activeView = viewPhase ?? routeView;
+  const currentRouteKey = routeKeyFromRoute(route);
+  const shouldPreserveVerifiedContent =
+    currentRouteKey !== null &&
+    postSaveVerification !== null &&
+    postSaveVerification.routeKey === currentRouteKey &&
+    (postSaveVerification.status === 'verifying' || postSaveVerification.status === 'delayed');
   const currentEditingDocPath = useMemo(
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
@@ -1058,6 +1105,15 @@ export function App() {
     markdownLinkPreviewCacheRef.current.clear();
     markdownLinkPreviewPendingRef.current.clear();
   }, []);
+
+  const saveStatusText = useMemo(() => {
+    if (!shouldPreserveVerifiedContent || !postSaveVerification) return null;
+    return postSaveVerification.status === 'verifying'
+      ? 'Verifying saved version...'
+      : 'Showing local version while GitHub catches up';
+  }, [postSaveVerification, shouldPreserveVerifiedContent]);
+
+  const saveStatusTone = postSaveVerification?.status === 'delayed' ? 'warning' : 'pending';
 
   const clearOAuthRedirectGuard = useCallback(() => {
     try {
@@ -2066,6 +2122,11 @@ export function App() {
           return;
         }
         case 'repofile': {
+          if (routeKeyFromRoute(r) === postSaveVerification?.routeKey) {
+            setViewPhase(null);
+            setContentLoadPending(false);
+            return;
+          }
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
           const decodedPath = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
@@ -2299,6 +2360,11 @@ export function App() {
           return;
         }
         case 'gist': {
+          if (routeKeyFromRoute(r) === postSaveVerification?.routeKey) {
+            setViewPhase(null);
+            setContentLoadPending(false);
+            return;
+          }
           const id = r.params.id;
           const filename = r.params.filename;
           await loadGist(id, filename, !isAuthenticated);
@@ -2331,6 +2397,7 @@ export function App() {
       handleSessionExpired,
       showRateLimitToastIfNeeded,
       showAlert,
+      postSaveVerification,
       defaultPreviewVisible,
       selectedRepo,
       installationRepos,
@@ -2358,7 +2425,7 @@ export function App() {
   useEffect(() => {
     if (!initialized.current) return;
     if (route === prevRoute.current) return;
-    if (isContentRoute(route)) {
+    if (isContentRoute(route) && !shouldPreserveVerifiedContent) {
       clearRenderedContent();
       setContentLoadPending(true);
     } else {
@@ -2366,7 +2433,70 @@ export function App() {
     }
     prevRoute.current = route;
     handleRoute(route);
-  }, [clearRenderedContent, handleRoute, isContentRoute, route]);
+  }, [clearRenderedContent, handleRoute, isContentRoute, route, shouldPreserveVerifiedContent]);
+
+  useEffect(() => {
+    if (!postSaveVerification) return;
+    if (postSaveVerification.routeKey === currentRouteKey) return;
+    if (currentRouteKey === null && (route.name === 'edit' || route.name === 'repoedit')) return;
+    setPostSaveVerification(null);
+  }, [currentRouteKey, postSaveVerification, route.name]);
+
+  useEffect(() => {
+    if (!postSaveVerification || postSaveVerification.status !== 'verifying') return;
+
+    let cancelled = false;
+    const verify = async () => {
+      const delaysMs = [0, 250, 750, 1500, 3000];
+
+      for (const delayMs of delaysMs) {
+        if (delayMs > 0) await wait(delayMs);
+        if (cancelled) return;
+
+        try {
+          if (postSaveVerification.kind === 'repo') {
+            const installationId = postSaveVerification.installationId;
+            const repoFullName = postSaveVerification.repoFullName;
+            const path = postSaveVerification.path;
+            const expectedSha = postSaveVerification.expectedSha;
+            if (!installationId || !repoFullName || !path || !expectedSha) break;
+            const verified = await getRepoContents(installationId, repoFullName, path, undefined, {
+              forceRefresh: true,
+            });
+            if (cancelled) return;
+            if (isRepoFile(verified) && verified.sha === expectedSha) {
+              setPostSaveVerification((prev) => (prev?.routeKey === postSaveVerification.routeKey ? null : prev));
+              return;
+            }
+          } else {
+            const gistId = postSaveVerification.gistId;
+            const filename = postSaveVerification.filename;
+            const expectedUpdatedAt = postSaveVerification.expectedUpdatedAt;
+            if (!gistId || !filename || !expectedUpdatedAt) break;
+            const verified = await getGist(gistId, { forceRefresh: true });
+            if (cancelled) return;
+            if (verified.updated_at === expectedUpdatedAt && verified.files[filename]) {
+              setPostSaveVerification((prev) => (prev?.routeKey === postSaveVerification.routeKey ? null : prev));
+              return;
+            }
+          }
+        } catch (err) {
+          if (err instanceof SessionExpiredError) return;
+        }
+      }
+
+      if (cancelled) return;
+      setPostSaveVerification((prev) =>
+        prev?.routeKey === postSaveVerification.routeKey ? { ...prev, status: 'delayed' } : prev,
+      );
+      showFailureToast('Saved, but GitHub has not returned the new version yet. Keeping your local content on screen.');
+    };
+
+    void verify();
+    return () => {
+      cancelled = true;
+    };
+  }, [postSaveVerification, showFailureToast]);
 
   // --- Draft persistence ---
   useEffect(() => {
@@ -3498,6 +3628,15 @@ export function App() {
             : [...knownMarkdownPaths, currentRepoDocPath],
         });
         if (selectedRepoRef) {
+          setPostSaveVerification({
+            routeKey: routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath),
+            status: 'verifying',
+            kind: 'repo',
+            installationId: instId,
+            repoFullName: repoName,
+            path: currentRepoDocPath,
+            expectedSha: result.content.sha,
+          });
           navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath));
         } else {
           navigate(routePath.workspaces());
@@ -3531,6 +3670,15 @@ export function App() {
             : [...knownMarkdownPaths, createdPath],
         });
         if (selectedRepoRef) {
+          setPostSaveVerification({
+            routeKey: routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, createdPath),
+            status: 'verifying',
+            kind: 'repo',
+            installationId: instId,
+            repoFullName: repoName,
+            path: createdPath,
+            expectedSha: result.content.sha,
+          });
           navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, createdPath));
         } else {
           navigate(routePath.workspaces());
@@ -3558,6 +3706,14 @@ export function App() {
         renderDocumentContent(content, filename, null, undefined, {
           currentDocPath: filename,
           knownMarkdownPaths: Object.keys(gist.files),
+        });
+        setPostSaveVerification({
+          routeKey: routeKeyForGist(gist.id, filename),
+          status: 'verifying',
+          kind: 'gist',
+          gistId: gist.id,
+          filename,
+          expectedUpdatedAt: gist.updated_at,
         });
         navigate(routePath.gistView(gist.id, filename));
       }
@@ -4984,6 +5140,8 @@ export function App() {
         saving={saving}
         canSave={hasUnsavedChanges && !readerAiEditLocked && pendingImageUploads.size === 0}
         onSave={onSave}
+        saveStatusText={saveStatusText}
+        saveStatusTone={saveStatusTone}
         onSignInWithGitHub={handleSignInWithGitHub}
       />
       <div

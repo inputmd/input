@@ -335,10 +335,13 @@ export async function getRepoContents(
   repoFullName: string,
   path: string,
   ref?: string,
+  options?: { forceRefresh?: boolean },
 ): Promise<RepoContents> {
   const cacheKey = repoContentsCacheKey(installationId, repoFullName, path, ref);
-  const cached = repoContentsCache.get(cacheKey);
-  if (cached) return cached;
+  if (!options?.forceRefresh) {
+    const cached = repoContentsCache.get(cacheKey);
+    if (cached) return cached;
+  }
 
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams({ path });

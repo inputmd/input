@@ -62,6 +62,8 @@ interface ToolbarProps {
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
+  saveStatusText?: string | null;
+  saveStatusTone?: 'pending' | 'warning';
   onSignInWithGitHub: (options?: { includeGists?: boolean }) => void;
   navigate: (route: string, options?: { replace?: boolean; state?: unknown }) => void;
   onOpenRepoMenu: () => void;
@@ -111,6 +113,8 @@ export function Toolbar({
   saving,
   canSave,
   onSave,
+  saveStatusText = null,
+  saveStatusTone = 'pending',
   onSignInWithGitHub,
   navigate,
   onOpenRepoMenu,
@@ -361,6 +365,15 @@ export function Toolbar({
       <div class="toolbar-right">
         <Tooltip.Provider delayDuration={250}>
           <div class="action-buttons">
+            {saveStatusText ? (
+              <div
+                class={`toolbar-save-status${saveStatusTone === 'warning' ? ' toolbar-save-status--warning' : ''}`}
+                role="status"
+                aria-live="polite"
+              >
+                {saveStatusText}
+              </div>
+            ) : null}
             {showGoToWorkspace && (
               <button type="button" onClick={onGoToWorkspace}>
                 Go to workspace

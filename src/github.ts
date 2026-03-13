@@ -125,9 +125,11 @@ export async function listGists(page = 1, perPage = 30): Promise<GistSummary[]> 
   return data;
 }
 
-export async function getGist(id: string): Promise<GistDetail> {
-  const cached = gistDetailCache.get(id);
-  if (cached) return cached;
+export async function getGist(id: string, options?: { forceRefresh?: boolean }): Promise<GistDetail> {
+  if (!options?.forceRefresh) {
+    const cached = gistDetailCache.get(id);
+    if (cached) return cached;
+  }
 
   const res = await apiFetch(`/gists/${encodeURIComponent(id)}`);
   const data = (await res.json()) as GistDetail;
