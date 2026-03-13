@@ -982,15 +982,17 @@ interface PendingDraftRestoreState {
 }
 
 function generateUnifiedDiff(path: string, oldContent: string, newContent: string): string {
+  const unchangedLineCount = oldContent.length === 0 ? 0 : oldContent.split('\n').length;
+  const noChangesLabel = `(no changes, ${unchangedLineCount} line${unchangedLineCount === 1 ? '' : 's'})`;
   const patch = createTwoFilesPatch(`a/${path}`, `b/${path}`, oldContent, newContent, undefined, undefined, {
     context: 3,
   });
   const lines = patch.split('\n');
   const startIndex = lines.findIndex((line) => line.startsWith('---'));
-  if (startIndex < 0) return '(no changes)';
-  if (!lines.some((line) => line.startsWith('@@'))) return '(no changes)';
+  if (startIndex < 0) return noChangesLabel;
+  if (!lines.some((line) => line.startsWith('@@'))) return noChangesLabel;
   const result = lines.slice(startIndex).join('\n').trimEnd();
-  return result || '(no changes)';
+  return result || noChangesLabel;
 }
 
 function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | null {
@@ -1208,6 +1210,11 @@ export function App() {
     currentDocumentDraft !== null &&
     currentDocumentSavedContent !== null &&
     currentDocumentDraft.content !== currentDocumentSavedContent;
+  const currentDocumentContent = activeView === 'edit' ? editContent : currentDocumentSavedContent;
+  const hasRestorableDocumentDraft =
+    currentDocumentDraft !== null &&
+    currentDocumentContent !== null &&
+    currentDocumentDraft.content !== currentDocumentContent;
   const currentDocumentLabel = currentFileName ?? currentRepoDocPath ?? 'this document';
   const readerAiEditEligible = routeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
   const readerAiHistoryEligible =
@@ -3835,17 +3842,19 @@ export function App() {
           path: currentFileName ?? currentRepoDocPath ?? currentDocumentLabel,
           diff: generateUnifiedDiff(
             currentFileName ?? currentRepoDocPath ?? 'document.md',
-            currentDocumentSavedContent,
             currentDocumentDraft.content,
+            currentDocumentSavedContent,
           ),
         },
       ],
       {
         title: 'Reset Changes',
-        confirmLabel: 'Reset',
+        confirmLabel: 'Apply Reset',
         cancelLabel: 'Cancel',
         intent: 'danger',
         defaultFocus: 'cancel',
+        leftLabel: 'Will be discarded',
+        rightLabel: 'After reset',
       },
     );
     if (!confirmed) return;
@@ -3869,9 +3878,9 @@ export function App() {
   const onRestoreDraft = useCallback(async () => {
     if (
       !currentDocumentDraftKey ||
-      !hasDivergedDocumentDraft ||
+      !hasRestorableDocumentDraft ||
       !currentDocumentDraft ||
-      currentDocumentSavedContent === null
+      currentDocumentContent === null
     )
       return;
     const confirmed = await showDiffConfirm(
@@ -3881,7 +3890,7 @@ export function App() {
           path: currentFileName ?? currentRepoDocPath ?? currentDocumentLabel,
           diff: generateUnifiedDiff(
             currentFileName ?? currentRepoDocPath ?? 'document.md',
-            currentDocumentSavedContent,
+            currentDocumentContent,
             currentDocumentDraft.content,
           ),
         },
@@ -3891,6 +3900,8 @@ export function App() {
         confirmLabel: 'Restore',
         cancelLabel: 'Cancel',
         defaultFocus: 'cancel',
+        leftLabel: 'Current document',
+        rightLabel: 'Draft to restore',
       },
     );
     if (!confirmed) return;
@@ -3924,12 +3935,13 @@ export function App() {
     activeView,
     currentDocumentDraft,
     currentDocumentDraftKey,
+    currentDocumentContent,
     currentDocumentLabel,
     currentDocumentSavedContent,
     currentFileName,
     currentGistId,
     currentRepoDocPath,
-    hasDivergedDocumentDraft,
+    hasRestorableDocumentDraft,
     navigate,
     repoAccessMode,
     selectedRepoRef,
@@ -5477,7 +5489,7 @@ export function App() {
         shareMetadata={shareMenuMetadata}
         showDraftBadge={hasDivergedDocumentDraft}
         showDraftActions={showDraftMenuActions}
-        showRestoreDraft={hasDivergedDocumentDraft}
+        showRestoreDraft={hasRestorableDocumentDraft}
         onShare={() => {
           void onShareLink();
         }}

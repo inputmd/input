@@ -9,7 +9,11 @@ import { SideBySideDiffView } from './DiffViewer';
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;
   showConfirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
-  showDiffConfirm: (message: string, changes: DiffChangeEntry[], options?: ConfirmDialogOptions) => Promise<boolean>;
+  showDiffConfirm: (
+    message: string,
+    changes: DiffChangeEntry[],
+    options?: DiffConfirmDialogOptions,
+  ) => Promise<boolean>;
   showPrompt: (message: string, defaultValue?: string) => Promise<string | null>;
 }
 
@@ -22,6 +26,11 @@ interface ConfirmDialogOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   defaultFocus?: ConfirmDialogFocus;
+}
+
+interface DiffConfirmDialogOptions extends ConfirmDialogOptions {
+  leftLabel?: string;
+  rightLabel?: string;
 }
 
 const DialogContext = createContext<DialogContextValue | null>(null);
@@ -45,7 +54,7 @@ type DialogState =
       message: string;
       changes: DiffChangeEntry[];
       resolve: (value: boolean) => void;
-      options: Required<ConfirmDialogOptions>;
+      options: Required<ConfirmDialogOptions> & Pick<Required<DiffConfirmDialogOptions>, 'leftLabel' | 'rightLabel'>;
     }
   | { type: 'prompt'; message: string; defaultValue: string; resolve: (value: string | null) => void };
 
@@ -83,7 +92,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
   }, []);
 
   const showDiffConfirm = useCallback(
-    (message: string, changes: DiffChangeEntry[], options?: ConfirmDialogOptions): Promise<boolean> => {
+    (message: string, changes: DiffChangeEntry[], options?: DiffConfirmDialogOptions): Promise<boolean> => {
       return new Promise((resolve) => {
         const intent = options?.intent ?? 'default';
         setDialog({
@@ -97,6 +106,8 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
             confirmLabel: options?.confirmLabel ?? (intent === 'danger' ? 'Delete' : 'OK'),
             cancelLabel: options?.cancelLabel ?? 'Cancel',
             defaultFocus: options?.defaultFocus ?? (intent === 'danger' ? 'action' : 'cancel'),
+            leftLabel: options?.leftLabel ?? 'Original',
+            rightLabel: options?.rightLabel ?? 'Updated',
           },
         });
       });
@@ -239,7 +250,11 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                 {dialog.message}
               </AlertDialogPrimitive.Description>
               <div class="dialog-diff-frame">
-                <SideBySideDiffView changes={dialog.changes} />
+                <SideBySideDiffView
+                  changes={dialog.changes}
+                  leftLabel={dialog.options.leftLabel}
+                  rightLabel={dialog.options.rightLabel}
+                />
               </div>
               <div class="dialog-actions">
                 <AlertDialogPrimitive.Cancel asChild>
