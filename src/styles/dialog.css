@@ -20,6 +20,14 @@
   z-index: 51;
 }
 
+.dialog-content--diff {
+  max-width: min(1100px, calc(100vw - 32px));
+  width: min(1100px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+}
+
 .dialog-message {
   font-size: 15px;
   line-height: 1.5;
@@ -55,6 +63,16 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.dialog-diff-frame {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 70%, var(--toolbar-bg));
 }
 
 .dialog-actions button:focus-visible {

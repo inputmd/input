@@ -1,3 +1,4 @@
+import { createTwoFilesPatch } from 'diff';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
@@ -151,6 +152,7 @@ Input is a tool for editing and publishing workspaces of Markdown files. It's li
 It supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/) as files.
 
 We ask for minimal permissions, and do not log your data.`;
+const DOCUMENT_DRAFTS_STORAGE_KEY = 'document_drafts_v1';
 
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
@@ -755,6 +757,20 @@ interface PendingImageUpload {
   finalMarkdown: string;
 }
 
+interface PersistedDocumentDraft {
+  kind: 'gist' | 'repo';
+  content: string;
+  updatedAtMs: number;
+  baseRevision: string | null;
+  gistId?: string;
+  filename?: string;
+  installationId?: string;
+  repoFullName?: string;
+  path?: string;
+}
+
+type DocumentDraftStore = Record<string, PersistedDocumentDraft>;
+
 interface PostSaveVerificationState {
   routeKey: string;
   status: 'verifying' | 'delayed';
@@ -788,6 +804,14 @@ function routeKeyForRepo(owner: string, repo: string, path: string): string {
   return `repo:${owner.toLowerCase()}/${repo.toLowerCase()}:${path}`;
 }
 
+function documentDraftKeyForGist(gistId: string, filename: string): string {
+  return `gist:${gistId}:${filename}`;
+}
+
+function documentDraftKeyForRepo(installationId: string, repoFullName: string, path: string): string {
+  return `repo:${installationId}:${repoFullName.toLowerCase()}:${path}`;
+}
+
 function routeKeyFromRoute(route: Route): string | null {
   if (route.name === 'gist') {
     const filename = route.params.filename ? safeDecodeURIComponent(route.params.filename) : undefined;
@@ -801,6 +825,69 @@ function routeKeyFromRoute(route: Route): string | null {
     );
   }
   return null;
+}
+
+function loadDocumentDraftStore(): DocumentDraftStore {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(DOCUMENT_DRAFTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return {};
+    const store: DocumentDraftStore = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object') continue;
+      const entry = value as Record<string, unknown>;
+      if (typeof entry.content !== 'string') continue;
+      const kind = entry.kind === 'repo' ? 'repo' : entry.kind === 'gist' ? 'gist' : null;
+      if (!kind) continue;
+      store[key] = {
+        kind,
+        content: entry.content,
+        updatedAtMs: typeof entry.updatedAtMs === 'number' ? entry.updatedAtMs : 0,
+        baseRevision: typeof entry.baseRevision === 'string' ? entry.baseRevision : null,
+        gistId: typeof entry.gistId === 'string' ? entry.gistId : undefined,
+        filename: typeof entry.filename === 'string' ? entry.filename : undefined,
+        installationId: typeof entry.installationId === 'string' ? entry.installationId : undefined,
+        repoFullName: typeof entry.repoFullName === 'string' ? entry.repoFullName : undefined,
+        path: typeof entry.path === 'string' ? entry.path : undefined,
+      };
+    }
+    return store;
+  } catch {
+    return {};
+  }
+}
+
+function persistDocumentDraftStore(store: DocumentDraftStore): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (Object.keys(store).length === 0) {
+      localStorage.removeItem(DOCUMENT_DRAFTS_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(DOCUMENT_DRAFTS_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    return;
+  }
+}
+
+function loadDocumentDraft(key: string): PersistedDocumentDraft | null {
+  const store = loadDocumentDraftStore();
+  return store[key] ?? null;
+}
+
+function saveDocumentDraft(key: string, draft: PersistedDocumentDraft): void {
+  const store = loadDocumentDraftStore();
+  store[key] = draft;
+  persistDocumentDraftStore(store);
+}
+
+function removeDocumentDraft(key: string): void {
+  const store = loadDocumentDraftStore();
+  if (!(key in store)) return;
+  delete store[key];
+  persistDocumentDraftStore(store);
 }
 
 function wait(ms: number): Promise<void> {
@@ -879,9 +966,36 @@ function viewFromRoute(route: Route): ActiveView {
   }
 }
 
+interface PendingDraftRestoreState {
+  documentDraftKey: string;
+  content: string;
+}
+
+function generateUnifiedDiff(path: string, oldContent: string, newContent: string): string {
+  const patch = createTwoFilesPatch(`a/${path}`, `b/${path}`, oldContent, newContent, undefined, undefined, {
+    context: 3,
+  });
+  const lines = patch.split('\n');
+  const startIndex = lines.findIndex((line) => line.startsWith('---'));
+  if (startIndex < 0) return '(no changes)';
+  if (!lines.some((line) => line.startsWith('@@'))) return '(no changes)';
+  const result = lines.slice(startIndex).join('\n').trimEnd();
+  return result || '(no changes)';
+}
+
+function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | null {
+  if (!state || typeof state !== 'object') return null;
+  const restoreDraft = (state as { restoreDraft?: unknown }).restoreDraft;
+  if (!restoreDraft || typeof restoreDraft !== 'object') return null;
+  const documentDraftKey = (restoreDraft as { documentDraftKey?: unknown }).documentDraftKey;
+  const content = (restoreDraft as { content?: unknown }).content;
+  if (typeof documentDraftKey !== 'string' || typeof content !== 'string') return null;
+  return { documentDraftKey, content };
+}
+
 export function App() {
-  const { route, navigate } = useRoute();
-  const { showAlert, showConfirm } = useDialogs();
+  const { route, routeState, navigate } = useRoute();
+  const { showAlert, showConfirm, showDiffConfirm } = useDialogs();
   const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
 
   // --- Shared state ---
@@ -978,6 +1092,8 @@ export function App() {
   const [editingBackend, setEditingBackend] = useState<'gist' | 'repo' | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [currentDocumentSavedContent, setCurrentDocumentSavedContent] = useState<string | null>(null);
+  const [currentDocumentDraft, setCurrentDocumentDraft] = useState<PersistedDocumentDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [draftMode, setDraftMode] = useState(false);
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
@@ -1064,6 +1180,25 @@ export function App() {
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
   );
+  const currentDocumentDraftKey = useMemo(() => {
+    if (repoAccessMode === 'installed' && installationId && selectedRepo && currentRepoDocPath) {
+      return documentDraftKeyForRepo(installationId, selectedRepo, currentRepoDocPath);
+    }
+    if (user && currentGistId && currentFileName) {
+      return documentDraftKeyForGist(currentGistId, currentFileName);
+    }
+    return null;
+  }, [repoAccessMode, installationId, selectedRepo, currentRepoDocPath, user, currentGistId, currentFileName]);
+  const currentDocumentBaseRevision = useMemo(() => {
+    if (repoAccessMode === 'installed') return currentRepoDocSha;
+    if (currentGistId) return currentGistUpdatedAt;
+    return null;
+  }, [repoAccessMode, currentRepoDocSha, currentGistId, currentGistUpdatedAt]);
+  const hasDivergedDocumentDraft =
+    currentDocumentDraft !== null &&
+    currentDocumentSavedContent !== null &&
+    currentDocumentDraft.content !== currentDocumentSavedContent;
+  const currentDocumentLabel = currentFileName ?? currentRepoDocPath ?? 'this document';
   const readerAiEditEligible = routeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
   const readerAiHistoryEligible =
     (routeView === 'content' && renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript)) ||
@@ -1188,6 +1323,8 @@ export function App() {
     setPublicRepoRef(null);
     setRepoFiles([]);
     setRepoSidebarFiles([]);
+    setCurrentDocumentSavedContent(null);
+    setCurrentDocumentDraft(null);
     setErrorMessage('Session expired. Sign in with GitHub from the header to continue.');
     setViewPhase('error');
   }, []);
@@ -1756,8 +1893,10 @@ export function App() {
 
           setCurrentFileName(file.filename);
           if (isSafeImageFileName(file.filename)) {
+            setCurrentDocumentSavedContent(null);
             renderImageFileContent(file.filename, file.raw_url);
           } else {
+            setCurrentDocumentSavedContent(content ?? '');
             renderDocumentContent(content ?? '', file.filename, null, undefined, {
               currentDocPath: file.filename,
               knownMarkdownPaths: fileKeys,
@@ -1796,8 +1935,10 @@ export function App() {
         setRepoFiles([]);
         setRepoSidebarFiles([]);
         if (isSafeImageFileName(file.filename)) {
+          setCurrentDocumentSavedContent(null);
           renderImageFileContent(file.filename, file.raw_url);
         } else {
+          setCurrentDocumentSavedContent(file.content ?? '');
           renderDocumentContent(file.content ?? '', file.filename, null, undefined, {
             currentDocPath: file.filename,
             knownMarkdownPaths: fileKeys,
@@ -1880,11 +2021,15 @@ export function App() {
           setEditingBackend('repo');
           setEditTitle(contents.name.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
           setEditContent(decoded);
+          setCurrentDocumentSavedContent(decoded);
         } else if (binary && isSafeImageFileName(contents.name)) {
+          setCurrentDocumentSavedContent(null);
           renderImageFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
         } else if (binary) {
+          setCurrentDocumentSavedContent(null);
           renderBinaryFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
         } else {
+          setCurrentDocumentSavedContent(decoded);
           const wikiPaths = knownMarkdownPaths.includes(contents.path)
             ? knownMarkdownPaths
             : [...knownMarkdownPaths, contents.path];
@@ -1961,10 +2106,13 @@ export function App() {
         setCurrentFileName(contents.path);
         setEditingBackend(null);
         if (binary && isSafeImageFileName(contents.name)) {
+          setCurrentDocumentSavedContent(null);
           renderImageFileContent(contents.name, publicRepoRawFileUrl(owner, repo, contents.path));
         } else if (binary) {
+          setCurrentDocumentSavedContent(null);
           renderBinaryFileContent(contents.name, publicRepoRawFileUrl(owner, repo, contents.path));
         } else {
+          setCurrentDocumentSavedContent(decoded);
           renderDocumentContent(
             decoded,
             contents.name,
@@ -2020,16 +2168,19 @@ export function App() {
         setCurrentFileName(shared.path);
         setEditingBackend(null);
         if (binary && isSafeImageFileName(shared.name)) {
+          setCurrentDocumentSavedContent(null);
           const imageBlobBytes = new Uint8Array(contentBytes);
           const imageBlob = new Blob([imageBlobBytes], { type: 'application/octet-stream' });
           const imageBlobUrl = URL.createObjectURL(imageBlob);
           renderImageFileContent(shared.name, imageBlobUrl);
         } else if (binary) {
+          setCurrentDocumentSavedContent(null);
           const blobBytes = new Uint8Array(contentBytes);
           const blob = new Blob([blobBytes], { type: 'application/octet-stream' });
           const blobUrl = URL.createObjectURL(blob);
           renderBinaryFileContent(shared.name, blobUrl);
         } else {
+          setCurrentDocumentSavedContent(decoded);
           renderDocumentContent(decoded, shared.name, shared.path);
         }
         setViewPhase(null);
@@ -2066,6 +2217,7 @@ export function App() {
           setCurrentFileName(null);
           setRepoFiles([]);
           setRepoSidebarFiles([]);
+          setCurrentDocumentSavedContent(null);
           setViewPhase(null);
           return;
         case 'repodocuments': {
@@ -2184,6 +2336,7 @@ export function App() {
           setGistFiles(null);
           setRepoFiles([]);
           setRepoSidebarFiles([]);
+          setCurrentDocumentSavedContent(null);
           setPreviewVisible(defaultPreviewVisible());
           const routeFileName = fileNameFromPath(path);
           const fallbackTitle = routeFileName.replace(/\.(?:md(?:own|wn)?|markdown)$/i, '') || DEFAULT_NEW_FILENAME;
@@ -2217,6 +2370,7 @@ export function App() {
           setGistFiles(null);
           setRepoFiles([]);
           setRepoSidebarFiles([]);
+          setCurrentDocumentSavedContent(null);
           setPreviewVisible(defaultPreviewVisible());
           setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
           setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
@@ -2292,6 +2446,7 @@ export function App() {
                 setRepoSidebarFiles([]);
                 setEditTitle(fileNameFromPath(cacheFile.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
                 setEditContent(full.content);
+                setCurrentDocumentSavedContent(full.content);
                 setHasUnsavedChanges(false);
                 setViewPhase(null);
                 return;
@@ -2305,6 +2460,7 @@ export function App() {
               setRepoSidebarFiles([]);
               setEditTitle(fileNameFromPath(cacheFile.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
               setEditContent(cacheFile.content ?? '');
+              setCurrentDocumentSavedContent(cacheFile.content ?? '');
               setHasUnsavedChanges(false);
               setViewPhase(null);
               return;
@@ -2362,6 +2518,7 @@ export function App() {
             setRepoSidebarFiles([]);
             setEditTitle(fileNameFromPath(file.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
             setEditContent(editableContent);
+            setCurrentDocumentSavedContent(editableContent);
             setViewPhase(null);
           } catch (err) {
             showRateLimitToastIfNeeded(err);
@@ -2386,6 +2543,7 @@ export function App() {
           return;
         default:
           setDraftMode(false);
+          setCurrentDocumentSavedContent(null);
           setViewPhase(null);
       }
     },
@@ -2514,6 +2672,73 @@ export function App() {
     localStorage.setItem(DRAFT_TITLE_KEY, editTitle);
     localStorage.setItem(DRAFT_CONTENT_KEY, editContent);
   }, [draftMode, editTitle, editContent]);
+
+  useEffect(() => {
+    if (!currentDocumentDraftKey) {
+      setCurrentDocumentDraft(null);
+      return;
+    }
+    const stored = loadDocumentDraft(currentDocumentDraftKey);
+    if (stored && currentDocumentSavedContent !== null && stored.content === currentDocumentSavedContent) {
+      removeDocumentDraft(currentDocumentDraftKey);
+      setCurrentDocumentDraft(null);
+      return;
+    }
+    setCurrentDocumentDraft(stored);
+  }, [currentDocumentDraftKey, currentDocumentSavedContent]);
+
+  useEffect(() => {
+    if (!currentDocumentDraftKey || draftMode || activeView !== 'edit' || !hasUnsavedChanges) return;
+    const nextDraft: PersistedDocumentDraft | null =
+      editingBackend === 'repo' && installationId && selectedRepo && currentRepoDocPath
+        ? {
+            kind: 'repo',
+            content: editContent,
+            updatedAtMs: Date.now(),
+            baseRevision: currentDocumentBaseRevision,
+            installationId,
+            repoFullName: selectedRepo,
+            path: currentRepoDocPath,
+          }
+        : currentGistId && currentFileName
+          ? {
+              kind: 'gist',
+              content: editContent,
+              updatedAtMs: Date.now(),
+              baseRevision: currentDocumentBaseRevision,
+              gistId: currentGistId,
+              filename: currentFileName,
+            }
+          : null;
+    if (!nextDraft) return;
+    saveDocumentDraft(currentDocumentDraftKey, nextDraft);
+    setCurrentDocumentDraft(nextDraft);
+  }, [
+    activeView,
+    currentDocumentBaseRevision,
+    currentDocumentDraftKey,
+    currentFileName,
+    currentGistId,
+    currentRepoDocPath,
+    draftMode,
+    editContent,
+    editingBackend,
+    hasUnsavedChanges,
+    installationId,
+    selectedRepo,
+  ]);
+
+  useEffect(() => {
+    if (activeView !== 'edit' || !currentDocumentDraftKey || currentDocumentSavedContent === null) return;
+    const pendingRestore = parsePendingDraftRestore(routeState);
+    if (!pendingRestore || pendingRestore.documentDraftKey !== currentDocumentDraftKey) return;
+    if (editContent !== pendingRestore.content) {
+      setEditContent(pendingRestore.content);
+    }
+    setHasUnsavedChanges(pendingRestore.content !== currentDocumentSavedContent);
+    const currentPath = window.location.pathname.replace(/^\/+/, '') || routePath.home();
+    navigate(currentPath, { replace: true, state: null });
+  }, [activeView, currentDocumentDraftKey, currentDocumentSavedContent, editContent, navigate, routeState]);
 
   useEffect(() => {
     if (route.name !== 'reponew') return;
@@ -3591,6 +3816,116 @@ export function App() {
     showFailureToast,
   ]);
 
+  const onResetDraftChanges = useCallback(async () => {
+    if (!currentDocumentDraftKey || !currentDocumentDraft || currentDocumentSavedContent === null) return;
+    const confirmed = await showDiffConfirm(
+      `Discard the saved local draft for "${currentDocumentLabel}" and keep the backend version?`,
+      [
+        {
+          path: currentFileName ?? currentRepoDocPath ?? currentDocumentLabel,
+          diff: generateUnifiedDiff(
+            currentFileName ?? currentRepoDocPath ?? 'document.md',
+            currentDocumentSavedContent,
+            currentDocumentDraft.content,
+          ),
+        },
+      ],
+      {
+        title: 'Reset Changes',
+        confirmLabel: 'Reset',
+        cancelLabel: 'Cancel',
+        intent: 'danger',
+        defaultFocus: 'cancel',
+      },
+    );
+    if (!confirmed) return;
+    removeDocumentDraft(currentDocumentDraftKey);
+    setCurrentDocumentDraft(null);
+    if (activeView === 'edit') {
+      setEditContent(currentDocumentSavedContent);
+      setHasUnsavedChanges(false);
+    }
+  }, [
+    activeView,
+    currentDocumentDraft,
+    currentDocumentDraftKey,
+    currentDocumentLabel,
+    currentDocumentSavedContent,
+    currentFileName,
+    currentRepoDocPath,
+    showDiffConfirm,
+  ]);
+
+  const onRestoreDraft = useCallback(async () => {
+    if (
+      !currentDocumentDraftKey ||
+      !hasDivergedDocumentDraft ||
+      !currentDocumentDraft ||
+      currentDocumentSavedContent === null
+    )
+      return;
+    const confirmed = await showDiffConfirm(
+      `Restore the saved local draft for "${currentDocumentLabel}"?`,
+      [
+        {
+          path: currentFileName ?? currentRepoDocPath ?? currentDocumentLabel,
+          diff: generateUnifiedDiff(
+            currentFileName ?? currentRepoDocPath ?? 'document.md',
+            currentDocumentSavedContent,
+            currentDocumentDraft.content,
+          ),
+        },
+      ],
+      {
+        title: 'Restore Draft',
+        confirmLabel: 'Restore',
+        cancelLabel: 'Cancel',
+        defaultFocus: 'cancel',
+      },
+    );
+    if (!confirmed) return;
+    if (activeView === 'edit') {
+      setEditContent(currentDocumentDraft.content);
+      setHasUnsavedChanges(currentDocumentDraft.content !== currentDocumentSavedContent);
+      return;
+    }
+    if (repoAccessMode === 'installed' && currentRepoDocPath && selectedRepoRef) {
+      navigate(routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath), {
+        state: {
+          restoreDraft: {
+            documentDraftKey: currentDocumentDraftKey,
+            content: currentDocumentDraft.content,
+          },
+        },
+      });
+      return;
+    }
+    if (currentGistId && currentFileName) {
+      navigate(routePath.gistEdit(currentGistId, currentFileName), {
+        state: {
+          restoreDraft: {
+            documentDraftKey: currentDocumentDraftKey,
+            content: currentDocumentDraft.content,
+          },
+        },
+      });
+    }
+  }, [
+    activeView,
+    currentDocumentDraft,
+    currentDocumentDraftKey,
+    currentDocumentLabel,
+    currentDocumentSavedContent,
+    currentFileName,
+    currentGistId,
+    currentRepoDocPath,
+    hasDivergedDocumentDraft,
+    navigate,
+    repoAccessMode,
+    selectedRepoRef,
+    showDiffConfirm,
+  ]);
+
   const onSave = useCallback(async () => {
     if (readerAiEditLocked) return;
     if (pendingImageUploads.size > 0) {
@@ -3629,6 +3964,11 @@ export function App() {
               file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
             ),
           );
+        }
+        setCurrentDocumentSavedContent(content);
+        if (currentDocumentDraftKey) {
+          removeDocumentDraft(currentDocumentDraftKey);
+          setCurrentDocumentDraft(null);
         }
 
         const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
@@ -3671,6 +4011,7 @@ export function App() {
         localStorage.removeItem(repoNewDraftKey(instId, repoName, path, 'content'));
         setCurrentRepoDocPath(result.content.path);
         setCurrentRepoDocSha(result.content.sha);
+        setCurrentDocumentSavedContent(content);
 
         const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
         const createdPath = result.content.path;
@@ -3708,6 +4049,11 @@ export function App() {
         setGistFiles(gist.files);
         setCurrentGistCreatedAt(gist.created_at);
         setCurrentGistUpdatedAt(gist.updated_at);
+        setCurrentDocumentSavedContent(content);
+        if (currentDocumentDraftKey) {
+          removeDocumentDraft(currentDocumentDraftKey);
+          setCurrentDocumentDraft(null);
+        }
         if (draftMode) {
           localStorage.removeItem(DRAFT_TITLE_KEY);
           localStorage.removeItem(DRAFT_CONTENT_KEY);
@@ -3766,6 +4112,7 @@ export function App() {
     showRateLimitToastIfNeeded,
     showSuccessToast,
     clearMarkdownLinkPreviewCache,
+    currentDocumentDraftKey,
     renderDocumentContent,
     repoFiles,
     selectedRepoRef,
@@ -5039,6 +5386,7 @@ export function App() {
     currentRepoDocPath !== null &&
     (route.name === 'repoedit' || (route.name === 'repofile' && Boolean(user)));
   const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
+  const showDraftMenuActions = showHeaderShare && currentDocumentDraft !== null;
   const shareMenuMetadata = useMemo(() => {
     if (!showHeaderShare) return null;
     const timestamp = currentGistCreatedAt ?? currentGistUpdatedAt;
@@ -5117,8 +5465,17 @@ export function App() {
         sidebarVisible={showSidebar}
         showShare={showHeaderShare}
         shareMetadata={shareMenuMetadata}
+        showDraftBadge={hasDivergedDocumentDraft}
+        showDraftActions={showDraftMenuActions}
+        showRestoreDraft={hasDivergedDocumentDraft}
         onShare={() => {
           void onShareLink();
+        }}
+        onResetDraftChanges={() => {
+          void onResetDraftChanges();
+        }}
+        onRestoreDraft={() => {
+          void onRestoreDraft();
         }}
         onViewInGitHub={onHeaderViewInGitHub}
         showEdit={showHeaderEdit}

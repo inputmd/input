@@ -45,7 +45,12 @@ interface ToolbarProps {
   sidebarVisible: boolean;
   showShare: boolean;
   shareMetadata: string | null;
+  showDraftBadge?: boolean;
+  showDraftActions?: boolean;
+  showRestoreDraft?: boolean;
   onShare: () => void;
+  onResetDraftChanges?: () => void;
+  onRestoreDraft?: () => void;
   onViewInGitHub: () => void;
   showEdit: boolean;
   editUrl: string | null;
@@ -96,7 +101,12 @@ export function Toolbar({
   sidebarVisible,
   showShare,
   shareMetadata,
+  showDraftBadge = false,
+  showDraftActions = false,
+  showRestoreDraft = false,
   onShare,
+  onResetDraftChanges,
+  onRestoreDraft,
   onViewInGitHub,
   showEdit,
   editUrl,
@@ -147,6 +157,7 @@ export function Toolbar({
       <DropdownMenu.Trigger asChild>
         <button type="button" class="author-menu-trigger" aria-label="Author menu" title="Author menu">
           <MoreVertical size={16} aria-hidden="true" />
+          {showDraftBadge ? <span class="author-menu-trigger-badge" aria-hidden="true" /> : null}
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -185,6 +196,33 @@ export function Toolbar({
                 }}
               >
                 Open in input.md <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
+              </DropdownMenu.Item>
+            </>
+          ) : null}
+          {showDraftActions ? (
+            <>
+              <DropdownMenu.Separator class="user-menu-separator" />
+              {showRestoreDraft ? (
+                <DropdownMenu.Item
+                  class="author-menu-item"
+                  onSelect={(event: Event) => {
+                    runAuthorMenuAction(event, () => {
+                      onRestoreDraft?.();
+                    });
+                  }}
+                >
+                  Restore Draft
+                </DropdownMenu.Item>
+              ) : null}
+              <DropdownMenu.Item
+                class="author-menu-item"
+                onSelect={(event: Event) => {
+                  runAuthorMenuAction(event, () => {
+                    onResetDraftChanges?.();
+                  });
+                }}
+              >
+                Reset Changes
               </DropdownMenu.Item>
             </>
           ) : null}

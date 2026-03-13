@@ -3,10 +3,13 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import type { ComponentChildren } from 'preact';
 import { createContext } from 'preact';
 import { useCallback, useContext, useRef, useState } from 'preact/hooks';
+import type { DiffChangeEntry } from './DiffViewer';
+import { SideBySideDiffView } from './DiffViewer';
 
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;
   showConfirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
+  showDiffConfirm: (message: string, changes: DiffChangeEntry[], options?: ConfirmDialogOptions) => Promise<boolean>;
   showPrompt: (message: string, defaultValue?: string) => Promise<string | null>;
 }
 
@@ -34,6 +37,13 @@ type DialogState =
   | {
       type: 'confirm';
       message: string;
+      resolve: (value: boolean) => void;
+      options: Required<ConfirmDialogOptions>;
+    }
+  | {
+      type: 'diff-confirm';
+      message: string;
+      changes: DiffChangeEntry[];
       resolve: (value: boolean) => void;
       options: Required<ConfirmDialogOptions>;
     }
@@ -72,6 +82,28 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
     });
   }, []);
 
+  const showDiffConfirm = useCallback(
+    (message: string, changes: DiffChangeEntry[], options?: ConfirmDialogOptions): Promise<boolean> => {
+      return new Promise((resolve) => {
+        const intent = options?.intent ?? 'default';
+        setDialog({
+          type: 'diff-confirm',
+          message,
+          changes,
+          resolve,
+          options: {
+            intent,
+            title: options?.title ?? 'Confirm',
+            confirmLabel: options?.confirmLabel ?? (intent === 'danger' ? 'Delete' : 'OK'),
+            cancelLabel: options?.cancelLabel ?? 'Cancel',
+            defaultFocus: options?.defaultFocus ?? (intent === 'danger' ? 'action' : 'cancel'),
+          },
+        });
+      });
+    },
+    [],
+  );
+
   const showPrompt = useCallback((message: string, defaultValue = ''): Promise<string | null> => {
     return new Promise((resolve) => {
       setPromptValue(defaultValue);
@@ -80,7 +112,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
   }, []);
 
   return (
-    <DialogContext.Provider value={{ showAlert, showConfirm, showPrompt }}>
+    <DialogContext.Provider value={{ showAlert, showConfirm, showDiffConfirm, showPrompt }}>
       {children}
 
       {/* Alert Dialog */}
@@ -147,6 +179,68 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
               <AlertDialogPrimitive.Description class="dialog-message">
                 {dialog.message}
               </AlertDialogPrimitive.Description>
+              <div class="dialog-actions">
+                <AlertDialogPrimitive.Cancel asChild>
+                  <button
+                    ref={confirmCancelRef}
+                    type="button"
+                    onClick={() => {
+                      dialog.resolve(false);
+                      close();
+                    }}
+                  >
+                    {dialog.options.cancelLabel}
+                  </button>
+                </AlertDialogPrimitive.Cancel>
+                <AlertDialogPrimitive.Action asChild>
+                  <button
+                    ref={confirmActionRef}
+                    class={dialog.options.intent === 'danger' ? 'dialog-action-danger' : undefined}
+                    type="button"
+                    onClick={() => {
+                      dialog.resolve(true);
+                      close();
+                    }}
+                  >
+                    {dialog.options.confirmLabel}
+                  </button>
+                </AlertDialogPrimitive.Action>
+              </div>
+            </AlertDialogPrimitive.Content>
+          </AlertDialogPrimitive.Portal>
+        </AlertDialogPrimitive.Root>
+      )}
+
+      {dialog?.type === 'diff-confirm' && (
+        <AlertDialogPrimitive.Root
+          open
+          onOpenChange={(open: boolean) => {
+            if (!open) {
+              dialog.resolve(false);
+              close();
+            }
+          }}
+        >
+          <AlertDialogPrimitive.Portal>
+            <AlertDialogPrimitive.Overlay class="dialog-overlay" />
+            <AlertDialogPrimitive.Content
+              class="dialog-content dialog-content--diff"
+              onOpenAutoFocus={(e: Event) => {
+                if (dialog.options.defaultFocus === 'action') {
+                  e.preventDefault();
+                  setTimeout(() => confirmActionRef.current?.focus(), 0);
+                  return;
+                }
+                setTimeout(() => confirmCancelRef.current?.focus(), 0);
+              }}
+            >
+              <AlertDialogPrimitive.Title class="dialog-title">{dialog.options.title}</AlertDialogPrimitive.Title>
+              <AlertDialogPrimitive.Description class="dialog-message">
+                {dialog.message}
+              </AlertDialogPrimitive.Description>
+              <div class="dialog-diff-frame">
+                <SideBySideDiffView changes={dialog.changes} />
+              </div>
               <div class="dialog-actions">
                 <AlertDialogPrimitive.Cancel asChild>
                   <button
