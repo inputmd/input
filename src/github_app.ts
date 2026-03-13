@@ -278,8 +278,13 @@ const repoContentsCache = new SyncedCache<RepoContents>({
   ttlMs: repoContentsCacheTtlMs,
 });
 
-function repoContentsCacheKey(installationId: string, repoFullName: string, path: string, ref?: string): string {
-  return `${installationId}|${repoFullName}|${ref ?? ''}|${path}`;
+function normalizeRepoFullNameForCache(repoFullName: string): string {
+  return repoFullName.trim().toLowerCase();
+}
+
+function repoContentsCacheKey(identity: string, repoFullName: string, path: string, ref?: string): string {
+  const normalizedRepo = normalizeRepoFullNameForCache(repoFullName);
+  return `${identity}|${normalizedRepo}|${ref ?? ''}|${path}`;
 }
 
 function publicRepoContentsCacheIdentity(owner: string, repo: string): string {
@@ -287,10 +292,12 @@ function publicRepoContentsCacheIdentity(owner: string, repo: string): string {
 }
 
 function clearRepoContentsCacheForRepo(installationId: string, repoFullName: string): void {
-  const keyPrefix = `${installationId}|${repoFullName}|`;
-  repoContentsCache.clearByPrefix(keyPrefix);
+  const normalizedRepo = normalizeRepoFullNameForCache(repoFullName);
+  repoContentsCache.clearByPrefix(`${installationId}|${normalizedRepo}|`);
+  // Best-effort: clear any legacy cache keys that were stored with non-normalized repo names.
+  repoContentsCache.clearByPrefix(`${installationId}|${repoFullName}|`);
 
-  const treeKeyPrefix = `tree|${installationId}|${repoFullName}|`;
+  const treeKeyPrefix = `tree|${installationId}|${normalizedRepo}|`;
   for (const key of repoTreeCache.keys()) {
     if (key.startsWith(treeKeyPrefix)) repoTreeCache.delete(key);
   }
@@ -378,7 +385,8 @@ export interface RepoTreeResult {
 const repoTreeCache = new Map<string, CacheEntry<RepoTreeResult>>();
 
 function repoTreeCacheKey(identity: string, repoFullName: string, ref?: string): string {
-  return `tree|${identity}|${repoFullName}|${ref ?? ''}|md`;
+  const normalizedRepo = normalizeRepoFullNameForCache(repoFullName);
+  return `tree|${identity}|${normalizedRepo}|${ref ?? ''}|md`;
 }
 
 function repoTreeCacheKeyForMode(identity: string, repoFullName: string, markdownOnly: boolean, ref?: string): string {
