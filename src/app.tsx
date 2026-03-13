@@ -297,6 +297,15 @@ function isPathInFolder(path: string, folderPath: string): boolean {
   return path === folderPath || path.startsWith(`${folderPath}/`);
 }
 
+function folderDeleteConfirmMessage(folderPath: string, filePaths: string[]): string {
+  const deleteCount = filePaths.length;
+  const message = `Delete folder "${folderPath}" and ${deleteCount} file(s)?`;
+  if (deleteCount === 0 || deleteCount > 2) return message;
+  const names = filePaths.map((path) => `"${fileNameFromPath(path)}"`);
+  const details = deleteCount === 1 ? names[0] : `${names[0]} and ${names[1]}`;
+  return `${message} This will delete ${details}.`;
+}
+
 function renamePathWithNewFolder(path: string, oldFolderPath: string, newFolderPath: string): string {
   if (!isPathInFolder(path, oldFolderPath)) return path;
   if (path === oldFolderPath) return newFolderPath;
@@ -4575,10 +4584,11 @@ export function App() {
     async (folderPath: string) => {
       const gistTargets = Object.keys(gistFiles ?? {}).filter((path) => isPathInFolder(path, folderPath));
       const repoTargets = repoSidebarFiles.filter((file) => isPathInFolder(file.path, folderPath));
-      const deleteCount = currentGistId ? gistTargets.length : repoTargets.length;
+      const targetPaths = currentGistId ? gistTargets : repoTargets.map((file) => file.path);
+      const deleteCount = targetPaths.length;
       if (deleteCount === 0) return;
       if (
-        !(await showConfirm(`Delete folder "${folderPath}" and ${deleteCount} file(s)?`, {
+        !(await showConfirm(folderDeleteConfirmMessage(folderPath, targetPaths), {
           intent: 'danger',
           confirmLabel: 'Delete',
         }))
