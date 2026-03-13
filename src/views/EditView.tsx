@@ -8,6 +8,7 @@ interface EditViewProps {
   previewHtml: string;
   previewVisible: boolean;
   canRenderPreview: boolean;
+  loading?: boolean;
   onTogglePreview: () => void;
   onContentChange: (content: string) => void;
   onPreviewImageClick?: (image: HTMLImageElement) => void;
@@ -28,6 +29,7 @@ export function EditView({
   previewHtml,
   previewVisible,
   canRenderPreview,
+  loading = false,
   onTogglePreview,
   onContentChange,
   onPreviewImageClick,
@@ -45,12 +47,12 @@ export function EditView({
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        if (!locked && canSave && !saving) onSave();
+        if (!loading && !locked && canSave && !saving) onSave();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [canSave, saving, onSave, locked]);
+  }, [canSave, loading, saving, onSave, locked]);
 
   const onSplitPointerDown = (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
     if (!previewVisible || !canRenderPreview) return;
@@ -108,12 +110,18 @@ export function EditView({
             <span>Reader AI is working. Editing is temporarily locked.</span>
           </div>
         ) : null}
+        {loading ? (
+          <div class="editor-loading-overlay" role="status" aria-live="polite">
+            <span class="editor-loading-spinner" aria-hidden="true" />
+            <span>Loading file into editor...</span>
+          </div>
+        ) : null}
         <MarkdownEditor
           class="doc-editor"
           content={content}
           onContentChange={onContentChange}
           onPaste={onEditorPaste}
-          readOnly={locked}
+          readOnly={locked || loading}
         />
         {previewVisible && canRenderPreview && (
           <>

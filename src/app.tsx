@@ -1045,6 +1045,11 @@ export function App() {
   const routeView = viewFromRoute(route);
   const activeView = viewPhase ?? routeView;
   const currentRouteKey = routeKeyFromRoute(route);
+  const targetRepoEditPath =
+    route.name === 'repoedit' ? safeDecodeURIComponent(route.params.path).replace(/^\/+/, '') : null;
+  const repoEditLoading =
+    route.name === 'repoedit' &&
+    (editingBackend !== 'repo' || currentRepoDocPath !== targetRepoEditPath || currentFileName !== targetRepoEditPath);
   const shouldPreserveVerifiedContent =
     currentRouteKey !== null &&
     postSaveVerification !== null &&
@@ -4714,12 +4719,13 @@ export function App() {
             previewHtml={editPreviewHtml}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
+            loading={repoEditLoading}
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
             onPreviewImageClick={onOpenLightbox}
             onEditorPaste={handleEditorPaste}
             saving={saving}
-            canSave={hasUnsavedChanges && !readerAiEditLocked && pendingImageUploads.size === 0}
+            canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
             onSave={onSave}
             locked={readerAiEditLocked}
             imageUploadIssue={
@@ -5138,7 +5144,7 @@ export function App() {
         onCancel={onCancel}
         showSave={showEditorSave}
         saving={saving}
-        canSave={hasUnsavedChanges && !readerAiEditLocked && pendingImageUploads.size === 0}
+        canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
         onSave={onSave}
         saveStatusText={saveStatusText}
         saveStatusTone={saveStatusTone}
