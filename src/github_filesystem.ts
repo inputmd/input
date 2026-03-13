@@ -100,18 +100,6 @@ export class GitHubRepoFileSystem {
     this.repoFullName = repoFullName;
   }
 
-  async readFile(path: string): Promise<{ path: string; sha: string; size: number; contentBase64: string }> {
-    const normalized = normalizeRelativePath(path);
-    const contents = await this.connection.getRepoContents(this.installationId, this.repoFullName, normalized);
-    if (!isRepoFile(contents)) throw new Error('Expected a file');
-    return {
-      path: contents.path,
-      sha: contents.sha,
-      size: contents.size,
-      contentBase64: contents.content ?? '',
-    };
-  }
-
   async list(path = ''): Promise<FsNode[]> {
     const contents = await this.connection.getRepoContents(this.installationId, this.repoFullName, path);
     if (isRepoFile(contents)) {
@@ -138,33 +126,6 @@ export class GitHubRepoFileSystem {
   deleteFile(path: string, sha: string, message = `Delete ${fileNameFromPath(path)}`): Promise<void> {
     const normalized = normalizeRelativePath(path);
     return this.connection.deleteRepoFile(this.installationId, this.repoFullName, normalized, message, sha);
-  }
-
-  async renameFile(file: { name: string; path: string; sha: string }, newPath: string): Promise<PutFileResult> {
-    const source = await this.readFile(file.path);
-    const normalizedNewPath = normalizeRelativePath(newPath);
-    const created = await this.connection.putRepoFile(
-      this.installationId,
-      this.repoFullName,
-      normalizedNewPath,
-      `Rename ${file.path} to ${newPath}`,
-      source.contentBase64,
-    );
-    try {
-      await this.connection.deleteRepoFile(
-        this.installationId,
-        this.repoFullName,
-        file.path,
-        `Delete ${file.name} (renamed)`,
-        file.sha,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      throw new Error(
-        `Rename partially completed. Created "${normalizedNewPath}", but failed to delete "${file.path}": ${message}`,
-      );
-    }
-    return created;
   }
 }
 

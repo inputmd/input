@@ -4716,13 +4716,17 @@ export function App() {
             navigate(routePath.gistView(currentGistId, newPath));
           }
         } else {
-          const oldFile = findRepoDocFile(repoSidebarFiles, oldPath);
-          if (!oldFile) return;
-          const created = await store.renameFile(oldFile, newPath);
+          if (!installationId || !selectedRepo) return;
+          await renameRepoPathsAtomic(
+            installationId,
+            selectedRepo,
+            [{ from: oldPath, to: newPath }],
+            `Rename ${oldPath} to ${newPath}`,
+          );
           await refreshRepoTreeAfterWrite();
           if (currentFileName === oldPath) {
             if (selectedRepoRef) {
-              navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, created.content.path));
+              navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, newPath));
             } else {
               navigate(routePath.workspaces());
             }
@@ -4734,9 +4738,9 @@ export function App() {
           return;
         }
         showRateLimitToastIfNeeded(err);
-        if (isPartialRepoRenameError(err)) {
+        if (isRepoWriteConflictError(err)) {
           void showAlert(
-            `${err instanceof Error ? err.message : 'Rename partially completed.'} Refresh the workspace and verify both paths before retrying.`,
+            `${err instanceof Error ? err.message : 'Rename conflict.'} The destination may already exist, or the repository changed while renaming. Refresh and retry.`,
           );
           return;
         }
@@ -4747,13 +4751,14 @@ export function App() {
       getActiveDocumentStore,
       currentGistId,
       currentFileName,
-      repoSidebarFiles,
       navigate,
       handleSessionExpired,
       showAlert,
       showRateLimitToastIfNeeded,
       selectedRepoRef,
       refreshRepoTreeAfterWrite,
+      installationId,
+      selectedRepo,
     ],
   );
 

@@ -20,7 +20,6 @@ export interface RepoStore {
   kind: 'repo';
   createFile: (path: string) => Promise<PutFileResult>;
   deleteFile: (file: RepoDocFile) => Promise<void>;
-  renameFile: (file: RepoDocFile, newPath: string) => Promise<PutFileResult>;
 }
 
 export type DocumentStore = GistStore | RepoStore;
@@ -50,9 +49,6 @@ export function createRepoDocumentStore(installationId: string, repoFullName: st
     },
     deleteFile(file: RepoDocFile) {
       return fs.deleteFile(file.path, file.sha, `Delete ${file.name}`);
-    },
-    renameFile(file: RepoDocFile, newPath: string) {
-      return fs.renameFile(file, newPath);
     },
   };
 }
