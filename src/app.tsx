@@ -941,6 +941,7 @@ export function App() {
   const [repoSidebarFiles, setRepoSidebarFiles] = useState<RepoDocFile[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [failedImageUpload, setFailedImageUpload] = useState<PendingImageUpload | null>(null);
+  const [pendingImageUploads, setPendingImageUploads] = useState<Set<string>>(() => new Set());
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -1368,6 +1369,11 @@ export function App() {
 
   const runPendingImageUpload = useCallback(
     async (upload: PendingImageUpload) => {
+      setPendingImageUploads((prev) => {
+        const next = new Set(prev);
+        next.add(upload.id);
+        return next;
+      });
       const uploadToastId = showLoadingToast('Uploading image...');
       try {
         await putRepoFile(
@@ -1396,6 +1402,11 @@ export function App() {
         showFailureToast(`Image upload failed: ${message}`);
       } finally {
         dismissToast(uploadToastId);
+        setPendingImageUploads((prev) => {
+          const next = new Set(prev);
+          next.delete(upload.id);
+          return next;
+        });
       }
     },
     [dismissToast, showFailureToast, showLoadingToast, showSuccessToast],
@@ -1443,10 +1454,10 @@ export function App() {
         return;
       }
       try {
-        const processed = await maybeResizePastedImage(file);
         const now = new Date();
         const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-        const imageName = `pasted-${stamp}-${Math.random().toString(36).slice(2, 8)}.${processed.extension}`;
+        const baseExt = extensionFromMimeType(file.type);
+        const imageName = `pasted-${stamp}-${Math.random().toString(36).slice(2, 8)}.${baseExt}`;
         const docDir = dirName(currentRepoDocPath);
         const assetDir = docDir ? `${docDir}/.assets` : '.assets';
         const imageRepoPath = `${assetDir}/${imageName}`;
@@ -1456,25 +1467,31 @@ export function App() {
         const finalMarkdown = `![${imageName}](./.assets/${imageName})`;
 
         const { from, to } = view.state.selection.main;
-        const currentValue = view.state.doc.toString();
-        const next = `${currentValue.slice(0, from)}${uploadingToken}${currentValue.slice(to)}`;
-        setEditContent(next);
-        setHasUnsavedChanges(true);
+        view.dispatch({ changes: { from, to, insert: uploadingToken } });
 
-        const upload: PendingImageUpload = {
-          id: uploadId,
-          installationId,
-          repoFullName: selectedRepo,
-          imageName,
-          imageRepoPath,
-          contentB64: encodeBytesToBase64(processed.bytes),
-          resized: processed.resized,
-          uploadingToken,
-          failedToken,
-          finalMarkdown,
-        };
-        setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
-        void runPendingImageUpload(upload);
+        void (async () => {
+          try {
+            const processed = await maybeResizePastedImage(file);
+            const upload: PendingImageUpload = {
+              id: uploadId,
+              installationId,
+              repoFullName: selectedRepo,
+              imageName,
+              imageRepoPath,
+              contentB64: encodeBytesToBase64(processed.bytes),
+              resized: processed.resized,
+              uploadingToken,
+              failedToken,
+              finalMarkdown,
+            };
+            setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
+            await runPendingImageUpload(upload);
+          } catch (err) {
+            setEditContent((prev) => replaceFirst(prev, uploadingToken, failedToken));
+            const message = err instanceof Error ? err.message : 'Upload failed';
+            showFailureToast(`Image upload failed: ${message}`);
+          }
+        })();
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to process pasted image.';
         showFailureToast(message);
@@ -3336,13 +3353,26 @@ export function App() {
 
   const onCancel = useCallback(() => {
     if (readerAiEditLocked) return;
+    if (pendingImageUploads.size > 0) {
+      void showAlert('Wait for image uploads to finish before leaving the editor.');
+      return;
+    }
     if (currentRepoDocPath && selectedRepoRef) {
       navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath));
     } else if (currentGistId && currentFileName) navigate(routePath.gistView(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistView(currentGistId));
     else if (selectedRepoRef) navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
     else navigate(routePath.workspaces());
-  }, [readerAiEditLocked, currentRepoDocPath, currentGistId, currentFileName, selectedRepoRef, navigate]);
+  }, [
+    readerAiEditLocked,
+    pendingImageUploads,
+    showAlert,
+    currentRepoDocPath,
+    currentGistId,
+    currentFileName,
+    selectedRepoRef,
+    navigate,
+  ]);
 
   const onShareLink = useCallback(async () => {
     const isGistRoute = route.name === 'gist' || route.name === 'edit';
@@ -3422,6 +3452,10 @@ export function App() {
 
   const onSave = useCallback(async () => {
     if (readerAiEditLocked) return;
+    if (pendingImageUploads.size > 0) {
+      void showAlert('Wait for image uploads to finish before saving.');
+      return;
+    }
     const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
     const content = editContent;
     let saved = false;
@@ -3552,6 +3586,7 @@ export function App() {
     editContent,
     editingBackend,
     readerAiEditLocked,
+    pendingImageUploads,
     currentRepoDocPath,
     currentRepoDocSha,
     currentGistId,
@@ -3627,6 +3662,10 @@ export function App() {
         showFailureToast('Reader AI is working. Wait for it to finish before switching files.');
         return;
       }
+      if (activeView === 'edit' && pendingImageUploads.size > 0) {
+        showFailureToast('Wait for image uploads to finish before switching files.');
+        return;
+      }
       if (activeView === 'edit' && hasUnsavedChanges) {
         const action = await showConfirm('You have unsaved changes. Discard and switch files?');
         if (action) navigateToSidebarFile(filePath);
@@ -3634,13 +3673,25 @@ export function App() {
       }
       navigateToSidebarFile(filePath);
     },
-    [activeView, readerAiEditLocked, hasUnsavedChanges, navigateToSidebarFile, showConfirm, showFailureToast],
+    [
+      activeView,
+      readerAiEditLocked,
+      pendingImageUploads,
+      hasUnsavedChanges,
+      navigateToSidebarFile,
+      showConfirm,
+      showFailureToast,
+    ],
   );
 
   const handleClearSelectedFile = useCallback(async () => {
     if (!currentRepoDocPath && !currentFileName) return;
     if (activeView === 'edit' && readerAiEditLocked) {
       showFailureToast('Reader AI is working. Wait for it to finish before clearing the current file.');
+      return;
+    }
+    if (activeView === 'edit' && pendingImageUploads.size > 0) {
+      showFailureToast('Wait for image uploads to finish before clearing the current file.');
       return;
     }
     if (activeView === 'edit' && hasUnsavedChanges) {
@@ -3663,6 +3714,7 @@ export function App() {
     currentRepoDocPath,
     hasUnsavedChanges,
     readerAiEditLocked,
+    pendingImageUploads,
     showConfirm,
     showFailureToast,
   ]);
@@ -4511,7 +4563,7 @@ export function App() {
             onPreviewImageClick={onOpenLightbox}
             onEditorPaste={handleEditorPaste}
             saving={saving}
-            canSave={hasUnsavedChanges && !readerAiEditLocked}
+            canSave={hasUnsavedChanges && !readerAiEditLocked && pendingImageUploads.size === 0}
             onSave={onSave}
             locked={readerAiEditLocked}
             imageUploadIssue={
@@ -4604,9 +4656,14 @@ export function App() {
     showFailureToast('Reader AI is working. Wait for it to finish before editing or switching files.');
     return true;
   }, [readerAiEditLocked, showFailureToast]);
+  const pendingImageUploadCount = pendingImageUploads.size;
   const handleSidebarDocumentStep = useCallback(
     async (direction: -1 | 1) => {
       if (activeView === 'edit' && notifyReaderAiEditLock()) return;
+      if (activeView === 'edit' && pendingImageUploadCount > 0) {
+        showFailureToast('Wait for image uploads to finish before switching files.');
+        return;
+      }
       if (!showSidebar || sidebarFiles.length < 2) return;
       const activeIndex = sidebarFiles.findIndex((file) => file.active);
       if (activeIndex < 0) return;
@@ -4637,6 +4694,8 @@ export function App() {
       showSidebar,
       sidebarFiles,
       notifyReaderAiEditLock,
+      pendingImageUploadCount,
+      showFailureToast,
     ],
   );
   useEffect(() => {
@@ -4923,7 +4982,7 @@ export function App() {
         onCancel={onCancel}
         showSave={showEditorSave}
         saving={saving}
-        canSave={hasUnsavedChanges && !readerAiEditLocked}
+        canSave={hasUnsavedChanges && !readerAiEditLocked && pendingImageUploads.size === 0}
         onSave={onSave}
         onSignInWithGitHub={handleSignInWithGitHub}
       />
