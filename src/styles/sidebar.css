@@ -11,6 +11,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  font-family: var(--font-sans);
   font-size: var(--sidebar-font-size);
 }
 
@@ -200,7 +201,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px 4px 8px;
+  padding: 4px 8px;
   cursor: pointer;
   user-select: none;
   font-size: var(--sidebar-font-size);
@@ -217,9 +218,8 @@
 }
 
 .sidebar-file.active {
-  background: var(--btn-bg);
   box-shadow: inset 3px 0 0 var(--focus-border);
-  font-weight: 500;
+  background: var(--btn-hover);
 }
 
 .sidebar-file.renaming {
@@ -291,7 +291,7 @@
   text-overflow: ellipsis;
   width: 100%;
   min-width: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--sidebar-font-size);
 }
 
@@ -301,9 +301,8 @@
   text-overflow: ellipsis;
   width: 100%;
   min-width: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--sidebar-font-size);
-  font-weight: 500;
 }
 
 /* --- Collapse / expand animation --- */
@@ -324,17 +323,17 @@
   position: fixed;
   min-width: 158px;
   max-width: 317px;
-  padding: 6px;
+  padding: 5px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--toolbar-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   z-index: 30;
 }
 
 .sidebar-context-menu-item {
   width: 100%;
-  min-height: 34px;
+  min-height: 31px;
   padding: 0 10px;
   border-radius: 6px;
   outline: none;
@@ -375,7 +374,7 @@
   width: 100%;
   padding: 2px 0;
   font-size: var(--sidebar-font-size);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   border: 0;
   border-radius: 3px;
   background: transparent;
