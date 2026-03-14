@@ -1,24 +1,22 @@
 import { Globe, Link2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { isRateLimitError, rateLimitToastMessage } from '../api_error';
-import { useDialogs } from '../components/DialogProvider';
 import { DocumentCard } from '../components/DocumentCard';
-import { useToast } from '../components/ToastProvider';
-import {
-  getRecentlyCreatedGists,
-  getRecentlyDeletedGistIds,
-  markGistRecentlyDeleted,
-  reconcileRecentGists,
-} from '../gist_consistency';
-import { deleteGist, type GistSummary, listGists, updateGistDescription } from '../github';
+import { getRecentlyCreatedGists, getRecentlyDeletedGistIds, reconcileRecentGists } from '../gist_consistency';
+import type { GistSummary } from '../github';
 import { routePath } from '../routing';
 
 interface DocumentsViewProps {
   navigate: (route: string) => void;
   userLogin: string | null;
+  gists: GistSummary[];
+  loading: boolean;
+  allLoaded: boolean;
+  error: string | null;
   embedded?: boolean;
-  initialGists?: GistSummary[];
-  initialLoaded?: boolean;
+  onRetry: () => void | Promise<void>;
+  onLoadMore: () => void;
+  onRename: (gist: GistSummary) => void | Promise<void>;
+  onDelete: (gist: GistSummary) => void | Promise<void>;
 }
 
 function formatDate(iso: string): string {
@@ -29,47 +27,17 @@ function formatDate(iso: string): string {
 export function DocumentsView({
   navigate,
   userLogin,
+  gists,
+  loading,
+  allLoaded,
+  error,
   embedded = false,
-  initialGists = [],
-  initialLoaded = false,
+  onRetry,
+  onLoadMore,
+  onRename,
+  onDelete,
 }: DocumentsViewProps) {
-  const { showAlert, showConfirm, showPrompt } = useDialogs();
-  const { showFailureToast } = useToast();
-  const [gists, setGists] = useState<GistSummary[]>(initialLoaded ? initialGists : []);
-  const [page, setPage] = useState(initialLoaded ? (initialGists.length < 30 ? 1 : 2) : 1);
-  const [allLoaded, setAllLoaded] = useState(initialLoaded ? initialGists.length < 30 : false);
-  const [loading, setLoading] = useState(!initialLoaded);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadPage = async (p: number, reset: boolean) => {
-    setLoading(true);
-    if (reset) {
-      setAllLoaded(false);
-      setPage(1);
-    }
-    try {
-      const result = await listGists(p);
-      setGists((prev) => (reset ? result : [...prev, ...result]));
-      const reachedEnd = result.length < 30;
-      setAllLoaded(reachedEnd);
-      setPage(reachedEnd ? p : p + 1);
-      setError(null);
-    } catch (err) {
-      if (isRateLimitError(err)) {
-        showFailureToast(rateLimitToastMessage(err));
-      }
-      setError(err instanceof Error ? err.message : 'Failed to load documents');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: initial load only
-  useEffect(() => {
-    if (initialLoaded) return;
-    loadPage(1, true);
-  }, [initialLoaded]);
-
+  const [retrying, setRetrying] = useState(false);
   useEffect(() => {
     reconcileRecentGists(userLogin, gists);
   }, [userLogin, gists]);
@@ -77,65 +45,34 @@ export function DocumentsView({
   const visibleGists = useMemo(() => {
     const deleted = new Set(getRecentlyDeletedGistIds(userLogin));
     const created = getRecentlyCreatedGists(userLogin);
-    const apiIds = new Set(gists.map((g) => g.id));
+    const apiIds = new Set(gists.map((gist) => gist.id));
 
     const pendingCreated = created
-      .filter((g) => !apiIds.has(g.id) && !deleted.has(g.id))
-      .map((g) => ({ gist: g, pending: true }));
+      .filter((gist) => !apiIds.has(gist.id) && !deleted.has(gist.id))
+      .map((gist) => ({ gist, pending: true }));
 
-    const apiVisible = gists.filter((g) => !deleted.has(g.id)).map((g) => ({ gist: g, pending: false }));
+    const apiVisible = gists.filter((gist) => !deleted.has(gist.id)).map((gist) => ({ gist, pending: false }));
 
     return [...pendingCreated, ...apiVisible];
   }, [gists, userLogin]);
 
-  const onDelete = async (gist: GistSummary) => {
-    const title = gist.description || 'Untitled';
-    if (
-      !(await showConfirm(`Delete "${title}"?`, {
-        intent: 'danger',
-        confirmLabel: 'Delete',
-      }))
-    )
-      return;
+  const handleRetry = async () => {
+    setRetrying(true);
     try {
-      await deleteGist(gist.id);
-      markGistRecentlyDeleted(userLogin, gist.id);
-      setGists((prev) => prev.filter((g) => g.id !== gist.id));
-    } catch (err) {
-      if (isRateLimitError(err)) {
-        showFailureToast(rateLimitToastMessage(err));
-      }
-      void showAlert(err instanceof Error ? err.message : 'Failed to delete');
-    }
-  };
-
-  const onRename = async (gist: GistSummary) => {
-    const currentTitle = gist.description ?? '';
-    const input = await showPrompt('New name:', currentTitle);
-    if (input === null) return;
-    const nextTitle = input.trim();
-    if (nextTitle === currentTitle) return;
-    try {
-      const updated = await updateGistDescription(gist.id, nextTitle);
-      setGists((prev) =>
-        prev.map((g) =>
-          g.id === gist.id ? { ...g, description: updated.description, updated_at: updated.updated_at } : g,
-        ),
-      );
-    } catch (err) {
-      if (isRateLimitError(err)) {
-        showFailureToast(rateLimitToastMessage(err));
-      }
-      void showAlert(err instanceof Error ? err.message : 'Failed to rename');
+      await onRetry();
+    } finally {
+      setRetrying(false);
     }
   };
 
   if (error) {
     return (
-      <div class="error-view">
-        <p class="error-message">{error}</p>
-        <button type="button" onClick={() => loadPage(1, true)}>
-          Try Again
+      <div class="empty-state workspaces-empty-state">
+        <p>Failed to load gists</p>
+        <p class="hint">{error}</p>
+        <button type="button" onClick={() => void handleRetry()} disabled={retrying} aria-busy={retrying}>
+          {retrying ? <span class="documents-button-spinner" aria-hidden="true" /> : null}
+          {retrying ? 'Retrying...' : 'Try Again'}
         </button>
       </div>
     );
@@ -196,19 +133,19 @@ export function DocumentsView({
                   </>
                 }
                 onOpen={() => navigate(routePath.gistView(gist.id))}
-                onRename={() => onRename(gist)}
-                onDelete={() => onDelete(gist)}
+                onRename={() => void onRename(gist)}
+                onDelete={() => void onDelete(gist)}
               />
             );
           })}
         </div>
       )}
-      {loading && <p class="loading-hint">Loading...</p>}
-      {!allLoaded && !loading && (
-        <button type="button" class="load-more-btn" onClick={() => loadPage(page, false)}>
+      {loading ? <p class="loading-hint">Loading...</p> : null}
+      {!allLoaded && !loading ? (
+        <button type="button" class="load-more-btn" onClick={() => onLoadMore()}>
           Load More
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -13,10 +13,11 @@ import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
-import { markGistRecentlyCreated } from './gist_consistency';
+import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import {
   clearGitHubCaches,
   createGist,
+  deleteGist,
   type GistDetail,
   type GistFile,
   type GistSummary,
@@ -26,6 +27,7 @@ import {
   listGists,
   logout,
   updateGist,
+  updateGistDescription,
 } from './github';
 import {
   clearGitHubAppCaches,
@@ -1041,7 +1043,7 @@ function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | nu
 
 export function App() {
   const { route, routeState, navigate } = useRoute();
-  const { showAlert, showConfirm, showDiffConfirm } = useDialogs();
+  const { showAlert, showConfirm, showDiffConfirm, showPrompt } = useDialogs();
   const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
 
   // --- Shared state ---
@@ -1059,6 +1061,8 @@ export function App() {
   const [menuGists, setMenuGists] = useState<GistSummary[]>([]);
   const [menuGistsLoading, setMenuGistsLoading] = useState(false);
   const [menuGistsLoaded, setMenuGistsLoaded] = useState(false);
+  const [menuGistsPage, setMenuGistsPage] = useState(1);
+  const [menuGistsAllLoaded, setMenuGistsAllLoaded] = useState(false);
   const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
@@ -2884,6 +2888,8 @@ export function App() {
     setReposLoadError(null);
     setGistsLoadError(null);
     setMenuGistsLoaded(false);
+    setMenuGistsPage(1);
+    setMenuGistsAllLoaded(false);
     setMenuGists([]);
     setMenuGistsLoading(false);
     setAutoLoadAttemptedGists(false);
@@ -4276,6 +4282,8 @@ export function App() {
     clearMarkdownLinkPreviewCache();
     setMenuGists([]);
     setMenuGistsLoaded(false);
+    setMenuGistsPage(1);
+    setMenuGistsAllLoaded(false);
     setMenuGistsLoading(false);
     setAutoLoadAttemptedGists(false);
     setGistsLoadError(null);
@@ -5027,8 +5035,61 @@ export function App() {
     [navigate, onSelectRepo],
   );
 
+  const loadWorkspaceGists = useCallback(
+    async (options?: { reset?: boolean }) => {
+      const reset = options?.reset ?? false;
+      const page = reset ? 1 : menuGistsPage;
+      setMenuGistsLoading(true);
+      if (reset) {
+        setMenuGistsAllLoaded(false);
+        setMenuGistsPage(1);
+      }
+      try {
+        const gists = await listGists(page, 30);
+        const reachedEnd = gists.length < 30;
+        setMenuGists((prev) => (reset ? gists : [...prev, ...gists]));
+        setMenuGistsLoaded(true);
+        setMenuGistsAllLoaded(reachedEnd);
+        setMenuGistsPage(reachedEnd ? page : page + 1);
+        setGistsLoadError(null);
+      } catch (err) {
+        showRateLimitToastIfNeeded(err);
+        if (reset) {
+          setMenuGists([]);
+          setMenuGistsAllLoaded(false);
+          setMenuGistsPage(1);
+        }
+        setGistsLoadError(err instanceof Error ? err.message : 'Failed to load gists');
+      } finally {
+        setMenuGistsLoading(false);
+      }
+    },
+    [menuGistsPage, showRateLimitToastIfNeeded],
+  );
+
+  const loadInstallationRepos = useCallback(async () => {
+    if (!installationId) return;
+    setInstallationReposLoading(true);
+    try {
+      const repos = await listInstallationRepos(installationId);
+      setInstallationRepos(repos.repositories);
+      setLoadedReposInstallationId(installationId);
+      setReposLoadError(null);
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        handleSessionExpired();
+        return;
+      }
+      showRateLimitToastIfNeeded(err);
+      setInstallationRepos([]);
+      setReposLoadError(err instanceof Error ? err.message : 'Failed to load repos');
+    } finally {
+      setInstallationReposLoading(false);
+    }
+  }, [handleSessionExpired, installationId, showRateLimitToastIfNeeded]);
+
   const onOpenRepoMenu = useCallback(
-    (_mode: 'auto' | 'manual' = 'manual') => {
+    async (_mode: 'auto' | 'manual' = 'manual') => {
       if (!user) return;
       const isAutoMode = _mode === 'auto';
 
@@ -5046,68 +5107,22 @@ export function App() {
       if (shouldLoadGists && isAutoMode) {
         setAutoLoadAttemptedGists(true);
       }
-      if (shouldLoadRepos) setInstallationReposLoading(true);
-      if (shouldLoadGists) setMenuGistsLoading(true);
-
-      void (async () => {
-        const tasks: Promise<void>[] = [];
-
-        if (shouldLoadRepos && installationId) {
-          tasks.push(
-            (async () => {
-              try {
-                const repos = await listInstallationRepos(installationId);
-                setInstallationRepos(repos.repositories);
-                setLoadedReposInstallationId(installationId);
-                setReposLoadError(null);
-              } catch (err) {
-                if (err instanceof SessionExpiredError) {
-                  handleSessionExpired();
-                  return;
-                }
-                showRateLimitToastIfNeeded(err);
-                setInstallationRepos([]);
-                setReposLoadError(err instanceof Error ? err.message : 'Failed to load repos');
-              } finally {
-                setInstallationReposLoading(false);
-              }
-            })(),
-          );
-        }
-
-        if (shouldLoadGists) {
-          tasks.push(
-            (async () => {
-              try {
-                const gists = await listGists(1, 30);
-                setMenuGists(gists);
-                setMenuGistsLoaded(true);
-                setGistsLoadError(null);
-              } catch (err) {
-                showRateLimitToastIfNeeded(err);
-                setMenuGists([]);
-                setGistsLoadError(err instanceof Error ? err.message : 'Failed to load gists');
-              } finally {
-                setMenuGistsLoading(false);
-              }
-            })(),
-          );
-        }
-
-        await Promise.all(tasks);
-      })();
+      const tasks: Promise<void>[] = [];
+      if (shouldLoadRepos) tasks.push(loadInstallationRepos());
+      if (shouldLoadGists) tasks.push(loadWorkspaceGists({ reset: true }));
+      await Promise.all(tasks);
     },
     [
-      user,
-      installationId,
-      installationReposLoading,
-      loadedReposInstallationId,
-      autoLoadAttemptedReposInstallationId,
-      handleSessionExpired,
-      menuGistsLoading,
-      menuGistsLoaded,
       autoLoadAttemptedGists,
-      showRateLimitToastIfNeeded,
+      autoLoadAttemptedReposInstallationId,
+      loadInstallationRepos,
+      loadedReposInstallationId,
+      loadWorkspaceGists,
+      menuGistsLoaded,
+      menuGistsLoading,
+      user,
+      installationReposLoading,
+      installationId,
     ],
   );
 
@@ -5115,6 +5130,63 @@ export function App() {
     if (!user || route.name === 'home') return;
     onOpenRepoMenu('auto');
   }, [user, route.name, onOpenRepoMenu]);
+
+  const onRetryWorkspaceGists = useCallback(async () => {
+    await loadWorkspaceGists({ reset: true });
+  }, [loadWorkspaceGists]);
+
+  const onLoadMoreWorkspaceGists = useCallback(() => {
+    if (menuGistsLoading || menuGistsAllLoaded) return;
+    void loadWorkspaceGists();
+  }, [loadWorkspaceGists, menuGistsAllLoaded, menuGistsLoading]);
+
+  const onDeleteWorkspaceGist = useCallback(
+    async (gist: GistSummary) => {
+      const title = gist.description || 'Untitled';
+      const confirmed = await showConfirm(`Delete "${title}"?`, {
+        intent: 'danger',
+        confirmLabel: 'Delete',
+      });
+      if (!confirmed) return;
+      try {
+        await deleteGist(gist.id);
+        markGistRecentlyDeleted(user?.login ?? null, gist.id);
+        setMenuGists((prev) => prev.filter((candidate) => candidate.id !== gist.id));
+      } catch (err) {
+        if (isRateLimitError(err)) {
+          showFailureToast(rateLimitToastMessage(err));
+        }
+        void showAlert(err instanceof Error ? err.message : 'Failed to delete');
+      }
+    },
+    [showAlert, showConfirm, showFailureToast, user?.login],
+  );
+
+  const onRenameWorkspaceGist = useCallback(
+    async (gist: GistSummary) => {
+      const currentTitle = gist.description ?? '';
+      const input = await showPrompt('New name:', currentTitle);
+      if (input === null) return;
+      const nextTitle = input.trim();
+      if (nextTitle === currentTitle) return;
+      try {
+        const updated = await updateGistDescription(gist.id, nextTitle);
+        setMenuGists((prev) =>
+          prev.map((candidate) =>
+            candidate.id === gist.id
+              ? { ...candidate, description: updated.description, updated_at: updated.updated_at }
+              : candidate,
+          ),
+        );
+      } catch (err) {
+        if (isRateLimitError(err)) {
+          showFailureToast(rateLimitToastMessage(err));
+        }
+        void showAlert(err instanceof Error ? err.message : 'Failed to rename');
+      }
+    },
+    [showAlert, showFailureToast, showPrompt],
+  );
 
   const onDisconnect = useCallback(async () => {
     const confirmed = await showConfirm('Disconnect all repos?');
@@ -5143,23 +5215,26 @@ export function App() {
     switch (activeView) {
       case 'workspaces': {
         const reposInitialLoaded = !installationId || loadedReposInstallationId === installationId;
-        const gistsInitialLoaded = menuGistsLoaded;
         return user ? (
           <WorkspacesView
             installationId={installationId}
             availableRepos={installationRepos}
             repoListLoading={installationReposLoading}
             reposLoadError={reposLoadError}
+            gists={menuGists}
+            gistsLoading={menuGistsLoading || !menuGistsLoaded}
+            gistsAllLoaded={menuGistsAllLoaded}
             gistsLoadError={gistsLoadError}
             onLoadRepos={(mode) => onOpenRepoMenu(mode)}
             onRetryRepos={() => onOpenRepoMenu('manual')}
-            onRetryGists={() => onOpenRepoMenu('manual')}
+            onRetryGists={onRetryWorkspaceGists}
+            onLoadMoreGists={onLoadMoreWorkspaceGists}
+            onRenameGist={onRenameWorkspaceGist}
+            onDeleteGist={onDeleteWorkspaceGist}
             onConnect={onConnectInstallation}
             onDisconnect={onDisconnect}
             onOpenRepo={onOpenRepoFromWorkspaces}
             reposInitialLoaded={reposInitialLoaded}
-            gistsInitialLoaded={gistsInitialLoaded}
-            initialGists={menuGists}
             navigate={navigate}
             userLogin={user.login}
             workspaceNotice={workspaceNotice}

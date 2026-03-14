@@ -1,6 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Ellipsis, ExternalLink, Globe, Lock } from 'lucide-react';
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { DocumentsView } from './DocumentsView';
@@ -10,16 +10,20 @@ interface WorkspacesViewProps {
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
   reposLoadError: string | null;
+  gists: GistSummary[];
+  gistsLoading: boolean;
+  gistsAllLoaded: boolean;
   gistsLoadError: string | null;
   onLoadRepos: (mode: 'auto' | 'manual') => void;
-  onRetryRepos: () => void;
-  onRetryGists: () => void;
+  onRetryRepos: () => void | Promise<void>;
+  onRetryGists: () => void | Promise<void>;
+  onLoadMoreGists: () => void;
+  onRenameGist: (gist: GistSummary) => void | Promise<void>;
+  onDeleteGist: (gist: GistSummary) => void | Promise<void>;
   onConnect: () => void;
   onDisconnect: () => void;
   onOpenRepo: (fullName: string, id: number, isPrivate: boolean) => void;
   reposInitialLoaded: boolean;
-  gistsInitialLoaded: boolean;
-  initialGists: GistSummary[];
   navigate: (route: string) => void;
   userLogin: string;
   workspaceNotice: string | null;
@@ -35,27 +39,41 @@ export function WorkspacesView({
   availableRepos,
   repoListLoading,
   reposLoadError,
+  gists,
+  gistsLoading,
+  gistsAllLoaded,
   gistsLoadError,
   onLoadRepos,
   onRetryRepos,
   onRetryGists,
+  onLoadMoreGists,
+  onRenameGist,
+  onDeleteGist,
   onConnect,
   onDisconnect,
   onOpenRepo,
   reposInitialLoaded,
-  gistsInitialLoaded,
-  initialGists,
   navigate,
   userLogin,
   workspaceNotice,
   onDismissWorkspaceNotice,
 }: WorkspacesViewProps) {
   const didAutoLoadRef = useRef(false);
+  const [retryingRepos, setRetryingRepos] = useState(false);
   useEffect(() => {
     if (didAutoLoadRef.current) return;
     didAutoLoadRef.current = true;
     onLoadRepos('auto');
   }, [onLoadRepos]);
+
+  const handleRetryRepos = async () => {
+    setRetryingRepos(true);
+    try {
+      await onRetryRepos();
+    } finally {
+      setRetryingRepos(false);
+    }
+  };
 
   return (
     <div class="account-view">
@@ -106,14 +124,20 @@ export function WorkspacesView({
           </DropdownMenu.Root>
         </div>
       </div>
-      {repoListLoading ? (
+      {repoListLoading && !reposLoadError ? (
         <p class="loading-hint">Loading...</p>
       ) : reposLoadError ? (
         <div class="empty-state workspaces-empty-state">
-          <p>Failed to load repos.</p>
+          <p>Failed to load repos</p>
           <p class="hint">{reposLoadError}</p>
-          <button type="button" onClick={() => void onRetryRepos()}>
-            Retry Repos
+          <button
+            type="button"
+            onClick={() => void handleRetryRepos()}
+            disabled={retryingRepos}
+            aria-busy={retryingRepos}
+          >
+            {retryingRepos ? <span class="documents-button-spinner" aria-hidden="true" /> : null}
+            {retryingRepos ? 'Retrying Repos...' : 'Retry Repos'}
           </button>
         </div>
       ) : installationId && !reposInitialLoaded ? (
@@ -166,21 +190,18 @@ export function WorkspacesView({
           </p>
         </div>
       )}
-      {gistsLoadError ? (
-        <div class="empty-state workspaces-empty-state">
-          <p>Failed to load gists.</p>
-          <p class="hint">{gistsLoadError}</p>
-          <button type="button" onClick={() => void onRetryGists()}>
-            Retry Gists
-          </button>
-        </div>
-      ) : null}
       <DocumentsView
         navigate={navigate}
         userLogin={userLogin}
+        gists={gists}
+        loading={gistsLoading}
+        allLoaded={gistsAllLoaded}
+        error={gistsLoadError}
         embedded
-        initialGists={initialGists}
-        initialLoaded={gistsInitialLoaded}
+        onRetry={onRetryGists}
+        onLoadMore={onLoadMoreGists}
+        onRename={onRenameGist}
+        onDelete={onDeleteGist}
       />
     </div>
   );
