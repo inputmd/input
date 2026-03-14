@@ -1163,6 +1163,7 @@ export function App() {
     if (typeof window === 'undefined') return 'text';
     try {
       const saved = localStorage.getItem(SIDEBAR_FILE_FILTER_KEY);
+      if (saved === 'markdown') return 'markdown';
       if (saved === 'all') return 'all';
       return 'text';
     } catch {
@@ -2924,7 +2925,7 @@ export function App() {
   }, [sidebarFileFilter]);
 
   useEffect(() => {
-    if (sidebarFileFilter === 'all' || sidebarFileFilter === 'text') {
+    if (sidebarFileFilter === 'all' || sidebarFileFilter === 'text' || sidebarFileFilter === 'markdown') {
       let active = true;
       void (async () => {
         try {
@@ -5190,7 +5191,9 @@ export function App() {
           size: gistFiles[path]?.size,
         }))
         .sort((a, b) => a.path.localeCompare(b.path));
-      return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextListPath(file.path)) : files;
+      if (sidebarFileFilter === 'markdown') return files.filter((file) => isMarkdownFileName(file.path));
+      if (sidebarFileFilter === 'text') return files.filter((file) => isSidebarTextListPath(file.path));
+      return files;
     }
     const sourceFiles = repoSidebarFiles;
     if (sourceFiles.length > 0) {
@@ -5201,7 +5204,9 @@ export function App() {
         deemphasized: !isSidebarTextFileName(f.path),
         size: f.size,
       }));
-      return sidebarFileFilter === 'text' ? files.filter((file) => isSidebarTextListPath(file.path)) : files;
+      if (sidebarFileFilter === 'markdown') return files.filter((file) => isMarkdownFileName(file.path));
+      if (sidebarFileFilter === 'text') return files.filter((file) => isSidebarTextListPath(file.path));
+      return files;
     }
     return [];
   }, [gistFiles, currentFileName, repoSidebarFiles, currentRepoDocPath, sidebarFileFilter]);
@@ -5209,6 +5214,7 @@ export function App() {
     if (gistFiles) {
       const allPaths = Object.keys(gistFiles).filter(isVisibleSidebarFilePath);
       return {
+        markdown: allPaths.filter((path) => isMarkdownFileName(path)).length,
         text: allPaths.filter((path) => isSidebarTextFileName(path)).length,
         total: allPaths.length,
       };
@@ -5216,11 +5222,12 @@ export function App() {
     const sourceFiles = repoSidebarFiles.filter((file) => isVisibleSidebarFilePath(file.path));
     if (sourceFiles.length > 0) {
       return {
+        markdown: sourceFiles.filter((file) => isMarkdownFileName(file.path)).length,
         text: sourceFiles.filter((file) => isSidebarTextFileName(file.path)).length,
         total: sourceFiles.length,
       };
     }
-    return { text: 0, total: 0 };
+    return { markdown: 0, text: 0, total: 0 };
   }, [gistFiles, repoSidebarFiles]);
   const sidebarWorkspaceKey = useMemo(() => {
     if (currentGistId) return `gist:${currentGistId}`;
@@ -5602,6 +5609,7 @@ export function App() {
             <Sidebar
               key={sidebarWorkspaceKey}
               files={sidebarFiles}
+              markdownFileCount={sidebarFileCounts.markdown}
               textFileCount={sidebarFileCounts.text}
               totalFileCount={sidebarFileCounts.total}
               fileFilter={sidebarFileFilter}

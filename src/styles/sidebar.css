@@ -94,7 +94,15 @@
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   user-select: none;
+}
+
+.sidebar-filter-menu-item-count {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .sidebar-filter-menu-item[data-highlighted] {

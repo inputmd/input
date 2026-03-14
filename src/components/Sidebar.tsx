@@ -23,10 +23,11 @@ export interface SidebarFile {
   size?: number;
 }
 
-export type SidebarFileFilter = 'text' | 'all';
+export type SidebarFileFilter = 'markdown' | 'text' | 'all';
 
 interface SidebarProps {
   files: SidebarFile[];
+  markdownFileCount: number;
   textFileCount: number;
   totalFileCount: number;
   fileFilter: SidebarFileFilter;
@@ -307,7 +308,7 @@ function hasSidebarTextExtension(name: string): boolean {
 function normalizeCreateFileName(name: string, fileFilter: SidebarFileFilter): string {
   const sanitized = sanitizeCreateNameInput(name);
   if (!sanitized) return '';
-  if (fileFilter !== 'text') return sanitized;
+  if (fileFilter === 'all') return sanitized;
   return hasSidebarTextExtension(sanitized) ? sanitized : `${sanitized}.md`;
 }
 
@@ -360,6 +361,7 @@ function IndentGuides({ depth }: { depth: number }) {
 
 export function Sidebar({
   files,
+  markdownFileCount,
   textFileCount,
   totalFileCount,
   fileFilter,
@@ -656,13 +658,7 @@ export function Sidebar({
     }
   };
 
-  const allFilesAreText = totalFileCount > 0 && textFileCount === totalFileCount;
-  const filterLabel =
-    fileFilter === 'text'
-      ? allFilesAreText
-        ? 'Text files'
-        : `Text files (${textFileCount}/${totalFileCount})`
-      : `All files (${totalFileCount})`;
+  const filterLabel = fileFilter === 'markdown' ? 'Markdown docs' : fileFilter === 'text' ? 'Text files' : 'All files';
   const filterControl = (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -677,11 +673,17 @@ export function Sidebar({
             value={fileFilter}
             onValueChange={(value: string) => onFileFilterChange(value as SidebarFileFilter)}
           >
+            <DropdownMenu.RadioItem class="sidebar-filter-menu-item" value="markdown">
+              <span>Markdown</span>
+              <span class="sidebar-filter-menu-item-count">{markdownFileCount}</span>
+            </DropdownMenu.RadioItem>
             <DropdownMenu.RadioItem class="sidebar-filter-menu-item" value="text">
-              Text files
+              <span>Text files</span>
+              <span class="sidebar-filter-menu-item-count">{textFileCount}</span>
             </DropdownMenu.RadioItem>
             <DropdownMenu.RadioItem class="sidebar-filter-menu-item" value="all">
-              All files
+              <span>All files</span>
+              <span class="sidebar-filter-menu-item-count">{totalFileCount}</span>
             </DropdownMenu.RadioItem>
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
