@@ -214,7 +214,7 @@ export function Toolbar({
                     });
                   }}
                 >
-                  Restore Draft
+                  Restore previous changes
                 </DropdownMenu.Item>
               ) : null}
               {!showRestoreDraft ? (

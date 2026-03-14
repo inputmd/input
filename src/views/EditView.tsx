@@ -15,6 +15,7 @@ interface EditViewProps {
   onEditorPaste?: (event: ClipboardEvent, view: EditorView) => void;
   saving: boolean;
   canSave: boolean;
+  hasUserTypedUnsavedChanges?: boolean;
   onSave: () => void;
   locked?: boolean;
   imageUploadIssue?: {
@@ -36,6 +37,7 @@ export function EditView({
   onEditorPaste,
   saving,
   canSave,
+  hasUserTypedUnsavedChanges = false,
   onSave,
   locked = false,
   imageUploadIssue,
@@ -90,7 +92,7 @@ export function EditView({
   };
 
   return (
-    <div class="edit-view">
+    <div class="edit-view" data-has-user-typed-unsaved-changes={hasUserTypedUnsavedChanges ? 'true' : 'false'}>
       {imageUploadIssue ? (
         <div class="editor-inline-alert" role="status" aria-live="polite">
           <span>{imageUploadIssue.message}</span>

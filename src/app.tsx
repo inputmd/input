@@ -1149,6 +1149,7 @@ export function App() {
   const [repoFiles, setRepoFiles] = useState<RepoDocFile[]>([]);
   const [repoSidebarFiles, setRepoSidebarFiles] = useState<RepoDocFile[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [hasUserTypedUnsavedChanges, setHasUserTypedUnsavedChanges] = useState(false);
   const [failedImageUpload, setFailedImageUpload] = useState<PendingImageUpload | null>(null);
   const [pendingImageUploads, setPendingImageUploads] = useState<Set<string>>(() => new Set());
   const [postSaveVerification, setPostSaveVerification] = useState<PostSaveVerificationState | null>(null);
@@ -1656,6 +1657,7 @@ export function App() {
           return next;
         });
         setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
+        setHasUserTypedUnsavedChanges(false);
         setHasUnsavedChanges(true);
         showSuccessToast(upload.resized ? 'Image resized and uploaded' : 'Image uploaded');
       } catch (err) {
@@ -1699,6 +1701,7 @@ export function App() {
     if (!failedImageUpload) return;
     setEditContent((prev) => replaceFirst(prev, failedImageUpload.failedToken, ''));
     setFailedImageUpload(null);
+    setHasUserTypedUnsavedChanges(false);
     setHasUnsavedChanges(true);
   }, [failedImageUpload]);
 
@@ -2844,10 +2847,16 @@ export function App() {
     if (editContent !== pendingRestore.content) {
       setEditContent(pendingRestore.content);
     }
+    setHasUserTypedUnsavedChanges(false);
     setHasUnsavedChanges(pendingRestore.content !== currentDocumentSavedContent);
     const currentPath = window.location.pathname.replace(/^\/+/, '') || routePath.home();
     navigate(currentPath, { replace: true, state: null });
   }, [activeView, currentDocumentDraftKey, currentDocumentSavedContent, editContent, navigate, routeState]);
+
+  useEffect(() => {
+    if (hasUnsavedChanges) return;
+    setHasUserTypedUnsavedChanges(false);
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     void restoreDraftPromptPageKey;
@@ -3698,6 +3707,7 @@ export function App() {
             throw new Error('No staged document content to apply');
           }
           setEditContent(nextContent);
+          setHasUserTypedUnsavedChanges(false);
           setHasUnsavedChanges(true);
           if (!canCommitToGist && !canCommitToRepo) {
             if (currentPath) recordAppliedChanges([currentPath]);
@@ -3959,6 +3969,7 @@ export function App() {
     setCurrentDocumentDraft(null);
     if (activeView === 'edit') {
       setEditContent(currentDocumentSavedContent);
+      setHasUserTypedUnsavedChanges(false);
       setHasUnsavedChanges(false);
     }
   }, [
@@ -3981,7 +3992,7 @@ export function App() {
     )
       return;
     const confirmed = await showDiffConfirm(
-      `Restore the saved local draft for "${currentDocumentLabel}"?`,
+      `Restore previous unsaved changes for "${currentDocumentLabel}"?`,
       [
         {
           path: currentFileName ?? currentRepoDocPath ?? currentDocumentLabel,
@@ -3993,18 +4004,19 @@ export function App() {
         },
       ],
       {
-        title: 'Restore Draft',
+        title: 'Restore previous changes',
         confirmLabel: 'Restore',
         cancelLabel: 'Cancel',
         intent: 'warning',
         defaultFocus: 'cancel',
         leftLabel: 'Current document',
-        rightLabel: 'Draft to restore',
+        rightLabel: 'Previous unsaved changes',
       },
     );
     if (!confirmed) return;
     if (activeView === 'edit') {
       setEditContent(currentDocumentDraft.content);
+      setHasUserTypedUnsavedChanges(false);
       setHasUnsavedChanges(currentDocumentDraft.content !== currentDocumentSavedContent);
       return;
     }
@@ -5190,6 +5202,7 @@ export function App() {
             onEditorPaste={handleEditorPaste}
             saving={saving}
             canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
+            hasUserTypedUnsavedChanges={hasUserTypedUnsavedChanges}
             onSave={onSave}
             locked={readerAiEditLocked}
             imageUploadIssue={
@@ -5468,6 +5481,7 @@ export function App() {
     (content: string) => {
       if (readerAiEditLocked) return;
       setEditContent(content);
+      setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
     },
     [readerAiEditLocked],
@@ -5689,9 +5703,9 @@ export function App() {
           }}
         >
           <main>
-            {hasRestorableDocumentDraft && !restoreDraftPromptIgnored ? (
+            {hasRestorableDocumentDraft && !hasUserTypedUnsavedChanges && !restoreDraftPromptIgnored ? (
               <div class="restore-draft-prompt" role="status" aria-live="polite">
-                <span class="restore-draft-prompt-copy">Found unsaved changes</span>
+                <span class="restore-draft-prompt-copy">Previous unsaved changes</span>
                 <div class="restore-draft-prompt-actions">
                   <button
                     type="button"
