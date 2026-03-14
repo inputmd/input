@@ -78,7 +78,7 @@ export function EditView({
   };
 
   const layoutStyle =
-    previewVisible && canRenderPreview ? { gridTemplateColumns: `${splitPercent}% 8px minmax(0, 1fr)` } : undefined;
+    previewVisible && canRenderPreview ? { gridTemplateColumns: `${splitPercent}% 0 minmax(0, 1fr)` } : undefined;
 
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;

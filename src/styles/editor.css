@@ -160,16 +160,25 @@
   }
 
   .editor-splitter {
+    position: relative;
     display: block;
-    width: 8px;
+    width: 7px;
     cursor: col-resize;
-    background: var(--toolbar-bg);
-    border-left: 1px solid var(--border);
-    border-right: 1px solid var(--border);
+    background: transparent;
   }
 
-  .editor-splitter:hover {
+  .editor-splitter::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--input-bg);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .editor-splitter:hover::after {
     background: var(--btn-hover);
+    opacity: 1;
   }
 
   .editor-preview-pane {

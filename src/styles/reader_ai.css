@@ -22,14 +22,12 @@
 .reader-ai-splitter {
   position: fixed;
   top: var(--toolbar-height);
-  right: calc(var(--reader-ai-width, 360px) - 4px);
+  right: calc(var(--reader-ai-width, 360px) - 7px);
   bottom: 0;
   z-index: 16;
-  width: 7px;
+  width: 6px;
   cursor: col-resize;
   background: transparent;
-  border-left: 1px solid transparent;
-  border-right: 1px solid transparent;
 }
 
 .reader-ai-splitter::after {
