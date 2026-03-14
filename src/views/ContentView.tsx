@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
+import { TextCodeView } from '../components/TextCodeView';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 
 interface MarkdownLinkPreview {
@@ -10,6 +11,8 @@ interface MarkdownLinkPreview {
 interface ContentViewProps {
   html: string;
   markdown: boolean;
+  plainText?: string | null;
+  plainTextFileName?: string | null;
   loading?: boolean;
   imagePreview?: { src: string; alt: string } | null;
   claudeTranscript?: boolean;
@@ -76,6 +79,8 @@ function safeCssEscape(value: string): string {
 export function ContentView({
   html,
   markdown,
+  plainText = null,
+  plainTextFileName = null,
   loading = false,
   imagePreview,
   claudeTranscript,
@@ -104,7 +109,7 @@ export function ContentView({
     url: null,
   });
   const [collapseAssistantMessages, setCollapseAssistantMessages] = useState(true);
-  const isEmpty = html.trim().length === 0 && !imagePreview;
+  const isEmpty = html.trim().length === 0 && (plainText === null || plainText.length === 0) && !imagePreview;
 
   const scrollToHash = useCallback((hash: string, behavior: ScrollBehavior = 'auto') => {
     const targetId = decodeHashTargetId(hash);
@@ -606,6 +611,8 @@ export function ContentView({
           onMouseLeave={hidePreview}
           dangerouslySetInnerHTML={{ __html: html }}
         />
+      ) : plainText !== null ? (
+        <TextCodeView content={plainText} fileName={plainTextFileName} />
       ) : (
         <pre class="rendered-content" dangerouslySetInnerHTML={{ __html: html }} />
       )}

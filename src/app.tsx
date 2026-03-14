@@ -1064,6 +1064,7 @@ export function App() {
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
   const [renderedHtml, setRenderedHtml] = useState('');
+  const [renderedText, setRenderedText] = useState<string | null>(null);
   const [renderMode, setRenderMode] = useState<'ansi' | 'markdown' | 'image'>('ansi');
   const [contentLoadPending, setContentLoadPending] = useState(false);
   const [preserveHeaderLeftControlsWhileLoading, setPreserveHeaderLeftControlsWhileLoading] = useState(false);
@@ -1275,6 +1276,7 @@ export function App() {
 
   const clearRenderedContent = useCallback(() => {
     setRenderedHtml('');
+    setRenderedText(null);
     setRenderMode('ansi');
     setIsClaudeTranscript(false);
     setReaderAiSource('');
@@ -1447,6 +1449,7 @@ export function App() {
             resolveWikiLinkMeta: wikiLinkResolver,
           }),
         );
+        setRenderedText(null);
         setRenderMode('markdown');
         setContentLoadPending(false);
         return;
@@ -1455,6 +1458,7 @@ export function App() {
         const parsed = parseClaudeExportTrace(content, fileName ?? undefined);
         const markdown = renderClaudeTraceMarkdown(parsed);
         setRenderedHtml(parseMarkdownToHtml(markdown, { breaks: false, claudeTranscript: true }));
+        setRenderedText(null);
         setRenderMode('markdown');
         setIsClaudeTranscript(true);
         setReaderAiSource(content);
@@ -1468,7 +1472,8 @@ export function App() {
         setContentLoadPending(false);
         return;
       }
-      setRenderedHtml(parseAnsiToHtml(content));
+      setRenderedHtml('');
+      setRenderedText(content);
       setRenderMode('ansi');
       setIsClaudeTranscript(false);
       setReaderAiSource('');
@@ -1483,6 +1488,7 @@ export function App() {
 
   const renderImageFileContent = useCallback((fileName: string | null | undefined, imageSrc: string) => {
     setRenderedHtml('');
+    setRenderedText(null);
     setRenderMode('image');
     setIsClaudeTranscript(false);
     setReaderAiSource('');
@@ -1497,6 +1503,7 @@ export function App() {
     (fileName: string | null | undefined, downloadHref: string | null = null) => {
       const label = fileName || 'file';
       setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
+      setRenderedText(null);
       setRenderMode('ansi');
       setIsClaudeTranscript(false);
       setReaderAiSource('');
@@ -5130,6 +5137,8 @@ export function App() {
           <ContentView
             html={renderedHtml}
             markdown={renderMode === 'markdown' || renderMode === 'image'}
+            plainText={renderMode === 'ansi' && !contentImagePreview ? renderedText : null}
+            plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
             loading={contentLoadPending}
             imagePreview={contentImagePreview}
             claudeTranscript={isClaudeTranscript}

@@ -137,3 +137,54 @@
 .doc-editor .cm-scroller::-webkit-scrollbar-track {
   background: transparent;
 }
+
+.content-code-view .cm-editor {
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--reader-preformatted-font-size);
+}
+
+.content-code-view .cm-editor.cm-focused {
+  outline: none;
+}
+
+.content-code-view .cm-scroller {
+  overflow: auto;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: var(--reader-editor-line-height);
+}
+
+.content-code-view .cm-content {
+  padding: 0;
+  caret-color: transparent;
+}
+
+.content-code-view .cm-line {
+  padding: 0;
+}
+
+.content-code-view .cm-selectionBackground {
+  /* biome-ignore lint/complexity/noImportantStyles: CodeMirror injects selection styles that require !important to override reliably. */
+  background: color-mix(in srgb, var(--selection-bg) 40%, transparent) !important;
+}
+
+.content-code-view .cm-editor.cm-focused .cm-selectionBackground {
+  /* biome-ignore lint/complexity/noImportantStyles: CodeMirror injects selection styles that require !important to override reliably. */
+  background: var(--selection-bg) !important;
+}
+
+.content-code-view .cm-scroller::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.content-code-view .cm-scroller::-webkit-scrollbar-thumb {
+  background: var(--btn-bg);
+  border-radius: 4px;
+}
+
+.content-code-view .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
