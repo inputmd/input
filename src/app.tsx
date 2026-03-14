@@ -4225,15 +4225,24 @@ export function App() {
   const navigateToSidebarFile = useCallback(
     (filePath: string) => {
       setHasUnsavedChanges(false);
+      const shouldEditMarkdown = activeView === 'edit' && isMarkdownFileName(filePath);
       if (currentGistId) {
-        navigate(routePath.gistView(currentGistId, filePath));
+        navigate(
+          shouldEditMarkdown
+            ? routePath.gistEdit(currentGistId, filePath)
+            : routePath.gistView(currentGistId, filePath),
+        );
       } else if (repoAccessMode === 'installed' && selectedRepoRef) {
-        navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, filePath));
+        navigate(
+          shouldEditMarkdown
+            ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, filePath)
+            : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, filePath),
+        );
       } else if (repoAccessMode === 'public' && publicRepoRef) {
         navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath));
       }
     },
-    [currentGistId, repoAccessMode, selectedRepoRef, publicRepoRef, navigate],
+    [activeView, currentGistId, repoAccessMode, selectedRepoRef, publicRepoRef, navigate],
   );
 
   const handleSelectFile = useCallback(
