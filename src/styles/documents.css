@@ -341,6 +341,18 @@
   margin-top: 0;
 }
 
+.workspaces-empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.workspaces-empty-state-actions button {
+  margin-top: 0;
+}
+
 .workspaces-empty-state a {
   color: inherit;
   text-decoration: underline;

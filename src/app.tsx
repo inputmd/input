@@ -5228,6 +5228,7 @@ export function App() {
             onLoadRepos={(mode) => onOpenRepoMenu(mode)}
             onRetryRepos={() => onOpenRepoMenu('manual')}
             onRetryGists={onRetryWorkspaceGists}
+            onRetryGistsSignIn={() => handleSignInWithGitHub()}
             onLoadMoreGists={onLoadMoreWorkspaceGists}
             onRenameGist={onRenameWorkspaceGist}
             onDeleteGist={onDeleteWorkspaceGist}

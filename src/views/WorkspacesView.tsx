@@ -17,6 +17,7 @@ interface WorkspacesViewProps {
   onLoadRepos: (mode: 'auto' | 'manual') => void;
   onRetryRepos: () => void | Promise<void>;
   onRetryGists: () => void | Promise<void>;
+  onRetryGistsSignIn: () => void;
   onLoadMoreGists: () => void;
   onRenameGist: (gist: GistSummary) => void | Promise<void>;
   onDeleteGist: (gist: GistSummary) => void | Promise<void>;
@@ -46,6 +47,7 @@ export function WorkspacesView({
   onLoadRepos,
   onRetryRepos,
   onRetryGists,
+  onRetryGistsSignIn,
   onLoadMoreGists,
   onRenameGist,
   onDeleteGist,
@@ -199,6 +201,7 @@ export function WorkspacesView({
         error={gistsLoadError}
         embedded
         onRetry={onRetryGists}
+        onRetrySignIn={onRetryGistsSignIn}
         onLoadMore={onLoadMoreGists}
         onRename={onRenameGist}
         onDelete={onDeleteGist}

@@ -14,6 +14,7 @@ interface DocumentsViewProps {
   error: string | null;
   embedded?: boolean;
   onRetry: () => void | Promise<void>;
+  onRetrySignIn?: () => void;
   onLoadMore: () => void;
   onRename: (gist: GistSummary) => void | Promise<void>;
   onDelete: (gist: GistSummary) => void | Promise<void>;
@@ -33,6 +34,7 @@ export function DocumentsView({
   error,
   embedded = false,
   onRetry,
+  onRetrySignIn,
   onLoadMore,
   onRename,
   onDelete,
@@ -70,10 +72,17 @@ export function DocumentsView({
       <div class="empty-state workspaces-empty-state">
         <p>Failed to load gists</p>
         <p class="hint">{error}</p>
-        <button type="button" onClick={() => void handleRetry()} disabled={retrying} aria-busy={retrying}>
-          {retrying ? <span class="documents-button-spinner" aria-hidden="true" /> : null}
-          {retrying ? 'Retrying...' : 'Try Again'}
-        </button>
+        <div class="workspaces-empty-state-actions">
+          <button type="button" onClick={() => void handleRetry()} disabled={retrying} aria-busy={retrying}>
+            {retrying ? <span class="documents-button-spinner" aria-hidden="true" /> : null}
+            {retrying ? 'Retrying...' : 'Try Again'}
+          </button>
+          {onRetrySignIn ? (
+            <button type="button" class="documents-new-btn" onClick={onRetrySignIn}>
+              Retry Sign In
+            </button>
+          ) : null}
+        </div>
       </div>
     );
   }
