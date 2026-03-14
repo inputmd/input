@@ -30,10 +30,12 @@
 }
 
 .doc-editor .cm-selectionBackground {
+  /* biome-ignore lint/complexity/noImportantStyles: CodeMirror injects selection styles that require !important to override reliably. */
   background: color-mix(in srgb, var(--selection-bg) 40%, transparent) !important;
 }
 
 .doc-editor .cm-editor.cm-focused .cm-selectionBackground {
+  /* biome-ignore lint/complexity/noImportantStyles: CodeMirror injects selection styles that require !important to override reliably. */
   background: var(--selection-bg) !important;
 }
 

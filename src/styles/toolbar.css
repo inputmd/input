@@ -43,7 +43,7 @@
   }
 }
 
-.toolbar button {
+.toolbar button:not(.github-signin-btn-toggle) {
   min-height: 35px;
   min-width: 40px;
 }
@@ -267,8 +267,8 @@
 }
 
 .github-signin-btn-toggle {
-  min-width: 28px !important;
-  width: 28px !important;
+  min-width: 28px;
+  width: 28px;
   padding: 0;
   border-left-color: rgba(255, 255, 255, 0.25);
   border-top-left-radius: 0;
