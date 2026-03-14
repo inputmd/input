@@ -96,6 +96,31 @@
   box-shadow: 0 0 0 3px var(--focus-shadow);
 }
 
+.dialog-action-warning {
+  border-color: color-mix(in srgb, #d29922 72%, transparent);
+  background: color-mix(in srgb, #d29922 18%, var(--toolbar-bg));
+  color: #d29922;
+}
+
+.dialog-action-warning:hover {
+  filter: brightness(0.96);
+}
+
+.dialog-action-warning:focus-visible {
+  border-color: #d29922;
+  box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
+[data-theme="light"] .dialog-action-warning {
+  border-color: color-mix(in srgb, #9a6700 68%, transparent);
+  background: color-mix(in srgb, #9a6700 12%, var(--toolbar-bg));
+  color: #9a6700;
+}
+
+[data-theme="light"] .dialog-action-warning:focus-visible {
+  border-color: #9a6700;
+}
+
 .toast-viewport {
   position: fixed;
   bottom: 16px;

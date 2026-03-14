@@ -145,11 +145,76 @@ body {
   min-width: 0;
 }
 
+.restore-draft-prompt {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(420px, calc(100% - 24px));
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--toolbar-bg) 92%, transparent);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
+
+.restore-draft-prompt-copy {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.restore-draft-prompt-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.restore-draft-prompt-actions button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.restore-draft-prompt-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transform: translateY(1px);
+}
+
+.restore-draft-prompt-dismiss:hover {
+  color: var(--text);
+}
+
+.restore-draft-prompt-dismiss:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .app-body--with-sidebar main {
   margin-left: var(--sidebar-width, 220px);
 }
 
 @media (max-width: 768px) {
+  .restore-draft-prompt {
+    left: 12px;
+    right: 12px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .restore-draft-prompt-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .app-body--with-sidebar main {
     margin-left: 0;
   }

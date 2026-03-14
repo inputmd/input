@@ -217,16 +217,18 @@ export function Toolbar({
                   Restore Draft
                 </DropdownMenu.Item>
               ) : null}
-              <DropdownMenu.Item
-                class="author-menu-item"
-                onSelect={(event: Event) => {
-                  runAuthorMenuAction(event, () => {
-                    onResetDraftChanges?.();
-                  });
-                }}
-              >
-                Reset Changes
-              </DropdownMenu.Item>
+              {!showRestoreDraft ? (
+                <DropdownMenu.Item
+                  class="author-menu-item"
+                  onSelect={(event: Event) => {
+                    runAuthorMenuAction(event, () => {
+                      onResetDraftChanges?.();
+                    });
+                  }}
+                >
+                  Reset Changes
+                </DropdownMenu.Item>
+              ) : null}
             </>
           ) : null}
         </DropdownMenu.Content>

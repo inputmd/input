@@ -1,4 +1,5 @@
 import { createTwoFilesPatch } from 'diff';
+import { X } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
@@ -1251,6 +1252,8 @@ export function App() {
     currentDocumentDraft !== null &&
     currentDocumentContent !== null &&
     currentDocumentDraft.content !== currentDocumentContent;
+  const [restoreDraftPromptIgnored, setRestoreDraftPromptIgnored] = useState(false);
+  const restoreDraftPromptPageKey = currentRouteKey ?? `${route.name}:${currentDocumentDraftKey ?? ''}`;
   const currentDocumentLabel = currentFileName ?? currentRepoDocPath ?? 'this document';
   const readerAiEditEligible = routeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
   const readerAiContentEligible =
@@ -2847,6 +2850,11 @@ export function App() {
   }, [activeView, currentDocumentDraftKey, currentDocumentSavedContent, editContent, navigate, routeState]);
 
   useEffect(() => {
+    void restoreDraftPromptPageKey;
+    setRestoreDraftPromptIgnored(false);
+  }, [restoreDraftPromptPageKey]);
+
+  useEffect(() => {
     if (route.name !== 'reponew') return;
     if (editingBackend !== 'repo' || currentRepoDocPath) return;
     const instId = installationId ?? getInstallationId();
@@ -3988,6 +3996,7 @@ export function App() {
         title: 'Restore Draft',
         confirmLabel: 'Restore',
         cancelLabel: 'Cancel',
+        intent: 'warning',
         defaultFocus: 'cancel',
         leftLabel: 'Current document',
         rightLabel: 'Draft to restore',
@@ -5679,7 +5688,41 @@ export function App() {
             void handleRoute(route);
           }}
         >
-          <main>{renderView()}</main>
+          <main>
+            {hasRestorableDocumentDraft && !restoreDraftPromptIgnored ? (
+              <div class="restore-draft-prompt" role="status" aria-live="polite">
+                <span class="restore-draft-prompt-copy">Found unsaved changes</span>
+                <div class="restore-draft-prompt-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onRestoreDraft();
+                    }}
+                  >
+                    View
+                  </button>
+                  <span
+                    class="restore-draft-prompt-dismiss"
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Dismiss unsaved changes prompt"
+                    onClick={() => {
+                      setRestoreDraftPromptIgnored(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setRestoreDraftPromptIgnored(true);
+                      }
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </span>
+                </div>
+              </div>
+            ) : null}
+            {renderView()}
+          </main>
         </ErrorBoundary>
         {showReaderAiPanel ? (
           <>

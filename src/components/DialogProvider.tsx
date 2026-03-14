@@ -17,7 +17,7 @@ interface DialogContextValue {
   showPrompt: (message: string, defaultValue?: string) => Promise<string | null>;
 }
 
-type ConfirmDialogIntent = 'default' | 'danger';
+type ConfirmDialogIntent = 'default' | 'danger' | 'warning';
 type ConfirmDialogFocus = 'cancel' | 'action';
 
 interface ConfirmDialogOptions {
@@ -206,7 +206,13 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                 <AlertDialogPrimitive.Action asChild>
                   <button
                     ref={confirmActionRef}
-                    class={dialog.options.intent === 'danger' ? 'dialog-action-danger' : undefined}
+                    class={
+                      dialog.options.intent === 'danger'
+                        ? 'dialog-action-danger'
+                        : dialog.options.intent === 'warning'
+                          ? 'dialog-action-warning'
+                          : undefined
+                    }
                     type="button"
                     onClick={() => {
                       dialog.resolve(true);
@@ -223,7 +229,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
       )}
 
       {dialog?.type === 'diff-confirm' && (
-        <AlertDialogPrimitive.Root
+        <DialogPrimitive.Root
           open
           onOpenChange={(open: boolean) => {
             if (!open) {
@@ -232,9 +238,9 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
             }
           }}
         >
-          <AlertDialogPrimitive.Portal>
-            <AlertDialogPrimitive.Overlay class="dialog-overlay" />
-            <AlertDialogPrimitive.Content
+          <DialogPrimitive.Portal>
+            <DialogPrimitive.Overlay class="dialog-overlay" />
+            <DialogPrimitive.Content
               class="dialog-content dialog-content--diff"
               onOpenAutoFocus={(e: Event) => {
                 if (dialog.options.defaultFocus === 'action') {
@@ -245,10 +251,8 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                 setTimeout(() => confirmCancelRef.current?.focus(), 0);
               }}
             >
-              <AlertDialogPrimitive.Title class="dialog-title">{dialog.options.title}</AlertDialogPrimitive.Title>
-              <AlertDialogPrimitive.Description class="dialog-message">
-                {dialog.message}
-              </AlertDialogPrimitive.Description>
+              <DialogPrimitive.Title class="dialog-title">{dialog.options.title}</DialogPrimitive.Title>
+              <DialogPrimitive.Description class="dialog-message">{dialog.message}</DialogPrimitive.Description>
               <div class="dialog-diff-frame">
                 <SideBySideDiffView
                   changes={dialog.changes}
@@ -257,35 +261,37 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                 />
               </div>
               <div class="dialog-actions">
-                <AlertDialogPrimitive.Cancel asChild>
-                  <button
-                    ref={confirmCancelRef}
-                    type="button"
-                    onClick={() => {
-                      dialog.resolve(false);
-                      close();
-                    }}
-                  >
-                    {dialog.options.cancelLabel}
-                  </button>
-                </AlertDialogPrimitive.Cancel>
-                <AlertDialogPrimitive.Action asChild>
-                  <button
-                    ref={confirmActionRef}
-                    class={dialog.options.intent === 'danger' ? 'dialog-action-danger' : undefined}
-                    type="button"
-                    onClick={() => {
-                      dialog.resolve(true);
-                      close();
-                    }}
-                  >
-                    {dialog.options.confirmLabel}
-                  </button>
-                </AlertDialogPrimitive.Action>
+                <button
+                  ref={confirmCancelRef}
+                  type="button"
+                  onClick={() => {
+                    dialog.resolve(false);
+                    close();
+                  }}
+                >
+                  {dialog.options.cancelLabel}
+                </button>
+                <button
+                  ref={confirmActionRef}
+                  class={
+                    dialog.options.intent === 'danger'
+                      ? 'dialog-action-danger'
+                      : dialog.options.intent === 'warning'
+                        ? 'dialog-action-warning'
+                        : undefined
+                  }
+                  type="button"
+                  onClick={() => {
+                    dialog.resolve(true);
+                    close();
+                  }}
+                >
+                  {dialog.options.confirmLabel}
+                </button>
               </div>
-            </AlertDialogPrimitive.Content>
-          </AlertDialogPrimitive.Portal>
-        </AlertDialogPrimitive.Root>
+            </DialogPrimitive.Content>
+          </DialogPrimitive.Portal>
+        </DialogPrimitive.Root>
       )}
 
       {/* Prompt Dialog */}
