@@ -1918,9 +1918,24 @@ export function App() {
           setGistFiles(files);
           setCurrentGistCreatedAt(typeof data.created_at === 'string' ? data.created_at : null);
           setCurrentGistUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null);
+          setCurrentGistId(id);
+          setRepoAccessMode(null);
+          setPublicRepoRef(null);
+          setCurrentRepoDocPath(null);
+          setCurrentRepoDocSha(null);
+          setRepoFiles([]);
+          setRepoSidebarFiles([]);
+
+          if (!filename) {
+            setCurrentFileName(null);
+            setCurrentDocumentSavedContent(null);
+            clearRenderedContent();
+            setViewPhase(null);
+            return;
+          }
 
           const fileKeys = Object.keys(files);
-          const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
+          const targetName = safeDecodeURIComponent(filename);
           const file = targetName ? files[targetName] : null;
           if (!file) {
             showError('File not found in gist');
@@ -1953,13 +1968,6 @@ export function App() {
               knownMarkdownPaths: fileKeys,
             });
           }
-          setCurrentGistId(id);
-          setRepoAccessMode(null);
-          setPublicRepoRef(null);
-          setCurrentRepoDocPath(null);
-          setCurrentRepoDocSha(null);
-          setRepoFiles([]);
-          setRepoSidebarFiles([]);
           setViewPhase(null);
           return;
         }
@@ -1968,16 +1976,6 @@ export function App() {
         setGistFiles(gist.files);
         setCurrentGistCreatedAt(gist.created_at);
         setCurrentGistUpdatedAt(gist.updated_at);
-
-        const fileKeys = Object.keys(gist.files);
-        const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
-        const file = targetName ? gist.files[targetName] : null;
-        if (!file) {
-          showError('File not found in gist');
-          return;
-        }
-
-        setCurrentFileName(file.filename);
         setCurrentGistId(gist.id);
         setRepoAccessMode(null);
         setPublicRepoRef(null);
@@ -1985,6 +1983,24 @@ export function App() {
         setCurrentRepoDocSha(null);
         setRepoFiles([]);
         setRepoSidebarFiles([]);
+
+        if (!filename) {
+          setCurrentFileName(null);
+          setCurrentDocumentSavedContent(null);
+          clearRenderedContent();
+          setViewPhase(null);
+          return;
+        }
+
+        const fileKeys = Object.keys(gist.files);
+        const targetName = safeDecodeURIComponent(filename);
+        const file = targetName ? gist.files[targetName] : null;
+        if (!file) {
+          showError('File not found in gist');
+          return;
+        }
+
+        setCurrentFileName(file.filename);
         if (isSafeImageFileName(file.filename)) {
           setCurrentDocumentSavedContent(null);
           renderImageFileContent(file.filename, file.raw_url);
@@ -2001,7 +2017,15 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Unknown error');
       }
     },
-    [showError, renderDocumentContent, renderImageFileContent, activeView, currentFileName, showRateLimitToastIfNeeded],
+    [
+      showError,
+      renderDocumentContent,
+      renderImageFileContent,
+      activeView,
+      currentFileName,
+      showRateLimitToastIfNeeded,
+      clearRenderedContent,
+    ],
   );
 
   const loadRepoFile = useCallback(
@@ -4568,32 +4592,19 @@ export function App() {
           setGistFiles(gist.files);
           const deletedCurrent = currentFileName === filePath;
           if (deletedCurrent) {
-            const remaining = Object.keys(gist.files);
-            if (remaining.length > 0) {
-              navigate(routePath.gistView(currentGistId, remaining[0]));
-            } else {
-              navigate(routePath.workspaces());
-            }
+            navigate(routePath.gistView(currentGistId));
           }
         } else {
           const repoFile = findRepoDocFile(repoSidebarFiles, filePath);
           if (!repoFile) return;
           await store.deleteFile(repoFile);
-          const remainingSidebar = (await refreshRepoTreeAfterWrite()) ?? [];
+          await refreshRepoTreeAfterWrite();
           const deletedCurrent = currentRepoDocPath === repoFile.path;
           if (deletedCurrent) {
-            if (remainingSidebar.length > 0) {
-              if (selectedRepoRef) {
-                navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, remainingSidebar[0].path));
-              } else {
-                navigate(routePath.workspaces());
-              }
+            if (selectedRepoRef) {
+              navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
             } else {
-              if (selectedRepoRef) {
-                navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
-              } else {
-                navigate(routePath.workspaces());
-              }
+              navigate(routePath.workspaces());
             }
           }
         }
@@ -4662,12 +4673,7 @@ export function App() {
             setGistFiles(gist.files);
             const deletedCurrent = currentFileName ? isPathInFolder(currentFileName, folderPath) : false;
             if (deletedCurrent) {
-              const remaining = Object.keys(gist.files);
-              if (remaining.length > 0) {
-                navigate(routePath.gistView(gistId, remaining[0]));
-              } else {
-                navigate(routePath.workspaces());
-              }
+              navigate(routePath.gistView(gistId));
             }
           }
         } else {
@@ -4684,18 +4690,10 @@ export function App() {
             ? !remainingSidebar.some((file) => file.path === currentRepoDocPath)
             : false;
           if (deletedCurrent) {
-            if (remainingSidebar.length > 0) {
-              if (selectedRepoRef) {
-                navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, remainingSidebar[0].path));
-              } else {
-                navigate(routePath.workspaces());
-              }
+            if (selectedRepoRef) {
+              navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
             } else {
-              if (selectedRepoRef) {
-                navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
-              } else {
-                navigate(routePath.workspaces());
-              }
+              navigate(routePath.workspaces());
             }
           }
         }
