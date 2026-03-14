@@ -148,11 +148,13 @@ const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 
 An experimental Markdown editor, and alternative GitHub frontend.
 
-Input is a tool for editing and publishing workspaces of Markdown files. It's like Obsidian in your browser, or HackMD for Git repos.
+Input is a tool for editing and publishing workspaces of Markdown files. It's like Obsidian in your browser, except built on GitHub.
 
-It supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/) as files.
+It supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/).
 
-We ask for minimal permissions, and do not log your data.`;
+You can also view any public GitHub repo, by replacing github.com with input.md.
+
+[View on GitHub](https://github.com/canvasxyz/input)`;
 const DOCUMENT_DRAFTS_STORAGE_KEY = 'document_drafts_v1';
 const MAX_DOCUMENT_DRAFTS = 10;
 const MAX_DOCUMENT_DRAFT_CONTENT_BYTES = 512 * 1024;
