@@ -23,6 +23,7 @@
 .doc-editor .cm-content {
   caret-color: var(--text);
   padding: 0;
+  outline: none;
 }
 
 .doc-editor .cm-line {
@@ -48,74 +49,167 @@
   font-style: normal;
 }
 
-/* Markdown syntax highlighting */
+/* CodeMirror syntax highlighting */
+
+.cm-editor .tok-content,
+.cm-editor .tok-variableName {
+  color: var(--text);
+}
 
 /* Headings */
-.doc-editor .cm-editor .tok-heading {
+.cm-editor .tok-heading {
   font-weight: 600;
   color: var(--text);
 }
 
 /* Hash marks for headings */
-.doc-editor .cm-editor .tok-heading.tok-processingInstruction {
+.cm-editor .tok-heading.tok-processingInstruction {
   color: var(--text-secondary);
   font-weight: 400;
 }
 
 /* Bold */
-.doc-editor .cm-editor .tok-strong {
+.cm-editor .tok-strong {
   font-weight: 700;
 }
 
 /* Italic */
-.doc-editor .cm-editor .tok-emphasis {
+.cm-editor .tok-emphasis {
   font-style: italic;
 }
 
 /* Inline code */
-.doc-editor .cm-editor .tok-monospace {
-  color: color-mix(in srgb, var(--text) 85%, var(--ansi-cyan));
+.cm-editor .tok-monospace {
+  color: color-mix(in srgb, var(--text) 70%, var(--ansi-cyan));
   background: color-mix(in srgb, var(--btn-bg) 50%, transparent);
   border-radius: 3px;
   padding: 1px 3px;
 }
 
 /* Code blocks / fenced code */
-.doc-editor .cm-editor .tok-meta {
+.cm-editor .tok-meta,
+.cm-editor .tok-punctuation {
   color: var(--text-secondary);
 }
 
 /* Links */
-.doc-editor .cm-editor .tok-link {
+.cm-editor .tok-link {
   color: var(--focus-border);
   text-decoration: none;
 }
 
-.doc-editor .cm-editor .tok-url {
+.cm-editor .tok-url {
   color: color-mix(in srgb, var(--focus-border) 70%, var(--text-secondary));
 }
 
 /* List markers */
-.doc-editor .cm-editor .tok-list.tok-processingInstruction {
+.cm-editor .tok-list.tok-processingInstruction {
   color: color-mix(in srgb, var(--text-secondary) 85%, var(--text));
 }
 
 /* Blockquote markers */
-.doc-editor .cm-editor .tok-quote {
+.cm-editor .tok-quote {
   color: var(--text-secondary);
 }
 
 /* Horizontal rules */
-.doc-editor .cm-editor .tok-contentSeparator {
+.cm-editor .tok-contentSeparator {
   color: var(--text-secondary);
 }
 
 /* Strikethrough */
-.doc-editor .cm-editor .tok-strikethrough {
+.cm-editor .tok-strikethrough {
   color: var(--text-secondary);
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
   text-decoration-thickness: 1px;
+}
+
+.cm-editor .tok-keyword,
+.cm-editor .tok-definitionKeyword,
+.cm-editor .tok-operatorKeyword {
+  color: color-mix(in srgb, var(--focus-border) 82%, var(--ansi-magenta));
+  font-weight: 600;
+}
+
+.cm-editor .tok-string,
+.cm-editor .tok-attributeValue {
+  color: color-mix(in srgb, var(--text) 65%, var(--ansi-green));
+}
+
+.cm-editor .tok-regexp,
+.cm-editor .tok-escape {
+  color: color-mix(in srgb, var(--text) 57%, var(--ansi-cyan));
+}
+
+.cm-editor .tok-number,
+.cm-editor .tok-atom,
+.cm-editor .tok-bool {
+  color: color-mix(in srgb, var(--text) 63%, var(--ansi-orange));
+}
+
+.cm-editor .tok-comment {
+  color: color-mix(in srgb, var(--text-secondary) 92%, transparent);
+  font-style: italic;
+}
+
+.cm-editor .tok-typeName,
+.cm-editor .tok-className,
+.cm-editor .tok-namespace,
+.cm-editor .tok-labelName {
+  color: color-mix(in srgb, var(--text) 40%, var(--ansi-cyan));
+}
+
+.cm-editor .tok-propertyName,
+.cm-editor .tok-attributeName,
+.cm-editor .tok-tagName {
+  color: color-mix(in srgb, var(--text) 69%, var(--ansi-blue));
+}
+
+.cm-editor .tok-operator {
+  color: color-mix(in srgb, var(--text) 73%, var(--focus-border));
+}
+
+.cm-editor .tok-invalid {
+  color: var(--error-color);
+  text-decoration: underline wavy color-mix(in srgb, var(--error-color) 70%, transparent);
+}
+
+[data-theme="light"] .cm-editor .tok-monospace {
+  color: color-mix(in srgb, var(--text) 60%, var(--ansi-cyan));
+}
+
+[data-theme="light"] .cm-editor .tok-string,
+[data-theme="light"] .cm-editor .tok-attributeValue {
+  color: color-mix(in srgb, var(--text) 55%, var(--ansi-green));
+}
+
+[data-theme="light"] .cm-editor .tok-regexp,
+[data-theme="light"] .cm-editor .tok-escape {
+  color: color-mix(in srgb, var(--text) 47%, var(--ansi-cyan));
+}
+
+[data-theme="light"] .cm-editor .tok-number,
+[data-theme="light"] .cm-editor .tok-atom,
+[data-theme="light"] .cm-editor .tok-bool {
+  color: color-mix(in srgb, var(--text) 53%, var(--ansi-orange));
+}
+
+[data-theme="light"] .cm-editor .tok-typeName,
+[data-theme="light"] .cm-editor .tok-className,
+[data-theme="light"] .cm-editor .tok-namespace,
+[data-theme="light"] .cm-editor .tok-labelName {
+  color: color-mix(in srgb, var(--text) 28%, var(--ansi-cyan));
+}
+
+[data-theme="light"] .cm-editor .tok-propertyName,
+[data-theme="light"] .cm-editor .tok-attributeName,
+[data-theme="light"] .cm-editor .tok-tagName {
+  color: color-mix(in srgb, var(--text) 10%, var(--ansi-blue));
+}
+
+[data-theme="light"] .cm-editor .tok-operator {
+  color: color-mix(in srgb, var(--text) 63%, var(--focus-border));
 }
 
 /* Tab size */

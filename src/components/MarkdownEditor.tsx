@@ -10,37 +10,15 @@ import {
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
-import { tagHighlighter, tags } from '@lezer/highlight';
+import { tags } from '@lezer/highlight';
 import type { InlineParser, MarkdownExtension } from '@lezer/markdown';
 import { useEffect, useRef } from 'preact/hooks';
+import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
   buildExternalContentSyncTransaction,
   isExternalSyncTransaction,
   wrapWithMarker,
 } from './markdown_editor_commands';
-
-const markdownHighlighter = tagHighlighter([
-  { tag: tags.heading, class: 'tok-heading' },
-  { tag: tags.heading1, class: 'tok-heading tok-heading1' },
-  { tag: tags.heading2, class: 'tok-heading tok-heading2' },
-  { tag: tags.heading3, class: 'tok-heading tok-heading3' },
-  { tag: tags.strong, class: 'tok-strong' },
-  { tag: tags.emphasis, class: 'tok-emphasis' },
-  { tag: tags.strikethrough, class: 'tok-strikethrough' },
-  { tag: tags.monospace, class: 'tok-monospace' },
-  { tag: tags.link, class: 'tok-link' },
-  { tag: tags.url, class: 'tok-url' },
-  { tag: tags.list, class: 'tok-list' },
-  { tag: tags.quote, class: 'tok-quote' },
-  { tag: tags.contentSeparator, class: 'tok-contentSeparator' },
-  { tag: tags.processingInstruction, class: 'tok-processingInstruction' },
-  { tag: tags.meta, class: 'tok-meta' },
-  { tag: tags.labelName, class: 'tok-labelName' },
-  { tag: tags.string, class: 'tok-string' },
-  { tag: tags.atom, class: 'tok-atom' },
-  { tag: tags.comment, class: 'tok-comment' },
-  { tag: tags.content, class: 'tok-content' },
-]);
 
 const wikiLinkInlineParser: InlineParser = {
   name: 'WikiLink',
@@ -124,7 +102,7 @@ export function MarkdownEditor({
         history(),
         drawSelection(),
         indentOnInput(),
-        syntaxHighlighting(markdownHighlighter),
+        syntaxHighlighting(appCodeMirrorHighlighter),
         bracketMatching(),
         markdown({ base: markdownLanguage, extensions: [{ remove: ['SetextHeading'] }, wikiLinkMarkdownExtension] }),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),

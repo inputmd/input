@@ -4,10 +4,11 @@ import { javascript } from '@codemirror/lang-javascript';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { python } from '@codemirror/lang-python';
 import { yaml } from '@codemirror/lang-yaml';
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
 import { useEffect, useRef } from 'preact/hooks';
+import { appCodeMirrorHighlighter } from './codemirror_theme';
 
 function extensionForFileName(fileName: string | null | undefined): string | null {
   if (!fileName) return null;
@@ -15,37 +16,42 @@ function extensionForFileName(fileName: string | null | undefined): string | nul
   return match ? match[1].toLowerCase() : null;
 }
 
-function languageExtensionForFileName(fileName: string | null | undefined): Extension[] {
+interface DetectedLanguage {
+  label: string;
+  extensions: Extension[];
+}
+
+function detectedLanguageForFileName(fileName: string | null | undefined): DetectedLanguage | null {
   const extension = extensionForFileName(fileName);
   switch (extension) {
     case 'js':
-    case 'json':
     case 'jsonc':
-      return [javascript()];
+    case 'json':
+      return { label: 'JavaScript', extensions: [javascript()] };
     case 'ts':
-      return [javascript({ typescript: true })];
+      return { label: 'TypeScript', extensions: [javascript({ typescript: true })] };
     case 'jsx':
-      return [javascript({ jsx: true })];
+      return { label: 'JSX', extensions: [javascript({ jsx: true })] };
     case 'tsx':
-      return [javascript({ typescript: true, jsx: true })];
+      return { label: 'TSX', extensions: [javascript({ typescript: true, jsx: true })] };
     case 'py':
-      return [python()];
+      return { label: 'Python', extensions: [python()] };
     case 'css':
     case 'scss':
-      return [css()];
+      return { label: 'CSS', extensions: [css()] };
     case 'html':
-      return [htmlLanguage()];
+      return { label: 'HTML', extensions: [htmlLanguage()] };
     case 'yml':
     case 'yaml':
-      return [yaml()];
+      return { label: 'YAML', extensions: [yaml()] };
     case 'md':
     case 'mdown':
     case 'mdwn':
     case 'markdown':
     case 'mdx':
-      return [markdown({ base: markdownLanguage })];
+      return { label: 'Markdown', extensions: [markdown({ base: markdownLanguage })] };
     default:
-      return [];
+      return null;
   }
 }
 
@@ -60,6 +66,7 @@ export function TextCodeView({ content, fileName = null }: TextCodeViewProps) {
   const languageCompartmentRef = useRef(new Compartment());
   const initialContentRef = useRef(content);
   const initialFileNameRef = useRef(fileName);
+  const detectedLanguage = detectedLanguageForFileName(fileName);
 
   // Create viewer on mount; content and language changes are synced in separate effects.
   useEffect(() => {
@@ -69,7 +76,7 @@ export function TextCodeView({ content, fileName = null }: TextCodeViewProps) {
       doc: initialContentRef.current,
       extensions: [
         highlightSpecialChars(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        syntaxHighlighting(appCodeMirrorHighlighter, { fallback: true }),
         EditorState.readOnly.of(true),
         EditorView.editable.of(false),
         EditorState.tabSize.of(2),
@@ -80,7 +87,7 @@ export function TextCodeView({ content, fileName = null }: TextCodeViewProps) {
             run: () => true,
           },
         ]),
-        languageCompartmentRef.current.of(languageExtensionForFileName(initialFileNameRef.current)),
+        languageCompartmentRef.current.of(detectedLanguageForFileName(initialFileNameRef.current)?.extensions ?? []),
       ],
     });
 
@@ -108,9 +115,14 @@ export function TextCodeView({ content, fileName = null }: TextCodeViewProps) {
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: languageCompartmentRef.current.reconfigure(languageExtensionForFileName(fileName)),
+      effects: languageCompartmentRef.current.reconfigure(detectedLanguage?.extensions ?? []),
     });
-  }, [fileName]);
+  }, [detectedLanguage]);
 
-  return <div ref={containerRef} class="content-code-view" />;
+  return (
+    <div class="content-code-view-wrap">
+      {detectedLanguage ? <div class="content-code-view-language-tag">{detectedLanguage.label}</div> : null}
+      <div ref={containerRef} class="content-code-view" />
+    </div>
+  );
 }
