@@ -561,22 +561,6 @@
   text-decoration: none;
 }
 
-.rendered-markdown .external-link-indicator,
-.markdown-link-preview-body .external-link-indicator {
-  display: inline-block;
-  margin-left: 2px;
-  color: var(--text-secondary);
-  line-height: 0;
-  vertical-align: baseline;
-  transform: translateY(2px);
-}
-
-.rendered-markdown .external-link-indicator svg,
-.markdown-link-preview-body .external-link-indicator svg {
-  width: 0.78em;
-  height: 0.78em;
-}
-
 .rendered-markdown strong {
   font-weight: 700;
 }
