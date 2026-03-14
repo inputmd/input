@@ -22,18 +22,29 @@
 .reader-ai-splitter {
   position: fixed;
   top: var(--toolbar-height);
-  right: calc(var(--reader-ai-width, 360px) - 3px);
+  right: calc(var(--reader-ai-width, 360px) - 4px);
   bottom: 0;
   z-index: 16;
-  width: 6px;
+  width: 7px;
   cursor: col-resize;
-  background: var(--toolbar-bg);
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  background: transparent;
+  border-left: 1px solid transparent;
+  border-right: 1px solid transparent;
 }
 
-.reader-ai-splitter:hover {
+.reader-ai-splitter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--toolbar-bg);
+  border-left: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reader-ai-splitter:hover::after {
   background: var(--btn-hover);
+  opacity: 1;
 }
 
 .reader-ai-model-trigger {

@@ -17,18 +17,29 @@
 .sidebar-splitter {
   position: fixed;
   top: var(--toolbar-height);
-  left: calc(var(--sidebar-width, 220px) - 3px);
+  left: calc(var(--sidebar-width, 220px) - 4px);
   bottom: 0;
   z-index: 6;
-  width: 6px;
+  width: 7px;
   cursor: col-resize;
-  background: var(--toolbar-bg);
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  background: transparent;
+  border-right: 1px solid transparent;
+  border-left: 1px solid transparent;
 }
 
-.sidebar-splitter:hover {
+.sidebar-splitter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--toolbar-bg);
+  border-right: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar-splitter:hover::after {
   background: var(--btn-hover);
+  opacity: 1;
 }
 
 .sidebar-header {
