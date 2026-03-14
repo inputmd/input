@@ -1932,8 +1932,10 @@ export function App() {
           setPublicRepoRef(null);
           setCurrentRepoDocPath(null);
           setCurrentRepoDocSha(null);
+          setEditingBackend(null);
           setRepoFiles([]);
           setRepoSidebarFiles([]);
+          setHasUnsavedChanges(false);
 
           if (!filename) {
             setCurrentFileName(null);
@@ -1990,8 +1992,10 @@ export function App() {
         setPublicRepoRef(null);
         setCurrentRepoDocPath(null);
         setCurrentRepoDocSha(null);
+        setEditingBackend(null);
         setRepoFiles([]);
         setRepoSidebarFiles([]);
+        setHasUnsavedChanges(false);
 
         if (!filename) {
           setCurrentFileName(null);
@@ -2106,13 +2110,20 @@ export function App() {
           setEditTitle(contents.name.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
           setEditContent(decoded);
           setCurrentDocumentSavedContent(decoded);
+          setHasUnsavedChanges(false);
         } else if (binary && isSafeImageFileName(contents.name)) {
+          setEditingBackend(null);
+          setHasUnsavedChanges(false);
           setCurrentDocumentSavedContent(null);
           renderImageFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
         } else if (binary) {
+          setEditingBackend(null);
+          setHasUnsavedChanges(false);
           setCurrentDocumentSavedContent(null);
           renderBinaryFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
         } else {
+          setEditingBackend(null);
+          setHasUnsavedChanges(false);
           setCurrentDocumentSavedContent(decoded);
           const wikiPaths = knownMarkdownPaths.includes(contents.path)
             ? knownMarkdownPaths
@@ -2603,6 +2614,7 @@ export function App() {
             setEditTitle(fileNameFromPath(file.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
             setEditContent(editableContent);
             setCurrentDocumentSavedContent(editableContent);
+            setHasUnsavedChanges(false);
             setViewPhase(null);
           } catch (err) {
             showRateLimitToastIfNeeded(err);
