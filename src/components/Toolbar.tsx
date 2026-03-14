@@ -151,7 +151,8 @@ export function Toolbar({
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
   const showPreviewAndAiGroup = showPreviewToggle && showAiToggle;
-  const runAuthorMenuAction = (event: Event, action: () => void): void => {
+  const runAuthorMenuAction = (event: Event, action: () => void, options?: { preventDefault?: boolean }): void => {
+    if (options?.preventDefault) event.preventDefault();
     event.stopPropagation();
     action();
   };
@@ -174,7 +175,7 @@ export function Toolbar({
           <DropdownMenu.Item
             class="author-menu-item"
             onSelect={(event: Event) => {
-              runAuthorMenuAction(event, onShare);
+              runAuthorMenuAction(event, onShare, { preventDefault: true });
             }}
           >
             Share
