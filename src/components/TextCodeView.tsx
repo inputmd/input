@@ -49,7 +49,10 @@ function detectedLanguageForFileName(fileName: string | null | undefined): Detec
     case 'mdwn':
     case 'markdown':
     case 'mdx':
-      return { label: 'Markdown', extensions: [markdown({ base: markdownLanguage })] };
+      return {
+        label: 'Markdown',
+        extensions: [markdown({ base: markdownLanguage, extensions: [{ remove: ['IndentedCode'] }] })],
+      };
     default:
       return null;
   }

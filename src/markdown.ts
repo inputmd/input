@@ -62,6 +62,10 @@ marked.use({
     lheading() {
       return undefined;
     },
+    // Disable indented code blocks so leading spaces remain literal text.
+    code() {
+      return undefined;
+    },
   },
   extensions: [
     {

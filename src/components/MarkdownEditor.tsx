@@ -104,7 +104,10 @@ export function MarkdownEditor({
         indentOnInput(),
         syntaxHighlighting(appCodeMirrorHighlighter),
         bracketMatching(),
-        markdown({ base: markdownLanguage, extensions: [{ remove: ['SetextHeading'] }, wikiLinkMarkdownExtension] }),
+        markdown({
+          base: markdownLanguage,
+          extensions: [{ remove: ['SetextHeading', 'IndentedCode'] }, wikiLinkMarkdownExtension],
+        }),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
