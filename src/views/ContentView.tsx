@@ -92,6 +92,7 @@ export function ContentView({
   onImageClick,
 }: ContentViewProps) {
   const renderedMarkdownRef = useRef<HTMLDivElement | null>(null);
+  const imagePreviewRef = useRef<HTMLImageElement | null>(null);
   const selectedClaudeMessageIndexRef = useRef<number>(-1);
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
@@ -109,6 +110,7 @@ export function ContentView({
     url: null,
   });
   const [collapseAssistantMessages, setCollapseAssistantMessages] = useState(true);
+  const [imagePreviewLoading, setImagePreviewLoading] = useState(true);
   const isEmpty = html.trim().length === 0 && (plainText === null || plainText.length === 0) && !imagePreview;
 
   const scrollToHash = useCallback((hash: string, behavior: ScrollBehavior = 'auto') => {
@@ -159,6 +161,43 @@ export function ContentView({
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [markdown, scrollToHash]);
+
+  useEffect(() => {
+    const root = renderedMarkdownRef.current;
+    if (!markdown || !html || !root) return;
+
+    const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
+    if (images.length === 0) return;
+
+    const clearLoading = (image: HTMLImageElement) => image.setAttribute('data-image-loading', 'false');
+    const setLoading = (image: HTMLImageElement) => image.setAttribute('data-image-loading', 'true');
+    const cleanups = images.map((image) => {
+      if (image.complete) {
+        clearLoading(image);
+        return () => {};
+      }
+
+      setLoading(image);
+      const onDone = () => clearLoading(image);
+      image.addEventListener('load', onDone);
+      image.addEventListener('error', onDone);
+      return () => {
+        image.removeEventListener('load', onDone);
+        image.removeEventListener('error', onDone);
+      };
+    });
+
+    return () => {
+      cleanups.forEach((cleanup) => {
+        cleanup();
+      });
+    };
+  }, [html, markdown]);
+
+  useEffect(() => {
+    const image = imagePreviewRef.current;
+    setImagePreviewLoading(!(imagePreview && image && image.complete));
+  }, [imagePreview]);
 
   const updateSelectedClaudeMessage = useCallback(
     (messages: HTMLElement[], nextIndex: number, scrollMode: 'nearest' | 'vertical' = 'nearest') => {
@@ -594,9 +633,13 @@ export function ContentView({
       ) : imagePreview ? (
         <div class="content-image-preview">
           <img
+            ref={imagePreviewRef}
             class="content-image-preview-image"
             src={imagePreview.src}
             alt={imagePreview.alt}
+            data-image-loading={imagePreviewLoading ? 'true' : 'false'}
+            onLoad={() => setImagePreviewLoading(false)}
+            onError={() => setImagePreviewLoading(false)}
             onClick={(event) => onImageClick?.(event.currentTarget)}
           />
         </div>

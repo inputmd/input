@@ -139,6 +139,12 @@
   cursor: zoom-in;
 }
 
+.content-image-preview-image[data-image-loading="true"],
+.image-lightbox-image[data-image-loading="true"],
+.rendered-markdown img[data-image-loading="true"] {
+  background: var(--image-loading-bg);
+}
+
 .content-empty-placeholder {
   color: var(--text-secondary);
   font-style: italic;
@@ -295,9 +301,10 @@
 
 .rendered-markdown pre {
   white-space: pre-wrap;
-  padding: 12px;
-  border-radius: 6px;
-  background: var(--btn-bg);
+  padding: 12px 16px;
+  margin: 1.14em 0 1.16em;
+  border-radius: 3px;
+  background: var(--code-block-bg);
   border: 1px solid var(--border);
   overflow: auto;
 }
@@ -455,7 +462,7 @@
   padding: 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: var(--btn-bg);
+  background: var(--code-block-bg);
   overflow: auto;
 }
 

@@ -312,12 +312,8 @@
 
 .reader-ai-message-content.rendered-markdown pre {
   font-size: 12px;
-  background: color-mix(in srgb, var(--btn-bg) 78%, var(--toolbar-bg) 22%);
+  background: var(--code-block-bg);
   text-wrap: auto;
-}
-
-[data-theme="light"] .reader-ai-message-content.rendered-markdown pre {
-  background: #ffffff;
 }
 
 .reader-ai-message-content.rendered-markdown h1,
