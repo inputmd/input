@@ -136,6 +136,13 @@
   line-height: 1;
 }
 
+.sidebar-add-btn:focus,
+.sidebar-add-btn:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
 .sidebar-add-btn-icon {
   display: inline-block;
   transform: translateY(-1px);

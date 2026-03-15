@@ -77,10 +77,12 @@
   background: color-mix(in srgb, var(--bg) 70%, var(--toolbar-bg));
 }
 
+.dialog-actions button:focus,
 .dialog-actions button:focus-visible {
-  outline: none;
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
   border-color: var(--focus-border);
-  box-shadow: 0 0 0 3px var(--focus-shadow);
+  box-shadow: none;
 }
 
 .dialog-action-danger {
@@ -93,9 +95,12 @@
   filter: brightness(0.95);
 }
 
+.dialog-action-danger:focus,
 .dialog-action-danger:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
   border-color: var(--danger-border);
-  box-shadow: 0 0 0 3px var(--focus-shadow);
+  box-shadow: none;
 }
 
 .dialog-action-warning {
@@ -108,9 +113,12 @@
   filter: brightness(0.96);
 }
 
+.dialog-action-warning:focus,
 .dialog-action-warning:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
   border-color: #d29922;
-  box-shadow: 0 0 0 3px var(--focus-shadow);
+  box-shadow: none;
 }
 
 .dialog-action-success {
@@ -123,9 +131,12 @@
   filter: brightness(0.96);
 }
 
+.dialog-action-success:focus,
 .dialog-action-success:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
   border-color: var(--success-color);
-  box-shadow: 0 0 0 3px var(--focus-shadow);
+  box-shadow: none;
 }
 
 [data-theme="light"] .dialog-action-warning {
