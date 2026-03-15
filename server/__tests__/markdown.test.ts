@@ -9,6 +9,17 @@ test('marked renders superscript links for caret-prefixed link labels', (t) => {
   t.true(html.includes('<sup class="superscript-link"><a href="https://example.com">docs</a></sup>'));
 });
 
+test('marked renders github avatar inline tokens', (t) => {
+  const html = marked.parse('See {github:@raykyri} for details.');
+
+  t.true(typeof html === 'string');
+  t.true(
+    html.includes(
+      '<a class="github-inline-avatar" href="https://github.com/raykyri" aria-label="@raykyri on GitHub"><img src="https://github.com/raykyri.png?size=32" alt="@raykyri" loading="lazy" decoding="async"></a>',
+    ),
+  );
+});
+
 test('marked renders ^src X profile links using the handle in the superscript', (t) => {
   const html = marked.parse('See [^src](https://x.com/foobar) for details.');
 

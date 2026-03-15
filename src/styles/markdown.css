@@ -344,6 +344,25 @@
   text-decoration: underline;
 }
 
+.rendered-markdown a.github-inline-avatar {
+  display: inline-flex;
+  vertical-align: text-bottom;
+  margin: 0 0.16em;
+  text-decoration: none;
+}
+
+.rendered-markdown a.github-inline-avatar:hover {
+  text-decoration: none;
+}
+
+.rendered-markdown .github-inline-avatar img {
+  width: 1.05em;
+  height: 1.05em;
+  border-radius: 999px;
+  display: block;
+  transform: translateY(-1px);
+}
+
 .rendered-markdown a.missing-wikilink {
   color: var(--missing-link-color);
 }

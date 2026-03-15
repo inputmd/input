@@ -56,6 +56,15 @@ function escapeHtmlAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function parseGitHubHandle(raw: string): string | null {
+  const trimmed = raw.trim();
+  const normalized = trimmed.startsWith('@') ? trimmed.slice(1) : trimmed;
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(normalized) && !/^[A-Za-z0-9]$/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
 function deriveSuperscriptLinkLabel(text: string, href: string): string {
   if (text !== 'src') return text;
 
@@ -106,6 +115,30 @@ marked.use({
     },
   },
   extensions: [
+    {
+      name: 'githubAvatar',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf('{github:');
+      },
+      tokenizer(src: string) {
+        const match = /^\{github:([^}\n]+)\}/.exec(src);
+        if (!match) return undefined;
+        const username = parseGitHubHandle(match[1]);
+        if (!username) return undefined;
+        return {
+          type: 'githubAvatar',
+          raw: match[0],
+          username,
+          href: `https://github.com/${username}`,
+          src: `https://github.com/${username}.png?size=32`,
+        };
+      },
+      renderer(token) {
+        const username = escapeHtmlAttr(token.username);
+        return `<a class="github-inline-avatar" href="${escapeHtmlAttr(token.href)}" aria-label="@${username} on GitHub"><img src="${escapeHtmlAttr(token.src)}" alt="@${username}" loading="lazy" decoding="async"></a>`;
+      },
+    },
     {
       name: 'superscriptLink',
       level: 'inline',
