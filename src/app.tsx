@@ -1711,7 +1711,6 @@ export function App() {
           return next;
         });
         setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
-        setHasUserTypedUnsavedChanges(false);
         setHasUnsavedChanges(true);
         showSuccessToast(upload.resized ? 'Image resized and uploaded' : 'Image uploaded');
       } catch (err) {
@@ -1755,7 +1754,6 @@ export function App() {
     if (!failedImageUpload) return;
     setNextEditContent((prev) => replaceFirst(prev, failedImageUpload.failedToken, ''));
     setFailedImageUpload(null);
-    setHasUserTypedUnsavedChanges(false);
     setHasUnsavedChanges(true);
   }, [failedImageUpload, setNextEditContent]);
 
