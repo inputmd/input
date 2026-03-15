@@ -54,7 +54,6 @@ interface MarkdownEditorProps {
   contentRevision?: number;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
   onPaste?: (event: ClipboardEvent, view: EditorView) => void;
-  onSave?: () => void;
   readOnly?: boolean;
   placeholder?: string;
   scrollStorageKey?: string | null;
@@ -67,7 +66,6 @@ export function MarkdownEditor({
   contentRevision = 0,
   onContentChange,
   onPaste,
-  onSave,
   readOnly = false,
   placeholder = 'Write your markdown here...',
   scrollStorageKey = null,
@@ -86,8 +84,6 @@ export function MarkdownEditor({
   onContentChangeRef.current = onContentChange;
   const onPasteRef = useRef(onPaste);
   onPasteRef.current = onPaste;
-  const onSaveRef = useRef(onSave);
-  onSaveRef.current = onSave;
 
   const latestLocalRevisionRef = useRef(0);
 
@@ -141,13 +137,6 @@ export function MarkdownEditor({
           keymap.of([
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },
-            {
-              key: 'Mod-s',
-              run: () => {
-                onSaveRef.current?.();
-                return true;
-              },
-            },
             { key: 'Enter', run: insertNewlineContinueLooseListItem },
             { key: 'Tab', run: indentMore, shift: indentLess },
             ...historyKeymap,
