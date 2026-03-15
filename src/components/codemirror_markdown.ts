@@ -1,6 +1,6 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { tags } from '@lezer/highlight';
-import type { InlineParser, MarkdownExtension } from '@lezer/markdown';
+import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
 
 const wikiLinkInlineParser: InlineParser = {
   name: 'WikiLink',
@@ -45,7 +45,31 @@ const htmlCommentInlineParser: InlineParser = {
 };
 
 const htmlCommentMarkdownExtension: MarkdownExtension = {
-  defineNodes: [{ name: 'HtmlComment', style: tags.comment }],
+  defineNodes: [
+    { name: 'HtmlComment', style: tags.comment },
+    { name: 'HtmlCommentBlock', block: true, style: tags.comment },
+  ],
+  parseBlock: [
+    {
+      name: 'HtmlCommentBlock',
+      parse(cx: BlockContext, line: Line) {
+        if (!line.text.slice(line.pos).startsWith('<!--')) return false;
+
+        const from = cx.lineStart + line.pos;
+
+        while (!line.text.includes('-->') && cx.nextLine()) {}
+
+        if (line.text.includes('-->')) {
+          cx.nextLine();
+        }
+
+        const to = cx.prevLineEnd();
+        cx.addElement(cx.elt('HtmlCommentBlock', from, to));
+        return true;
+      },
+      before: 'SetextHeading',
+    },
+  ],
   parseInline: [htmlCommentInlineParser],
 };
 

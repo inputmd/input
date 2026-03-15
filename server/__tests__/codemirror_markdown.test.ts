@@ -54,3 +54,28 @@ test('markdown editor language parses closed html comments without enabling html
   t.false(names.has('HTMLBlock'));
   t.false(names.has('HTMLTag'));
 });
+
+test('markdown editor language parses multiline html comments without enabling html parsing', (t) => {
+  const state = EditorState.create({
+    doc: '<!--\n*comment*\n-->\nafter',
+    extensions: [markdownEditorLanguageSupport()],
+  });
+
+  const names = syntaxNodeNames(state);
+  t.true(names.has('HtmlCommentBlock'));
+  t.false(names.has('Emphasis'));
+  t.false(names.has('CommentBlock'));
+  t.false(names.has('HTMLBlock'));
+  t.false(names.has('HTMLTag'));
+});
+
+test('markdown editor language keeps inline comment content opaque to emphasis parsing', (t) => {
+  const state = EditorState.create({
+    doc: 'before <!-- *comment* --> after',
+    extensions: [markdownEditorLanguageSupport()],
+  });
+
+  const names = syntaxNodeNames(state);
+  t.true(names.has('HtmlComment'));
+  t.false(names.has('Emphasis'));
+});
