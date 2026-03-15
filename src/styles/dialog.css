@@ -28,6 +28,12 @@
   flex-direction: column;
 }
 
+.dialog-content :focus,
+.dialog-content :focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .dialog-message {
   font-size: 15px;
   line-height: 1.5;
@@ -55,8 +61,7 @@
 }
 
 .dialog-input:focus {
-  border-color: var(--focus-border);
-  box-shadow: 0 0 0 3px var(--focus-shadow);
+  border-color: var(--border);
 }
 
 .dialog-actions {
@@ -77,11 +82,181 @@
   background: color-mix(in srgb, var(--bg) 70%, var(--toolbar-bg));
 }
 
+.compact-commits-dialog {
+  gap: 0;
+}
+
+.compact-commits-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.compact-commits-reload-button {
+  margin-top: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+}
+
+.compact-commits-toolbar-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.compact-commits-toolbar-actions > button {
+  height: 32px;
+}
+
+.compact-commits-toolbar-actions > button:not(.compact-commits-reload-button) {
+  margin-top: -6px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  padding-left: 10px;
+  padding-right: 10px;
+  font-size: 12.5px;
+}
+
+.compact-commits-toolbar-button-label {
+  position: relative;
+  top: 0;
+}
+
+.compact-commits-toolbar-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.compact-commits-list {
+  flex: none;
+  height: 360px;
+  overflow: auto;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 72%, var(--toolbar-bg));
+}
+
+.compact-commits-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.compact-commits-item:last-child {
+  border-bottom: 0;
+}
+
+.compact-commits-item--selected {
+  background: color-mix(in srgb, var(--focus-border) 10%, transparent);
+}
+
+.compact-commits-item input {
+  margin-top: 3px;
+}
+
+.compact-commits-item-body {
+  min-width: 0;
+}
+
+.compact-commits-item-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 3px;
+}
+
+.compact-commits-item-summary {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.compact-commits-item-sha {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.compact-commits-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.compact-commits-badge {
+  position: relative;
+  top: -2px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--toolbar-bg);
+  color: var(--text);
+}
+
+.compact-commits-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 24px 16px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.compact-commits-state--error {
+  color: var(--error-color);
+}
+
+.compact-commits-footer {
+  margin-bottom: 16px;
+}
+
+.compact-commits-message-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.compact-commits-message-input {
+  margin-bottom: 0;
+}
+
+.compact-commits-selection-note {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+  .compact-commits-toolbar,
+  .compact-commits-item-topline {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 .dialog-actions button:focus,
 .dialog-actions button:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
-  border-color: var(--focus-border);
   box-shadow: none;
 }
 
@@ -97,8 +272,6 @@
 
 .dialog-action-danger:focus,
 .dialog-action-danger:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
   border-color: var(--danger-border);
   box-shadow: none;
 }
@@ -115,8 +288,6 @@
 
 .dialog-action-warning:focus,
 .dialog-action-warning:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
   border-color: #d29922;
   box-shadow: none;
 }
@@ -133,8 +304,6 @@
 
 .dialog-action-success:focus,
 .dialog-action-success:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
   border-color: var(--success-color);
   box-shadow: none;
 }

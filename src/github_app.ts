@@ -471,6 +471,27 @@ export interface RepoFileEntry {
   size: number;
 }
 
+export interface RecentRepoCommit {
+  sha: string;
+  shortSha: string;
+  summary: string;
+  message: string;
+  authoredAt: string | null;
+  committedAt: string | null;
+  authorName: string | null;
+  parentCount: number;
+  htmlUrl: string | null;
+  isHead: boolean;
+}
+
+export interface RepoRecentCommitsResult {
+  branch: string;
+  headSha: string | null;
+  commits: RecentRepoCommit[];
+  pageSize: number;
+  hasMore: boolean;
+}
+
 export async function getRepoTarball(
   installationId: string,
   repoFullName: string,
@@ -482,6 +503,47 @@ export async function getRepoTarball(
   const res = await authFetch(url);
   const data = (await res.json()) as { files: RepoFileEntry[] };
   return data.files;
+}
+
+export async function listRepoRecentCommits(
+  installationId: string,
+  repoFullName: string,
+  perPage = 20,
+): Promise<RepoRecentCommitsResult> {
+  const { owner, repo } = splitFullName(repoFullName);
+  const qs = new URLSearchParams({ per_page: String(Math.min(20, Math.max(1, Math.floor(perPage)))) });
+  const url = `${installationUrl(installationId, 'repos', owner, repo)}/commits?${qs.toString()}`;
+  const res = await authFetch(url);
+  return (await res.json()) as RepoRecentCommitsResult;
+}
+
+export async function compactRepoRecentCommits(
+  installationId: string,
+  repoFullName: string,
+  options: {
+    headSha: string;
+    selectedShas: string[];
+    message: string;
+  },
+): Promise<{ branch: string; previousHeadSha: string; newHeadSha: string; replacedCommitCount: number }> {
+  const { owner, repo } = splitFullName(repoFullName);
+  const url = `${installationUrl(installationId, 'repos', owner, repo)}/compact-commits`;
+  const res = await authFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      head_sha: options.headSha,
+      selected_shas: options.selectedShas,
+      message: options.message,
+    }),
+  });
+  clearRepoContentsCacheForRepo(installationId, repoFullName);
+  return (await res.json()) as {
+    branch: string;
+    previousHeadSha: string;
+    newHeadSha: string;
+    replacedCommitCount: number;
+  };
 }
 
 export async function getPublicRepoTarball(owner: string, repo: string, ref?: string): Promise<RepoFileEntry[]> {

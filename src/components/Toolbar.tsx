@@ -52,6 +52,8 @@ interface ToolbarProps {
   onResetDraftChanges?: () => void;
   onRestoreDraft?: () => void;
   onViewInGitHub: () => void;
+  showCompactCommits?: boolean;
+  onCompactCommits?: () => void;
   showEdit: boolean;
   editUrl: string | null;
   showPreviewToggle: boolean;
@@ -110,6 +112,8 @@ export function Toolbar({
   onResetDraftChanges,
   onRestoreDraft,
   onViewInGitHub,
+  showCompactCommits = false,
+  onCompactCommits,
   showEdit,
   editUrl,
   showPreviewToggle,
@@ -190,6 +194,18 @@ export function Toolbar({
           >
             View in GitHub <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
           </DropdownMenu.Item>
+          {showCompactCommits ? (
+            <DropdownMenu.Item
+              class="author-menu-item"
+              onSelect={(event: Event) => {
+                runAuthorMenuAction(event, () => {
+                  onCompactCommits?.();
+                });
+              }}
+            >
+              Compact recent commits
+            </DropdownMenu.Item>
+          ) : null}
           {openInInputMdUrl ? (
             <>
               <DropdownMenu.Separator class="user-menu-separator" />

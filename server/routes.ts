@@ -3,6 +3,7 @@ import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
+import { resolveCommitCompactionSelection } from './commit_compaction';
 import {
   APP_URL,
   GITHUB_CLIENT_ID,
@@ -1107,6 +1108,17 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
 
 type GitTreeEntry = { path: string; type: string; sha: string; size?: number };
 type GitBlobTreeEntry = GitTreeEntry & { mode: string; type: 'blob' };
+interface GitHubCommitListItem {
+  sha?: string;
+  parents?: Array<{ sha?: string }>;
+  commit?: {
+    message?: string;
+    author?: { name?: string; date?: string };
+    committer?: { date?: string };
+  };
+  html_url?: string;
+}
+
 type ApiTreeEntry = {
   type: 'file' | 'dir' | 'symlink' | 'submodule';
   name: string;
@@ -1198,6 +1210,65 @@ async function handleGetTree(ctx: RouteContext): Promise<void> {
     files: filesFromTree(data.tree, markdownOnly),
     entries: entriesFromTree(data.tree),
     truncated: data.truncated,
+  });
+}
+
+async function handleListRecentCommits(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  const installationId = requireMatchedInstallation(ctx, session, 1);
+  const owner = ctx.match[2];
+  const repo = ctx.match[3];
+  const requestedPerPage = Number(ctx.url.searchParams.get('per_page') || '20');
+  const perPage = Number.isFinite(requestedPerPage) ? Math.min(20, Math.max(1, Math.floor(requestedPerPage))) : 20;
+
+  const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
+  const repoData = (await repoRes.json().catch(() => null)) as { default_branch?: string; message?: string } | null;
+  if (!repoRes.ok || typeof repoData?.default_branch !== 'string' || !repoData.default_branch) {
+    if (repoRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, repoRes, repoData?.message ?? 'Failed to load repository metadata', repoPath);
+    return;
+  }
+
+  const branch = repoData.default_branch;
+  const commitsPath = `${repoPath}/commits?sha=${encodeURIComponent(branch)}&per_page=${perPage}&page=1`;
+  const commitsRes = await githubFetchWithInstallationToken(installationId, commitsPath);
+  const commitsData = (await commitsRes.json().catch(() => null)) as GitHubCommitListItem[] | GitHubApiError | null;
+  if (!commitsRes.ok || !Array.isArray(commitsData)) {
+    if (commitsRes.status === 401) throw new ClientError('Unauthorized', 401);
+    const err = commitsData as GitHubApiError | null;
+    respondGitHubError(ctx.res, commitsRes, err?.message ?? 'Failed to load recent commits', commitsPath);
+    return;
+  }
+
+  const commits = commitsData
+    .map((commit, index) => {
+      const sha = typeof commit.sha === 'string' ? commit.sha : '';
+      if (!sha) return null;
+      const message = typeof commit.commit?.message === 'string' ? commit.commit.message : '';
+      const summary = message.split('\n', 1)[0] ?? '';
+      return {
+        sha,
+        shortSha: sha.slice(0, 7),
+        summary,
+        message,
+        authoredAt: typeof commit.commit?.author?.date === 'string' ? commit.commit.author.date : null,
+        committedAt: typeof commit.commit?.committer?.date === 'string' ? commit.commit.committer.date : null,
+        authorName: typeof commit.commit?.author?.name === 'string' ? commit.commit.author.name : null,
+        parentCount: Array.isArray(commit.parents) ? commit.parents.length : 0,
+        htmlUrl: typeof commit.html_url === 'string' ? commit.html_url : null,
+        isHead: index === 0,
+      };
+    })
+    .filter((commit): commit is NonNullable<typeof commit> => commit !== null);
+
+  json(ctx.res, 200, {
+    branch,
+    headSha: commits[0]?.sha ?? null,
+    commits,
+    pageSize: perPage,
+    hasMore: commits.length === perPage,
   });
 }
 
@@ -1413,6 +1484,142 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
     renamed: renames.length,
     deleted: deletes.length,
     created: creates.length,
+  });
+}
+
+async function handleCompactRecentCommits(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  const installationId = requireMatchedInstallation(ctx, session, 1);
+  const owner = ctx.match[2];
+  const repo = ctx.match[3];
+  const body = (await readJson(ctx.req)) as {
+    head_sha?: unknown;
+    selected_shas?: unknown;
+    message?: unknown;
+  } | null;
+  const expectedHeadSha = typeof body?.head_sha === 'string' ? body.head_sha.trim() : '';
+  const selectedShas = Array.isArray(body?.selected_shas)
+    ? body.selected_shas.filter((sha): sha is string => typeof sha === 'string')
+    : [];
+  const message = typeof body?.message === 'string' ? body.message.trim() : '';
+  if (!expectedHeadSha) throw new ClientError('head_sha is required', 400);
+  if (!message) throw new ClientError('message is required', 400);
+
+  const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
+  const repoData = (await repoRes.json().catch(() => null)) as { default_branch?: string; message?: string } | null;
+  if (!repoRes.ok || typeof repoData?.default_branch !== 'string' || !repoData.default_branch) {
+    if (repoRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, repoRes, repoData?.message ?? 'Failed to load repository metadata', repoPath);
+    return;
+  }
+  const branch = repoData.default_branch;
+
+  const refPath = `${repoPath}/git/ref/heads/${encodeURIComponent(branch)}`;
+  const refRes = await githubFetchWithInstallationToken(installationId, refPath);
+  const refData = (await refRes.json().catch(() => null)) as { object?: { sha?: string }; message?: string } | null;
+  if (!refRes.ok || typeof refData?.object?.sha !== 'string') {
+    if (refRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, refRes, refData?.message ?? 'Failed to load branch ref', refPath);
+    return;
+  }
+  const currentHeadSha = refData.object.sha;
+  if (currentHeadSha !== expectedHeadSha) {
+    json(ctx.res, 409, {
+      error: 'The branch changed while loading commits. Reload and try again.',
+      code: 'repo_ref_conflict',
+    });
+    return;
+  }
+
+  const commitsPath = `${repoPath}/commits?sha=${encodeURIComponent(branch)}&per_page=20&page=1`;
+  const commitsRes = await githubFetchWithInstallationToken(installationId, commitsPath);
+  const commitsData = (await commitsRes.json().catch(() => null)) as GitHubCommitListItem[] | GitHubApiError | null;
+  if (!commitsRes.ok || !Array.isArray(commitsData)) {
+    if (commitsRes.status === 401) throw new ClientError('Unauthorized', 401);
+    const err = commitsData as GitHubApiError | null;
+    respondGitHubError(ctx.res, commitsRes, err?.message ?? 'Failed to load recent commits', commitsPath);
+    return;
+  }
+
+  const selection = (() => {
+    try {
+      return resolveCommitCompactionSelection(
+        commitsData
+          .map((commit) => ({
+            sha: typeof commit.sha === 'string' ? commit.sha : '',
+            parents: Array.isArray(commit.parents)
+              ? commit.parents.map((parent) => (typeof parent.sha === 'string' ? parent.sha : '')).filter(Boolean)
+              : [],
+          }))
+          .filter((commit) => commit.sha),
+        selectedShas,
+      );
+    } catch (err) {
+      throw new ClientError(err instanceof Error ? err.message : 'Invalid commit selection', 400);
+    }
+  })();
+
+  const headCommitPath = `${repoPath}/git/commits/${encodeURIComponent(selection.headSha)}`;
+  const headCommitRes = await githubFetchWithInstallationToken(installationId, headCommitPath);
+  const headCommitData = (await headCommitRes.json().catch(() => null)) as {
+    tree?: { sha?: string };
+    message?: string;
+  } | null;
+  if (!headCommitRes.ok || typeof headCommitData?.tree?.sha !== 'string') {
+    if (headCommitRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(ctx.res, headCommitRes, headCommitData?.message ?? 'Failed to load HEAD commit', headCommitPath);
+    return;
+  }
+
+  const createCommitPath = `${repoPath}/git/commits`;
+  const createCommitRes = await githubFetchWithInstallationToken(installationId, createCommitPath, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      tree: headCommitData.tree.sha,
+      parents: [selection.baseParentSha],
+    }),
+  });
+  const createdCommit = (await createCommitRes.json().catch(() => null)) as { sha?: string; message?: string } | null;
+  if (!createCommitRes.ok || typeof createdCommit?.sha !== 'string') {
+    if (createCommitRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(
+      ctx.res,
+      createCommitRes,
+      createdCommit?.message ?? 'Failed to create compacted commit',
+      createCommitPath,
+    );
+    return;
+  }
+
+  const updateRefPath = `${repoPath}/git/refs/heads/${encodeURIComponent(branch)}`;
+  const updateRefRes = await githubFetchWithInstallationToken(installationId, updateRefPath, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sha: createdCommit.sha, force: true }),
+  });
+  if (!updateRefRes.ok) {
+    const err = (await updateRefRes.json().catch(() => null)) as GitHubApiError | null;
+    if (updateRefRes.status === 401) throw new ClientError('Unauthorized', 401);
+    if (updateRefRes.status === 409 || updateRefRes.status === 422) {
+      json(ctx.res, 409, {
+        error: 'The branch changed while compacting commits. Reload and try again.',
+        code: 'repo_ref_conflict',
+      });
+      return;
+    }
+    respondGitHubError(ctx.res, updateRefRes, err?.message ?? 'Failed to force-update branch ref', updateRefPath);
+    return;
+  }
+
+  json(ctx.res, 200, {
+    branch,
+    previousHeadSha: selection.headSha,
+    newHeadSha: createdCommit.sha,
+    replacedCommitCount: selection.selectedCount,
   });
 }
 
@@ -2618,7 +2825,9 @@ async function handlePublicRepoTarball(ctx: RouteContext): Promise<void> {
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const RAW_CONTENT_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const TREE_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tree$/;
+const COMMITS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/commits$/;
 const GIT_BATCH_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/git-batch$/;
+const COMPACT_COMMITS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/compact-commits$/;
 const PUBLIC_REPO_CONTENTS_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/contents$/;
 const PUBLIC_REPO_RAW_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const PUBLIC_REPO_TREE_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tree$/;
@@ -2648,7 +2857,9 @@ const routes: RouteDef[] = [
   { method: 'DELETE', pattern: CONTENTS_PATTERN, handler: handleDeleteContents },
   { method: 'GET', pattern: RAW_CONTENT_PATTERN, handler: handleGetRawContent },
   { method: 'GET', pattern: TREE_PATTERN, handler: handleGetTree },
+  { method: 'GET', pattern: COMMITS_PATTERN, handler: handleListRecentCommits },
   { method: 'POST', pattern: GIT_BATCH_PATTERN, handler: handleGitBatchMutation },
+  { method: 'POST', pattern: COMPACT_COMMITS_PATTERN, handler: handleCompactRecentCommits },
   { method: 'GET', pattern: TARBALL_PATTERN, handler: handleRepoTarball },
   { method: 'GET', pattern: PUBLIC_REPO_CONTENTS_PATTERN, handler: handleGetPublicRepoContents },
   { method: 'GET', pattern: PUBLIC_REPO_RAW_PATTERN, handler: handleGetPublicRepoRaw },

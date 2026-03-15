@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMarkdown } from './claude_trace';
+import { CompactCommitsDialog } from './components/CompactCommitsDialog';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageLightbox } from './components/ImageLightbox';
@@ -34,6 +35,7 @@ import {
   clearInstallationId,
   clearPendingInstallationId,
   clearSelectedRepo,
+  compactRepoRecentCommits,
   consumeInstallState,
   createInstallState,
   createRepoFileShareLink,
@@ -56,10 +58,12 @@ import {
   type InstallationRepo,
   isRepoFile,
   listInstallationRepos,
+  listRepoRecentCommits,
   publicRepoRawFileUrl,
   putRepoFile,
   type RepoContents,
   type RepoFileEntry,
+  type RepoRecentCommitsResult,
   type RepoTreeResult,
   rememberInstallState,
   renameRepoPathsAtomic,
@@ -1101,6 +1105,13 @@ export function App() {
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
+  const [compactCommitsOpen, setCompactCommitsOpen] = useState(false);
+  const [compactCommitsLoading, setCompactCommitsLoading] = useState(false);
+  const [compactCommitsSubmitting, setCompactCommitsSubmitting] = useState(false);
+  const [compactCommitsError, setCompactCommitsError] = useState<string | null>(null);
+  const [compactCommitsData, setCompactCommitsData] = useState<RepoRecentCommitsResult | null>(null);
+  const [compactCommitMessage, setCompactCommitMessage] = useState('Compact recent commits');
+  const [compactCommitSelection, setCompactCommitSelection] = useState<Set<string>>(new Set());
 
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
@@ -4024,6 +4035,130 @@ export function App() {
     showFailureToast,
   ]);
 
+  const loadCompactCommits = useCallback(async () => {
+    if (!installationId || !selectedRepo) return;
+    setCompactCommitsLoading(true);
+    setCompactCommitsError(null);
+    try {
+      const data = await listRepoRecentCommits(installationId, selectedRepo, 20);
+      setCompactCommitsData(data);
+      setCompactCommitSelection(new Set());
+      setCompactCommitMessage('Compact recent commits');
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        handleSessionExpired();
+        return;
+      }
+      showRateLimitToastIfNeeded(err);
+      setCompactCommitsData(null);
+      setCompactCommitsError(err instanceof Error ? err.message : 'Failed to load recent commits');
+    } finally {
+      setCompactCommitsLoading(false);
+    }
+  }, [handleSessionExpired, installationId, selectedRepo, showRateLimitToastIfNeeded]);
+
+  const openCompactCommitsDialog = useCallback(() => {
+    if (repoAccessMode !== 'installed' || !installationId || !selectedRepo) return;
+    setCompactCommitsOpen(true);
+    void loadCompactCommits();
+  }, [installationId, loadCompactCommits, repoAccessMode, selectedRepo]);
+
+  const closeCompactCommitsDialog = useCallback(() => {
+    if (compactCommitsSubmitting) return;
+    setCompactCommitsOpen(false);
+    setCompactCommitsError(null);
+    setCompactCommitsLoading(false);
+    setCompactCommitsData(null);
+    setCompactCommitSelection(new Set());
+    setCompactCommitMessage('Compact recent commits');
+  }, [compactCommitsSubmitting]);
+
+  const toggleCompactCommitSelection = useCallback(
+    (sha: string, checked: boolean) => {
+      setCompactCommitSelection(() => {
+        const commits = compactCommitsData?.commits ?? [];
+        const targetIndex = commits.findIndex((commit) => commit.sha === sha);
+        if (targetIndex < 0) return new Set<string>();
+
+        if (checked) {
+          return new Set(commits.slice(0, targetIndex + 1).map((commit) => commit.sha));
+        }
+
+        return new Set(commits.slice(0, targetIndex).map((commit) => commit.sha));
+      });
+    },
+    [compactCommitsData],
+  );
+
+  const toggleAllCompactCommits = useCallback(() => {
+    setCompactCommitSelection((current) => {
+      const commits = compactCommitsData?.commits ?? [];
+      if (commits.length === 0) return current;
+      if (current.size > 0) return new Set<string>();
+      return new Set(commits.map((commit) => commit.sha));
+    });
+  }, [compactCommitsData]);
+
+  const submitCompactCommits = useCallback(async () => {
+    if (!installationId || !selectedRepo || !compactCommitsData?.headSha) return;
+    const selectedShas = compactCommitsData.commits
+      .filter((commit) => compactCommitSelection.has(commit.sha))
+      .map((commit) => commit.sha);
+    if (selectedShas.length < 2) return;
+
+    const confirmed = await showConfirm(
+      `Compact ${selectedShas.length} recent commits on ${selectedRepo} and force push ${compactCommitsData.branch}?`,
+      {
+        title: 'Compact recent commits',
+        confirmLabel: 'Force push',
+        cancelLabel: 'Cancel',
+        intent: 'danger',
+        defaultFocus: 'cancel',
+      },
+    );
+    if (!confirmed) return;
+
+    setCompactCommitsSubmitting(true);
+    try {
+      const result = await compactRepoRecentCommits(installationId, selectedRepo, {
+        headSha: compactCommitsData.headSha,
+        selectedShas,
+        message: compactCommitMessage.trim(),
+      });
+      showSuccessToast(`Compacted ${result.replacedCommitCount} commits on ${result.branch}`);
+      setCompactCommitsOpen(false);
+      setCompactCommitsError(null);
+      setCompactCommitsData(null);
+      setCompactCommitSelection(new Set());
+      setCompactCommitMessage('Compact recent commits');
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        handleSessionExpired();
+        return;
+      }
+      if (err instanceof ApiError && err.code === 'repo_ref_conflict') {
+        setCompactCommitsError(err.message);
+        void loadCompactCommits();
+        return;
+      }
+      showRateLimitToastIfNeeded(err);
+      setCompactCommitsError(err instanceof Error ? err.message : 'Failed to compact commits');
+    } finally {
+      setCompactCommitsSubmitting(false);
+    }
+  }, [
+    compactCommitMessage,
+    compactCommitSelection,
+    compactCommitsData,
+    handleSessionExpired,
+    installationId,
+    loadCompactCommits,
+    selectedRepo,
+    showConfirm,
+    showRateLimitToastIfNeeded,
+    showSuccessToast,
+  ]);
+
   const applyDraftContentToEditor = useCallback(
     (content: string) => {
       if (activeView !== 'edit') return;
@@ -5967,6 +6102,8 @@ export function App() {
           void onRestoreDraft();
         }}
         onViewInGitHub={onHeaderViewInGitHub}
+        showCompactCommits={repoAccessMode === 'installed' && currentRepoDocPath !== null && Boolean(selectedRepo)}
+        onCompactCommits={openCompactCommitsDialog}
         showEdit={showHeaderEdit}
         editUrl={null}
         navigate={navigate}
@@ -6108,6 +6245,27 @@ export function App() {
         ) : null}
       </div>
       {lightboxImage && <ImageLightbox src={lightboxImage.src} alt={lightboxImage.alt} onClose={onCloseLightbox} />}
+      <CompactCommitsDialog
+        open={compactCommitsOpen}
+        branch={compactCommitsData?.branch ?? null}
+        commits={compactCommitsData?.commits ?? []}
+        hasMore={compactCommitsData?.hasMore ?? false}
+        loading={compactCommitsLoading}
+        submitting={compactCommitsSubmitting}
+        error={compactCommitsError}
+        selectedShas={compactCommitSelection}
+        commitMessage={compactCommitMessage}
+        onCommitMessageChange={setCompactCommitMessage}
+        onToggleCommit={toggleCompactCommitSelection}
+        onToggleAllCommits={toggleAllCompactCommits}
+        onReload={() => {
+          void loadCompactCommits();
+        }}
+        onClose={closeCompactCommitsDialog}
+        onSubmit={() => {
+          void submitCompactCommits();
+        }}
+      />
     </>
   );
 }
