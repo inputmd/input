@@ -7,6 +7,7 @@ import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMa
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageLightbox } from './components/ImageLightbox';
+import { normalizeBlockquotePaste } from './components/markdown_editor_commands';
 import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
@@ -1747,6 +1748,19 @@ export function App() {
 
   const handleEditorPaste = useCallback(
     async (event: ClipboardEvent, view: import('@codemirror/view').EditorView) => {
+      const pastedText = event.clipboardData?.getData('text/plain') ?? '';
+      const normalizedBlockquotePaste = normalizeBlockquotePaste(
+        view.state,
+        view.state.selection.main.from,
+        pastedText,
+      );
+      if (normalizedBlockquotePaste !== null) {
+        event.preventDefault();
+        const { from, to } = view.state.selection.main;
+        view.dispatch({ changes: { from, to, insert: normalizedBlockquotePaste } });
+        return;
+      }
+
       const clipboardItems = Array.from(event.clipboardData?.items ?? []);
       const imageItem = clipboardItems.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
       if (!imageItem) return;

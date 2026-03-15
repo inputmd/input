@@ -7,6 +7,7 @@ import {
   externalSyncAnnotation,
   insertNewlineContinueLooseListItem,
   isExternalSyncTransaction,
+  normalizeBlockquotePaste,
   wrapWithMarker,
 } from '../../src/components/markdown_editor_commands.ts';
 
@@ -92,4 +93,14 @@ test('insertNewlineContinueLooseListItem ignores tight lists', (t) => {
   ]);
 
   t.false(insertNewlineContinueLooseListItem(view));
+});
+
+test('normalizeBlockquotePaste continues blockquote prefixes for pasted multiline text', (t) => {
+  const state = EditorState.create({
+    doc: '> quoted',
+    selection: EditorSelection.cursor('> quo'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha\n> beta\n> gamma');
 });
