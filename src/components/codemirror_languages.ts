@@ -1,10 +1,10 @@
 import { css } from '@codemirror/lang-css';
 import { html as htmlLanguage } from '@codemirror/lang-html';
 import { javascript } from '@codemirror/lang-javascript';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { python } from '@codemirror/lang-python';
 import { yaml } from '@codemirror/lang-yaml';
 import type { Extension } from '@codemirror/state';
+import { markdownCodeLanguageSupport } from './codemirror_markdown';
 
 function extensionForFileName(fileName: string | null | undefined): string | null {
   if (!fileName) return null;
@@ -51,7 +51,7 @@ export function detectedLanguageForFileName(
       if (options?.includeMarkdown === false) return null;
       return {
         label: 'Markdown',
-        extensions: [markdown({ base: markdownLanguage, extensions: [{ remove: ['IndentedCode'] }] })],
+        extensions: [markdownCodeLanguageSupport()],
       };
     default:
       return null;

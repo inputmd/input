@@ -236,7 +236,7 @@
 
 .cm-editor .tok-comment {
   color: color-mix(in srgb, var(--text-secondary) 92%, transparent);
-  font-style: italic;
+  font-style: normal;
 }
 
 .cm-editor .tok-typeName,
