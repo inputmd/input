@@ -16,6 +16,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
   buildExternalContentSyncTransaction,
+  insertNewlineContinueLooseListItem,
   isExternalSyncTransaction,
   wrapWithMarker,
 } from './markdown_editor_commands';
@@ -122,6 +123,7 @@ export function MarkdownEditor({
           keymap.of([
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },
+            { key: 'Enter', run: insertNewlineContinueLooseListItem },
             { key: 'Tab', run: indentMore, shift: indentLess },
             ...historyKeymap,
           ]),

@@ -1,15 +1,17 @@
-import { EditorSelection, EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { EditorSelection, EditorState, type Extension, Transaction, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import test from 'ava';
 import {
   buildExternalContentSyncTransaction,
   externalSyncAnnotation,
+  insertNewlineContinueLooseListItem,
   isExternalSyncTransaction,
   wrapWithMarker,
 } from '../../src/components/markdown_editor_commands.ts';
 
-function makeMockView(doc: string, selection?: EditorSelection): EditorView {
-  let currentState = EditorState.create({ doc, selection });
+function makeMockView(doc: string, selection?: EditorSelection, extensions: Extension[] = []): EditorView {
+  let currentState = EditorState.create({ doc, selection, extensions });
   return {
     get state() {
       return currentState;
@@ -70,4 +72,24 @@ test('isExternalSyncTransaction detects only external user events', (t) => {
 
   t.true(isExternalSyncTransaction(external));
   t.false(isExternalSyncTransaction(input));
+});
+
+test('insertNewlineContinueLooseListItem continues within loose list item', (t) => {
+  const view = makeMockView('- first\n\n- second', EditorSelection.cursor('- first\n\n- sec'.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  const handled = insertNewlineContinueLooseListItem(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '- first\n\n- sec\nond');
+  t.is(view.state.selection.main.head, '- first\n\n- sec\n'.length);
+});
+
+test('insertNewlineContinueLooseListItem ignores tight lists', (t) => {
+  const view = makeMockView('- first\n- second', EditorSelection.cursor('- sec'.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  t.false(insertNewlineContinueLooseListItem(view));
 });
