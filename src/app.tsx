@@ -1274,6 +1274,7 @@ export function App() {
     route.name === 'repoedit' ? safeDecodeURIComponent(route.params.path).replace(/^\/+/, '') : null;
   const repoEditLoading =
     route.name === 'repoedit' &&
+    (currentRepoDocPath !== null || currentFileName !== null) &&
     (editingBackend !== 'repo' || currentRepoDocPath !== targetRepoEditPath || currentFileName !== targetRepoEditPath);
   const shouldPreserveVerifiedContent =
     currentRouteKey !== null &&
