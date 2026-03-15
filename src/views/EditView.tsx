@@ -127,6 +127,7 @@ export function EditView({
           scrollStorageKey={scrollStorageKey}
           onContentChange={onContentChange}
           onPaste={onEditorPaste}
+          onSave={!loading && !locked && canSave && !saving ? onSave : undefined}
           readOnly={locked || loading}
         />
         {previewVisible && canRenderPreview && (

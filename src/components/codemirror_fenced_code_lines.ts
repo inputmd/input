@@ -10,11 +10,7 @@ function hasAncestorNamed(node: SyntaxNode | null, name: string): boolean {
   return false;
 }
 
-export function isFencedCodeLine(
-  viewOrState: EditorView | EditorState,
-  lineFrom: number,
-  lineTo: number,
-): boolean {
+export function isFencedCodeLine(viewOrState: EditorView | EditorState, lineFrom: number, lineTo: number): boolean {
   const state = viewOrState instanceof EditorView ? viewOrState.state : viewOrState;
   const tree = syntaxTree(state);
   const endPos = Math.max(lineFrom, lineTo - 1);

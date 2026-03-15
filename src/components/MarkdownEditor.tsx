@@ -52,6 +52,7 @@ interface MarkdownEditorProps {
   content: string;
   onContentChange: (content: string) => void;
   onPaste?: (event: ClipboardEvent, view: EditorView) => void;
+  onSave?: () => void;
   readOnly?: boolean;
   placeholder?: string;
   scrollStorageKey?: string | null;
@@ -62,6 +63,7 @@ export function MarkdownEditor({
   content,
   onContentChange,
   onPaste,
+  onSave,
   readOnly = false,
   placeholder = 'Write your markdown here...',
   scrollStorageKey = null,
@@ -80,6 +82,8 @@ export function MarkdownEditor({
   onContentChangeRef.current = onContentChange;
   const onPasteRef = useRef(onPaste);
   onPasteRef.current = onPaste;
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
 
   // Track local content updates until the parent acknowledges them via props.
   // This avoids replaying stale controlled values back into CodeMirror while typing.
@@ -137,6 +141,13 @@ export function MarkdownEditor({
           keymap.of([
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },
+            {
+              key: 'Mod-s',
+              run: () => {
+                onSaveRef.current?.();
+                return true;
+              },
+            },
             { key: 'Enter', run: insertNewlineContinueLooseListItem },
             { key: 'Tab', run: indentMore, shift: indentLess },
             ...historyKeymap,
