@@ -95,3 +95,17 @@ test('marked leaves regular footnote references unchanged', (t) => {
   t.true(typeof html === 'string');
   t.true(html.includes('[^note]'));
 });
+
+test('marked renders bare bracketed text without brackets', (t) => {
+  const html = marked.parse('Use [draft] status.');
+
+  t.true(html.includes('Use <span class="bracketed-text">draft</span> status.'));
+  t.false(html.includes('[draft]'));
+});
+
+test('marked preserves markdown links while styling bare bracketed text', (t) => {
+  const html = marked.parse('Use [draft] status and [docs](https://example.com).');
+
+  t.true(html.includes('<span class="bracketed-text">draft</span>'));
+  t.true(html.includes('<a href="https://example.com">docs</a>'));
+});

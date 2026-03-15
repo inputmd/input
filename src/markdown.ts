@@ -217,6 +217,28 @@ marked.use({
       },
     },
     {
+      name: 'bracketedText',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf('[');
+      },
+      tokenizer(src: string) {
+        const match = /^\[([^[\]\n]+)\](?!\(|\[|:)/.exec(src);
+        if (!match) return undefined;
+        const text = match[1].trim();
+        if (!text || text.startsWith('^')) return undefined;
+        return {
+          type: 'bracketedText',
+          raw: match[0],
+          text,
+          tokens: this.lexer.inlineTokens(text),
+        };
+      },
+      renderer(token) {
+        return `<span class="bracketed-text">${this.parser.parseInline(token.tokens ?? [])}</span>`;
+      },
+    },
+    {
       name: 'wikilink',
       level: 'inline',
       start(src: string) {
