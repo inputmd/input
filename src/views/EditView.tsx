@@ -5,13 +5,15 @@ import { MarkdownEditor } from '../components/MarkdownEditor';
 
 interface EditViewProps {
   content: string;
+  contentOrigin?: 'local' | 'external';
+  contentRevision?: number;
   previewHtml: string;
   previewVisible: boolean;
   canRenderPreview: boolean;
   scrollStorageKey?: string | null;
   loading?: boolean;
   onTogglePreview: () => void;
-  onContentChange: (content: string) => void;
+  onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
   onPreviewImageClick?: (image: HTMLImageElement) => void;
   onEditorPaste?: (event: ClipboardEvent, view: EditorView) => void;
   saving: boolean;
@@ -28,6 +30,8 @@ interface EditViewProps {
 
 export function EditView({
   content,
+  contentOrigin = 'external',
+  contentRevision = 0,
   previewHtml,
   previewVisible,
   canRenderPreview,
@@ -123,6 +127,8 @@ export function EditView({
         <MarkdownEditor
           class="doc-editor"
           content={content}
+          contentOrigin={contentOrigin}
+          contentRevision={contentRevision}
           scrollStorageKey={scrollStorageKey}
           onContentChange={onContentChange}
           onPaste={onEditorPaste}

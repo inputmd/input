@@ -1,6 +1,6 @@
 import { createTwoFilesPatch } from 'diff';
 import type { JSX } from 'preact';
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMarkdown } from './claude_trace';
@@ -1174,6 +1174,8 @@ export function App() {
   const [editingBackend, setEditingBackend] = useState<'gist' | 'repo' | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [editContentOrigin, setEditContentOrigin] = useState<'local' | 'external'>('external');
+  const [editContentRevision, setEditContentRevision] = useState(0);
   const [currentDocumentSavedContent, setCurrentDocumentSavedContent] = useState<string | null>(null);
   const [currentDocumentDraft, setCurrentDocumentDraft] = useState<PersistedDocumentDraft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1248,6 +1250,17 @@ export function App() {
   const readerAiSkipPersistVisibleRef = useRef(false);
   const editContentRef = useRef(editContent);
   editContentRef.current = editContent;
+  const setNextEditContent = useCallback(
+    (
+      nextContent: string | ((previousContent: string) => string),
+      options?: { origin?: 'local' | 'external'; revision?: number },
+    ) => {
+      setEditContent(nextContent);
+      setEditContentOrigin(options?.origin ?? 'external');
+      setEditContentRevision((previousRevision) => options?.revision ?? previousRevision + 1);
+    },
+    [],
+  );
   const routeView = viewFromRoute(route);
   const activeView = viewPhase ?? routeView;
   const currentRouteKey = routeKeyFromRoute(route);
@@ -1692,7 +1705,7 @@ export function App() {
           `Add image ${upload.imageName}`,
           upload.contentB64,
         );
-        setEditContent((prev) => {
+        setNextEditContent((prev) => {
           let next = replaceFirst(prev, upload.uploadingToken, upload.finalMarkdown);
           next = replaceFirst(next, upload.failedToken, upload.finalMarkdown);
           return next;
@@ -1702,7 +1715,7 @@ export function App() {
         setHasUnsavedChanges(true);
         showSuccessToast(upload.resized ? 'Image resized and uploaded' : 'Image uploaded');
       } catch (err) {
-        setEditContent((prev) => replaceFirst(prev, upload.uploadingToken, upload.failedToken));
+        setNextEditContent((prev) => replaceFirst(prev, upload.uploadingToken, upload.failedToken));
         setFailedImageUpload(upload);
         if (isRateLimitError(err)) {
           showFailureToast(rateLimitToastMessage(err));
@@ -1719,13 +1732,13 @@ export function App() {
         });
       }
     },
-    [dismissToast, showFailureToast, showLoadingToast, showSuccessToast],
+    [dismissToast, setNextEditContent, showFailureToast, showLoadingToast, showSuccessToast],
   );
 
   const onRetryFailedImageUpload = useCallback(() => {
     if (!failedImageUpload) return;
     let replaced = false;
-    setEditContent((prev) => {
+    setNextEditContent((prev) => {
       const next = replaceFirst(prev, failedImageUpload.failedToken, failedImageUpload.uploadingToken);
       replaced = next !== prev;
       return next;
@@ -1736,15 +1749,15 @@ export function App() {
     }
     setFailedImageUpload(null);
     void runPendingImageUpload(failedImageUpload);
-  }, [failedImageUpload, runPendingImageUpload, showFailureToast]);
+  }, [failedImageUpload, runPendingImageUpload, setNextEditContent, showFailureToast]);
 
   const onRemoveFailedImageUploadPlaceholder = useCallback(() => {
     if (!failedImageUpload) return;
-    setEditContent((prev) => replaceFirst(prev, failedImageUpload.failedToken, ''));
+    setNextEditContent((prev) => replaceFirst(prev, failedImageUpload.failedToken, ''));
     setFailedImageUpload(null);
     setHasUserTypedUnsavedChanges(false);
     setHasUnsavedChanges(true);
-  }, [failedImageUpload]);
+  }, [failedImageUpload, setNextEditContent]);
 
   const handleEditorPaste = useCallback(
     async (event: ClipboardEvent, view: import('@codemirror/view').EditorView) => {
@@ -1810,7 +1823,7 @@ export function App() {
             setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
             await runPendingImageUpload(upload);
           } catch (err) {
-            setEditContent((prev) => replaceFirst(prev, uploadingToken, failedToken));
+            setNextEditContent((prev) => replaceFirst(prev, uploadingToken, failedToken));
             const message = err instanceof Error ? err.message : 'Upload failed';
             showFailureToast(`Image upload failed: ${message}`);
           }
@@ -1820,7 +1833,15 @@ export function App() {
         showFailureToast(message);
       }
     },
-    [currentRepoDocPath, editingBackend, installationId, runPendingImageUpload, selectedRepo, showFailureToast],
+    [
+      currentRepoDocPath,
+      editingBackend,
+      installationId,
+      runPendingImageUpload,
+      selectedRepo,
+      setNextEditContent,
+      showFailureToast,
+    ],
   );
 
   // --- Auth ---
@@ -2168,7 +2189,7 @@ export function App() {
           }
           setEditingBackend('repo');
           setEditTitle(contents.name.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-          setEditContent(decoded);
+          setNextEditContent(decoded);
           setCurrentDocumentSavedContent(decoded);
           setHasUnsavedChanges(false);
         } else if (binary && isSafeImageFileName(contents.name)) {
@@ -2229,6 +2250,7 @@ export function App() {
       renderBinaryFileContent,
       activeView,
       currentFileName,
+      setNextEditContent,
       showRateLimitToastIfNeeded,
     ],
   );
@@ -2496,7 +2518,7 @@ export function App() {
           const routeFileName = fileNameFromPath(path);
           const fallbackTitle = routeFileName.replace(/\.(?:md(?:own|wn)?|markdown)$/i, '') || DEFAULT_NEW_FILENAME;
           setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'title')) || fallbackTitle);
-          setEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'content')) ?? '');
+          setNextEditContent(localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'content')) ?? '');
           setViewPhase(null);
           return;
         }
@@ -2528,7 +2550,7 @@ export function App() {
           setCurrentDocumentSavedContent(null);
           setPreviewVisible(defaultPreviewVisible());
           setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || DEFAULT_NEW_FILENAME);
-          setEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
+          setNextEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
           setViewPhase(null);
           if (activeView === 'edit') focusEditorSoon();
           return;
@@ -2600,7 +2622,7 @@ export function App() {
                 setRepoFiles([]);
                 setRepoSidebarFiles([]);
                 setEditTitle(fileNameFromPath(cacheFile.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-                setEditContent(full.content);
+                setNextEditContent(full.content);
                 setCurrentDocumentSavedContent(full.content);
                 setHasUnsavedChanges(false);
                 setViewPhase(null);
@@ -2614,7 +2636,7 @@ export function App() {
               setRepoFiles([]);
               setRepoSidebarFiles([]);
               setEditTitle(fileNameFromPath(cacheFile.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-              setEditContent(cacheFile.content ?? '');
+              setNextEditContent(cacheFile.content ?? '');
               setCurrentDocumentSavedContent(cacheFile.content ?? '');
               setHasUnsavedChanges(false);
               setViewPhase(null);
@@ -2672,7 +2694,7 @@ export function App() {
             setRepoFiles([]);
             setRepoSidebarFiles([]);
             setEditTitle(fileNameFromPath(file.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-            setEditContent(editableContent);
+            setNextEditContent(editableContent);
             setCurrentDocumentSavedContent(editableContent);
             setHasUnsavedChanges(false);
             setViewPhase(null);
@@ -2726,6 +2748,7 @@ export function App() {
       selectedRepo,
       installationRepos,
       loadedReposInstallationId,
+      setNextEditContent,
     ],
   );
 
@@ -3744,7 +3767,7 @@ export function App() {
           if (typeof nextContent !== 'string') {
             throw new Error('No staged document content to apply');
           }
-          setEditContent(nextContent);
+          setNextEditContent(nextContent);
           setHasUserTypedUnsavedChanges(false);
           setHasUnsavedChanges(true);
           if (!canCommitToGist && !canCommitToRepo) {
@@ -3827,6 +3850,7 @@ export function App() {
       installationId,
       selectedRepo,
       readerAiStagedChangesInvalid,
+      setNextEditContent,
       showRateLimitToastIfNeeded,
     ],
   );
@@ -3981,11 +4005,11 @@ export function App() {
   const applyDraftContentToEditor = useCallback(
     (content: string) => {
       if (activeView !== 'edit') return;
-      setEditContent(content);
+      setNextEditContent(content);
       setHasUserTypedUnsavedChanges(false);
       setHasUnsavedChanges(content !== currentDocumentSavedContent);
     },
-    [activeView, currentDocumentSavedContent],
+    [activeView, currentDocumentSavedContent, setNextEditContent],
   );
 
   const discardCurrentDocumentChanges = useCallback(() => {
@@ -4445,7 +4469,7 @@ export function App() {
     const pendingRestore = parsePendingDraftRestore(routeState);
     if (!pendingRestore || pendingRestore.documentDraftKey !== currentDocumentDraftKey) return;
     if (editContent !== pendingRestore.content) {
-      setEditContent(pendingRestore.content);
+      setNextEditContent(pendingRestore.content);
     }
     setHasUserTypedUnsavedChanges(false);
     setHasUnsavedChanges(pendingRestore.content !== currentDocumentSavedContent);
@@ -4462,6 +4486,7 @@ export function App() {
     commitAndStayInEdit,
     navigate,
     routeState,
+    setNextEditContent,
   ]);
 
   const getActiveDocumentStore = useCallback(() => {
@@ -4583,7 +4608,7 @@ export function App() {
     setCurrentFileName(null);
     setEditingBackend(null);
     setEditTitle('');
-    setEditContent('');
+    setNextEditContent('');
     clearRenderedContent();
     setViewPhase(null);
   }, [
@@ -4595,6 +4620,7 @@ export function App() {
     readerAiEditLocked,
     pendingImageUploads,
     showConfirm,
+    setNextEditContent,
     showFailureToast,
   ]);
 
@@ -5486,6 +5512,8 @@ export function App() {
         return (
           <EditView
             content={editContent}
+            contentOrigin={editContentOrigin}
+            contentRevision={editContentRevision}
             previewHtml={editPreviewHtml}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
@@ -5668,6 +5696,13 @@ export function App() {
     route.name === 'new' && activeView === 'edit' && !user && editContent.trim().length === 0;
   const showEditorCancel = activeView === 'edit' && !draftMode && repoAccessMode !== 'public';
   const showEditorSave = activeView === 'edit' && !(draftMode && !user) && repoAccessMode !== 'public';
+  const [deferredEditContent, setDeferredEditContent] = useState(editContent);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDeferredEditContent(editContent);
+    }, 75);
+    return () => window.clearTimeout(timeoutId);
+  }, [editContent]);
   const editPreviewWikiLinkResolver = useMemo(() => {
     if (!editPreviewEnabled) return undefined;
 
@@ -5687,7 +5722,6 @@ export function App() {
       : [...knownMarkdownPaths, currentFileName];
     return createWikiLinkResolver(currentFileName, wikiPaths);
   }, [editPreviewEnabled, editingBackend, currentRepoDocPath, repoFiles, currentFileName, gistFiles]);
-  const deferredEditContent = useDeferredValue(editContent);
   const editPreviewHtml = useMemo(
     () =>
       editPreviewEnabled
@@ -5774,13 +5808,13 @@ export function App() {
     setLightboxImage(null);
   }, []);
   const onEditContentChange = useCallback(
-    (content: string) => {
+    (update: { content: string; origin: 'local'; revision: number }) => {
       if (readerAiEditLocked) return;
-      setEditContent(content);
+      setNextEditContent(update.content, { origin: update.origin, revision: update.revision });
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
     },
-    [readerAiEditLocked],
+    [readerAiEditLocked, setNextEditContent],
   );
   const handleSignInWithGitHub = useCallback(
     (options?: { includeGists?: boolean }) => {

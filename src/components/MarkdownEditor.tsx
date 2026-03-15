@@ -50,7 +50,9 @@ const wikiLinkMarkdownExtension: MarkdownExtension = {
 
 interface MarkdownEditorProps {
   content: string;
-  onContentChange: (content: string) => void;
+  contentOrigin?: 'local' | 'external';
+  contentRevision?: number;
+  onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
   onPaste?: (event: ClipboardEvent, view: EditorView) => void;
   onSave?: () => void;
   readOnly?: boolean;
@@ -61,6 +63,8 @@ interface MarkdownEditorProps {
 
 export function MarkdownEditor({
   content,
+  contentOrigin = 'external',
+  contentRevision = 0,
   onContentChange,
   onPaste,
   onSave,
@@ -85,9 +89,7 @@ export function MarkdownEditor({
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
 
-  // Track local content updates until the parent acknowledges them via props.
-  // This avoids replaying stale controlled values back into CodeMirror while typing.
-  const pendingLocalContentRef = useRef<string[]>([]);
+  const latestLocalRevisionRef = useRef(0);
 
   const readScrollPosition = (view: EditorView): number => {
     return Math.max(view.scrollDOM.scrollTop, window.scrollY);
@@ -105,11 +107,9 @@ export function MarkdownEditor({
         if (isExternalSyncTransaction(tr)) return;
       }
       const doc = update.state.doc.toString();
-      pendingLocalContentRef.current.push(doc);
-      if (pendingLocalContentRef.current.length > 10) {
-        pendingLocalContentRef.current.shift();
-      }
-      onContentChangeRef.current(doc);
+      const revision = latestLocalRevisionRef.current + 1;
+      latestLocalRevisionRef.current = revision;
+      onContentChangeRef.current({ content: doc, origin: 'local', revision });
     };
 
     const state = EditorState.create({
@@ -206,7 +206,6 @@ export function MarkdownEditor({
     if (!view) return;
     const currentDoc = view.state.doc.toString();
     if (content === currentDoc) {
-      pendingLocalContentRef.current = [];
       if (pendingScrollRestoreKeyRef.current === scrollStorageKey) {
         pendingScrollRestoreKeyRef.current = null;
         restoreScrollPositionRef.current?.();
@@ -214,13 +213,9 @@ export function MarkdownEditor({
       return;
     }
 
-    const pendingIndex = pendingLocalContentRef.current.indexOf(content);
-    if (pendingIndex >= 0) {
-      pendingLocalContentRef.current = pendingLocalContentRef.current.slice(pendingIndex + 1);
+    if (contentOrigin === 'local' && contentRevision <= latestLocalRevisionRef.current) {
       return;
     }
-
-    pendingLocalContentRef.current = [];
 
     const transaction = buildExternalContentSyncTransaction(view.state, content);
     if (!transaction) return;
@@ -230,7 +225,7 @@ export function MarkdownEditor({
       pendingScrollRestoreKeyRef.current = null;
     }
     restoreScrollPositionRef.current?.();
-  }, [content, scrollStorageKey]);
+  }, [content, contentOrigin, contentRevision, scrollStorageKey]);
 
   useEffect(() => {
     const view = viewRef.current;
