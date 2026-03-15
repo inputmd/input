@@ -1,6 +1,6 @@
 import { createTwoFilesPatch } from 'diff';
 import type { JSX } from 'preact';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMarkdown } from './claude_trace';
@@ -5687,11 +5687,12 @@ export function App() {
       : [...knownMarkdownPaths, currentFileName];
     return createWikiLinkResolver(currentFileName, wikiPaths);
   }, [editPreviewEnabled, editingBackend, currentRepoDocPath, repoFiles, currentFileName, gistFiles]);
+  const deferredEditContent = useDeferredValue(editContent);
   const editPreviewHtml = useMemo(
     () =>
       editPreviewEnabled
         ? parseMarkdownToHtml(
-            showLoggedOutNewDocPreviewDescription ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION : editContent,
+            showLoggedOutNewDocPreviewDescription ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION : deferredEditContent,
             {
               resolveImageSrc: (src) =>
                 resolveMarkdownImageSrc(src, editingBackend === 'repo' ? currentRepoDocPath : null),
@@ -5702,7 +5703,7 @@ export function App() {
     [
       currentRepoDocPath,
       editPreviewEnabled,
-      editContent,
+      deferredEditContent,
       editPreviewWikiLinkResolver,
       editingBackend,
       resolveMarkdownImageSrc,
