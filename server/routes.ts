@@ -2299,7 +2299,12 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
         : READER_AI_DOC_PREVIEW_CHARS;
     systemPrompt = buildReaderAiSystemPrompt(source, lines, maxPreviewChars, currentDocPath);
-    tools = READER_AI_TOOLS;
+    tools = editModeCurrentDocOnly
+      ? READER_AI_TOOLS.filter((tool) => {
+          const name = tool.function.name;
+          return name === 'read_document' || name === 'search_document';
+        })
+      : READER_AI_TOOLS;
   }
 
   // Build messages for OpenRouter (internal format supports tool call/result messages)
