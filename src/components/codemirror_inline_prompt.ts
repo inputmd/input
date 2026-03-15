@@ -23,6 +23,7 @@ export function findInlinePromptMatch(text: string, position: number): InlinePro
   const slashIndex = prefix.lastIndexOf('/');
   if (slashIndex < 0) return null;
   if (!isInlinePromptBoundary(text[slashIndex - 1])) return null;
+  if (/\s/.test(text[slashIndex + 1] ?? '')) return null;
 
   const prompt = text.slice(slashIndex + 1, position);
   if (prompt.trim().length === 0) return null;

@@ -16,3 +16,8 @@ test('findInlinePromptMatch ignores slashes inside URLs and paths', (t) => {
   t.is(findInlinePromptMatch('https://example.com', 'https://example.com'.length), null);
   t.is(findInlinePromptMatch('path/to/file', 'path/to/file'.length), null);
 });
+
+test('findInlinePromptMatch ignores slash prompts with whitespace immediately after the slash', (t) => {
+  t.is(findInlinePromptMatch('/ rewrite this', '/ rewrite this'.length), null);
+  t.is(findInlinePromptMatch('/\trewrite this', '/\trewrite this'.length), null);
+});
