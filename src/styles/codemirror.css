@@ -86,6 +86,12 @@
   padding: 1px 3px;
 }
 
+.doc-editor .cm-line.cm-md-fenced-code .tok-monospace {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+
 /* Code blocks / fenced code */
 .cm-editor .tok-meta,
 .cm-editor .tok-punctuation {

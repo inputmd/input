@@ -15,6 +15,7 @@ import type { InlineParser, MarkdownExtension } from '@lezer/markdown';
 import { useEffect, useRef } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { continuedIndentExtension } from './codemirror_continued_indent';
+import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
   buildExternalContentSyncTransaction,
@@ -124,6 +125,7 @@ export function MarkdownEditor({
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
         EditorView.lineWrapping,
+        fencedCodeLineClassExtension,
         continuedIndentExtension({ mode: 'markdown', maxColumns: 10 }),
         EditorView.updateListener.of(onUpdate),
         EditorView.domEventHandlers({
