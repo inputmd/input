@@ -145,78 +145,11 @@ body {
   min-width: 0;
 }
 
-.restore-draft-prompt {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: min(420px, calc(100% - 24px));
-  color: color-mix(in srgb, var(--text-secondary) 92%, var(--text) 8%);
-}
-
-.restore-draft-prompt-copy {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 13px;
-  text-align: left;
-  line-height: 1.2;
-}
-
-.restore-draft-prompt-copy:hover {
-  background: transparent;
-  color: var(--text);
-}
-
-.restore-draft-prompt-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.restore-draft-prompt-dismiss {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transform: translateY(1px);
-}
-
-.restore-draft-prompt-dismiss:hover {
-  color: var(--text);
-}
-
-.restore-draft-prompt-dismiss:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
 .app-body--with-sidebar main {
   margin-left: var(--sidebar-width, 220px);
 }
 
 @media (max-width: 768px) {
-  .restore-draft-prompt {
-    left: 12px;
-    right: 12px;
-    align-self: stretch;
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .restore-draft-prompt-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
   .app-body--with-sidebar main {
     margin-left: 0;
   }

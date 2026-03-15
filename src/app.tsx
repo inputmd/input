@@ -1,5 +1,4 @@
 import { createTwoFilesPatch } from 'diff';
-import { X } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
@@ -1271,8 +1270,6 @@ export function App() {
     currentDocumentDraft !== null &&
     currentDocumentContent !== null &&
     currentDocumentDraft.content !== currentDocumentContent;
-  const [restoreDraftPromptIgnored, setRestoreDraftPromptIgnored] = useState(false);
-  const restoreDraftPromptPageKey = currentRouteKey ?? `${route.name}:${currentDocumentDraftKey ?? ''}`;
   const currentDocumentLabel = currentFileName ?? currentRepoDocPath ?? 'this document';
   const readerAiEditEligible = routeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
   const readerAiContentEligible =
@@ -2872,11 +2869,6 @@ export function App() {
   }, [hasUnsavedChanges]);
 
   useEffect(() => {
-    void restoreDraftPromptPageKey;
-    setRestoreDraftPromptIgnored(false);
-  }, [restoreDraftPromptPageKey]);
-
-  useEffect(() => {
     if (route.name !== 'reponew') return;
     if (editingBackend !== 'repo' || currentRepoDocPath) return;
     const instId = installationId ?? getInstallationId();
@@ -4255,15 +4247,16 @@ export function App() {
       },
     );
     if (action === 'cancel') return;
+    const restoredContent = currentDocumentDraft.content;
+    removeDocumentDraft(currentDocumentDraftKey);
+    setCurrentDocumentDraft(null);
     if (action === 'tertiary') {
-      removeDocumentDraft(currentDocumentDraftKey);
-      setCurrentDocumentDraft(null);
       return;
     }
     if (activeView === 'edit') {
-      applyDraftContentToEditor(currentDocumentDraft.content);
+      applyDraftContentToEditor(restoredContent);
       if (action === 'primary') {
-        await saveDocumentContent({ content: currentDocumentDraft.content });
+        await saveDocumentContent({ content: restoredContent });
       }
       return;
     }
@@ -4272,7 +4265,7 @@ export function App() {
         state: {
           restoreDraft: {
             documentDraftKey: currentDocumentDraftKey,
-            content: currentDocumentDraft.content,
+            content: restoredContent,
             saveAfterRestore: action === 'primary',
           },
         },
@@ -4284,7 +4277,7 @@ export function App() {
         state: {
           restoreDraft: {
             documentDraftKey: currentDocumentDraftKey,
-            content: currentDocumentDraft.content,
+            content: restoredContent,
             saveAfterRestore: action === 'primary',
           },
         },
@@ -5869,41 +5862,7 @@ export function App() {
             void handleRoute(route);
           }}
         >
-          <main>
-            {hasRestorableDocumentDraft && !hasUserTypedUnsavedChanges && !restoreDraftPromptIgnored ? (
-              <div class="restore-draft-prompt" role="status" aria-live="polite">
-                <button
-                  type="button"
-                  class="restore-draft-prompt-copy"
-                  onClick={() => {
-                    void onRestoreDraft();
-                  }}
-                >
-                  Unsaved changes
-                </button>
-                <div class="restore-draft-prompt-actions">
-                  <span
-                    class="restore-draft-prompt-dismiss"
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Dismiss unsaved changes prompt"
-                    onClick={() => {
-                      setRestoreDraftPromptIgnored(true);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        setRestoreDraftPromptIgnored(true);
-                      }
-                    }}
-                  >
-                    <X size={14} aria-hidden="true" />
-                  </span>
-                </div>
-              </div>
-            ) : null}
-            {renderView()}
-          </main>
+          <main>{renderView()}</main>
         </ErrorBoundary>
         {showReaderAiPanel ? (
           <>
