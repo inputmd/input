@@ -104,3 +104,16 @@ test('normalizeBlockquotePaste continues blockquote prefixes for pasted multilin
 
   t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha\n> beta\n> gamma');
 });
+
+test('normalizeBlockquotePaste turns pasted links at blockquote end into source citations', (t) => {
+  const state = EditorState.create({
+    doc: '> quoted line',
+    selection: EditorSelection.cursor('> quoted line'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(
+    normalizeBlockquotePaste(state, state.selection.main.from, 'https://example.com/source'),
+    ' [^src](https://example.com/source)',
+  );
+});

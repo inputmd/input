@@ -202,7 +202,6 @@ export function insertNewlineContinueLooseListItem(view: EditorView): boolean {
 }
 
 export function normalizeBlockquotePaste(state: EditorState, pos: number, text: string): string | null {
-  if (!text.includes('\n') && !text.includes('\r')) return null;
   if (!markdownLanguage.isActiveAt(state, pos, -1) && !markdownLanguage.isActiveAt(state, pos, 1)) return null;
 
   const line = state.doc.lineAt(pos);
@@ -216,6 +215,13 @@ export function normalizeBlockquotePaste(state: EditorState, pos: number, text: 
   if (!blockquotePrefix) return null;
 
   const normalized = text.replace(/\r\n?/g, '\n');
+  const trimmed = normalized.trim();
+  const isSingleHttpUrl = /^https?:\/\/\S+$/.test(trimmed) && !normalized.includes('\n');
+  if (isSingleHttpUrl && pos === line.to) {
+    const needsLeadingSpace = pos > line.from && !/\s/.test(state.doc.sliceString(pos - 1, pos));
+    return `${needsLeadingSpace ? ' ' : ''}[^src](${trimmed})`;
+  }
+
   const lines = normalized.split('\n');
   if (lines.length < 2) return null;
 
