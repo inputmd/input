@@ -152,31 +152,32 @@ body {
   z-index: 4;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   max-width: min(420px, calc(100% - 24px));
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--toolbar-bg) 92%, transparent);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.06);
-  color: var(--text);
+  color: color-mix(in srgb, var(--text-secondary) 92%, var(--text) 8%);
 }
 
 .restore-draft-prompt-copy {
   flex: 1;
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   font-size: 13px;
+  text-align: left;
+  line-height: 1.2;
+}
+
+.restore-draft-prompt-copy:hover {
+  background: transparent;
+  color: var(--text);
 }
 
 .restore-draft-prompt-actions {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-
-.restore-draft-prompt-actions button {
-  padding: 4px 10px;
-  font-size: 12px;
+  gap: 4px;
 }
 
 .restore-draft-prompt-dismiss {
@@ -206,6 +207,7 @@ body {
   .restore-draft-prompt {
     left: 12px;
     right: 12px;
+    align-self: stretch;
     align-items: flex-start;
     flex-direction: column;
   }

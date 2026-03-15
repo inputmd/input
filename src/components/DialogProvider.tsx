@@ -13,7 +13,7 @@ interface DialogContextValue {
     message: string,
     changes: DiffChangeEntry[],
     options: DiffChoiceDialogOptions,
-  ) => Promise<'cancel' | 'secondary' | 'primary'>;
+  ) => Promise<'cancel' | 'tertiary' | 'secondary' | 'primary'>;
   showPrompt: (message: string, defaultValue?: string) => Promise<string | null>;
 }
 
@@ -34,6 +34,8 @@ interface DiffConfirmDialogOptions extends ConfirmDialogOptions {
 }
 
 interface DiffChoiceDialogOptions extends DiffConfirmDialogOptions {
+  tertiaryActionLabel?: string;
+  tertiaryActionIntent?: ConfirmDialogIntent;
   secondaryActionLabel: string;
   secondaryActionIntent?: ConfirmDialogIntent;
   primaryActionLabel: string;
@@ -60,13 +62,15 @@ type DialogState =
       type: 'diff-choice';
       message: string;
       changes: DiffChangeEntry[];
-      resolve: (value: 'cancel' | 'secondary' | 'primary') => void;
+      resolve: (value: 'cancel' | 'tertiary' | 'secondary' | 'primary') => void;
       options: Pick<
         Required<DiffChoiceDialogOptions>,
         'leftLabel' | 'rightLabel' | 'secondaryActionLabel' | 'primaryActionLabel'
       > & {
         defaultFocus: ConfirmDialogFocus;
         title: string;
+        tertiaryActionLabel?: string;
+        tertiaryActionIntent: ConfirmDialogIntent;
         secondaryActionIntent: ConfirmDialogIntent;
         primaryActionIntent: ConfirmDialogIntent;
         cancelLabel: string;
@@ -79,6 +83,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
   const [promptValue, setPromptValue] = useState('');
   const promptInputRef = useRef<HTMLInputElement>(null);
   const confirmCancelRef = useRef<HTMLButtonElement>(null);
+  const confirmTertiaryActionRef = useRef<HTMLButtonElement>(null);
   const confirmActionRef = useRef<HTMLButtonElement>(null);
   const confirmSecondaryActionRef = useRef<HTMLButtonElement>(null);
 
@@ -120,7 +125,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
       message: string,
       changes: DiffChangeEntry[],
       options: DiffChoiceDialogOptions,
-    ): Promise<'cancel' | 'secondary' | 'primary'> => {
+    ): Promise<'cancel' | 'tertiary' | 'secondary' | 'primary'> => {
       return new Promise((resolve) => {
         setDialog({
           type: 'diff-choice',
@@ -133,6 +138,8 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
             defaultFocus: options.defaultFocus ?? 'cancel',
             leftLabel: options.leftLabel ?? 'Original',
             rightLabel: options.rightLabel ?? 'Updated',
+            tertiaryActionLabel: options.tertiaryActionLabel,
+            tertiaryActionIntent: options.tertiaryActionIntent ?? 'default',
             secondaryActionLabel: options.secondaryActionLabel,
             primaryActionLabel: options.primaryActionLabel,
             secondaryActionIntent: options.secondaryActionIntent ?? 'default',
@@ -294,6 +301,19 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                 >
                   {dialog.options.cancelLabel}
                 </button>
+                {dialog.options.tertiaryActionLabel ? (
+                  <button
+                    ref={confirmTertiaryActionRef}
+                    class={dialogActionClassName(dialog.options.tertiaryActionIntent)}
+                    type="button"
+                    onClick={() => {
+                      dialog.resolve('tertiary');
+                      close();
+                    }}
+                  >
+                    {dialog.options.tertiaryActionLabel}
+                  </button>
+                ) : null}
                 <button
                   ref={confirmSecondaryActionRef}
                   class={dialogActionClassName(dialog.options.secondaryActionIntent)}

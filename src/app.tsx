@@ -3961,6 +3961,15 @@ export function App() {
     [activeView, currentDocumentSavedContent],
   );
 
+  const discardCurrentDocumentChanges = useCallback(() => {
+    if (currentDocumentDraftKey) {
+      removeDocumentDraft(currentDocumentDraftKey);
+      setCurrentDocumentDraft(null);
+    }
+    setHasUserTypedUnsavedChanges(false);
+    setHasUnsavedChanges(false);
+  }, [currentDocumentDraftKey]);
+
   const saveDocumentContent = useCallback(
     async (options?: { content?: string; title?: string }) => {
       if (saveInFlightRef.current || readerAiEditLocked) return false;
@@ -4177,8 +4186,8 @@ export function App() {
       ],
       {
         title: 'Reset Changes',
-        secondaryActionLabel: 'Apply without commit',
-        primaryActionLabel: 'Apply and commit',
+        secondaryActionLabel: 'Reset without commit',
+        primaryActionLabel: 'Reset and commit',
         cancelLabel: 'Cancel',
         secondaryActionIntent: 'default',
         primaryActionIntent: 'danger',
@@ -4229,9 +4238,11 @@ export function App() {
       ],
       {
         title: 'Restore previous changes',
-        secondaryActionLabel: 'Apply without commit',
-        primaryActionLabel: 'Apply and commit',
+        secondaryActionLabel: 'Restore without commit',
+        primaryActionLabel: 'Restore and commit',
         cancelLabel: 'Cancel',
+        tertiaryActionLabel: 'Discard changes',
+        tertiaryActionIntent: 'danger',
         secondaryActionIntent: 'default',
         primaryActionIntent: 'success',
         defaultFocus: 'cancel',
@@ -4240,6 +4251,11 @@ export function App() {
       },
     );
     if (action === 'cancel') return;
+    if (action === 'tertiary') {
+      removeDocumentDraft(currentDocumentDraftKey);
+      setCurrentDocumentDraft(null);
+      return;
+    }
     if (activeView === 'edit') {
       applyDraftContentToEditor(currentDocumentDraft.content);
       if (action === 'primary') {
@@ -4358,7 +4374,7 @@ export function App() {
   // --- Sidebar actions ---
   const navigateToSidebarFile = useCallback(
     (filePath: string) => {
-      setHasUnsavedChanges(false);
+      discardCurrentDocumentChanges();
       const shouldEditMarkdown = activeView === 'edit' && isMarkdownFileName(filePath);
       if (currentGistId) {
         navigate(
@@ -4376,7 +4392,15 @@ export function App() {
         navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath));
       }
     },
-    [activeView, currentGistId, repoAccessMode, selectedRepoRef, publicRepoRef, navigate],
+    [
+      activeView,
+      currentGistId,
+      discardCurrentDocumentChanges,
+      repoAccessMode,
+      selectedRepoRef,
+      publicRepoRef,
+      navigate,
+    ],
   );
 
   const handleSelectFile = useCallback(
@@ -4609,7 +4633,7 @@ export function App() {
         } else {
           const discard = await showConfirm('Discard unsaved changes and continue editing another file?');
           if (!discard) return;
-          setHasUnsavedChanges(false);
+          discardCurrentDocumentChanges();
         }
       }
 
@@ -4625,6 +4649,7 @@ export function App() {
       hasUnsavedChanges,
       onSave,
       navigate,
+      discardCurrentDocumentChanges,
       showConfirm,
       showFailureToast,
     ],
@@ -5843,16 +5868,16 @@ export function App() {
           <main>
             {hasRestorableDocumentDraft && !hasUserTypedUnsavedChanges && !restoreDraftPromptIgnored ? (
               <div class="restore-draft-prompt" role="status" aria-live="polite">
-                <span class="restore-draft-prompt-copy">Previous unsaved changes</span>
+                <button
+                  type="button"
+                  class="restore-draft-prompt-copy"
+                  onClick={() => {
+                    void onRestoreDraft();
+                  }}
+                >
+                  Unsaved changes
+                </button>
                 <div class="restore-draft-prompt-actions">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void onRestoreDraft();
-                    }}
-                  >
-                    View
-                  </button>
                   <span
                     class="restore-draft-prompt-dismiss"
                     role="button"
