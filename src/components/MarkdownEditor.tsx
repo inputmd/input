@@ -13,6 +13,7 @@ import {
 import { tags } from '@lezer/highlight';
 import type { InlineParser, MarkdownExtension } from '@lezer/markdown';
 import { useEffect, useRef } from 'preact/hooks';
+import { continuedIndentExtension } from './codemirror_continued_indent';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
   buildExternalContentSyncTransaction,
@@ -113,6 +114,7 @@ export function MarkdownEditor({
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
         EditorView.lineWrapping,
+        continuedIndentExtension({ mode: 'markdown', maxColumns: 10 }),
         EditorView.updateListener.of(onUpdate),
         EditorView.domEventHandlers({
           paste: (event, view) => {

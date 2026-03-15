@@ -8,6 +8,7 @@ import { syntaxHighlighting } from '@codemirror/language';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
 import { useEffect, useRef } from 'preact/hooks';
+import { continuedIndentExtension } from './codemirror_continued_indent';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 
 function extensionForFileName(fileName: string | null | undefined): string | null {
@@ -84,6 +85,7 @@ export function TextCodeView({ content, fileName = null }: TextCodeViewProps) {
         EditorView.editable.of(false),
         EditorState.tabSize.of(2),
         EditorView.lineWrapping,
+        continuedIndentExtension({ mode: 'indent', maxColumns: 10 }),
         keymap.of([
           {
             key: 'Tab',
