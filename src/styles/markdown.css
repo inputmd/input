@@ -277,6 +277,27 @@
   border-left: 4px solid var(--border);
 }
 
+.rendered-markdown blockquote:has(> blockquote:first-child) {
+  padding-top: 0;
+}
+
+.rendered-markdown blockquote:has(> blockquote:last-child) {
+  padding-bottom: 0;
+}
+
+.rendered-markdown blockquote blockquote {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.rendered-markdown blockquote > blockquote:first-child {
+  margin-top: 0;
+}
+
+.rendered-markdown blockquote > blockquote:last-child {
+  margin-bottom: 0;
+}
+
 .rendered-markdown blockquote p:first-child {
   margin-top: 0;
 }
@@ -448,6 +469,27 @@
   padding: 0.08em 0.75em;
   border-left: 3px solid var(--border);
   color: var(--text-secondary);
+}
+
+.markdown-link-preview-body blockquote:has(> blockquote:first-child) {
+  padding-top: 0;
+}
+
+.markdown-link-preview-body blockquote:has(> blockquote:last-child) {
+  padding-bottom: 0;
+}
+
+.markdown-link-preview-body blockquote blockquote {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.markdown-link-preview-body blockquote > blockquote:first-child {
+  margin-top: 0;
+}
+
+.markdown-link-preview-body blockquote > blockquote:last-child {
+  margin-bottom: 0;
 }
 
 .markdown-link-preview-body code {
