@@ -61,6 +61,20 @@ test('buildExternalContentSyncTransaction emits external non-history transaction
   t.is(transaction.state.selection.main.head, 3);
 });
 
+test('buildExternalContentSyncTransaction can restore an explicit selection', (t) => {
+  const state = EditorState.create({
+    doc: 'abcdef',
+    selection: EditorSelection.cursor(0),
+  });
+
+  const spec = buildExternalContentSyncTransaction(state, 'hello world', { anchor: 5, head: 5 });
+  t.truthy(spec);
+
+  const transaction = state.update(spec!);
+  t.is(transaction.state.selection.main.anchor, 5);
+  t.is(transaction.state.selection.main.head, 5);
+});
+
 test('buildExternalContentSyncTransaction returns null when content is unchanged', (t) => {
   const state = EditorState.create({ doc: 'same' });
   t.is(buildExternalContentSyncTransaction(state, 'same'), null);

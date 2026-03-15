@@ -1184,6 +1184,7 @@ export function App() {
   const [gistFiles, setGistFiles] = useState<Record<string, GistFile> | null>(null);
   const [repoFiles, setRepoFiles] = useState<RepoDocFile[]>([]);
   const [repoSidebarFiles, setRepoSidebarFiles] = useState<RepoDocFile[]>([]);
+  const [editContentSelection, setEditContentSelection] = useState<{ anchor: number; head: number } | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [hasUserTypedUnsavedChanges, setHasUserTypedUnsavedChanges] = useState(false);
   const [failedImageUpload, setFailedImageUpload] = useState<PendingImageUpload | null>(null);
@@ -1253,11 +1254,16 @@ export function App() {
   const setNextEditContent = useCallback(
     (
       nextContent: string | ((previousContent: string) => string),
-      options?: { origin?: 'local' | 'external'; revision?: number },
+      options?: {
+        origin?: 'local' | 'external';
+        revision?: number;
+        selection?: { anchor: number; head: number } | null;
+      },
     ) => {
       setEditContent(nextContent);
       setEditContentOrigin(options?.origin ?? 'external');
       setEditContentRevision((previousRevision) => options?.revision ?? previousRevision + 1);
+      setEditContentSelection(options?.selection ?? null);
     },
     [],
   );
@@ -1757,6 +1763,17 @@ export function App() {
     setHasUnsavedChanges(true);
   }, [failedImageUpload, setNextEditContent]);
 
+  const replaceEditorSelectionContent = useCallback(
+    (view: import('@codemirror/view').EditorView, insertedText: string) => {
+      const { from, to } = view.state.selection.main;
+      const currentContent = view.state.doc.toString();
+      const nextContent = `${currentContent.slice(0, from)}${insertedText}${currentContent.slice(to)}`;
+      const nextHead = from + insertedText.length;
+      setNextEditContent(nextContent, { selection: { anchor: nextHead, head: nextHead } });
+    },
+    [setNextEditContent],
+  );
+
   const handleEditorPaste = useCallback(
     async (event: ClipboardEvent, view: import('@codemirror/view').EditorView) => {
       const pastedText = event.clipboardData?.getData('text/plain') ?? '';
@@ -1799,8 +1816,9 @@ export function App() {
         const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const uploadingToken = `[image-upload:${uploadId}:pending:${imageName}]`;
         const failedToken = `[image-upload:${uploadId}:failed:${imageName}]`;
-        const { from, to } = view.state.selection.main;
-        view.dispatch({ changes: { from, to, insert: uploadingToken } });
+        replaceEditorSelectionContent(view, uploadingToken);
+        setHasUserTypedUnsavedChanges(true);
+        setHasUnsavedChanges(true);
 
         void (async () => {
           try {
@@ -1835,6 +1853,7 @@ export function App() {
       currentRepoDocPath,
       editingBackend,
       installationId,
+      replaceEditorSelectionContent,
       runPendingImageUpload,
       selectedRepo,
       setNextEditContent,
@@ -5512,6 +5531,7 @@ export function App() {
             content={editContent}
             contentOrigin={editContentOrigin}
             contentRevision={editContentRevision}
+            contentSelection={editContentSelection}
             previewHtml={editPreviewHtml}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}

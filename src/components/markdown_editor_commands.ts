@@ -40,14 +40,20 @@ export function isExternalSyncTransaction(transaction: Transaction): boolean {
   return transaction.annotation(Transaction.userEvent) === 'external';
 }
 
-export function buildExternalContentSyncTransaction(state: EditorState, content: string): TransactionSpec | null {
+export function buildExternalContentSyncTransaction(
+  state: EditorState,
+  content: string,
+  selection?: { anchor: number; head: number } | null,
+): TransactionSpec | null {
   const currentDoc = state.doc.toString();
   if (currentDoc === content) return null;
 
   const prevSel = state.selection.main;
   return {
     changes: { from: 0, to: currentDoc.length, insert: content },
-    selection: EditorSelection.cursor(Math.min(prevSel.head, content.length)),
+    selection: selection
+      ? EditorSelection.range(Math.min(selection.anchor, content.length), Math.min(selection.head, content.length))
+      : EditorSelection.cursor(Math.min(prevSel.head, content.length)),
     annotations: [externalSyncAnnotation, Transaction.addToHistory.of(false)],
   };
 }

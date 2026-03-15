@@ -7,6 +7,7 @@ interface EditViewProps {
   content: string;
   contentOrigin?: 'local' | 'external';
   contentRevision?: number;
+  contentSelection?: { anchor: number; head: number } | null;
   previewHtml: string;
   previewVisible: boolean;
   canRenderPreview: boolean;
@@ -32,6 +33,7 @@ export function EditView({
   content,
   contentOrigin = 'external',
   contentRevision = 0,
+  contentSelection = null,
   previewHtml,
   previewVisible,
   canRenderPreview,
@@ -129,6 +131,7 @@ export function EditView({
           content={content}
           contentOrigin={contentOrigin}
           contentRevision={contentRevision}
+          contentSelection={contentSelection}
           scrollStorageKey={scrollStorageKey}
           onContentChange={onContentChange}
           onPaste={onEditorPaste}

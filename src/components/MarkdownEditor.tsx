@@ -52,6 +52,7 @@ interface MarkdownEditorProps {
   content: string;
   contentOrigin?: 'local' | 'external';
   contentRevision?: number;
+  contentSelection?: { anchor: number; head: number } | null;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
   onPaste?: (event: ClipboardEvent, view: EditorView) => void;
   readOnly?: boolean;
@@ -64,6 +65,7 @@ export function MarkdownEditor({
   content,
   contentOrigin = 'external',
   contentRevision = 0,
+  contentSelection = null,
   onContentChange,
   onPaste,
   readOnly = false,
@@ -203,7 +205,7 @@ export function MarkdownEditor({
       return;
     }
 
-    const transaction = buildExternalContentSyncTransaction(view.state, content);
+    const transaction = buildExternalContentSyncTransaction(view.state, content, contentSelection);
     if (!transaction) return;
     view.dispatch(transaction);
 
@@ -211,7 +213,7 @@ export function MarkdownEditor({
       pendingScrollRestoreKeyRef.current = null;
     }
     restoreScrollPositionRef.current?.();
-  }, [content, contentOrigin, contentRevision, scrollStorageKey]);
+  }, [content, contentOrigin, contentRevision, contentSelection, scrollStorageKey]);
 
   useEffect(() => {
     const view = viewRef.current;
