@@ -23,6 +23,20 @@ test('marked leaves unknown emoji shortcodes unchanged', (t) => {
   t.true(html.includes(':not_a_real_emoji:'));
 });
 
+test('marked renders caret-wrapped superscript text', (t) => {
+  const html = marked.parse('Water is H^2^O.');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('H<sup>2</sup>O.'));
+});
+
+test('marked leaves unmatched carets unchanged', (t) => {
+  const html = marked.parse('Keep ^this literal.');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('Keep ^this literal.'));
+});
+
 test('marked renders github avatar inline tokens', (t) => {
   const html = marked.parse('See {github:@raykyri} for details.');
 

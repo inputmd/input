@@ -145,6 +145,28 @@ marked.use({
       },
     },
     {
+      name: 'superscript',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf('^');
+      },
+      tokenizer(src: string) {
+        const match = /^\^([^^\s](?:.*?[^^\s])?)\^/.exec(src);
+        if (!match) return undefined;
+        const text = match[1];
+        if (!text.trim()) return undefined;
+        return {
+          type: 'superscript',
+          raw: match[0],
+          text,
+          tokens: this.lexer.inlineTokens(text),
+        };
+      },
+      renderer(token) {
+        return `<sup>${this.parser.parseInline(token.tokens ?? [])}</sup>`;
+      },
+    },
+    {
       name: 'githubAvatar',
       level: 'inline',
       start(src: string) {
