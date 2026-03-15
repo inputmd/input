@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { getPathSegment, matchRoute, type Route } from '../routing';
 
 interface NavigateOptions {
@@ -9,14 +9,30 @@ interface NavigateOptions {
 export function useRoute() {
   const [route, setRoute] = useState<Route>(() => matchRoute(getPathSegment()));
   const [routeState, setRouteState] = useState<unknown>(() => window.history.state);
+  const navigationPromptRef = useRef<string | null>(null);
+
+  const setNavigationPrompt = useCallback((message: string | null) => {
+    navigationPromptRef.current = message;
+  }, []);
 
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
-      setRoute(matchRoute(getPathSegment()));
+      const nextPath = getPathSegment();
+      setRoute(matchRoute(nextPath));
       setRouteState(event.state);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!navigationPromptRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
   const navigate = useCallback((r: string, options?: NavigateOptions) => {
@@ -29,7 +45,8 @@ export function useRoute() {
     }
     setRoute(matchRoute(r));
     setRouteState(nextState);
+    return true;
   }, []);
 
-  return { route, routeState, navigate };
+  return { route, routeState, navigate, setNavigationPrompt };
 }

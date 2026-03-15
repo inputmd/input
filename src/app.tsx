@@ -1055,7 +1055,7 @@ function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | nu
 }
 
 export function App() {
-  const { route, routeState, navigate } = useRoute();
+  const { route, routeState, navigate, setNavigationPrompt } = useRoute();
   const { showAlert, showConfirm, showDiffChoice, showPrompt } = useDialogs();
   const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
 
@@ -1339,6 +1339,10 @@ export function App() {
       ? 'Verifying saved version...'
       : 'Showing local version while GitHub catches up';
   }, [postSaveVerification, shouldPreserveVerifiedContent]);
+
+  useEffect(() => {
+    setNavigationPrompt(activeView === 'edit' && hasUnsavedChanges ? 'You have unsaved changes. Discard?' : null);
+  }, [activeView, hasUnsavedChanges, setNavigationPrompt]);
 
   const saveStatusTone = postSaveVerification?.status === 'delayed' ? 'warning' : 'pending';
 
