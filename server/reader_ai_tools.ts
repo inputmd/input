@@ -105,6 +105,18 @@ export interface ReaderAiStreamParseResult {
   finishReason: string;
 }
 
+function extractOpenRouterContentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map((part) => extractOpenRouterContentText(part)).join('');
+  if (!content || typeof content !== 'object') return '';
+
+  const value = content as { text?: unknown; value?: unknown };
+  if (typeof value.text === 'string') return value.text;
+  if (typeof value.value === 'string') return value.value;
+  if (value.text && typeof value.text === 'object') return extractOpenRouterContentText(value.text);
+  return '';
+}
+
 export type OpenRouterMessage =
   | { role: 'system' | 'user' | 'assistant'; content: string }
   | {
@@ -1184,7 +1196,7 @@ export async function parseReaderAiUpstreamStream(
           .split('\n')
           .filter((line) => line.startsWith('data:'))
           .map((line) => parseSseFieldValue(line, 'data:'));
-        const data = dataLines.join('');
+        const data = dataLines.join('\n');
         if (!data || data === '[DONE]') {
           boundary = buffer.indexOf('\n\n');
           continue;
@@ -1193,7 +1205,7 @@ export async function parseReaderAiUpstreamStream(
           const parsed = JSON.parse(data) as {
             choices?: Array<{
               delta?: {
-                content?: string | null;
+                content?: unknown;
                 tool_calls?: Array<{
                   index?: number;
                   id?: string;
@@ -1210,9 +1222,10 @@ export async function parseReaderAiUpstreamStream(
           }
           if (choice.finish_reason) finishReason = choice.finish_reason;
           const delta = choice.delta;
-          if (delta?.content) {
-            content += delta.content;
-            onTextDelta(delta.content);
+          const textDelta = extractOpenRouterContentText(delta?.content);
+          if (textDelta) {
+            content += textDelta;
+            onTextDelta(textDelta);
           }
           if (Array.isArray(delta?.tool_calls)) {
             for (const tc of delta.tool_calls) {

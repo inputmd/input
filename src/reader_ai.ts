@@ -68,17 +68,29 @@ export async function listReaderAiModels(): Promise<ReaderAiModel[]> {
 }
 
 function extractStreamDelta(payload: unknown): string {
+  const extractContentText = (content: unknown): string => {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) return content.map((part) => extractContentText(part)).join('');
+    if (!content || typeof content !== 'object') return '';
+
+    const value = content as { text?: unknown; value?: unknown };
+    if (typeof value.text === 'string') return value.text;
+    if (typeof value.value === 'string') return value.value;
+    if (value.text && typeof value.text === 'object') return extractContentText(value.text);
+    return '';
+  };
+
   if (!payload || typeof payload !== 'object') return '';
   const choice = (payload as { choices?: unknown }).choices;
   if (!Array.isArray(choice) || choice.length === 0) return '';
   const first = choice[0] as { delta?: unknown; message?: unknown };
   if (first?.delta && typeof first.delta === 'object') {
     const content = (first.delta as { content?: unknown }).content;
-    if (typeof content === 'string') return content;
+    return extractContentText(content);
   }
   if (first?.message && typeof first.message === 'object') {
     const content = (first.message as { content?: unknown }).content;
-    if (typeof content === 'string') return content;
+    return extractContentText(content);
   }
   return '';
 }
@@ -378,7 +390,7 @@ export async function askReaderAiStream(
         try {
           const parsed = JSON.parse(data) as unknown;
           const delta = extractStreamDelta(parsed);
-          if (delta) options.onDelta(delta);
+          if (typeof delta === 'string') options.onDelta(delta);
         } catch {
           // Ignore malformed stream chunks and continue.
         }

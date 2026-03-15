@@ -540,6 +540,76 @@ test('stream parser handles CRLF line endings', async (t) => {
   t.is(result.content, 'hi');
 });
 
+test('stream parser preserves space-only deltas', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'language' } }] }),
+    sseChunk({ choices: [{ delta: { content: ' ' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'model' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['language', ' ', 'model']);
+  t.is(result.content, 'language model');
+});
+
+test('stream parser accepts structured content parts', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({
+      choices: [
+        {
+          delta: {
+            content: [
+              { type: 'text', text: '**Essay:' },
+              { type: 'text', text: ' ' },
+              { type: 'text', text: 'The Sweet World of Strawberries**' },
+            ],
+          },
+        },
+      ],
+    }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['**Essay: The Sweet World of Strawberries**']);
+  t.is(result.content, '**Essay: The Sweet World of Strawberries**');
+});
+
+test('stream parser accepts nested structured content parts', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({
+      choices: [
+        {
+          delta: {
+            content: [
+              { type: 'output_text', text: { value: 'structured' } },
+              { type: 'output_text', text: { value: ' ' } },
+              { type: 'output_text', text: { value: 'text' } },
+            ],
+          },
+        },
+      ],
+    }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['structured text']);
+  t.is(result.content, 'structured text');
+});
+
+test('stream parser joins multiline data events with newlines', async (t) => {
+  const raw = 'data: {"choices":[{"delta":\n' + 'data: {"content":"hi there"}}]}\n\n';
+  const stream = makeStream([new TextEncoder().encode(raw)]);
+
+  const result = await parseReaderAiUpstreamStream(stream, () => {});
+  t.is(result.content, 'hi there');
+});
+
 // ── Project-mode tools ──
 
 const sampleFiles: ReaderAiFileEntry[] = [
