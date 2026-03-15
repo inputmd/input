@@ -2,6 +2,7 @@ import type { EditorView } from '@codemirror/view';
 import { ExternalLink } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import type { InlinePromptRequest } from '../components/codemirror_inline_prompt';
 import { MarkdownEditor } from '../components/MarkdownEditor';
 import { TextEditor } from '../components/TextEditor';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
@@ -56,6 +57,9 @@ interface EditViewProps {
   loading?: boolean;
   onTogglePreview: () => void;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
+  onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
+  onCancelInlinePrompt?: () => void;
+  inlinePromptActive?: boolean;
   onInternalLinkNavigate?: (route: string) => void;
   onRequestMarkdownLinkPreview?: (route: string) => Promise<MarkdownLinkPreview | null>;
   onPreviewImageClick?: (image: HTMLImageElement) => void;
@@ -86,6 +90,9 @@ export function EditView({
   loading = false,
   onTogglePreview,
   onContentChange,
+  onInlinePromptSubmit,
+  onCancelInlinePrompt,
+  inlinePromptActive = false,
   onInternalLinkNavigate,
   onRequestMarkdownLinkPreview,
   onPreviewImageClick,
@@ -425,6 +432,9 @@ export function EditView({
             contentSelection={contentSelection}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
+            onInlinePromptSubmit={onInlinePromptSubmit}
+            onCancelInlinePrompt={onCancelInlinePrompt}
+            inlinePromptActive={inlinePromptActive}
             onPaste={onEditorPaste}
             readOnly={locked || loading}
           />

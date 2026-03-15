@@ -18,6 +18,7 @@ import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_posi
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
+import { type InlinePromptRequest, inlinePromptCompletionSource } from './codemirror_inline_prompt';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
   buildExternalContentSyncTransaction,
@@ -56,6 +57,9 @@ interface MarkdownEditorProps {
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
+  onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
+  onCancelInlinePrompt?: () => void;
+  inlinePromptActive?: boolean;
   onPaste?: (event: ClipboardEvent, view: EditorView) => void;
   readOnly?: boolean;
   placeholder?: string;
@@ -69,6 +73,9 @@ export function MarkdownEditor({
   contentRevision = 0,
   contentSelection = null,
   onContentChange,
+  onInlinePromptSubmit,
+  onCancelInlinePrompt,
+  inlinePromptActive = false,
   onPaste,
   readOnly = false,
   placeholder = 'Write your markdown here...',
@@ -86,6 +93,12 @@ export function MarkdownEditor({
   // Stable refs for callbacks
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
+  const onInlinePromptSubmitRef = useRef(onInlinePromptSubmit);
+  onInlinePromptSubmitRef.current = onInlinePromptSubmit;
+  const onCancelInlinePromptRef = useRef(onCancelInlinePrompt);
+  onCancelInlinePromptRef.current = onCancelInlinePrompt;
+  const inlinePromptActiveRef = useRef(inlinePromptActive);
+  inlinePromptActiveRef.current = inlinePromptActive;
   const onPasteRef = useRef(onPaste);
   onPasteRef.current = onPaste;
 
@@ -121,7 +134,12 @@ export function MarkdownEditor({
         indentOnInput(),
         syntaxHighlighting(appCodeMirrorHighlighter),
         bracketMatching(),
-        autocompletion({ override: [emojiCompletionSource] }),
+        autocompletion({
+          override: [
+            inlinePromptCompletionSource((request) => onInlinePromptSubmitRef.current?.(request)),
+            emojiCompletionSource,
+          ],
+        }),
         markdown({
           base: markdownLanguage,
           extensions: [{ remove: ['SetextHeading', 'IndentedCode'] }, wikiLinkMarkdownExtension],
@@ -142,6 +160,14 @@ export function MarkdownEditor({
           keymap.of([
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },
+            {
+              key: 'Escape',
+              run: () => {
+                if (!inlinePromptActiveRef.current) return false;
+                onCancelInlinePromptRef.current?.();
+                return true;
+              },
+            },
             { key: 'Enter', run: insertNewlineContinueLooseListItem },
             { key: 'Tab', run: indentMore, shift: indentLess },
             ...historyKeymap,

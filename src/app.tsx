@@ -5,6 +5,7 @@ import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMarkdown } from './claude_trace';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
+import type { InlinePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageLightbox } from './components/ImageLightbox';
@@ -1173,6 +1174,7 @@ export function App() {
   const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
   const [readerAiSuggestedCommitMessage, setReaderAiSuggestedCommitMessage] = useState('');
   const [readerAiApplyingChanges, setReaderAiApplyingChanges] = useState(false);
+  const [inlinePromptStreaming, setInlinePromptStreaming] = useState(false);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [readerAiRepoMode, setReaderAiRepoMode] = useState(false);
   const [readerAiRepoModeLoading, setReaderAiRepoModeLoading] = useState(false);
@@ -1259,6 +1261,7 @@ export function App() {
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const readerAiAbortRef = useRef<AbortController | null>(null);
+  const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const saveInFlightRef = useRef(false);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
@@ -1330,7 +1333,8 @@ export function App() {
     ((renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript)) ||
       (contentLoadPending && isMarkdownFileName(currentFileName)));
   const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
-  const readerAiEditLocked = activeView === 'edit' && (readerAiSending || readerAiApplyingChanges);
+  const readerAiEditLocked =
+    activeView === 'edit' && (readerAiSending || readerAiApplyingChanges || inlinePromptStreaming);
   const readerAiHistoryDocumentKey = useMemo(
     () =>
       buildReaderAiHistoryDocumentKey({
@@ -3904,6 +3908,75 @@ export function App() {
     await streamReaderAiAssistant(messagesToReplay);
   }, [readerAiMessages, readerAiSending, streamReaderAiAssistant]);
 
+  const cancelInlinePrompt = useCallback(() => {
+    inlinePromptAbortRef.current?.abort();
+    inlinePromptAbortRef.current = null;
+  }, []);
+
+  const onInlinePromptSubmit = useCallback(
+    async ({ prompt, from, to, documentContent }: InlinePromptRequest) => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt || inlinePromptStreaming || readerAiSending || readerAiApplyingChanges) return;
+      if (!readerAiSelectedModel) {
+        showFailureToast('Select a Reader AI model before running an inline prompt.');
+        return;
+      }
+
+      const controller = new AbortController();
+      inlinePromptAbortRef.current?.abort();
+      inlinePromptAbortRef.current = controller;
+      setInlinePromptStreaming(true);
+
+      const before = documentContent.slice(0, from);
+      const after = documentContent.slice(to);
+      let streamed = '';
+
+      setNextEditContent(before + after, {
+        selection: { anchor: from, head: from },
+      });
+      setHasUserTypedUnsavedChanges(true);
+      setHasUnsavedChanges(true);
+
+      try {
+        await askReaderAiStream(
+          readerAiSelectedModel,
+          trimReaderAiSource(documentContent),
+          [{ role: 'user', content: trimmedPrompt }],
+          {
+            signal: controller.signal,
+            onDelta: (delta) => {
+              streamed += delta;
+              const nextHead = from + streamed.length;
+              setNextEditContent(before + streamed + after, {
+                selection: { anchor: nextHead, head: nextHead },
+              });
+            },
+          },
+          undefined,
+          undefined,
+          currentEditingDocPath,
+          true,
+        );
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          showFailureToast(err instanceof Error ? err.message : 'Inline AI prompt failed');
+        }
+      } finally {
+        if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
+        setInlinePromptStreaming(false);
+      }
+    },
+    [
+      currentEditingDocPath,
+      inlinePromptStreaming,
+      readerAiApplyingChanges,
+      readerAiSelectedModel,
+      readerAiSending,
+      setNextEditContent,
+      showFailureToast,
+    ],
+  );
+
   useEffect(() => {
     if (!readerAiRetryAfterProjectModeEnable || !readerAiRepoMode || readerAiSending) return;
     setReaderAiRetryAfterProjectModeEnable(false);
@@ -5679,6 +5752,9 @@ export function App() {
             loading={repoEditLoading}
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
+            onInlinePromptSubmit={onInlinePromptSubmit}
+            onCancelInlinePrompt={cancelInlinePrompt}
+            inlinePromptActive={inlinePromptStreaming}
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');
               navigate(routePathname);
