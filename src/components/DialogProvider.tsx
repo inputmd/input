@@ -9,15 +9,15 @@ import { SideBySideDiffView } from './DiffViewer';
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;
   showConfirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
-  showDiffConfirm: (
+  showDiffChoice: (
     message: string,
     changes: DiffChangeEntry[],
-    options?: DiffConfirmDialogOptions,
-  ) => Promise<boolean>;
+    options: DiffChoiceDialogOptions,
+  ) => Promise<'cancel' | 'secondary' | 'primary'>;
   showPrompt: (message: string, defaultValue?: string) => Promise<string | null>;
 }
 
-type ConfirmDialogIntent = 'default' | 'danger' | 'warning';
+type ConfirmDialogIntent = 'default' | 'danger' | 'warning' | 'success';
 type ConfirmDialogFocus = 'cancel' | 'action';
 
 interface ConfirmDialogOptions {
@@ -31,6 +31,13 @@ interface ConfirmDialogOptions {
 interface DiffConfirmDialogOptions extends ConfirmDialogOptions {
   leftLabel?: string;
   rightLabel?: string;
+}
+
+interface DiffChoiceDialogOptions extends DiffConfirmDialogOptions {
+  secondaryActionLabel: string;
+  secondaryActionIntent?: ConfirmDialogIntent;
+  primaryActionLabel: string;
+  primaryActionIntent?: ConfirmDialogIntent;
 }
 
 const DialogContext = createContext<DialogContextValue | null>(null);
@@ -50,11 +57,20 @@ type DialogState =
       options: Required<ConfirmDialogOptions>;
     }
   | {
-      type: 'diff-confirm';
+      type: 'diff-choice';
       message: string;
       changes: DiffChangeEntry[];
-      resolve: (value: boolean) => void;
-      options: Required<ConfirmDialogOptions> & Pick<Required<DiffConfirmDialogOptions>, 'leftLabel' | 'rightLabel'>;
+      resolve: (value: 'cancel' | 'secondary' | 'primary') => void;
+      options: Pick<
+        Required<DiffChoiceDialogOptions>,
+        'leftLabel' | 'rightLabel' | 'secondaryActionLabel' | 'primaryActionLabel'
+      > & {
+        defaultFocus: ConfirmDialogFocus;
+        title: string;
+        secondaryActionIntent: ConfirmDialogIntent;
+        primaryActionIntent: ConfirmDialogIntent;
+        cancelLabel: string;
+      };
     }
   | { type: 'prompt'; message: string; defaultValue: string; resolve: (value: string | null) => void };
 
@@ -64,6 +80,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
   const promptInputRef = useRef<HTMLInputElement>(null);
   const confirmCancelRef = useRef<HTMLButtonElement>(null);
   const confirmActionRef = useRef<HTMLButtonElement>(null);
+  const confirmSecondaryActionRef = useRef<HTMLButtonElement>(null);
 
   const close = useCallback(() => setDialog(null), []);
 
@@ -91,30 +108,6 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
     });
   }, []);
 
-  const showDiffConfirm = useCallback(
-    (message: string, changes: DiffChangeEntry[], options?: DiffConfirmDialogOptions): Promise<boolean> => {
-      return new Promise((resolve) => {
-        const intent = options?.intent ?? 'default';
-        setDialog({
-          type: 'diff-confirm',
-          message,
-          changes,
-          resolve,
-          options: {
-            intent,
-            title: options?.title ?? 'Confirm',
-            confirmLabel: options?.confirmLabel ?? (intent === 'danger' ? 'Delete' : 'OK'),
-            cancelLabel: options?.cancelLabel ?? 'Cancel',
-            defaultFocus: options?.defaultFocus ?? (intent === 'danger' ? 'action' : 'cancel'),
-            leftLabel: options?.leftLabel ?? 'Original',
-            rightLabel: options?.rightLabel ?? 'Updated',
-          },
-        });
-      });
-    },
-    [],
-  );
-
   const showPrompt = useCallback((message: string, defaultValue = ''): Promise<string | null> => {
     return new Promise((resolve) => {
       setPromptValue(defaultValue);
@@ -122,8 +115,44 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
     });
   }, []);
 
+  const showDiffChoice = useCallback(
+    (
+      message: string,
+      changes: DiffChangeEntry[],
+      options: DiffChoiceDialogOptions,
+    ): Promise<'cancel' | 'secondary' | 'primary'> => {
+      return new Promise((resolve) => {
+        setDialog({
+          type: 'diff-choice',
+          message,
+          changes,
+          resolve,
+          options: {
+            title: options.title ?? 'Confirm',
+            cancelLabel: options.cancelLabel ?? 'Cancel',
+            defaultFocus: options.defaultFocus ?? 'cancel',
+            leftLabel: options.leftLabel ?? 'Original',
+            rightLabel: options.rightLabel ?? 'Updated',
+            secondaryActionLabel: options.secondaryActionLabel,
+            primaryActionLabel: options.primaryActionLabel,
+            secondaryActionIntent: options.secondaryActionIntent ?? 'default',
+            primaryActionIntent: options.primaryActionIntent ?? 'default',
+          },
+        });
+      });
+    },
+    [],
+  );
+
+  const dialogActionClassName = (intent: ConfirmDialogIntent): string | undefined => {
+    if (intent === 'danger') return 'dialog-action-danger';
+    if (intent === 'warning') return 'dialog-action-warning';
+    if (intent === 'success') return 'dialog-action-success';
+    return undefined;
+  };
+
   return (
-    <DialogContext.Provider value={{ showAlert, showConfirm, showDiffConfirm, showPrompt }}>
+    <DialogContext.Provider value={{ showAlert, showConfirm, showDiffChoice, showPrompt }}>
       {children}
 
       {/* Alert Dialog */}
@@ -206,13 +235,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                 <AlertDialogPrimitive.Action asChild>
                   <button
                     ref={confirmActionRef}
-                    class={
-                      dialog.options.intent === 'danger'
-                        ? 'dialog-action-danger'
-                        : dialog.options.intent === 'warning'
-                          ? 'dialog-action-warning'
-                          : undefined
-                    }
+                    class={dialogActionClassName(dialog.options.intent)}
                     type="button"
                     onClick={() => {
                       dialog.resolve(true);
@@ -228,12 +251,12 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
         </AlertDialogPrimitive.Root>
       )}
 
-      {dialog?.type === 'diff-confirm' && (
+      {dialog?.type === 'diff-choice' && (
         <DialogPrimitive.Root
           open
           onOpenChange={(open: boolean) => {
             if (!open) {
-              dialog.resolve(false);
+              dialog.resolve('cancel');
               close();
             }
           }}
@@ -265,28 +288,33 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                   ref={confirmCancelRef}
                   type="button"
                   onClick={() => {
-                    dialog.resolve(false);
+                    dialog.resolve('cancel');
                     close();
                   }}
                 >
                   {dialog.options.cancelLabel}
                 </button>
                 <button
-                  ref={confirmActionRef}
-                  class={
-                    dialog.options.intent === 'danger'
-                      ? 'dialog-action-danger'
-                      : dialog.options.intent === 'warning'
-                        ? 'dialog-action-warning'
-                        : undefined
-                  }
+                  ref={confirmSecondaryActionRef}
+                  class={dialogActionClassName(dialog.options.secondaryActionIntent)}
                   type="button"
                   onClick={() => {
-                    dialog.resolve(true);
+                    dialog.resolve('secondary');
                     close();
                   }}
                 >
-                  {dialog.options.confirmLabel}
+                  {dialog.options.secondaryActionLabel}
+                </button>
+                <button
+                  ref={confirmActionRef}
+                  class={dialogActionClassName(dialog.options.primaryActionIntent)}
+                  type="button"
+                  onClick={() => {
+                    dialog.resolve('primary');
+                    close();
+                  }}
+                >
+                  {dialog.options.primaryActionLabel}
                 </button>
               </div>
             </DialogPrimitive.Content>

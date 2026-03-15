@@ -1015,6 +1015,7 @@ function routeShowsHeaderLeftControls(route: Route, authenticated: boolean): boo
 interface PendingDraftRestoreState {
   documentDraftKey: string;
   content: string;
+  saveAfterRestore?: boolean;
 }
 
 function generateUnifiedDiff(path: string, oldContent: string, newContent: string): string {
@@ -1037,13 +1038,14 @@ function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | nu
   if (!restoreDraft || typeof restoreDraft !== 'object') return null;
   const documentDraftKey = (restoreDraft as { documentDraftKey?: unknown }).documentDraftKey;
   const content = (restoreDraft as { content?: unknown }).content;
+  const saveAfterRestore = (restoreDraft as { saveAfterRestore?: unknown }).saveAfterRestore;
   if (typeof documentDraftKey !== 'string' || typeof content !== 'string') return null;
-  return { documentDraftKey, content };
+  return { documentDraftKey, content, saveAfterRestore: saveAfterRestore === true };
 }
 
 export function App() {
   const { route, routeState, navigate } = useRoute();
-  const { showAlert, showConfirm, showDiffConfirm, showPrompt } = useDialogs();
+  const { showAlert, showConfirm, showDiffChoice, showPrompt } = useDialogs();
   const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
 
   // --- Shared state ---
@@ -1211,6 +1213,7 @@ export function App() {
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const readerAiAbortRef = useRef<AbortController | null>(null);
+  const saveInFlightRef = useRef(false);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const prevRouteNameRef = useRef(route.name);
@@ -2845,19 +2848,6 @@ export function App() {
   ]);
 
   useEffect(() => {
-    if (activeView !== 'edit' || !currentDocumentDraftKey || currentDocumentSavedContent === null) return;
-    const pendingRestore = parsePendingDraftRestore(routeState);
-    if (!pendingRestore || pendingRestore.documentDraftKey !== currentDocumentDraftKey) return;
-    if (editContent !== pendingRestore.content) {
-      setEditContent(pendingRestore.content);
-    }
-    setHasUserTypedUnsavedChanges(false);
-    setHasUnsavedChanges(pendingRestore.content !== currentDocumentSavedContent);
-    const currentPath = window.location.pathname.replace(/^\/+/, '') || routePath.home();
-    navigate(currentPath, { replace: true, state: null });
-  }, [activeView, currentDocumentDraftKey, currentDocumentSavedContent, editContent, navigate, routeState]);
-
-  useEffect(() => {
     if (hasUnsavedChanges) return;
     setHasUserTypedUnsavedChanges(false);
   }, [hasUnsavedChanges]);
@@ -3946,9 +3936,219 @@ export function App() {
     showFailureToast,
   ]);
 
+  const applyDraftContentToEditor = useCallback(
+    (content: string) => {
+      if (activeView !== 'edit') return;
+      setEditContent(content);
+      setHasUserTypedUnsavedChanges(false);
+      setHasUnsavedChanges(content !== currentDocumentSavedContent);
+    },
+    [activeView, currentDocumentSavedContent],
+  );
+
+  const saveDocumentContent = useCallback(
+    async (options?: { content?: string; title?: string }) => {
+      if (saveInFlightRef.current || readerAiEditLocked) return false;
+      if (pendingImageUploads.size > 0) {
+        void showAlert('Wait for image uploads to finish before saving.');
+        return false;
+      }
+      const title = (options?.title ?? editTitle).trim() || DEFAULT_NEW_FILENAME;
+      const content = options?.content ?? editContent;
+      let saved = false;
+      saveInFlightRef.current = true;
+      setSaving(true);
+
+      try {
+        const instId = getInstallationId();
+        const repoName = getSelectedRepo()?.full_name ?? null;
+
+        if (editingBackend === 'repo' && currentRepoDocPath && instId && repoName) {
+          const contentB64 = encodeUtf8ToBase64(content);
+          const result = await putRepoFile(
+            instId,
+            repoName,
+            currentRepoDocPath,
+            `Update ${currentRepoDocPath}`,
+            contentB64,
+            currentRepoDocSha ?? undefined,
+          );
+          const contentSize = new TextEncoder().encode(content).length;
+          setCurrentRepoDocSha(result.content.sha);
+          setRepoSidebarFiles((prev) =>
+            prev.map((file) =>
+              file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
+            ),
+          );
+          if (isMarkdownFileName(currentRepoDocPath)) {
+            setRepoFiles((prev) =>
+              prev.map((file) =>
+                file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
+              ),
+            );
+          }
+          setCurrentDocumentSavedContent(content);
+          if (currentDocumentDraftKey) {
+            removeDocumentDraft(currentDocumentDraftKey);
+            setCurrentDocumentDraft(null);
+          }
+
+          const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
+          renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath, undefined, {
+            currentDocPath: currentRepoDocPath,
+            knownMarkdownPaths: knownMarkdownPaths.includes(currentRepoDocPath)
+              ? knownMarkdownPaths
+              : [...knownMarkdownPaths, currentRepoDocPath],
+          });
+          if (selectedRepoRef) {
+            setPostSaveVerification({
+              routeKey: routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath),
+              status: 'verifying',
+              kind: 'repo',
+              installationId: instId,
+              repoFullName: repoName,
+              path: currentRepoDocPath,
+              expectedSha: result.content.sha,
+            });
+            navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath));
+          } else {
+            navigate(routePath.workspaces());
+          }
+        } else if (editingBackend === 'repo' && repoName && instId) {
+          const filename = sanitizeTitleToFileName(title);
+          const path = filename;
+          const contentB64 = encodeUtf8ToBase64(content);
+          const result = await putRepoFile(instId, repoName, path, `Create ${filename}`, contentB64);
+          const createdFile: RepoDocFile = {
+            name: fileNameFromPath(result.content.path),
+            path: result.content.path,
+            sha: result.content.sha,
+            size: new TextEncoder().encode(content).length,
+          };
+          setRepoSidebarFiles((prev) => upsertRepoFile(prev, createdFile));
+          if (isMarkdownFileName(createdFile.path)) {
+            setRepoFiles((prev) => upsertRepoFile(prev, createdFile));
+          }
+          localStorage.removeItem(repoNewDraftKey(instId, repoName, path, 'title'));
+          localStorage.removeItem(repoNewDraftKey(instId, repoName, path, 'content'));
+          setCurrentRepoDocPath(result.content.path);
+          setCurrentRepoDocSha(result.content.sha);
+          setCurrentDocumentSavedContent(content);
+
+          const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
+          const createdPath = result.content.path;
+          renderDocumentContent(content, fileNameFromPath(createdPath), createdPath, undefined, {
+            currentDocPath: createdPath,
+            knownMarkdownPaths: knownMarkdownPaths.includes(createdPath)
+              ? knownMarkdownPaths
+              : [...knownMarkdownPaths, createdPath],
+          });
+          if (selectedRepoRef) {
+            setPostSaveVerification({
+              routeKey: routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, createdPath),
+              status: 'verifying',
+              kind: 'repo',
+              installationId: instId,
+              repoFullName: repoName,
+              path: createdPath,
+              expectedSha: result.content.sha,
+            });
+            navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, createdPath));
+          } else {
+            navigate(routePath.workspaces());
+          }
+        } else {
+          let gist: GistDetail;
+          const filename = currentFileName ?? sanitizeTitleToFileName(title);
+          if (currentGistId) {
+            gist = await updateGist(currentGistId, content, filename);
+          } else {
+            gist = await createGist(content, filename, title);
+            markGistRecentlyCreated(user?.login ?? null, gist);
+          }
+          setCurrentGistId(gist.id);
+          setCurrentFileName(filename);
+          setGistFiles(gist.files);
+          setCurrentGistCreatedAt(gist.created_at);
+          setCurrentGistUpdatedAt(gist.updated_at);
+          setCurrentDocumentSavedContent(content);
+          if (currentDocumentDraftKey) {
+            removeDocumentDraft(currentDocumentDraftKey);
+            setCurrentDocumentDraft(null);
+          }
+          if (draftMode) {
+            localStorage.removeItem(DRAFT_TITLE_KEY);
+            localStorage.removeItem(DRAFT_CONTENT_KEY);
+            setDraftMode(false);
+          }
+
+          renderDocumentContent(content, filename, null, undefined, {
+            currentDocPath: filename,
+            knownMarkdownPaths: Object.keys(gist.files),
+          });
+          setPostSaveVerification({
+            routeKey: routeKeyForGist(gist.id, filename),
+            status: 'verifying',
+            kind: 'gist',
+            gistId: gist.id,
+            filename,
+            expectedUpdatedAt: gist.updated_at,
+          });
+          navigate(routePath.gistView(gist.id, filename));
+        }
+        clearMarkdownLinkPreviewCache();
+        showSuccessToast('Saved');
+        saved = true;
+      } catch (err) {
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+          return false;
+        }
+        showRateLimitToastIfNeeded(err);
+        const staleRepoWrite = editingBackend === 'repo' && isRepoWriteConflictError(err);
+        const message = staleRepoWrite
+          ? "Save failed: your write wasn't persisted because the file changed upstream. Copy your edits, reload, merge, and save again."
+          : err instanceof Error
+            ? err.message
+            : 'Failed to save';
+        void showAlert(message);
+        return false;
+      } finally {
+        saveInFlightRef.current = false;
+        setSaving(false);
+        if (saved) setHasUnsavedChanges(false);
+      }
+
+      return true;
+    },
+    [
+      clearMarkdownLinkPreviewCache,
+      currentDocumentDraftKey,
+      currentFileName,
+      currentGistId,
+      currentRepoDocPath,
+      currentRepoDocSha,
+      draftMode,
+      editContent,
+      editTitle,
+      editingBackend,
+      handleSessionExpired,
+      navigate,
+      pendingImageUploads,
+      readerAiEditLocked,
+      renderDocumentContent,
+      repoFiles,
+      selectedRepoRef,
+      showAlert,
+      showRateLimitToastIfNeeded,
+      showSuccessToast,
+      user,
+    ],
+  );
+
   const onResetDraftChanges = useCallback(async () => {
     if (!currentDocumentDraftKey || !currentDocumentDraft || currentDocumentSavedContent === null) return;
-    const confirmed = await showDiffConfirm(
+    const action = await showDiffChoice(
       `Discard the saved local draft for "${currentDocumentLabel}" and keep the backend version?`,
       [
         {
@@ -3962,31 +4162,34 @@ export function App() {
       ],
       {
         title: 'Reset Changes',
-        confirmLabel: 'Apply Reset',
+        secondaryActionLabel: 'Apply without commit',
+        primaryActionLabel: 'Apply and commit',
         cancelLabel: 'Cancel',
-        intent: 'danger',
+        secondaryActionIntent: 'default',
+        primaryActionIntent: 'danger',
         defaultFocus: 'cancel',
         leftLabel: 'Will be discarded',
         rightLabel: 'After reset',
       },
     );
-    if (!confirmed) return;
+    if (action === 'cancel') return;
     removeDocumentDraft(currentDocumentDraftKey);
     setCurrentDocumentDraft(null);
-    if (activeView === 'edit') {
-      setEditContent(currentDocumentSavedContent);
-      setHasUserTypedUnsavedChanges(false);
-      setHasUnsavedChanges(false);
+    applyDraftContentToEditor(currentDocumentSavedContent);
+    if (action === 'primary' && activeView === 'edit') {
+      await saveDocumentContent({ content: currentDocumentSavedContent });
     }
   }, [
     activeView,
+    applyDraftContentToEditor,
     currentDocumentDraft,
     currentDocumentDraftKey,
     currentDocumentLabel,
     currentDocumentSavedContent,
     currentFileName,
     currentRepoDocPath,
-    showDiffConfirm,
+    saveDocumentContent,
+    showDiffChoice,
   ]);
 
   const onRestoreDraft = useCallback(async () => {
@@ -3997,7 +4200,7 @@ export function App() {
       currentDocumentContent === null
     )
       return;
-    const confirmed = await showDiffConfirm(
+    const action = await showDiffChoice(
       `Restore previous unsaved changes for "${currentDocumentLabel}"?`,
       [
         {
@@ -4011,19 +4214,22 @@ export function App() {
       ],
       {
         title: 'Restore previous changes',
-        confirmLabel: 'Restore',
+        secondaryActionLabel: 'Apply without commit',
+        primaryActionLabel: 'Apply and commit',
         cancelLabel: 'Cancel',
-        intent: 'warning',
+        secondaryActionIntent: 'default',
+        primaryActionIntent: 'success',
         defaultFocus: 'cancel',
         leftLabel: 'Current document',
         rightLabel: 'Previous unsaved changes',
       },
     );
-    if (!confirmed) return;
+    if (action === 'cancel') return;
     if (activeView === 'edit') {
-      setEditContent(currentDocumentDraft.content);
-      setHasUserTypedUnsavedChanges(false);
-      setHasUnsavedChanges(currentDocumentDraft.content !== currentDocumentSavedContent);
+      applyDraftContentToEditor(currentDocumentDraft.content);
+      if (action === 'primary') {
+        await saveDocumentContent({ content: currentDocumentDraft.content });
+      }
       return;
     }
     if (repoAccessMode === 'installed' && currentRepoDocPath && selectedRepoRef) {
@@ -4032,6 +4238,7 @@ export function App() {
           restoreDraft: {
             documentDraftKey: currentDocumentDraftKey,
             content: currentDocumentDraft.content,
+            saveAfterRestore: action === 'primary',
           },
         },
       });
@@ -4043,217 +4250,55 @@ export function App() {
           restoreDraft: {
             documentDraftKey: currentDocumentDraftKey,
             content: currentDocumentDraft.content,
+            saveAfterRestore: action === 'primary',
           },
         },
       });
     }
   }, [
     activeView,
+    applyDraftContentToEditor,
     currentDocumentDraft,
     currentDocumentDraftKey,
     currentDocumentContent,
     currentDocumentLabel,
-    currentDocumentSavedContent,
     currentFileName,
     currentGistId,
     currentRepoDocPath,
     hasRestorableDocumentDraft,
     navigate,
     repoAccessMode,
+    saveDocumentContent,
     selectedRepoRef,
-    showDiffConfirm,
+    showDiffChoice,
   ]);
 
   const onSave = useCallback(async () => {
-    if (readerAiEditLocked) return;
-    if (pendingImageUploads.size > 0) {
-      void showAlert('Wait for image uploads to finish before saving.');
-      return;
+    await saveDocumentContent();
+  }, [saveDocumentContent]);
+
+  useEffect(() => {
+    if (activeView !== 'edit' || !currentDocumentDraftKey || currentDocumentSavedContent === null) return;
+    const pendingRestore = parsePendingDraftRestore(routeState);
+    if (!pendingRestore || pendingRestore.documentDraftKey !== currentDocumentDraftKey) return;
+    if (editContent !== pendingRestore.content) {
+      setEditContent(pendingRestore.content);
     }
-    const title = editTitle.trim() || DEFAULT_NEW_FILENAME;
-    const content = editContent;
-    let saved = false;
-    setSaving(true);
-
-    try {
-      const instId = getInstallationId();
-      const repoName = getSelectedRepo()?.full_name ?? null;
-
-      if (editingBackend === 'repo' && currentRepoDocPath && instId && repoName) {
-        const contentB64 = encodeUtf8ToBase64(content);
-        const result = await putRepoFile(
-          instId,
-          repoName,
-          currentRepoDocPath,
-          `Update ${currentRepoDocPath}`,
-          contentB64,
-          currentRepoDocSha ?? undefined,
-        );
-        const contentSize = new TextEncoder().encode(content).length;
-        setCurrentRepoDocSha(result.content.sha);
-        setRepoSidebarFiles((prev) =>
-          prev.map((file) =>
-            file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
-          ),
-        );
-        if (isMarkdownFileName(currentRepoDocPath)) {
-          setRepoFiles((prev) =>
-            prev.map((file) =>
-              file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
-            ),
-          );
-        }
-        setCurrentDocumentSavedContent(content);
-        if (currentDocumentDraftKey) {
-          removeDocumentDraft(currentDocumentDraftKey);
-          setCurrentDocumentDraft(null);
-        }
-
-        const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
-        renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath, undefined, {
-          currentDocPath: currentRepoDocPath,
-          knownMarkdownPaths: knownMarkdownPaths.includes(currentRepoDocPath)
-            ? knownMarkdownPaths
-            : [...knownMarkdownPaths, currentRepoDocPath],
-        });
-        if (selectedRepoRef) {
-          setPostSaveVerification({
-            routeKey: routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath),
-            status: 'verifying',
-            kind: 'repo',
-            installationId: instId,
-            repoFullName: repoName,
-            path: currentRepoDocPath,
-            expectedSha: result.content.sha,
-          });
-          navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath));
-        } else {
-          navigate(routePath.workspaces());
-        }
-      } else if (editingBackend === 'repo' && repoName && instId) {
-        const filename = sanitizeTitleToFileName(title);
-        const path = filename;
-        const contentB64 = encodeUtf8ToBase64(content);
-        const result = await putRepoFile(instId, repoName, path, `Create ${filename}`, contentB64);
-        const createdFile: RepoDocFile = {
-          name: fileNameFromPath(result.content.path),
-          path: result.content.path,
-          sha: result.content.sha,
-          size: new TextEncoder().encode(content).length,
-        };
-        setRepoSidebarFiles((prev) => upsertRepoFile(prev, createdFile));
-        if (isMarkdownFileName(createdFile.path)) {
-          setRepoFiles((prev) => upsertRepoFile(prev, createdFile));
-        }
-        localStorage.removeItem(repoNewDraftKey(instId, repoName, path, 'title'));
-        localStorage.removeItem(repoNewDraftKey(instId, repoName, path, 'content'));
-        setCurrentRepoDocPath(result.content.path);
-        setCurrentRepoDocSha(result.content.sha);
-        setCurrentDocumentSavedContent(content);
-
-        const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
-        const createdPath = result.content.path;
-        renderDocumentContent(content, fileNameFromPath(createdPath), createdPath, undefined, {
-          currentDocPath: createdPath,
-          knownMarkdownPaths: knownMarkdownPaths.includes(createdPath)
-            ? knownMarkdownPaths
-            : [...knownMarkdownPaths, createdPath],
-        });
-        if (selectedRepoRef) {
-          setPostSaveVerification({
-            routeKey: routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, createdPath),
-            status: 'verifying',
-            kind: 'repo',
-            installationId: instId,
-            repoFullName: repoName,
-            path: createdPath,
-            expectedSha: result.content.sha,
-          });
-          navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, createdPath));
-        } else {
-          navigate(routePath.workspaces());
-        }
-      } else {
-        let gist: GistDetail;
-        const filename = currentFileName ?? sanitizeTitleToFileName(title);
-        if (currentGistId) {
-          gist = await updateGist(currentGistId, content, filename);
-        } else {
-          gist = await createGist(content, filename, title);
-          markGistRecentlyCreated(user?.login ?? null, gist);
-        }
-        setCurrentGistId(gist.id);
-        setCurrentFileName(filename);
-        setGistFiles(gist.files);
-        setCurrentGistCreatedAt(gist.created_at);
-        setCurrentGistUpdatedAt(gist.updated_at);
-        setCurrentDocumentSavedContent(content);
-        if (currentDocumentDraftKey) {
-          removeDocumentDraft(currentDocumentDraftKey);
-          setCurrentDocumentDraft(null);
-        }
-        if (draftMode) {
-          localStorage.removeItem(DRAFT_TITLE_KEY);
-          localStorage.removeItem(DRAFT_CONTENT_KEY);
-          setDraftMode(false);
-        }
-
-        renderDocumentContent(content, filename, null, undefined, {
-          currentDocPath: filename,
-          knownMarkdownPaths: Object.keys(gist.files),
-        });
-        setPostSaveVerification({
-          routeKey: routeKeyForGist(gist.id, filename),
-          status: 'verifying',
-          kind: 'gist',
-          gistId: gist.id,
-          filename,
-          expectedUpdatedAt: gist.updated_at,
-        });
-        navigate(routePath.gistView(gist.id, filename));
-      }
-      clearMarkdownLinkPreviewCache();
-      showSuccessToast('Saved');
-      saved = true;
-    } catch (err) {
-      if (err instanceof SessionExpiredError) {
-        handleSessionExpired();
-        return;
-      }
-      showRateLimitToastIfNeeded(err);
-      const staleRepoWrite = editingBackend === 'repo' && isRepoWriteConflictError(err);
-      const message = staleRepoWrite
-        ? "Save failed: your write wasn't persisted because the file changed upstream. Copy your edits, reload, merge, and save again."
-        : err instanceof Error
-          ? err.message
-          : 'Failed to save';
-      void showAlert(message);
-    } finally {
-      setSaving(false);
-      if (saved) setHasUnsavedChanges(false);
+    setHasUserTypedUnsavedChanges(false);
+    setHasUnsavedChanges(pendingRestore.content !== currentDocumentSavedContent);
+    const currentPath = window.location.pathname.replace(/^\/+/, '') || routePath.home();
+    navigate(currentPath, { replace: true, state: null });
+    if (pendingRestore.saveAfterRestore) {
+      void saveDocumentContent({ content: pendingRestore.content });
     }
   }, [
-    editTitle,
-    editContent,
-    editingBackend,
-    readerAiEditLocked,
-    pendingImageUploads,
-    currentRepoDocPath,
-    currentRepoDocSha,
-    currentGistId,
-    currentFileName,
-    draftMode,
-    navigate,
-    handleSessionExpired,
-    user,
-    showAlert,
-    showRateLimitToastIfNeeded,
-    showSuccessToast,
-    clearMarkdownLinkPreviewCache,
+    activeView,
     currentDocumentDraftKey,
-    renderDocumentContent,
-    repoFiles,
-    selectedRepoRef,
+    currentDocumentSavedContent,
+    editContent,
+    navigate,
+    routeState,
+    saveDocumentContent,
   ]);
 
   const getActiveDocumentStore = useCallback(() => {
