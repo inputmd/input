@@ -8,6 +8,7 @@ interface EditViewProps {
   previewHtml: string;
   previewVisible: boolean;
   canRenderPreview: boolean;
+  scrollStorageKey?: string | null;
   loading?: boolean;
   onTogglePreview: () => void;
   onContentChange: (content: string) => void;
@@ -30,6 +31,7 @@ export function EditView({
   previewHtml,
   previewVisible,
   canRenderPreview,
+  scrollStorageKey = null,
   loading = false,
   onTogglePreview,
   onContentChange,
@@ -119,8 +121,10 @@ export function EditView({
           </div>
         ) : null}
         <MarkdownEditor
+          key={scrollStorageKey ?? 'document-editor'}
           class="doc-editor"
           content={content}
+          scrollStorageKey={scrollStorageKey}
           onContentChange={onContentChange}
           onPaste={onEditorPaste}
           readOnly={locked || loading}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { TextCodeView } from '../components/TextCodeView';
+import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 
 interface MarkdownLinkPreview {
@@ -11,6 +12,7 @@ interface MarkdownLinkPreview {
 interface ContentViewProps {
   html: string;
   markdown: boolean;
+  scrollStorageKey?: string | null;
   plainText?: string | null;
   plainTextFileName?: string | null;
   loading?: boolean;
@@ -79,6 +81,7 @@ function safeCssEscape(value: string): string {
 export function ContentView({
   html,
   markdown,
+  scrollStorageKey = null,
   plainText = null,
   plainTextFileName = null,
   loading = false,
@@ -100,6 +103,7 @@ export function ContentView({
   const pointerDownRef = useRef(false);
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const currentScrollStorageKeyRef = useRef<string | null>(null);
   const [preview, setPreview] = useState<LinkPreviewState>({
     visible: false,
     loading: false,
@@ -146,6 +150,44 @@ export function ContentView({
       clearHoverDelay();
     };
   }, [clearHoverDelay]);
+
+  useEffect(() => {
+    const syncScrollPosition = () => {
+      const key = currentScrollStorageKeyRef.current;
+      if (!key) return;
+      setStoredScrollPosition(key, window.scrollY);
+    };
+
+    window.addEventListener('scroll', syncScrollPosition, { passive: true });
+    return () => {
+      syncScrollPosition();
+      window.removeEventListener('scroll', syncScrollPosition);
+    };
+  }, []);
+
+  useEffect(() => {
+    const previousKey = currentScrollStorageKeyRef.current;
+    if (previousKey === scrollStorageKey) return;
+
+    if (previousKey) {
+      setStoredScrollPosition(previousKey, window.scrollY);
+    }
+
+    currentScrollStorageKeyRef.current = scrollStorageKey;
+    const nextScrollTop = scrollStorageKey ? (getStoredScrollPosition(scrollStorageKey) ?? 0) : 0;
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: nextScrollTop, behavior: 'auto' });
+    });
+  }, [scrollStorageKey]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!scrollStorageKey) return;
+    const nextScrollTop = getStoredScrollPosition(scrollStorageKey) ?? 0;
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: nextScrollTop, behavior: 'auto' });
+    });
+  }, [loading, scrollStorageKey]);
 
   useEffect(() => {
     if (!markdown || loading) return;
@@ -655,7 +697,7 @@ export function ContentView({
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ) : plainText !== null ? (
-        <TextCodeView content={plainText} fileName={plainTextFileName} />
+        <TextCodeView content={plainText} fileName={plainTextFileName} scrollStorageKey={scrollStorageKey} />
       ) : (
         <pre class="rendered-content" dangerouslySetInnerHTML={{ __html: html }} />
       )}

@@ -13,6 +13,7 @@ import {
 import { tags } from '@lezer/highlight';
 import type { InlineParser, MarkdownExtension } from '@lezer/markdown';
 import { useEffect, useRef } from 'preact/hooks';
+import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
@@ -52,6 +53,7 @@ interface MarkdownEditorProps {
   onPaste?: (event: ClipboardEvent, view: EditorView) => void;
   readOnly?: boolean;
   placeholder?: string;
+  scrollStorageKey?: string | null;
   class?: string;
 }
 
@@ -61,12 +63,16 @@ export function MarkdownEditor({
   onPaste,
   readOnly = false,
   placeholder = 'Write your markdown here...',
+  scrollStorageKey = null,
   class: className,
 }: MarkdownEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
+  const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
+  const pendingScrollRestoreKeyRef = useRef<string | null>(null);
+  const restoreScrollPositionRef = useRef<(() => void) | null>(null);
 
   // Stable refs for callbacks
   const onContentChangeRef = useRef(onContentChange);
@@ -77,6 +83,10 @@ export function MarkdownEditor({
   // Track local content updates until the parent acknowledges them via props.
   // This avoids replaying stale controlled values back into CodeMirror while typing.
   const pendingLocalContentRef = useRef<string[]>([]);
+
+  const readScrollPosition = (view: EditorView): number => {
+    return Math.max(view.scrollDOM.scrollTop, window.scrollY);
+  };
 
   // Create editor on mount — intentionally empty deps
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect; content/readOnly/placeholder synced via separate effects
@@ -136,8 +146,41 @@ export function MarkdownEditor({
 
     const view = new EditorView({ state, parent: containerRef.current });
     viewRef.current = view;
+    currentScrollStorageKeyRef.current = scrollStorageKey;
+
+    restoreScrollPositionRef.current = () => {
+      const key = currentScrollStorageKeyRef.current;
+      const nextScrollTop = key ? (getStoredScrollPosition(key) ?? 0) : 0;
+      window.requestAnimationFrame(() => {
+        if (viewRef.current !== view) return;
+        view.scrollDOM.scrollTop = nextScrollTop;
+        window.scrollTo({ top: nextScrollTop, behavior: 'auto' });
+      });
+    };
+
+    const syncScrollPosition = () => {
+      const key = currentScrollStorageKeyRef.current;
+      if (!key) return;
+      setStoredScrollPosition(key, readScrollPosition(view));
+    };
+    view.scrollDOM.addEventListener('scroll', syncScrollPosition, { passive: true });
+    window.addEventListener('scroll', syncScrollPosition, { passive: true });
+
+    const persistOnPageHide = () => {
+      syncScrollPosition();
+    };
+    window.addEventListener('pagehide', persistOnPageHide);
+    window.addEventListener('beforeunload', persistOnPageHide);
+
+    restoreScrollPositionRef.current();
 
     return () => {
+      syncScrollPosition();
+      view.scrollDOM.removeEventListener('scroll', syncScrollPosition);
+      window.removeEventListener('scroll', syncScrollPosition);
+      window.removeEventListener('pagehide', persistOnPageHide);
+      window.removeEventListener('beforeunload', persistOnPageHide);
+      restoreScrollPositionRef.current = null;
       view.destroy();
       viewRef.current = null;
     };
@@ -151,6 +194,10 @@ export function MarkdownEditor({
     const currentDoc = view.state.doc.toString();
     if (content === currentDoc) {
       pendingLocalContentRef.current = [];
+      if (pendingScrollRestoreKeyRef.current === scrollStorageKey) {
+        pendingScrollRestoreKeyRef.current = null;
+        restoreScrollPositionRef.current?.();
+      }
       return;
     }
 
@@ -165,7 +212,32 @@ export function MarkdownEditor({
     const transaction = buildExternalContentSyncTransaction(view.state, content);
     if (!transaction) return;
     view.dispatch(transaction);
-  }, [content]);
+
+    if (pendingScrollRestoreKeyRef.current === scrollStorageKey) {
+      pendingScrollRestoreKeyRef.current = null;
+    }
+    restoreScrollPositionRef.current?.();
+  }, [content, scrollStorageKey]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) {
+      currentScrollStorageKeyRef.current = scrollStorageKey;
+      return;
+    }
+
+    const previousKey = currentScrollStorageKeyRef.current;
+    if (previousKey === scrollStorageKey) return;
+
+    if (previousKey) {
+      setStoredScrollPosition(previousKey, Math.max(view.scrollDOM.scrollTop, window.scrollY));
+    }
+
+    currentScrollStorageKeyRef.current = scrollStorageKey;
+    pendingScrollRestoreKeyRef.current = scrollStorageKey;
+
+    restoreScrollPositionRef.current?.();
+  }, [scrollStorageKey]);
 
   // Sync readOnly
   useEffect(() => {

@@ -834,7 +834,18 @@ function routeKeyFromRoute(route: Route): string | null {
     const filename = route.params.filename ? safeDecodeURIComponent(route.params.filename) : undefined;
     return routeKeyForGist(route.params.id, filename);
   }
+  if (route.name === 'edit') {
+    const filename = route.params.filename ? safeDecodeURIComponent(route.params.filename) : undefined;
+    return routeKeyForGist(route.params.id, filename);
+  }
   if (route.name === 'repofile') {
+    return routeKeyForRepo(
+      safeDecodeURIComponent(route.params.owner),
+      safeDecodeURIComponent(route.params.repo),
+      safeDecodeURIComponent(route.params.path).replace(/^\/+/, ''),
+    );
+  }
+  if (route.name === 'repoedit') {
     return routeKeyForRepo(
       safeDecodeURIComponent(route.params.owner),
       safeDecodeURIComponent(route.params.repo),
@@ -1282,6 +1293,10 @@ export function App() {
         route,
       }),
     [currentRepoDocPath, currentGistId, currentFileName, repoAccessMode, selectedRepo, publicRepoRef, route],
+  );
+  const currentDocumentScrollKey = useMemo(
+    () => routeKeyFromRoute(route) ?? readerAiHistoryDocumentKey,
+    [route, readerAiHistoryDocumentKey],
   );
   const isContentRoute = useCallback((nextRoute: Route) => {
     return nextRoute.name === 'gist' || nextRoute.name === 'repofile' || nextRoute.name === 'sharefile';
@@ -5293,6 +5308,7 @@ export function App() {
           <ContentView
             html={renderedHtml}
             markdown={renderMode === 'markdown' || renderMode === 'image'}
+            scrollStorageKey={currentDocumentScrollKey}
             plainText={renderMode === 'ansi' && !contentImagePreview ? renderedText : null}
             plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
             loading={contentLoadPending}
@@ -5316,6 +5332,7 @@ export function App() {
             previewHtml={editPreviewHtml}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
+            scrollStorageKey={currentDocumentScrollKey}
             loading={repoEditLoading}
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
