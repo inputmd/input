@@ -421,9 +421,8 @@ export function EditView({
           </div>
         ) : null}
         {loading ? (
-          <div class="editor-loading-overlay" role="status" aria-live="polite">
+          <div class="editor-loading-overlay" role="status" aria-live="polite" aria-label="Loading file into editor">
             <span class="editor-loading-spinner" aria-hidden="true" />
-            <span>Loading file into editor...</span>
           </div>
         ) : null}
         {markdown ? (

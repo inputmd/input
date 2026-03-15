@@ -151,9 +151,17 @@ body {
   margin-left: var(--sidebar-width, 220px);
 }
 
+.app-body--with-sidebar .editor-loading-overlay {
+  left: var(--sidebar-width, 220px);
+}
+
 @media (max-width: 768px) {
   .app-body--with-sidebar main {
     margin-left: 0;
+  }
+
+  .app-body--with-sidebar .editor-loading-overlay {
+    left: 0;
   }
 }
 

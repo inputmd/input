@@ -85,16 +85,20 @@
 }
 
 .editor-loading-overlay {
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  top: var(--toolbar-height);
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
-  color: var(--text-secondary);
-  font-size: 14px;
+}
+
+.editor-loading-overlay .editor-loading-spinner {
+  margin-top: -6px;
 }
 
 .editor-loading-spinner {
