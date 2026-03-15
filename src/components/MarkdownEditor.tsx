@@ -1,3 +1,4 @@
+import { autocompletion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
@@ -15,6 +16,7 @@ import type { InlineParser, MarkdownExtension } from '@lezer/markdown';
 import { useEffect, useRef } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { continuedIndentExtension } from './codemirror_continued_indent';
+import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
@@ -119,6 +121,7 @@ export function MarkdownEditor({
         indentOnInput(),
         syntaxHighlighting(appCodeMirrorHighlighter),
         bracketMatching(),
+        autocompletion({ override: [emojiCompletionSource] }),
         markdown({
           base: markdownLanguage,
           extensions: [{ remove: ['SetextHeading', 'IndentedCode'] }, wikiLinkMarkdownExtension],
