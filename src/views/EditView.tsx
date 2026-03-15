@@ -121,7 +121,6 @@ export function EditView({
           </div>
         ) : null}
         <MarkdownEditor
-          key={scrollStorageKey ?? 'document-editor'}
           class="doc-editor"
           content={content}
           scrollStorageKey={scrollStorageKey}
