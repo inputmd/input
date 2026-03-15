@@ -5544,6 +5544,11 @@ export function App() {
             loading={repoEditLoading}
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
+            onInternalLinkNavigate={(rawRoute) => {
+              const routePathname = rawRoute.replace(/^\/+/, '');
+              navigate(routePathname);
+            }}
+            onRequestMarkdownLinkPreview={onRequestMarkdownLinkPreview}
             onPreviewImageClick={onOpenLightbox}
             onEditorPaste={editPreviewEnabled ? handleEditorPaste : undefined}
             saving={saving}
