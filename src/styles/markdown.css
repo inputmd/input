@@ -582,6 +582,7 @@
 .rendered-markdown sup.superscript-link {
   font-size: 0.78em;
   line-height: 1;
+  margin-left: 1px;
   vertical-align: super;
 }
 

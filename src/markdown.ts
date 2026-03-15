@@ -56,6 +56,33 @@ function escapeHtmlAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function deriveSuperscriptLinkLabel(text: string, href: string): string {
+  if (text !== 'src') return text;
+
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return text;
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (
+    hostname !== 'twitter.com' &&
+    hostname !== 'www.twitter.com' &&
+    hostname !== 'x.com' &&
+    hostname !== 'www.x.com'
+  ) {
+    return text;
+  }
+
+  const segments = url.pathname.split('/').filter(Boolean);
+  const firstSegment = segments[0];
+  if (!firstSegment || firstSegment.toLowerCase() === 'i') return text;
+
+  return firstSegment;
+}
+
 marked.use({
   tokenizer: {
     // Disable setext headings (`text` followed by `---`/`===`) so lone dashes stay literal content.
@@ -89,7 +116,8 @@ marked.use({
         };
       },
       renderer(token) {
-        const labelHtml = this.parser.parseInline(token.tokens ?? []);
+        const label = deriveSuperscriptLinkLabel(token.text, token.href);
+        const labelHtml = label === token.text ? this.parser.parseInline(token.tokens ?? []) : escapeHtmlAttr(label);
         return `<sup class="superscript-link"><a href="${escapeHtmlAttr(token.href)}">${labelHtml}</a></sup>`;
       },
     },
