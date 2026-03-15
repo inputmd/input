@@ -92,7 +92,7 @@ export function MarkdownEditor({
   const latestLocalRevisionRef = useRef(0);
 
   const readScrollPosition = (view: EditorView): number => {
-    return Math.max(view.scrollDOM.scrollTop, window.scrollY);
+    return view.scrollDOM.scrollTop;
   };
 
   // Create editor on mount — intentionally empty deps
@@ -167,7 +167,6 @@ export function MarkdownEditor({
       window.requestAnimationFrame(() => {
         if (viewRef.current !== view) return;
         view.scrollDOM.scrollTop = nextScrollTop;
-        window.scrollTo({ top: nextScrollTop, behavior: 'auto' });
       });
     };
 
@@ -177,7 +176,6 @@ export function MarkdownEditor({
       setStoredScrollPosition(key, readScrollPosition(view));
     };
     view.scrollDOM.addEventListener('scroll', syncScrollPosition, { passive: true });
-    window.addEventListener('scroll', syncScrollPosition, { passive: true });
 
     const persistOnPageHide = () => {
       syncScrollPosition();
@@ -190,7 +188,6 @@ export function MarkdownEditor({
     return () => {
       syncScrollPosition();
       view.scrollDOM.removeEventListener('scroll', syncScrollPosition);
-      window.removeEventListener('scroll', syncScrollPosition);
       window.removeEventListener('pagehide', persistOnPageHide);
       window.removeEventListener('beforeunload', persistOnPageHide);
       restoreScrollPositionRef.current = null;
@@ -238,7 +235,7 @@ export function MarkdownEditor({
     if (previousKey === scrollStorageKey) return;
 
     if (previousKey) {
-      setStoredScrollPosition(previousKey, Math.max(view.scrollDOM.scrollTop, window.scrollY));
+      setStoredScrollPosition(previousKey, view.scrollDOM.scrollTop);
     }
 
     currentScrollStorageKeyRef.current = scrollStorageKey;
