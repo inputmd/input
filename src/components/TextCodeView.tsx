@@ -1,64 +1,11 @@
-import { css } from '@codemirror/lang-css';
-import { html as htmlLanguage } from '@codemirror/lang-html';
-import { javascript } from '@codemirror/lang-javascript';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { python } from '@codemirror/lang-python';
-import { yaml } from '@codemirror/lang-yaml';
 import { syntaxHighlighting } from '@codemirror/language';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
 import { useEffect, useRef } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { continuedIndentExtension } from './codemirror_continued_indent';
+import { detectedLanguageForFileName } from './codemirror_languages';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
-
-function extensionForFileName(fileName: string | null | undefined): string | null {
-  if (!fileName) return null;
-  const match = /\.([^.]+)$/i.exec(fileName);
-  return match ? match[1].toLowerCase() : null;
-}
-
-interface DetectedLanguage {
-  label: string;
-  extensions: Extension[];
-}
-
-function detectedLanguageForFileName(fileName: string | null | undefined): DetectedLanguage | null {
-  const extension = extensionForFileName(fileName);
-  switch (extension) {
-    case 'js':
-    case 'jsonc':
-    case 'json':
-      return { label: 'JavaScript', extensions: [javascript()] };
-    case 'ts':
-      return { label: 'TypeScript', extensions: [javascript({ typescript: true })] };
-    case 'jsx':
-      return { label: 'JSX', extensions: [javascript({ jsx: true })] };
-    case 'tsx':
-      return { label: 'TSX', extensions: [javascript({ typescript: true, jsx: true })] };
-    case 'py':
-      return { label: 'Python', extensions: [python()] };
-    case 'css':
-    case 'scss':
-      return { label: 'CSS', extensions: [css()] };
-    case 'html':
-      return { label: 'HTML', extensions: [htmlLanguage()] };
-    case 'yml':
-    case 'yaml':
-      return { label: 'YAML', extensions: [yaml()] };
-    case 'md':
-    case 'mdown':
-    case 'mdwn':
-    case 'markdown':
-    case 'mdx':
-      return {
-        label: 'Markdown',
-        extensions: [markdown({ base: markdownLanguage, extensions: [{ remove: ['IndentedCode'] }] })],
-      };
-    default:
-      return null;
-  }
-}
 
 interface TextCodeViewProps {
   content: string;

@@ -222,6 +222,10 @@ function isSidebarTextListPath(path: string): boolean {
   return isSidebarTextFileName(path) || isKeepFilePath(path);
 }
 
+function isEditableTextFilePath(path: string | null | undefined): boolean {
+  return Boolean(path && isSidebarTextListPath(path));
+}
+
 function isVisibleSidebarFilePath(path: string): boolean {
   return !isKeepFilePath(path);
 }
@@ -4550,16 +4554,14 @@ export function App() {
   const navigateToSidebarFile = useCallback(
     (filePath: string) => {
       discardCurrentDocumentChanges();
-      const shouldEditMarkdown = activeView === 'edit' && isMarkdownFileName(filePath);
+      const shouldEditFile = activeView === 'edit' && isEditableTextFilePath(filePath);
       if (currentGistId) {
         navigate(
-          shouldEditMarkdown
-            ? routePath.gistEdit(currentGistId, filePath)
-            : routePath.gistView(currentGistId, filePath),
+          shouldEditFile ? routePath.gistEdit(currentGistId, filePath) : routePath.gistView(currentGistId, filePath),
         );
       } else if (repoAccessMode === 'installed' && selectedRepoRef) {
         navigate(
-          shouldEditMarkdown
+          shouldEditFile
             ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, filePath)
             : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, filePath),
         );
@@ -4668,7 +4670,7 @@ export function App() {
           }
           setHasUnsavedChanges(false);
           if (selectedRepoRef) {
-            if (isMarkdownFileName(result.content.path)) {
+            if (isEditableTextFilePath(result.content.path)) {
               navigate(routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, result.content.path));
             } else {
               navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, result.content.path));
@@ -4792,7 +4794,7 @@ export function App() {
         showFailureToast('Reader AI is working. Wait for it to finish before switching files.');
         return;
       }
-      if (!isMarkdownFileName(filePath)) return;
+      if (!isEditableTextFilePath(filePath)) return;
       if (activeView === 'edit' && currentFileName === filePath) return;
 
       const target = currentGistId
@@ -5529,6 +5531,8 @@ export function App() {
       case 'edit':
         return (
           <EditView
+            fileName={editingFileName}
+            markdown={editPreviewEnabled}
             content={editContent}
             contentOrigin={editContentOrigin}
             contentRevision={editContentRevision}
@@ -5541,7 +5545,7 @@ export function App() {
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
             onPreviewImageClick={onOpenLightbox}
-            onEditorPaste={handleEditorPaste}
+            onEditorPaste={editPreviewEnabled ? handleEditorPaste : undefined}
             saving={saving}
             canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
             hasUserTypedUnsavedChanges={hasUserTypedUnsavedChanges}
@@ -5580,7 +5584,7 @@ export function App() {
         .map((path) => ({
           path,
           active: path === currentFileName,
-          editable: isMarkdownFileName(path),
+          editable: isEditableTextFilePath(path),
           deemphasized: !isSidebarTextFileName(path),
           size: gistFiles[path]?.size,
         }))
@@ -5594,7 +5598,7 @@ export function App() {
       const files = sourceFiles.map((f) => ({
         path: f.path,
         active: f.path === currentRepoDocPath,
-        editable: isMarkdownFileName(f.path),
+        editable: isEditableTextFilePath(f.path),
         deemphasized: !isSidebarTextFileName(f.path),
         size: f.size,
       }));
@@ -5855,7 +5859,7 @@ export function App() {
   );
   const showHeaderEdit =
     activeView === 'content' &&
-    isMarkdownFileName(currentFileName) &&
+    isEditableTextFilePath(currentFileName) &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible;

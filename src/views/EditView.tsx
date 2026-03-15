@@ -2,8 +2,11 @@ import type { EditorView } from '@codemirror/view';
 import type { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { MarkdownEditor } from '../components/MarkdownEditor';
+import { TextEditor } from '../components/TextEditor';
 
 interface EditViewProps {
+  fileName?: string | null;
+  markdown?: boolean;
   content: string;
   contentOrigin?: 'local' | 'external';
   contentRevision?: number;
@@ -30,6 +33,8 @@ interface EditViewProps {
 }
 
 export function EditView({
+  fileName = null,
+  markdown = true,
   content,
   contentOrigin = 'external',
   contentRevision = 0,
@@ -88,7 +93,9 @@ export function EditView({
   };
 
   const layoutStyle =
-    previewVisible && canRenderPreview ? { gridTemplateColumns: `${splitPercent}% 0 minmax(0, 1fr)` } : undefined;
+    markdown && previewVisible && canRenderPreview
+      ? { gridTemplateColumns: `${splitPercent}% 0 minmax(0, 1fr)` }
+      : undefined;
 
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
@@ -126,18 +133,32 @@ export function EditView({
             <span>Loading file into editor...</span>
           </div>
         ) : null}
-        <MarkdownEditor
-          class="doc-editor"
-          content={content}
-          contentOrigin={contentOrigin}
-          contentRevision={contentRevision}
-          contentSelection={contentSelection}
-          scrollStorageKey={scrollStorageKey}
-          onContentChange={onContentChange}
-          onPaste={onEditorPaste}
-          readOnly={locked || loading}
-        />
-        {previewVisible && canRenderPreview && (
+        {markdown ? (
+          <MarkdownEditor
+            class="doc-editor"
+            content={content}
+            contentOrigin={contentOrigin}
+            contentRevision={contentRevision}
+            contentSelection={contentSelection}
+            scrollStorageKey={scrollStorageKey}
+            onContentChange={onContentChange}
+            onPaste={onEditorPaste}
+            readOnly={locked || loading}
+          />
+        ) : (
+          <TextEditor
+            class="doc-editor"
+            fileName={fileName}
+            content={content}
+            contentOrigin={contentOrigin}
+            contentRevision={contentRevision}
+            contentSelection={contentSelection}
+            scrollStorageKey={scrollStorageKey}
+            onContentChange={onContentChange}
+            readOnly={locked || loading}
+          />
+        )}
+        {markdown && previewVisible && canRenderPreview && (
           <>
             <div
               class="editor-splitter"
@@ -155,7 +176,7 @@ export function EditView({
           </>
         )}
       </div>
-      {previewVisible && !canRenderPreview && (
+      {markdown && previewVisible && !canRenderPreview && (
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane">
