@@ -128,6 +128,10 @@ const PASTED_IMAGE_MAX_SIDE_PX = 1600;
 const PASTED_IMAGE_QUALITY = 0.82;
 const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
+function displayReaderAiModelName(name: string): string {
+  return name.replace(/\s+\(free\)\s*$/i, '');
+}
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
@@ -1335,6 +1339,10 @@ export function App() {
   const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
   const readerAiEditLocked =
     activeView === 'edit' && (readerAiSending || readerAiApplyingChanges || inlinePromptStreaming);
+  const editorLockLabel = useMemo(() => {
+    const selectedModel = readerAiModels.find((model) => model.id === readerAiSelectedModel);
+    return displayReaderAiModelName(selectedModel?.name ?? '') || 'Reader AI';
+  }, [readerAiModels, readerAiSelectedModel]);
   const readerAiHistoryDocumentKey = useMemo(
     () =>
       buildReaderAiHistoryDocumentKey({
@@ -5767,6 +5775,7 @@ export function App() {
             hasUserTypedUnsavedChanges={hasUserTypedUnsavedChanges}
             onSave={onSave}
             locked={readerAiEditLocked}
+            lockLabel={editorLockLabel}
             imageUploadIssue={
               failedImageUpload
                 ? {
