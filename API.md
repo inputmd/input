@@ -60,6 +60,8 @@ Sessions are stored server-side in SQLite (`DATABASE_PATH`) and keyed by an `Htt
 
 `POST /api/ai/apply` accepts `changes` plus `file_contents` and applies them directly to GitHub (gist/repo) without requiring an active Reader AI project session.
 
+When `OPENROUTER_PAID_API_KEY` is set, `/api/ai/models` also includes a hardcoded paid-model list. Those models always route through the paid key, while the existing free-model list continues to use `OPENROUTER_API_KEY`.
+
 ## Gist proxy
 
 `GET /api/gists/:id` proxies public gist reads through the server with an in-memory LRU cache. The frontend uses this as a fallback when direct GitHub API calls fail (e.g. due to rate limiting).

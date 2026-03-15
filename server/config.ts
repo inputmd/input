@@ -18,6 +18,7 @@ export const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8 MB
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 export const SHARE_TOKEN_SECRET = process.env.SHARE_TOKEN_SECRET ?? '';
 export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
+export const OPENROUTER_PAID_API_KEY = process.env.OPENROUTER_PAID_API_KEY ?? '';
 const shareTokenTtlSecondsRaw = Number.parseInt(process.env.SHARE_TOKEN_TTL_SECONDS ?? '604800', 10);
 export const SHARE_TOKEN_TTL_SECONDS =
   Number.isFinite(shareTokenTtlSecondsRaw) && shareTokenTtlSecondsRaw > 0 ? shareTokenTtlSecondsRaw : 604800;

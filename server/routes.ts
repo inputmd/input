@@ -11,6 +11,7 @@ import {
   GITHUB_TOKEN,
   MAX_UPLOAD_BYTES,
   OPENROUTER_API_KEY,
+  OPENROUTER_PAID_API_KEY,
   READER_AI_TIMEOUT_MS,
   SHARE_TOKEN_SECRET,
   SHARE_TOKEN_TTL_SECONDS,
@@ -125,6 +126,19 @@ const FEATURED_MODEL_PATTERNS = [
   'step 3.5 flash',
   'trinity mini',
   'trinity large preview',
+];
+
+const OPENROUTER_PAID_MODELS: ReaderAiModelEntry[] = [
+  {
+    id: 'google/gemini-3-flash-preview',
+    name: 'Google: Gemini 3 Flash Preview (Paid)',
+    context_length: 1_048_576,
+  },
+  {
+    id: 'google/gemini-3.1-flash-lite-preview',
+    name: 'Google: Gemini 3.1 Flash Lite Preview (Paid)',
+    context_length: 1_048_576,
+  },
 ];
 
 interface ReaderAiChatBody {
@@ -356,10 +370,37 @@ function modelParamsEstimateBillions(entry: { id?: unknown; name?: unknown; desc
   return best > 0 ? best : null;
 }
 
-function ensureOpenRouterConfigured(): void {
-  if (!OPENROUTER_API_KEY) {
+function ensureReaderAiConfigured(): void {
+  if (!OPENROUTER_API_KEY && !OPENROUTER_PAID_API_KEY) {
     throw new ClientError('Reader AI is not configured on this server', 503);
   }
+}
+
+function getReaderAiModelSource(model: string): 'free' | 'paid' {
+  return OPENROUTER_PAID_MODELS.some((entry) => entry.id === model) ? 'paid' : 'free';
+}
+
+function getOpenRouterApiKeyForModel(model: string): string {
+  const source = getReaderAiModelSource(model);
+  if (source === 'paid') {
+    if (!OPENROUTER_PAID_API_KEY) {
+      throw new ClientError('Selected paid model is not configured on this server', 503);
+    }
+    return OPENROUTER_PAID_API_KEY;
+  }
+  if (!OPENROUTER_API_KEY) {
+    throw new ClientError('Selected free model is not configured on this server', 503);
+  }
+  return OPENROUTER_API_KEY;
+}
+
+function openRouterHeaders(req: http.IncomingMessage, apiKey: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': APP_URL || requestBaseUrl(req),
+    'X-Title': 'Input Reader AI',
+  };
 }
 
 function normalizeReaderAiMessages(raw: unknown): ReaderAiChatMessage[] {
@@ -408,14 +449,10 @@ async function summarizeReaderAiConversation(
   }
   const toSummarize = parts.join('\n\n');
 
+  const apiKey = getOpenRouterApiKeyForModel(model);
   const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': APP_URL || requestBaseUrl(req),
-      'X-Title': 'Input Reader AI',
-    },
+    headers: openRouterHeaders(req, apiKey),
     body: JSON.stringify({
       model,
       stream: false,
@@ -455,32 +492,29 @@ async function fetchReaderAiModels(req: http.IncomingMessage): Promise<ReaderAiM
 
 async function fetchReaderAiModelsUncached(req: http.IncomingMessage): Promise<ReaderAiModelEntry[]> {
   const now = Date.now();
-  const upstream = await fetch('https://openrouter.ai/api/v1/models', {
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': APP_URL || requestBaseUrl(req),
-      'X-Title': 'Input Reader AI',
-    },
-    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
-  });
+  const modelsById = new Map<string, ReaderAiModelEntry>();
 
-  const payload = (await upstream.json().catch(() => null)) as OpenRouterModelsResponse | null;
-  if (!upstream.ok) {
-    const message = `OpenRouter model listing failed (${upstream.status})`;
-    throw new ClientError(message, 502);
-  }
+  if (OPENROUTER_API_KEY) {
+    const upstream = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: openRouterHeaders(req, OPENROUTER_API_KEY),
+      signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    });
 
-  const data = Array.isArray(payload?.data) ? payload.data : [];
-  const models = data
-    .map((entry) => {
+    const payload = (await upstream.json().catch(() => null)) as OpenRouterModelsResponse | null;
+    if (!upstream.ok) {
+      const message = `OpenRouter model listing failed (${upstream.status})`;
+      throw new ClientError(message, 502);
+    }
+
+    const data = Array.isArray(payload?.data) ? payload.data : [];
+    for (const entry of data) {
       const id = typeof entry.id === 'string' ? entry.id : '';
       const name = typeof entry.name === 'string' ? entry.name : id;
-      if (!id.endsWith(':free')) return null;
+      if (!id.endsWith(':free')) continue;
       const supportedParams = Array.isArray(entry.supported_parameters) ? entry.supported_parameters : [];
-      if (!supportedParams.includes('tools')) return null;
+      if (!supportedParams.includes('tools')) continue;
       const paramsBillions = modelParamsEstimateBillions(entry);
-      if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) return null;
+      if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) continue;
       const rawCtx = typeof entry.context_length === 'number' ? entry.context_length : 0;
       const context_length = Number.isFinite(rawCtx) && rawCtx > 0 ? rawCtx : 0;
       const normalizedId = id
@@ -498,10 +532,17 @@ async function fetchReaderAiModelsUncached(req: http.IncomingMessage): Promise<R
           .trim();
         return normalizedId.includes(p) || normalizedName.includes(p);
       });
-      return { id, name, context_length, ...(featured ? { featured: true } : {}) };
-    })
-    .filter((entry): entry is ReaderAiModelEntry => Boolean(entry))
-    .sort((a, b) => a.name.localeCompare(b.name));
+      modelsById.set(id, { id, name, context_length, ...(featured ? { featured: true } : {}) });
+    }
+  }
+
+  if (OPENROUTER_PAID_API_KEY) {
+    for (const model of OPENROUTER_PAID_MODELS) {
+      modelsById.set(model.id, model);
+    }
+  }
+
+  const models = [...modelsById.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   readerAiModelsCache = { value: models, expiresAt: now + READER_AI_MODELS_CACHE_TTL_MS };
   return models;
@@ -1439,7 +1480,7 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
 async function handleReaderAiModels(ctx: RouteContext): Promise<void> {
   const session = getSession(ctx.req);
   if (!checkRateLimitForSession(ctx, session)) return;
-  ensureOpenRouterConfigured();
+  ensureReaderAiConfigured();
   const models = await fetchReaderAiModels(ctx.req);
   json(ctx.res, 200, { models });
 }
@@ -1954,7 +1995,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
 async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
-  ensureOpenRouterConfigured();
+  ensureReaderAiConfigured();
 
   const body = (await readJson(ctx.req)) as ReaderAiChatBody | null;
   const model = typeof body?.model === 'string' ? body.model.trim() : '';
@@ -2065,17 +2106,12 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const onClientClose = () => abortController.abort();
   ctx.req.on('close', onClientClose);
 
-  const openRouterHeaders = {
-    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-    'Content-Type': 'application/json',
-    'HTTP-Referer': APP_URL || requestBaseUrl(ctx.req),
-    'X-Title': 'Input Reader AI',
-  };
+  const upstreamHeaders = openRouterHeaders(ctx.req, getOpenRouterApiKeyForModel(model));
 
   const callUpstream = (timeoutMs: number) =>
     fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
-      headers: openRouterHeaders,
+      headers: upstreamHeaders,
       body: JSON.stringify({ model, stream: true, messages: openRouterMessages, tools }),
       signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), abortController.signal]),
     });
@@ -2326,7 +2362,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                 source,
                 projectFiles: isProjectMode ? resolvedProjectFiles : undefined,
                 stagedChanges: isProjectMode ? stagedChanges : undefined,
-                openRouterHeaders,
+                openRouterHeaders: upstreamHeaders,
                 signal: abortController.signal,
                 onProgress: (event) => {
                   writeSseEvent('task_progress', {
