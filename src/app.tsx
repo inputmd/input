@@ -1028,6 +1028,23 @@ interface PendingDraftRestoreState {
   saveAfterRestore?: boolean;
 }
 
+type CommitResult =
+  | {
+      kind: 'repo';
+      created: boolean;
+      owner: string | null;
+      repo: string | null;
+      path: string;
+      routeKey: string | null;
+    }
+  | {
+      kind: 'gist';
+      created: boolean;
+      gistId: string;
+      filename: string;
+      routeKey: string;
+    };
+
 function generateUnifiedDiff(path: string, oldContent: string, newContent: string): string {
   const unchangedLineCount = oldContent.length === 0 ? 0 : oldContent.split('\n').length;
   const noChangesLabel = `(no changes, ${unchangedLineCount} line${unchangedLineCount === 1 ? '' : 's'})`;
@@ -3966,16 +3983,17 @@ export function App() {
     setHasUnsavedChanges(false);
   }, [currentDocumentDraftKey]);
 
-  const saveDocumentContent = useCallback(
-    async (options?: { content?: string; title?: string }) => {
-      if (saveInFlightRef.current || readerAiEditLocked) return false;
+  const commitDocumentContent = useCallback(
+    async (options?: { content?: string; title?: string }): Promise<CommitResult | null> => {
+      if (saveInFlightRef.current || readerAiEditLocked) return null;
       if (pendingImageUploads.size > 0) {
         void showAlert('Wait for image uploads to finish before saving.');
-        return false;
+        return null;
       }
       const title = (options?.title ?? editTitle).trim() || DEFAULT_NEW_FILENAME;
       const content = options?.content ?? editContent;
       let saved = false;
+      let commitResult: CommitResult | null = null;
       saveInFlightRef.current = true;
       setSaving(true);
 
@@ -4021,8 +4039,9 @@ export function App() {
               : [...knownMarkdownPaths, currentRepoDocPath],
           });
           if (selectedRepoRef) {
+            const routeKey = routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath);
             setPostSaveVerification({
-              routeKey: routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath),
+              routeKey,
               status: 'verifying',
               kind: 'repo',
               installationId: instId,
@@ -4030,9 +4049,23 @@ export function App() {
               path: currentRepoDocPath,
               expectedSha: result.content.sha,
             });
-            navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath));
+            commitResult = {
+              kind: 'repo',
+              created: false,
+              owner: selectedRepoRef.owner,
+              repo: selectedRepoRef.repo,
+              path: currentRepoDocPath,
+              routeKey,
+            };
           } else {
-            navigate(routePath.workspaces());
+            commitResult = {
+              kind: 'repo',
+              created: false,
+              owner: null,
+              repo: null,
+              path: currentRepoDocPath,
+              routeKey: null,
+            };
           }
         } else if (editingBackend === 'repo' && repoName && instId) {
           const filename = sanitizeTitleToFileName(title);
@@ -4053,6 +4086,7 @@ export function App() {
           localStorage.removeItem(repoNewDraftKey(instId, repoName, path, 'content'));
           setCurrentRepoDocPath(result.content.path);
           setCurrentRepoDocSha(result.content.sha);
+          setCurrentFileName(result.content.path);
           setCurrentDocumentSavedContent(content);
 
           const knownMarkdownPaths = repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path);
@@ -4064,8 +4098,9 @@ export function App() {
               : [...knownMarkdownPaths, createdPath],
           });
           if (selectedRepoRef) {
+            const routeKey = routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, createdPath);
             setPostSaveVerification({
-              routeKey: routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, createdPath),
+              routeKey,
               status: 'verifying',
               kind: 'repo',
               installationId: instId,
@@ -4073,13 +4108,28 @@ export function App() {
               path: createdPath,
               expectedSha: result.content.sha,
             });
-            navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, createdPath));
+            commitResult = {
+              kind: 'repo',
+              created: true,
+              owner: selectedRepoRef.owner,
+              repo: selectedRepoRef.repo,
+              path: createdPath,
+              routeKey,
+            };
           } else {
-            navigate(routePath.workspaces());
+            commitResult = {
+              kind: 'repo',
+              created: true,
+              owner: null,
+              repo: null,
+              path: createdPath,
+              routeKey: null,
+            };
           }
         } else {
           let gist: GistDetail;
           const filename = currentFileName ?? sanitizeTitleToFileName(title);
+          const created = currentGistId === null;
           if (currentGistId) {
             gist = await updateGist(currentGistId, content, filename);
           } else {
@@ -4106,15 +4156,22 @@ export function App() {
             currentDocPath: filename,
             knownMarkdownPaths: Object.keys(gist.files),
           });
+          const routeKey = routeKeyForGist(gist.id, filename);
           setPostSaveVerification({
-            routeKey: routeKeyForGist(gist.id, filename),
+            routeKey,
             status: 'verifying',
             kind: 'gist',
             gistId: gist.id,
             filename,
             expectedUpdatedAt: gist.updated_at,
           });
-          navigate(routePath.gistView(gist.id, filename));
+          commitResult = {
+            kind: 'gist',
+            created,
+            gistId: gist.id,
+            filename,
+            routeKey,
+          };
         }
         clearMarkdownLinkPreviewCache();
         showSuccessToast('Saved');
@@ -4122,7 +4179,7 @@ export function App() {
       } catch (err) {
         if (err instanceof SessionExpiredError) {
           handleSessionExpired();
-          return false;
+          return null;
         }
         showRateLimitToastIfNeeded(err);
         const staleRepoWrite = editingBackend === 'repo' && isRepoWriteConflictError(err);
@@ -4132,14 +4189,14 @@ export function App() {
             ? err.message
             : 'Failed to save';
         void showAlert(message);
-        return false;
+        return null;
       } finally {
         saveInFlightRef.current = false;
         setSaving(false);
         if (saved) setHasUnsavedChanges(false);
       }
 
-      return true;
+      return commitResult;
     },
     [
       clearMarkdownLinkPreviewCache,
@@ -4153,7 +4210,6 @@ export function App() {
       editTitle,
       editingBackend,
       handleSessionExpired,
-      navigate,
       pendingImageUploads,
       readerAiEditLocked,
       renderDocumentContent,
@@ -4197,7 +4253,7 @@ export function App() {
     setCurrentDocumentDraft(null);
     applyDraftContentToEditor(currentDocumentSavedContent);
     if (action === 'primary' && activeView === 'edit') {
-      await saveDocumentContent({ content: currentDocumentSavedContent });
+      await commitDocumentContent({ content: currentDocumentSavedContent });
     }
   }, [
     activeView,
@@ -4208,9 +4264,70 @@ export function App() {
     currentDocumentSavedContent,
     currentFileName,
     currentRepoDocPath,
-    saveDocumentContent,
+    commitDocumentContent,
     showDiffChoice,
   ]);
+
+  const stayOnEditRouteAfterCommit = useCallback(
+    (commitResult: CommitResult) => {
+      if (commitResult.kind === 'repo') {
+        if (!commitResult.owner || !commitResult.repo) return;
+        const target = routePath.repoEdit(commitResult.owner, commitResult.repo, commitResult.path);
+        const isSameRoute =
+          route.name === 'repoedit' &&
+          safeDecodeURIComponent(route.params.owner) === commitResult.owner &&
+          safeDecodeURIComponent(route.params.repo) === commitResult.repo &&
+          safeDecodeURIComponent(route.params.path).replace(/^\/+/, '') === commitResult.path;
+        if (!isSameRoute) {
+          navigate(target, { replace: true });
+        }
+        return;
+      }
+
+      const target = routePath.gistEdit(commitResult.gistId, commitResult.filename);
+      const isSameRoute =
+        route.name === 'edit' &&
+        route.params.id === commitResult.gistId &&
+        (route.params.filename ? safeDecodeURIComponent(route.params.filename) : undefined) === commitResult.filename;
+      if (!isSameRoute) {
+        navigate(target, { replace: true });
+      }
+    },
+    [navigate, route],
+  );
+
+  const exitEditRouteAfterCommit = useCallback(
+    (commitResult: CommitResult) => {
+      if (commitResult.kind === 'repo') {
+        if (commitResult.owner && commitResult.repo) {
+          navigate(routePath.repoFile(commitResult.owner, commitResult.repo, commitResult.path));
+        } else {
+          navigate(routePath.workspaces());
+        }
+        return;
+      }
+
+      navigate(routePath.gistView(commitResult.gistId, commitResult.filename));
+    },
+    [navigate],
+  );
+
+  const commitAndStayInEdit = useCallback(
+    async (options?: { content?: string; title?: string }) => {
+      const commitResult = await commitDocumentContent(options);
+      if (!commitResult) return false;
+      stayOnEditRouteAfterCommit(commitResult);
+      return true;
+    },
+    [commitDocumentContent, stayOnEditRouteAfterCommit],
+  );
+
+  const commitAndExitEdit = useCallback(async () => {
+    const commitResult = await commitDocumentContent();
+    if (!commitResult) return false;
+    exitEditRouteAfterCommit(commitResult);
+    return true;
+  }, [commitDocumentContent, exitEditRouteAfterCommit]);
 
   const onRestoreDraft = useCallback(async () => {
     if (
@@ -4256,7 +4373,7 @@ export function App() {
     if (activeView === 'edit') {
       applyDraftContentToEditor(restoredContent);
       if (action === 'primary') {
-        await saveDocumentContent({ content: restoredContent });
+        await commitAndStayInEdit({ content: restoredContent });
       }
       return;
     }
@@ -4296,14 +4413,18 @@ export function App() {
     hasRestorableDocumentDraft,
     navigate,
     repoAccessMode,
-    saveDocumentContent,
+    commitAndStayInEdit,
     selectedRepoRef,
     showDiffChoice,
   ]);
 
   const onSave = useCallback(async () => {
-    await saveDocumentContent();
-  }, [saveDocumentContent]);
+    await commitAndStayInEdit();
+  }, [commitAndStayInEdit]);
+
+  const onSaveAndExit = useCallback(async () => {
+    await commitAndExitEdit();
+  }, [commitAndExitEdit]);
 
   useEffect(() => {
     if (activeView !== 'edit' || !currentDocumentDraftKey || currentDocumentSavedContent === null) return;
@@ -4317,16 +4438,16 @@ export function App() {
     const currentPath = window.location.pathname.replace(/^\/+/, '') || routePath.home();
     navigate(currentPath, { replace: true, state: null });
     if (pendingRestore.saveAfterRestore) {
-      void saveDocumentContent({ content: pendingRestore.content });
+      void commitAndStayInEdit({ content: pendingRestore.content });
     }
   }, [
     activeView,
     currentDocumentDraftKey,
     currentDocumentSavedContent,
     editContent,
+    commitAndStayInEdit,
     navigate,
     routeState,
-    saveDocumentContent,
   ]);
 
   const getActiveDocumentStore = useCallback(() => {
@@ -5801,6 +5922,7 @@ export function App() {
         saving={saving}
         canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
         onSave={onSave}
+        onSaveAndExit={onSaveAndExit}
         saveStatusText={saveStatusText}
         saveStatusTone={saveStatusTone}
         onSignInWithGitHub={handleSignInWithGitHub}

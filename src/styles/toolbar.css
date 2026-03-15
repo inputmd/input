@@ -43,7 +43,7 @@
   }
 }
 
-.toolbar button:not(.github-signin-btn-toggle) {
+.toolbar button:not(.github-signin-btn-toggle):not(.toolbar-split-button-toggle) {
   min-height: 35px;
   min-width: 40px;
 }
@@ -261,20 +261,22 @@
   background: #2ea043;
 }
 
-.github-signin-group {
+.github-signin-group,
+.toolbar-split-button-group {
   display: inline-flex;
 }
 
-.github-signin-btn-main {
+.github-signin-btn-main,
+.toolbar-split-button-main {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
 
-.github-signin-btn-toggle {
+.github-signin-btn-toggle,
+.toolbar-split-button-toggle {
   min-width: 28px;
   width: 28px;
   padding: 0;
-  border-left-color: rgba(255, 255, 255, 0.25);
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
@@ -284,12 +286,38 @@
   background: #2ea043;
 }
 
-.github-signin-group .github-signin-btn + .github-signin-btn {
+.github-signin-btn-toggle {
+  border-left-color: rgba(255, 255, 255, 0.25);
+}
+
+.toolbar-split-button-toggle {
+  border-left-color: var(--border);
+}
+
+.toolbar-split-button-toggle:hover,
+.toolbar-split-button-toggle[data-state="open"] {
+  background: var(--btn-hover);
+}
+
+.toolbar-split-button-toggle:disabled {
+  pointer-events: none;
+}
+
+.toolbar-split-button-toggle svg {
+  transform: translateY(2px);
+}
+
+.github-signin-group .github-signin-btn + .github-signin-btn,
+.toolbar-split-button-group .toolbar-split-button-main + .toolbar-split-button-toggle {
   margin-left: -1px;
 }
 
 .github-signin-menu-content {
   min-width: 250px;
+}
+
+.toolbar-split-button-menu-content {
+  min-width: 180px;
 }
 
 .toolbar-toggle-controls .preview-toggle-btn,

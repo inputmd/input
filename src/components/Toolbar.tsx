@@ -67,6 +67,7 @@ interface ToolbarProps {
   saving: boolean;
   canSave: boolean;
   onSave: () => void;
+  onSaveAndExit: () => void;
   saveStatusText?: string | null;
   saveStatusTone?: 'pending' | 'warning';
   onSignInWithGitHub: (options?: { includeGists?: boolean }) => void;
@@ -124,6 +125,7 @@ export function Toolbar({
   saving,
   canSave,
   onSave,
+  onSaveAndExit,
   saveStatusText = null,
   saveStatusTone = 'pending',
   onSignInWithGitHub,
@@ -449,9 +451,46 @@ export function Toolbar({
               </button>
             )}
             {showSave && (
-              <button type="button" onClick={onSave} disabled={saving || !canSave}>
-                {saving ? 'Saving...' : 'Save'}
-              </button>
+              <div class="toolbar-split-button-group" role="group" aria-label="Save options">
+                <button type="button" class="toolbar-split-button-main" onClick={onSave} disabled={saving || !canSave}>
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+                {saving || !canSave ? (
+                  <button
+                    type="button"
+                    class="toolbar-split-button-toggle"
+                    aria-label="More save options"
+                    title="More save options"
+                    disabled
+                  >
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <DropdownMenu.Root>
+                    <DropdownMenu.Trigger asChild>
+                      <button
+                        type="button"
+                        class="toolbar-split-button-toggle"
+                        aria-label="More save options"
+                        title="More save options"
+                      >
+                        <ChevronDown size={14} aria-hidden="true" />
+                      </button>
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        class="user-menu-content toolbar-split-button-menu-content"
+                        sideOffset={6}
+                        align="end"
+                      >
+                        <DropdownMenu.Item class="user-menu-item" onSelect={onSaveAndExit}>
+                          Save and exit
+                        </DropdownMenu.Item>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                )}
+              </div>
             )}
             {showShare && view === 'edit' && authorMenu}
             {showSignInToSave && signInButton}
