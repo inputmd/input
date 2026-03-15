@@ -107,6 +107,10 @@ function isPublicDatasetModel(model: ReaderAiModel): boolean {
   return id.includes('gpt-oss-120b') || id.includes('gpt-oss-20b');
 }
 
+function isPaidModel(model: ReaderAiModel): boolean {
+  return !model.id.trim().toLowerCase().endsWith(':free');
+}
+
 export function ReaderAiPanel({
   authenticated,
   models,
@@ -159,11 +163,13 @@ export function ReaderAiPanel({
   const modelSelectDisabled = modelsLoading || models.length === 0 || sending;
   const selectedModelName = displayModelName(models.find((model) => model.id === selectedModel)?.name ?? '');
   const modelTriggerLabel = selectedModelName || (modelsLoading ? 'Loading models...' : 'No models');
-  const featuredModels = models.filter((model) => readerAiModelPriorityRank(model) !== -1);
-  const nonFeaturedModels = models.filter((model) => readerAiModelPriorityRank(model) === -1);
+  const paidModels = models.filter((model) => isPaidModel(model));
+  const freeModels = models.filter((model) => !isPaidModel(model));
+  const featuredModels = freeModels.filter((model) => readerAiModelPriorityRank(model) !== -1);
+  const nonFeaturedModels = freeModels.filter((model) => readerAiModelPriorityRank(model) === -1);
   const publicDatasetModels = nonFeaturedModels.filter((model) => isPublicDatasetModel(model));
   const unverifiedModels = nonFeaturedModels.filter((model) => !isPublicDatasetModel(model));
-  const hasDefaultSection = featuredModels.length > 0;
+  const hasRecommendedSection = paidModels.length > 0 || featuredModels.length > 0;
   const statusText = useMemo(() => {
     if (modelsLoading) return 'Loading free models...';
     if (modelsError) return modelsError;
@@ -354,8 +360,22 @@ export function ReaderAiPanel({
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="reader-ai-model-menu" sideOffset={6} align="start">
             <DropdownMenu.RadioGroup value={selectedModel} onValueChange={handleSelectModel}>
-              {hasDefaultSection ? (
+              {paidModels.length > 0 ? (
                 <>
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                    Recommended models
+                  </DropdownMenu.Item>
+                  {paidModels.map((model) => (
+                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
+                      {displayModelName(model.name)}
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </>
+              ) : null}
+
+              {featuredModels.length > 0 ? (
+                <>
+                  {paidModels.length > 0 ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Recommended free models
                   </DropdownMenu.Item>
@@ -369,7 +389,7 @@ export function ReaderAiPanel({
 
               {unverifiedModels.length > 0 ? (
                 <>
-                  {hasDefaultSection ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
+                  {hasRecommendedSection ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Unverified free providers
                   </DropdownMenu.Item>
@@ -383,7 +403,7 @@ export function ReaderAiPanel({
 
               {publicDatasetModels.length > 0 ? (
                 <>
-                  {hasDefaultSection || unverifiedModels.length > 0 ? (
+                  {hasRecommendedSection || unverifiedModels.length > 0 ? (
                     <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
                   ) : null}
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
