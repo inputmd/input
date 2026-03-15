@@ -1,8 +1,8 @@
 import DOMPurify from 'dompurify';
 import matter from 'gray-matter';
 import { marked } from 'marked';
-import { parseImageDimensionTitle } from './image_markdown';
-import { encodePathForHref, isExternalHttpHref } from './util';
+import { parseImageDimensionTitle } from './image_markdown.ts';
+import { encodePathForHref, isExternalHttpHref } from './util.ts';
 
 marked.setOptions({
   gfm: true,
@@ -68,6 +68,31 @@ marked.use({
     },
   },
   extensions: [
+    {
+      name: 'superscriptLink',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf('[^');
+      },
+      tokenizer(src: string) {
+        const match = /^\[\^([^\]\n]+)\]\(([^)\s]+)\)/.exec(src);
+        if (!match) return undefined;
+        const text = match[1].trim();
+        const href = match[2].trim();
+        if (!text || !href) return undefined;
+        return {
+          type: 'superscriptLink',
+          raw: match[0],
+          href,
+          text,
+          tokens: this.lexer.inlineTokens(text),
+        };
+      },
+      renderer(token) {
+        const labelHtml = this.parser.parseInline(token.tokens ?? []);
+        return `<sup class="superscript-link"><a href="${escapeHtmlAttr(token.href)}">${labelHtml}</a></sup>`;
+      },
+    },
     {
       name: 'wikilink',
       level: 'inline',
