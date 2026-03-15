@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { nameToEmoji } from 'gemoji';
 import matter from 'gray-matter';
 import { marked } from 'marked';
 import { parseImageDimensionTitle } from './image_markdown.ts';
@@ -54,6 +55,12 @@ function normalizeWikiTargetPath(raw: string): string {
 
 function escapeHtmlAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function parseEmojiShortcode(raw: string): string | null {
+  const normalized = raw.trim().toLowerCase();
+  if (!/^[a-z0-9_+-]+$/.test(normalized)) return null;
+  return nameToEmoji[normalized] ?? null;
 }
 
 function parseGitHubHandle(raw: string): string | null {
@@ -115,6 +122,28 @@ marked.use({
     },
   },
   extensions: [
+    {
+      name: 'emojiShortcode',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf(':');
+      },
+      tokenizer(src: string) {
+        const match = /^:([a-zA-Z0-9_+-]+):/.exec(src);
+        if (!match) return undefined;
+        const emoji = parseEmojiShortcode(match[1]);
+        if (!emoji) return undefined;
+        return {
+          type: 'emojiShortcode',
+          raw: match[0],
+          emoji,
+          shortcode: match[1],
+        };
+      },
+      renderer(token) {
+        return `<span class="emoji-shortcode" role="img" aria-label="${escapeHtmlAttr(token.shortcode)} emoji">${token.emoji}</span>`;
+      },
+    },
     {
       name: 'githubAvatar',
       level: 'inline',

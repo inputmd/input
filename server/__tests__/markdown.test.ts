@@ -9,6 +9,20 @@ test('marked renders superscript links for caret-prefixed link labels', (t) => {
   t.true(html.includes('<sup class="superscript-link"><a href="https://example.com">docs</a></sup>'));
 });
 
+test('marked renders emoji shortcodes as unicode emoji', (t) => {
+  const html = marked.parse('Status: :white_check_mark:');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<span class="emoji-shortcode" role="img" aria-label="white_check_mark emoji">✅</span>'));
+});
+
+test('marked leaves unknown emoji shortcodes unchanged', (t) => {
+  const html = marked.parse('Status: :not_a_real_emoji:');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes(':not_a_real_emoji:'));
+});
+
 test('marked renders github avatar inline tokens', (t) => {
   const html = marked.parse('See {github:@raykyri} for details.');
 
