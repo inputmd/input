@@ -174,7 +174,14 @@ button:hover {
 
 button:disabled {
   opacity: 0.5;
-  cursor: not-allowed;
+  cursor: default;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled,
+[data-disabled] {
+  cursor: default;
 }
 
 .hint {

@@ -78,7 +78,7 @@
 
 .reader-ai-model-trigger:disabled {
   opacity: 0.65;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .reader-ai-model-trigger:focus,
@@ -197,7 +197,7 @@
 
 .reader-ai-summarize-btn:disabled {
   opacity: 0.55;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .reader-ai-tool-status {
@@ -263,7 +263,7 @@
 
 .reader-ai-message-action-btn:disabled {
   opacity: 0.55;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .reader-ai-message-edited {
@@ -435,7 +435,7 @@
   border-color: color-mix(in srgb, var(--success-border) 55%, var(--border));
   box-shadow: none;
   opacity: 0.6;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .reader-ai-suggest-project-mode-btn:focus-visible {
@@ -478,7 +478,7 @@
 
 .reader-ai-composer-menu-trigger:disabled {
   opacity: 0.6;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .reader-ai-composer-menu {
@@ -635,7 +635,7 @@
 
 .reader-ai-toggle input:disabled + .reader-ai-toggle-track {
   opacity: 0.45;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .reader-ai-toggle input:focus-visible + .reader-ai-toggle-track {
@@ -822,7 +822,7 @@
 
 .reader-ai-staged-changes-apply:disabled {
   opacity: 0.6;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .reader-ai-staged-change {
