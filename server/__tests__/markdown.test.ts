@@ -25,6 +25,24 @@ test('marked renders ^src X tweet links using the author handle in the superscri
   );
 });
 
+test('marked renders ^src non-X links using the domain in the superscript', (t) => {
+  const html = marked.parse('See [^src](https://example.com/path) for details.');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<sup class="superscript-link"><a href="https://example.com/path">example.com</a></sup>'));
+});
+
+test('marked strips www from ^src non-X domain labels', (t) => {
+  const html = marked.parse('See [^src](https://www.docs.example.com/page) for details.');
+
+  t.true(typeof html === 'string');
+  t.true(
+    html.includes(
+      '<sup class="superscript-link"><a href="https://www.docs.example.com/page">docs.example.com</a></sup>',
+    ),
+  );
+});
+
 test('marked keeps ^src labels unchanged for excluded X intent paths', (t) => {
   const html = marked.parse('See [^src](https://x.com/i/bookmarks) for details.');
 

@@ -67,6 +67,17 @@ function deriveSuperscriptLinkLabel(text: string, href: string): string {
   }
 
   const hostname = url.hostname.toLowerCase();
+  if (url.protocol === 'http:' || url.protocol === 'https:') {
+    if (
+      hostname !== 'twitter.com' &&
+      hostname !== 'www.twitter.com' &&
+      hostname !== 'x.com' &&
+      hostname !== 'www.x.com'
+    ) {
+      return hostname.replace(/^www\./, '');
+    }
+  }
+
   if (
     hostname !== 'twitter.com' &&
     hostname !== 'www.twitter.com' &&
