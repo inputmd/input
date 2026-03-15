@@ -355,11 +355,11 @@
 .markdown-link-preview-popover {
   position: fixed;
   z-index: 60;
-  width: min(360px, calc(100vw - 24px));
+  width: min(410px, calc(100vw - 24px));
   max-height: min(240px, calc(100vh - 24px));
   overflow: auto;
   pointer-events: none;
-  padding: 10px 12px;
+  padding: 10px 12px 9px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--bg) 96%, var(--btn-bg));
@@ -368,7 +368,8 @@
 
 .markdown-link-preview-popover--url {
   width: auto;
-  max-width: min(360px, calc(100vw - 24px));
+  max-width: min(410px, calc(100vw - 24px));
+  padding-top: 7px;
 }
 
 .markdown-link-preview-title {
@@ -387,13 +388,26 @@
 }
 
 .markdown-link-preview-url {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 6px;
   max-width: 100%;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: anywhere;
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary);
+}
+
+.markdown-link-preview-url-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.markdown-link-preview-url svg {
+  flex: none;
+  opacity: 0.8;
+  transform: translateY(-3px);
 }
 
 .markdown-link-preview-body {
@@ -563,6 +577,16 @@
   font-size: 0.78em;
   line-height: 1;
   vertical-align: super;
+}
+
+.rendered-markdown sup.superscript-link {
+  font-size: 0.78em;
+  line-height: 1;
+  vertical-align: super;
+}
+
+.rendered-markdown .superscript-link a {
+  text-decoration: none;
 }
 
 .rendered-markdown .footnote-ref a {

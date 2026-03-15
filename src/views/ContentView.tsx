@@ -1,3 +1,4 @@
+import { ExternalLink } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { TextCodeView } from '../components/TextCodeView';
@@ -714,7 +715,10 @@ export function ContentView({
           {preview.loading ? (
             <div class="markdown-link-preview-status">Loading preview...</div>
           ) : preview.url ? (
-            <div class="markdown-link-preview-url">{preview.url}</div>
+            <div class="markdown-link-preview-url">
+              <span class="markdown-link-preview-url-text">{preview.url}</span>
+              <ExternalLink aria-hidden="true" size={12} strokeWidth={2} />
+            </div>
           ) : (
             <div class="markdown-link-preview-body" dangerouslySetInnerHTML={{ __html: preview.html }} />
           )}
