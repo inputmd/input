@@ -13,6 +13,7 @@ import {
   PanelLeftOpen,
   Sparkles,
 } from 'lucide-react';
+import { useState } from 'preact/hooks';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { routePath } from '../routing';
@@ -148,6 +149,7 @@ export function Toolbar({
   showGoToWorkspace,
   onGoToWorkspace,
 }: ToolbarProps) {
+  const [authorMenuOpen, setAuthorMenuOpen] = useState(false);
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!user;
@@ -163,7 +165,7 @@ export function Toolbar({
     action();
   };
   const authorMenu = (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root open={authorMenuOpen} onOpenChange={setAuthorMenuOpen}>
       <DropdownMenu.Trigger asChild>
         <button type="button" class="author-menu-trigger" aria-label="Author menu" title="Author menu">
           <MoreVertical size={16} aria-hidden="true" />
@@ -181,6 +183,7 @@ export function Toolbar({
           <DropdownMenu.Item
             class="author-menu-item"
             onSelect={(event: Event) => {
+              setAuthorMenuOpen(false);
               runAuthorMenuAction(event, onShare, { preventDefault: true });
             }}
           >
