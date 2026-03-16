@@ -3088,17 +3088,17 @@ export function App() {
     return () => media.removeEventListener('change', onChange);
   }, []);
 
-  useEffect(
-    () =>
-      subscribeGitHubRateLimitUpdates((source, snapshot) => {
-        if (source === 'serverLocal') {
-          setLocalRateLimit(snapshot);
-          return;
-        }
-        setServerRateLimit(snapshot);
-      }),
-    [],
-  );
+  useEffect(() => {
+    setLocalRateLimit(readStoredGitHubRateLimitSnapshot('serverLocal'));
+    setServerRateLimit(readStoredGitHubRateLimitSnapshot('server'));
+    return subscribeGitHubRateLimitUpdates((source, snapshot) => {
+      if (source === 'serverLocal') {
+        setLocalRateLimit(snapshot);
+        return;
+      }
+      setServerRateLimit(snapshot);
+    });
+  }, []);
 
   useLayoutEffect(() => {
     try {
