@@ -2380,9 +2380,15 @@ export function App() {
         const contentBytes = decodeBase64ToBytes(shared.content);
         const binary = isLikelyBinaryBytes(contentBytes);
         const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
+        const sharedFile = {
+          name: shared.name,
+          path: shared.path,
+          sha: shared.sha,
+        };
         setRepoAccessMode(null);
         setPublicRepoRef(null);
-        setRepoFiles([]);
+        setRepoFiles([sharedFile]);
+        setRepoSidebarFiles([sharedFile]);
         setCurrentRepoDocPath(shared.path);
         setCurrentRepoDocSha(shared.sha);
         setCurrentGistId(null);
@@ -2403,7 +2409,10 @@ export function App() {
           renderBinaryFileContent(shared.name, blobUrl);
         } else {
           setCurrentDocumentSavedContent(decoded);
-          renderDocumentContent(decoded, shared.name, shared.path);
+          renderDocumentContent(decoded, shared.name, shared.path, undefined, {
+            currentDocPath: shared.path,
+            knownMarkdownPaths: [shared.path],
+          });
         }
         setViewPhase(null);
       } catch (err) {
@@ -5856,8 +5865,9 @@ export function App() {
     if (currentGistId) return `gist:${currentGistId}`;
     if (repoAccessMode === 'installed' && selectedRepo) return `repo:${selectedRepo}`;
     if (repoAccessMode === 'public' && publicRepoRef) return `public:${publicRepoRef.owner}/${publicRepoRef.repo}`;
+    if (route.name === 'sharefile') return `share:${route.params.token}`;
     return 'none';
-  }, [currentGistId, publicRepoRef, repoAccessMode, selectedRepo]);
+  }, [currentGistId, publicRepoRef, repoAccessMode, route, selectedRepo]);
 
   // Keep the sidebar visible during intra-view loading. `activeView` can become "loading"
   // while fetching file contents, which would otherwise unmount the sidebar briefly.
@@ -5865,7 +5875,9 @@ export function App() {
   const sidebarDisabled = routeView === 'edit' && draftMode;
   const isAnonymousGistWorkspace = currentGistId !== null && !user;
   const defaultShowSidebar =
-    isDesktopWidth && !sidebarDisabled && (!!user || repoAccessMode === 'public' || currentGistId !== null);
+    isDesktopWidth &&
+    !sidebarDisabled &&
+    (!!user || repoAccessMode === 'public' || currentGistId !== null || route.name === 'sharefile');
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
   const notifyReaderAiEditLock = useCallback(() => {
     if (!readerAiEditLocked) return false;
@@ -6257,7 +6269,7 @@ export function App() {
               onViewFolderOnGitHub={handleViewFolderOnGitHub}
               canViewOnGitHub={currentGistId !== null || selectedRepo !== null || publicRepoRef !== null}
               disabled={sidebarDisabled}
-              readOnly={repoAccessMode === 'public' || isAnonymousGistWorkspace}
+              readOnly={repoAccessMode === 'public' || isAnonymousGistWorkspace || route.name === 'sharefile'}
               onCreateFile={handleCreateFile}
               onCreateDirectory={handleCreateDirectory}
               onDeleteFile={handleDeleteFile}
