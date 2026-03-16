@@ -1,0 +1,100 @@
+.document-stack {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.document-stack-base-peek {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 40px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 24px;
+  pointer-events: none;
+}
+
+.document-stack-base-peek-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: calc(100% - 32px);
+  user-select: none;
+}
+
+.document-stack-layer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
+  transition: transform 250ms ease;
+  transform: translateX(0);
+}
+
+.document-stack-layer--entering {
+  transform: translateX(100%);
+  transition: none;
+}
+
+.document-stack-layer--active {
+  cursor: default;
+}
+
+.document-stack-layer:not(.document-stack-layer--active) {
+  cursor: pointer;
+}
+
+.document-stack-layer-peek {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 40px;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 24px;
+  pointer-events: none;
+}
+
+.document-stack-layer-peek-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: calc(100% - 32px);
+  user-select: none;
+}
+
+.document-stack-layer-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Non-active layers are dimmed */
+.document-stack-layer:not(.document-stack-layer--active) .document-stack-layer-content {
+  opacity: 0.4;
+}

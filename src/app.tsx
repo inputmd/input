@@ -82,6 +82,7 @@ import {
   recordServerLocalRateLimitFromResponse,
   subscribeGitHubRateLimitUpdates,
 } from './github_rate_limit';
+import { useDocumentStack, type StackEntry } from './hooks/useDocumentStack';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
 import { parseMarkdownToHtml } from './markdown';
@@ -106,6 +107,7 @@ import {
   isMarkdownFileName,
 } from './util';
 import { ContentView } from './views/ContentView';
+import { DocumentStackView } from './views/DocumentStackView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { LoadingView } from './views/LoadingView';
@@ -1092,6 +1094,7 @@ function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | nu
 
 export function App() {
   const { route, routeState, navigate, setNavigationPrompt } = useRoute();
+  const documentStack = useDocumentStack();
   const { showAlert, showConfirm, showDiffChoice, showPrompt } = useDialogs();
   const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
 
@@ -1697,6 +1700,90 @@ export function App() {
       }
     },
     [currentGistId, gistFiles, selectedRepo, user],
+  );
+
+  const fetchDocumentForStack = useCallback(
+    async (rawRoute: string): Promise<StackEntry | null> => {
+      const routePathname = rawRoute.replace(/^\/+/, '');
+      if (!routePathname) return null;
+
+      const routeCandidate = matchRoute(routePathname);
+      let title = '';
+      let content = '';
+      let docPath: string | null = null;
+      let repoSource: MarkdownRepoSourceContext | undefined;
+
+      if (routeCandidate.name === 'repofile' || routeCandidate.name === 'repoedit') {
+        const owner = safeDecodeURIComponent(routeCandidate.params.owner);
+        const repo = safeDecodeURIComponent(routeCandidate.params.repo);
+        const path = safeDecodeURIComponent(routeCandidate.params.path).replace(/^\/+/, '');
+        if (!isMarkdownFileName(path)) return null;
+        const repoFullName = buildRepoFullName(owner, repo);
+        const selectedRepoFullName = getSelectedRepo()?.full_name ?? selectedRepo;
+        const isInstalledRoute =
+          routeCandidate.name === 'repoedit' ||
+          (selectedRepoFullName !== null && selectedRepoFullName.toLowerCase() === repoFullName.toLowerCase());
+        const instId = getInstallationId();
+        const loaded =
+          isInstalledRoute && instId
+            ? await getRepoContents(instId, repoFullName, path)
+            : await getPublicRepoContents(owner, repo, path);
+        if (!isRepoFile(loaded) || typeof loaded.content !== 'string' || loaded.encoding !== 'base64') return null;
+        const bytes = decodeBase64ToBytes(loaded.content);
+        if (isLikelyBinaryBytes(bytes)) return null;
+        content = new TextDecoder().decode(bytes);
+        title = loaded.name ?? fileNameFromPath(loaded.path);
+        docPath = loaded.path;
+        repoSource =
+          isInstalledRoute && instId
+            ? { mode: 'installed', installationId: instId, selectedRepo: repoFullName }
+            : { mode: 'public', publicRepoRef: { owner, repo } };
+      } else if (routeCandidate.name === 'gist') {
+        const gistId = routeCandidate.params.id;
+        const filename = routeCandidate.params.filename ? safeDecodeURIComponent(routeCandidate.params.filename) : '';
+        if (!filename || !isMarkdownFileName(filename)) return null;
+
+        let file = currentGistId === gistId ? gistFiles?.[filename] : undefined;
+        if (!file) {
+          if (user) {
+            const gist = await getGist(gistId);
+            file = gist.files[filename];
+          } else {
+            const res = await fetch(`/api/gists/${encodeURIComponent(gistId)}`);
+            recordServerLocalRateLimitFromResponse(res);
+            recordGitHubRateLimitFromResponse(res);
+            if (!res.ok) return null;
+            const data = (await res.json()) as { files?: Record<string, GistFile> } | null;
+            file = data?.files?.[filename];
+          }
+        }
+        if (!file || isSafeImageFileName(file.filename)) return null;
+        content = file.content ?? '';
+        if (!content && file.raw_url) {
+          try {
+            const raw = await fetch(file.raw_url, { redirect: 'error' });
+            if (raw.ok) content = await raw.text();
+          } catch {
+            return null;
+          }
+        }
+        title = file.filename;
+      } else {
+        return null;
+      }
+
+      const knownPaths = repoFiles.filter((f) => isMarkdownFileName(f.path)).map((f) => f.path);
+      const wikiLinkResolver =
+        docPath && knownPaths.length > 0 ? createWikiLinkResolver(docPath, knownPaths) : undefined;
+
+      const html = parseMarkdownToHtml(content, {
+        resolveImageSrc: (src) => resolveMarkdownImageSrc(src, docPath, repoSource),
+        resolveWikiLinkMeta: wikiLinkResolver,
+      });
+
+      return { route: routePathname, html, title, markdown: true };
+    },
+    [currentGistId, gistFiles, repoFiles, resolveMarkdownImageSrc, selectedRepo, user],
   );
 
   useEffect(() => {
@@ -2853,8 +2940,9 @@ export function App() {
       setContentLoadPending(false);
     }
     prevRoute.current = route;
+    documentStack.clearStack();
     handleRoute(route);
-  }, [clearRenderedContent, handleRoute, isContentRoute, route, shouldPreserveVerifiedContent, user]);
+  }, [clearRenderedContent, documentStack, handleRoute, isContentRoute, route, shouldPreserveVerifiedContent, user]);
 
   useEffect(() => {
     if (viewPhase === 'loading') return;
@@ -5757,27 +5845,52 @@ export function App() {
           />
         ) : null;
       }
-      case 'content':
+      case 'content': {
+        const handleStackLinkNavigate = (rawRoute: string) => {
+          const routePathname = rawRoute.replace(/^\/+/, '');
+          if (!isMarkdownFileName(routePathname)) {
+            documentStack.clearStack();
+            navigate(routePathname);
+            return;
+          }
+          const mainEl = document.querySelector<HTMLElement>('.app-body main');
+          const availableWidth = mainEl?.clientWidth ?? window.innerWidth;
+          if (!documentStack.canPush(availableWidth)) return;
+          void fetchDocumentForStack(routePathname).then((entry) => {
+            if (entry) documentStack.pushEntry(entry);
+          });
+        };
+
         return (
-          <ContentView
-            html={renderedHtml}
-            markdown={renderMode === 'markdown' || renderMode === 'image'}
-            scrollStorageKey={currentDocumentScrollKey}
-            plainText={renderMode === 'ansi' && !contentImagePreview ? renderedText : null}
-            plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
-            loading={contentLoadPending}
-            imagePreview={contentImagePreview}
-            alertMessage={contentAlertMessage}
-            alertDownloadHref={contentAlertDownloadHref}
-            alertDownloadName={contentAlertDownloadName}
-            onImageClick={onOpenLightbox}
-            onRequestMarkdownLinkPreview={onRequestMarkdownLinkPreview}
-            onInternalLinkNavigate={(rawRoute) => {
-              const routePathname = rawRoute.replace(/^\/+/, '');
-              navigate(routePathname);
-            }}
-          />
+          <>
+            <ContentView
+              html={renderedHtml}
+              markdown={renderMode === 'markdown' || renderMode === 'image'}
+              scrollStorageKey={currentDocumentScrollKey}
+              plainText={renderMode === 'ansi' && !contentImagePreview ? renderedText : null}
+              plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
+              loading={contentLoadPending}
+              imagePreview={contentImagePreview}
+              alertMessage={contentAlertMessage}
+              alertDownloadHref={contentAlertDownloadHref}
+              alertDownloadName={contentAlertDownloadName}
+              onImageClick={onOpenLightbox}
+              onRequestMarkdownLinkPreview={onRequestMarkdownLinkPreview}
+              onInternalLinkNavigate={handleStackLinkNavigate}
+            />
+            {documentStack.hasStack ? (
+              <DocumentStackView
+                entries={documentStack.entries}
+                baseTitle={currentFileName ?? ''}
+                onPopToIndex={documentStack.popToIndex}
+                onInternalLinkNavigate={handleStackLinkNavigate}
+                onRequestMarkdownLinkPreview={onRequestMarkdownLinkPreview}
+                onImageClick={onOpenLightbox}
+              />
+            ) : null}
+          </>
         );
+      }
       case 'edit':
         return (
           <EditView
@@ -6125,7 +6238,7 @@ export function App() {
     isEditableTextFilePath(currentFileName) &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showReaderAiToggle = readerAiEnabled;
-  const showReaderAiPanel = showReaderAiToggle && readerAiVisible;
+  const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const readerAiToggleDisabled = viewPhase === 'loading';
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =

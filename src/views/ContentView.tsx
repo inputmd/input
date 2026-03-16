@@ -21,6 +21,8 @@ interface ContentViewProps {
   alertMessage?: string | null;
   alertDownloadHref?: string | null;
   alertDownloadName?: string | null;
+  /** When true, hash links scroll within the component instead of the window. */
+  containScroll?: boolean;
   onInternalLinkNavigate?: (route: string) => void;
   onRequestMarkdownLinkPreview?: (route: string) => Promise<MarkdownLinkPreview | null>;
   onImageClick?: (image: HTMLImageElement) => void;
@@ -85,6 +87,7 @@ export function ContentView({
   alertMessage,
   alertDownloadHref,
   alertDownloadName,
+  containScroll = false,
   onInternalLinkNavigate,
   onRequestMarkdownLinkPreview,
   onImageClick,
@@ -266,7 +269,14 @@ export function ContentView({
     if (anchor.hasAttribute('download')) return;
 
     const href = (anchor.getAttribute('href') || '').trim();
-    if (!href || href.startsWith('#') || href.startsWith('?')) return;
+    if (!href || href.startsWith('?')) return;
+    if (href.startsWith('#')) {
+      if (containScroll) {
+        event.preventDefault();
+        scrollToHash(href, 'smooth');
+      }
+      return;
+    }
     if (isExternalHttpHref(href)) return;
 
     const resolved = new URL(href, window.location.href);

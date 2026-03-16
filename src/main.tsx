@@ -15,6 +15,7 @@ import './styles/markdown.css';
 import './styles/reader_ai.css';
 import './styles/documents.css';
 import './styles/dialog.css';
+import './styles/document_stack.css';
 
 render(
   <ErrorBoundary fallbackMessage="The app failed to load.">
