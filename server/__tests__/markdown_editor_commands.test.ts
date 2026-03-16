@@ -128,6 +128,16 @@ test('normalizeBlockquotePaste turns pasted links at blockquote end into source 
 
   t.is(
     normalizeBlockquotePaste(state, state.selection.main.from, 'https://example.com/source'),
-    ' [^src](https://example.com/source)',
+    '[^src](https://example.com/source)',
   );
+});
+
+test('normalizeBlockquotePaste does not create a citation inside a markdown link url', (t) => {
+  const state = EditorState.create({
+    doc: '> [^src](',
+    selection: EditorSelection.cursor('> [^src]('.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'https://example.com/source'), null);
 });

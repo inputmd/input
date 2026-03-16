@@ -224,8 +224,8 @@ export function normalizeBlockquotePaste(state: EditorState, pos: number, text: 
   const trimmed = normalized.trim();
   const isSingleHttpUrl = /^https?:\/\/\S+$/.test(trimmed) && !normalized.includes('\n');
   if (isSingleHttpUrl && pos === line.to) {
-    const needsLeadingSpace = pos > line.from && !/\s/.test(state.doc.sliceString(pos - 1, pos));
-    return `${needsLeadingSpace ? ' ' : ''}[^src](${trimmed})`;
+    if (state.doc.sliceString(Math.max(line.from, pos - 2), pos) === '](') return null;
+    return `[^src](${trimmed})`;
   }
 
   const lines = normalized.split('\n');

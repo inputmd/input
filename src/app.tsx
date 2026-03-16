@@ -1817,7 +1817,11 @@ export function App() {
       if (normalizedBlockquotePaste !== null) {
         event.preventDefault();
         const { from, to } = view.state.selection.main;
-        view.dispatch({ changes: { from, to, insert: normalizedBlockquotePaste } });
+        const head = from + normalizedBlockquotePaste.length;
+        view.dispatch({
+          changes: { from, to, insert: normalizedBlockquotePaste },
+          selection: { anchor: head, head },
+        });
         return;
       }
 
