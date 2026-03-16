@@ -1271,12 +1271,14 @@ export function App() {
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const saveInFlightRef = useRef(false);
+  const currentFileNameRef = useRef<string | null>(currentFileName);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const prevRouteNameRef = useRef(route.name);
   const readerAiSkipPersistVisibleRef = useRef(false);
   const editContentRef = useRef(editContent);
   editContentRef.current = editContent;
+  currentFileNameRef.current = currentFileName;
   const setNextEditContent = useCallback(
     (
       nextContent: string | ((previousContent: string) => string),
@@ -5314,7 +5316,7 @@ export function App() {
           if (!currentGistId) return;
           const gist = await store.renameFile({ name: oldPath }, newPath);
           setGistFiles(gist.files);
-          if (currentFileName === oldPath) {
+          if (currentFileNameRef.current === oldPath) {
             setCurrentFileName(newPath);
             navigate(routePath.gistView(currentGistId, newPath));
           }
@@ -5327,7 +5329,7 @@ export function App() {
             `Rename ${oldPath} to ${newPath}`,
           );
           await refreshRepoTreeAfterWrite();
-          if (currentFileName === oldPath) {
+          if (currentFileNameRef.current === oldPath) {
             if (selectedRepoRef) {
               navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, newPath));
             } else {
@@ -5353,7 +5355,6 @@ export function App() {
     [
       getActiveDocumentStore,
       currentGistId,
-      currentFileName,
       navigate,
       handleSessionExpired,
       showAlert,
