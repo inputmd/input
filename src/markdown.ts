@@ -9,6 +9,11 @@ marked.setOptions({
   gfm: true,
 });
 
+const domPurify = DOMPurify as unknown as {
+  sanitize?: (dirty: string, config?: object) => string;
+  (window: Window): { sanitize: (dirty: string, config?: object) => string };
+};
+
 const WEB_TLDS = new Set(['com', 'org', 'net', 'app', 'dev', 'xyz']);
 
 function wikiSlug(raw: string): string {
@@ -116,7 +121,9 @@ marked.use({
     lheading() {
       return undefined;
     },
-    // Disable indented code blocks so leading spaces remain literal text.
+    // Keep indented code blocks disabled. Renderer-side indentation preservation
+    // relies on leading spaces staying plain text instead of being promoted to
+    // `<pre><code>`, so do not re-enable this without replacing that behavior.
     code() {
       return undefined;
     },
@@ -451,6 +458,97 @@ function shouldSkipSmartPunctuation(node: Node | null): boolean {
   return false;
 }
 
+function isLeadingIndentPreservedBlock(node: Element): boolean {
+  const tagName = node.tagName;
+  return tagName === 'P' || tagName === 'LI' || tagName === 'BLOCKQUOTE';
+}
+
+function isWhitespacePreservingElement(node: Node): boolean {
+  return (
+    node instanceof HTMLElement &&
+    (node.tagName === 'PRE' || node.tagName === 'CODE' || node.tagName === 'KBD' || node.tagName === 'SAMP')
+  );
+}
+
+function createLeadingIndentSpan(text: string): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = 'leading-indent';
+  span.textContent = text;
+  return span;
+}
+
+function preserveLeadingIndentationInNode(node: Node, atLineStart: { value: boolean }): void {
+  if (node instanceof Text) {
+    const text = node.textContent ?? '';
+    if (!text) return;
+
+    const fragment = document.createDocumentFragment();
+    let index = 0;
+
+    while (index < text.length) {
+      if (atLineStart.value) {
+        const indentMatch = /^[ \t]+/.exec(text.slice(index));
+        if (indentMatch) {
+          fragment.appendChild(createLeadingIndentSpan(indentMatch[0]));
+          index += indentMatch[0].length;
+          atLineStart.value = false;
+          continue;
+        }
+        if (text[index] !== '\n' && text[index] !== '\r') {
+          atLineStart.value = false;
+        }
+      }
+
+      const newlineIndex = text.slice(index).search(/[\r\n]/);
+      if (newlineIndex === -1) {
+        fragment.appendChild(document.createTextNode(text.slice(index)));
+        atLineStart.value = false;
+        break;
+      }
+
+      const end = index + newlineIndex;
+      if (end > index) {
+        fragment.appendChild(document.createTextNode(text.slice(index, end)));
+      }
+
+      if (text[end] === '\r' && text[end + 1] === '\n') {
+        fragment.appendChild(document.createTextNode('\r\n'));
+        index = end + 2;
+      } else {
+        fragment.appendChild(document.createTextNode(text[end]));
+        index = end + 1;
+      }
+      atLineStart.value = true;
+    }
+
+    node.replaceWith(fragment);
+    return;
+  }
+
+  if (!(node instanceof HTMLElement) || isWhitespacePreservingElement(node)) {
+    atLineStart.value = false;
+    return;
+  }
+
+  if (node.tagName === 'BR') {
+    atLineStart.value = true;
+    return;
+  }
+
+  const children = Array.from(node.childNodes);
+  for (const child of children) {
+    preserveLeadingIndentationInNode(child, atLineStart);
+  }
+}
+
+function preserveLeadingIndentation(root: ParentNode): void {
+  root.querySelectorAll('p, li, blockquote').forEach((element) => {
+    if (!isLeadingIndentPreservedBlock(element)) return;
+    if (element.parentElement?.closest('p, li, blockquote')) return;
+    preserveLeadingIndentationInNode(element, { value: true });
+  });
+}
+
 function applySmartPunctuation(root: ParentNode): void {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const textNodes: Text[] = [];
@@ -570,7 +668,7 @@ function appendFootnotesSection(
 
     const definitionMarkdown = definitions.get(id) ?? '';
     const rendered = marked.parse(definitionMarkdown, { gfm: true, breaks: false }) as string;
-    const sanitized = DOMPurify.sanitize(rendered, {
+    const sanitized = sanitizeHtml(rendered, {
       ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'],
     });
     const wrapper = document.createElement('div');
@@ -622,6 +720,16 @@ function createLucideIcon(
     svg.appendChild(el);
   }
   return svg;
+}
+
+function sanitizeHtml(dirty: string, config?: object): string {
+  if (typeof domPurify.sanitize === 'function') {
+    return domPurify.sanitize(dirty, config);
+  }
+  if (typeof window !== 'undefined') {
+    return domPurify(window).sanitize(dirty, config);
+  }
+  return dirty;
 }
 
 function createTranscriptSpeakerIcon(role: 'user' | 'assistant'): HTMLElement {
@@ -701,7 +809,7 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
   const markdown = extractMarkdownBody(text);
   const extractedFootnotes = extractFootnotes(markdown);
   const raw = marked.parse(extractedFootnotes.markdown, { gfm: true, breaks: options?.breaks ?? true }) as string;
-  const sanitized = DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
+  const sanitized = sanitizeHtml(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
   assignHeadingIds(template.content);
@@ -766,6 +874,7 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
     img.removeAttribute('title');
   });
 
+  preserveLeadingIndentation(template.content);
   applySmartPunctuation(template.content);
   if (options?.claudeTranscript) {
     decorateClaudeTranscript(template.content);

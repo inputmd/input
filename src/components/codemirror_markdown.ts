@@ -80,6 +80,8 @@ const markdownParserExtensions: MarkdownExtension = [
     remove: ['HTMLBlock', 'HTMLTag'],
   },
   {
+    // Keep IndentedCode removed so leading spaces stay editable prose and match
+    // the renderer's custom indentation preservation instead of becoming code blocks.
     remove: ['SetextHeading', 'IndentedCode'],
   },
   htmlCommentMarkdownExtension,
@@ -98,6 +100,13 @@ export function markdownCodeLanguageSupport() {
   return markdown({
     base: markdownLanguage,
     completeHTMLTags: false,
-    extensions: [{ remove: ['HTMLBlock', 'HTMLTag', 'IndentedCode'] }, htmlCommentMarkdownExtension],
+    extensions: [
+      {
+        // Keep IndentedCode removed here too so read-only markdown parsing stays
+        // aligned with the editor and renderer behavior.
+        remove: ['HTMLBlock', 'HTMLTag', 'IndentedCode'],
+      },
+      htmlCommentMarkdownExtension,
+    ],
   });
 }

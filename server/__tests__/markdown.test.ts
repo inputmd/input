@@ -1,6 +1,43 @@
 import test from 'ava';
+import { JSDOM } from 'jsdom';
 import { marked } from 'marked';
-import '../../src/markdown.ts';
+import { parseMarkdownToHtml } from '../../src/markdown.ts';
+
+function withDom<T>(callback: () => T): T {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>');
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    Node: globalThis.Node,
+    NodeFilter: globalThis.NodeFilter,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLAnchorElement: globalThis.HTMLAnchorElement,
+    HTMLImageElement: globalThis.HTMLImageElement,
+    SVGElement: globalThis.SVGElement,
+    Text: globalThis.Text,
+    DocumentFragment: globalThis.DocumentFragment,
+  };
+
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    Node: dom.window.Node,
+    NodeFilter: dom.window.NodeFilter,
+    HTMLElement: dom.window.HTMLElement,
+    HTMLAnchorElement: dom.window.HTMLAnchorElement,
+    HTMLImageElement: dom.window.HTMLImageElement,
+    SVGElement: dom.window.SVGElement,
+    Text: dom.window.Text,
+    DocumentFragment: dom.window.DocumentFragment,
+  });
+
+  try {
+    return callback();
+  } finally {
+    Object.assign(globalThis, previous);
+    dom.window.close();
+  }
+}
 
 test('marked renders superscript links for caret-prefixed link labels', (t) => {
   const html = marked.parse('See [^docs](https://example.com) for details.');
@@ -108,4 +145,30 @@ test('marked preserves markdown links while styling bare bracketed text', (t) =>
 
   t.true(html.includes('<span class="bracketed-text">draft</span>'));
   t.true(html.includes('<a href="https://example.com">docs</a>'));
+});
+
+test('parseMarkdownToHtml preserves leading indentation in paragraphs', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('    one'));
+
+  t.true(html.includes('<span class="leading-indent">    </span>one'));
+});
+
+test('parseMarkdownToHtml preserves leading indentation after soft breaks in list items', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('- item\n    continuation'));
+
+  t.true(html.includes('item<br><span class="leading-indent">  </span>continuation'));
+});
+
+test('parseMarkdownToHtml does not preserve repeated inline spaces as indentation', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('keep  inline spaces'));
+
+  t.false(html.includes('leading-indent'));
+  t.true(html.includes('keep  inline spaces'));
+});
+
+test('parseMarkdownToHtml keeps fenced code blocks unchanged while preserving prose indentation', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('```\n    code\n```'));
+
+  t.true(html.includes('<pre><code>    code\n</code></pre>'));
+  t.false(html.includes('leading-indent'));
 });
