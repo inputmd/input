@@ -19,43 +19,8 @@
   text-align: center;
 }
 
-.content-alert--claude {
-  position: relative;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 0;
-  margin: 15px 0;
-}
-
-.content-alert-claude-banner-wrap {
-  flex: 0 0 100%;
-  display: flex;
-  justify-content: center;
-}
-
-.content-alert-claude-banner {
-  display: block;
-  width: fit-content;
-  margin: 0;
-  white-space: pre;
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 17px;
-  line-height: 1;
-  text-align: left;
-  color: #b66b3a;
-}
-
 .content-alert-caption {
   color: var(--text-secondary);
-}
-
-.content-alert-caption--small {
-  display: block;
-  font-size: 14px;
-  line-height: inherit;
-  padding-bottom: 9px;
 }
 
 .content-alert-link {
@@ -69,11 +34,6 @@
 
 .content-view--markdown {
   max-width: 720px;
-}
-
-.content-view--claude-chat {
-  position: relative;
-  max-width: 860px;
 }
 
 .content-view--plain {
@@ -101,26 +61,6 @@
 
 .content-view--image {
   max-width: none;
-}
-
-.claude-chat-compact-toggle {
-  position: absolute;
-  top: 14px;
-  right: 18px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  user-select: none;
-  cursor: pointer;
-}
-
-.claude-chat-compact-toggle-checkbox {
-  margin: 0;
-  width: 12px;
-  height: 12px;
-  accent-color: color-mix(in srgb, var(--text-secondary) 65%, var(--border) 35%);
 }
 
 .content-image-preview {
@@ -728,116 +668,6 @@
 
 .rendered-markdown li:has(> input[type="checkbox"]) > input[type="checkbox"] {
   margin-left: -1.3em;
-}
-
-.rendered-markdown--claude-chat {
-  font-size: var(--reader-claude-font-size);
-}
-
-.rendered-markdown .claude-chat-transcript {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.rendered-markdown .claude-chat-message {
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 12px;
-  padding: 11px 13px;
-  background: color-mix(in srgb, var(--btn-bg) 36%, transparent);
-  transition:
-    box-shadow 140ms ease,
-    border-color 140ms ease;
-}
-
-.rendered-markdown .claude-chat-message--active {
-  border-color: color-mix(in srgb, var(--focus-border) 18%, var(--border) 82%);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--focus-border) 10%, transparent);
-}
-
-.rendered-markdown .claude-chat-message-header {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 8px;
-  color: var(--text-secondary);
-  font-size: 0.9em;
-}
-
-.rendered-markdown .claude-chat-message-icon {
-  width: 1.05em;
-  height: 1.05em;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.rendered-markdown .claude-chat-message-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.rendered-markdown .claude-chat-message-role {
-  font-weight: 600;
-}
-
-.rendered-markdown .claude-chat-message--assistant .claude-chat-message-role {
-  color: #b66b3a;
-}
-
-.rendered-markdown .claude-chat-message--user .claude-chat-message-role {
-  color: #5a78a5;
-}
-
-.rendered-markdown .claude-chat-message--assistant .claude-chat-message-icon {
-  color: #b66b3a;
-}
-
-.rendered-markdown .claude-chat-message--user .claude-chat-message-icon {
-  color: #5a78a5;
-}
-
-.rendered-markdown .claude-chat-message--user .claude-chat-message-body {
-  font-family: var(--font-mono);
-  font-size: 14.5px;
-  line-height: 1.525;
-  padding-bottom: 4px;
-  margin-top: -1px;
-}
-
-.rendered-markdown .claude-chat-message-body > :first-child {
-  margin-top: 0;
-}
-
-.rendered-markdown .claude-chat-message-body > :last-child {
-  margin-bottom: 0;
-}
-
-.rendered-markdown .claude-chat-message-body em {
-  color: var(--text-secondary);
-}
-
-.rendered-markdown .claude-chat-message-body > :last-child em:only-child {
-  font-size: var(--reader-metadata-font-size);
-  display: inline-block;
-  line-height: 1.5;
-}
-
-.rendered-markdown .claude-chat-message--assistant.claude-chat-message--collapsed .claude-chat-message-body {
-  position: relative;
-  max-height: 120px;
-  overflow: hidden;
-  padding-bottom: 0;
-  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent);
-  mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent);
-}
-
-.rendered-markdown .claude-chat-message--assistant {
-  padding-bottom: 14px;
-}
-
-.rendered-markdown .claude-chat-message--assistant.claude-chat-message--collapsed {
-  padding-bottom: 0;
 }
 
 .image-lightbox {

@@ -332,7 +332,6 @@ interface ParseMarkdownOptions {
   breaks?: boolean;
   resolveImageSrc?: (src: string) => string | null;
   resolveWikiLinkMeta?: (targetPath: string) => { exists: boolean; resolvedHref?: string | null } | null;
-  claudeTranscript?: boolean;
 }
 
 interface ExtractedFootnotes {
@@ -744,28 +743,6 @@ function appendFootnotesSection(
   root.appendChild(section);
 }
 
-function createLucideIcon(
-  paths: Array<{ tag: 'path' | 'circle' | 'rect'; attrs: Record<string, string> }>,
-): SVGElement {
-  const svgNs = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNs, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  svg.setAttribute('aria-hidden', 'true');
-  for (const node of paths) {
-    const el = document.createElementNS(svgNs, node.tag);
-    for (const [key, value] of Object.entries(node.attrs)) {
-      el.setAttribute(key, value);
-    }
-    svg.appendChild(el);
-  }
-  return svg;
-}
-
 function sanitizeHtml(dirty: string, config?: object): string {
   if (typeof domPurify.sanitize === 'function') {
     return domPurify.sanitize(dirty, config);
@@ -774,79 +751,6 @@ function sanitizeHtml(dirty: string, config?: object): string {
     return domPurify(window).sanitize(dirty, config);
   }
   return dirty;
-}
-
-function createTranscriptSpeakerIcon(role: 'user' | 'assistant'): HTMLElement {
-  const icon = document.createElement('span');
-  icon.className = 'claude-chat-message-icon';
-
-  const svg =
-    role === 'user'
-      ? createLucideIcon([
-          { tag: 'path', attrs: { d: 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2' } },
-          { tag: 'circle', attrs: { cx: '12', cy: '7', r: '4' } },
-        ])
-      : createLucideIcon([
-          { tag: 'path', attrs: { d: 'M12 8V4H8' } },
-          { tag: 'rect', attrs: { x: '4', y: '8', width: '16', height: '12', rx: '2' } },
-          { tag: 'path', attrs: { d: 'M2 14h2' } },
-          { tag: 'path', attrs: { d: 'M20 14h2' } },
-          { tag: 'path', attrs: { d: 'M9 13v2' } },
-          { tag: 'path', attrs: { d: 'M15 13v2' } },
-        ]);
-
-  icon.appendChild(svg);
-  return icon;
-}
-
-function normalizeTranscriptRole(text: string): 'user' | 'assistant' {
-  return /^user$/i.test(text.trim()) ? 'user' : 'assistant';
-}
-
-function decorateClaudeTranscript(root: DocumentFragment): void {
-  const nodes = Array.from(root.childNodes);
-  if (nodes.length === 0) return;
-
-  const container = document.createElement('div');
-  container.className = 'claude-chat-transcript';
-  let hasMessages = false;
-
-  let index = 0;
-  while (index < nodes.length) {
-    const node = nodes[index];
-    if (node instanceof HTMLElement && node.tagName === 'H2') {
-      hasMessages = true;
-      const label = node.textContent?.trim() || 'Assistant';
-      const role = normalizeTranscriptRole(label);
-      const message = document.createElement('section');
-      message.className = `claude-chat-message claude-chat-message--${role}`;
-
-      const header = document.createElement('header');
-      header.className = 'claude-chat-message-header';
-      const title = document.createElement('span');
-      title.className = 'claude-chat-message-role';
-      title.textContent = label;
-      header.append(createTranscriptSpeakerIcon(role), title);
-
-      const body = document.createElement('div');
-      body.className = 'claude-chat-message-body';
-      index += 1;
-      while (index < nodes.length) {
-        const next = nodes[index];
-        if (next instanceof HTMLElement && next.tagName === 'H2') break;
-        body.appendChild(next);
-        index += 1;
-      }
-      message.append(header, body);
-      container.appendChild(message);
-      continue;
-    }
-    container.appendChild(node);
-    index += 1;
-  }
-
-  if (!hasMessages) return;
-  root.replaceChildren(container);
 }
 
 export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
@@ -920,9 +824,6 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
 
   preserveLeadingIndentation(template.content);
   applySmartPunctuation(template.content);
-  if (options?.claudeTranscript) {
-    decorateClaudeTranscript(template.content);
-  }
 
   return template.innerHTML;
 }

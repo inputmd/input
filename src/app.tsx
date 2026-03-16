@@ -3,7 +3,6 @@ import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
-import { looksLikeClaudeExportTrace, parseClaudeExportTrace, renderClaudeTraceMarkdown } from './claude_trace';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
 import type { InlinePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
@@ -217,10 +216,6 @@ function repoNewDraftKey(
   field: 'title' | 'content',
 ): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${path}:${field}`;
-}
-
-function isTxtFileName(name: string | null | undefined): boolean {
-  return Boolean(name && /\.txt$/i.test(name));
 }
 
 function isSidebarTextFileName(name: string | null | undefined): boolean {
@@ -1143,7 +1138,6 @@ export function App() {
   const [contentLoadPending, setContentLoadPending] = useState(false);
   const [preserveHeaderLeftControlsWhileLoading, setPreserveHeaderLeftControlsWhileLoading] = useState(false);
   const [contentImagePreview, setContentImagePreview] = useState<{ src: string; alt: string } | null>(null);
-  const [isClaudeTranscript, setIsClaudeTranscript] = useState(false);
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
   const [contentAlertDownloadHref, setContentAlertDownloadHref] = useState<string | null>(null);
   const [contentAlertDownloadName, setContentAlertDownloadName] = useState<string | null>(null);
@@ -1353,7 +1347,7 @@ export function App() {
   const readerAiEditEligible = routeView === 'edit' && isMarkdownFileName(currentFileName ?? editTitle);
   const readerAiContentEligible =
     routeView === 'content' &&
-    ((renderMode === 'markdown' && (Boolean(readerAiSource) || isClaudeTranscript)) ||
+    ((renderMode === 'markdown' && Boolean(readerAiSource)) ||
       (contentLoadPending && isMarkdownFileName(currentFileName)));
   const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
   const readerAiEditLocked =
@@ -1387,7 +1381,6 @@ export function App() {
     setRenderedHtml('');
     setRenderedText(null);
     setRenderMode('ansi');
-    setIsClaudeTranscript(false);
     setReaderAiSource('');
     setContentImagePreview(null);
     setContentAlertMessage(null);
@@ -1544,7 +1537,6 @@ export function App() {
       wikiLinkContext?: { currentDocPath: string; knownMarkdownPaths: string[] },
     ) => {
       if (isMarkdownFileName(fileName)) {
-        setIsClaudeTranscript(false);
         setReaderAiSource(content);
 
         setContentImagePreview(null);
@@ -1567,28 +1559,9 @@ export function App() {
         setContentLoadPending(false);
         return;
       }
-      if (isTxtFileName(fileName) && looksLikeClaudeExportTrace(content)) {
-        const parsed = parseClaudeExportTrace(content, fileName ?? undefined);
-        const markdown = renderClaudeTraceMarkdown(parsed);
-        setRenderedHtml(parseMarkdownToHtml(markdown, { breaks: false, claudeTranscript: true }));
-        setRenderedText(null);
-        setRenderMode('markdown');
-        setIsClaudeTranscript(true);
-        setReaderAiSource(content);
-
-        setContentImagePreview(null);
-        setContentAlertMessage(
-          'This is a Claude Code export. Use ↑/↓ to move between messages and ←/→ to jump between user messages.',
-        );
-        setContentAlertDownloadHref(null);
-        setContentAlertDownloadName(null);
-        setContentLoadPending(false);
-        return;
-      }
       setRenderedHtml('');
       setRenderedText(content);
       setRenderMode('ansi');
-      setIsClaudeTranscript(false);
       setReaderAiSource('');
       setContentImagePreview(null);
       setContentAlertMessage(null);
@@ -1603,7 +1576,6 @@ export function App() {
     setRenderedHtml('');
     setRenderedText(null);
     setRenderMode('image');
-    setIsClaudeTranscript(false);
     setReaderAiSource('');
     setContentImagePreview({ src: imageSrc, alt: fileName ?? 'Image' });
     setContentAlertMessage(null);
@@ -1618,8 +1590,7 @@ export function App() {
       setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
       setRenderedText(null);
       setRenderMode('ansi');
-      setIsClaudeTranscript(false);
-      setReaderAiSource('');
+        setReaderAiSource('');
       setContentImagePreview(null);
       setContentAlertMessage('Binary file detected.');
       setContentAlertDownloadHref(downloadHref);
@@ -5796,7 +5767,6 @@ export function App() {
             plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
             loading={contentLoadPending}
             imagePreview={contentImagePreview}
-            claudeTranscript={isClaudeTranscript}
             alertMessage={contentAlertMessage}
             alertDownloadHref={contentAlertDownloadHref}
             alertDownloadName={contentAlertDownloadName}
