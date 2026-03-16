@@ -841,7 +841,7 @@ export function Sidebar({
       <ContextMenu.Root key={`folder:${folder.path}`}>
         <ContextMenu.Trigger asChild>{folderRow}</ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
+          <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start" collisionPadding={8}>
             {!readOnly && (
               <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => startCreate('file', folder.path)}>
                 Add file
@@ -977,7 +977,7 @@ export function Sidebar({
       <ContextMenu.Root key={`file:${file.path}`}>
         <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start">
+          <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start" collisionPadding={8}>
             {showEditAction && (
               <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onEditFile(file.path)}>
                 Edit
