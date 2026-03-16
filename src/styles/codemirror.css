@@ -160,7 +160,7 @@
 
 /* Inline code */
 .cm-editor .tok-monospace {
-  color: color-mix(in srgb, var(--text) 70%, var(--ansi-cyan));
+  color: var(--code-content-color);
   background: color-mix(in srgb, var(--btn-bg) 50%, transparent);
   border-radius: 3px;
   padding: 1px 3px;
@@ -259,10 +259,6 @@
 .cm-editor .tok-invalid {
   color: var(--error-color);
   text-decoration: underline wavy color-mix(in srgb, var(--error-color) 70%, transparent);
-}
-
-[data-theme="light"] .cm-editor .tok-monospace {
-  color: color-mix(in srgb, var(--text) 60%, var(--ansi-cyan));
 }
 
 [data-theme="light"] .cm-editor .tok-string,
