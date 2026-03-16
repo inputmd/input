@@ -15,6 +15,8 @@ const domPurify = DOMPurify as unknown as {
 };
 
 const WEB_TLDS = new Set(['com', 'org', 'net', 'app', 'dev', 'xyz']);
+const BLOCKQUOTE_INDENT_TOKEN_PREFIX = 'BQINDENTTOKEN';
+const BLOCKQUOTE_INDENT_TOKEN_SUFFIX = 'TOKENBQINDENT';
 
 function wikiSlug(raw: string): string {
   return raw.trim().toLowerCase().replace(/[/\\]/g, '-').replace(/\s+/g, '-');
@@ -444,6 +446,56 @@ function extractMarkdownBody(text: string): string {
   }
 }
 
+function annotateIndentedBlockquotes(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const annotated: string[] = [];
+
+  let inFence = false;
+  let fenceMarker = '';
+  let inBlockquote = false;
+
+  for (const line of lines) {
+    const fenceMatch = /^ {0,3}(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      const markerChar = marker[0];
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = markerChar;
+      } else if (markerChar === fenceMarker) {
+        inFence = false;
+        fenceMarker = '';
+      }
+      annotated.push(line);
+      inBlockquote = false;
+      continue;
+    }
+
+    if (inFence) {
+      annotated.push(line);
+      continue;
+    }
+
+    const blockquoteMatch = /^([ \t]+)((?:> ?)+)(.*)$/.exec(line);
+    if (blockquoteMatch) {
+      const [, indent, markers, content] = blockquoteMatch;
+      if (!inBlockquote) {
+        const token = `${BLOCKQUOTE_INDENT_TOKEN_PREFIX}${indent.length}${BLOCKQUOTE_INDENT_TOKEN_SUFFIX}`;
+        annotated.push(`${markers}${token}${content}`);
+      } else {
+        annotated.push(line);
+      }
+      inBlockquote = true;
+      continue;
+    }
+
+    inBlockquote = false;
+    annotated.push(line);
+  }
+
+  return annotated.join('\n');
+}
+
 function shouldSkipSmartPunctuation(node: Node | null): boolean {
   let current: Node | null = node;
   while (current) {
@@ -590,6 +642,41 @@ function preserveLeadingIndentation(root: ParentNode): void {
     if (element.parentElement?.closest('p, li, blockquote')) return;
     applyBlockLeadingIndent(element);
     preserveLeadingIndentationInNode(element, { value: false });
+  });
+}
+
+function applyAnnotatedBlockquoteIndent(root: ParentNode): void {
+  const tokenPattern = new RegExp(`^${BLOCKQUOTE_INDENT_TOKEN_PREFIX}(\\d+)${BLOCKQUOTE_INDENT_TOKEN_SUFFIX}`);
+
+  root.querySelectorAll('blockquote').forEach((blockquote) => {
+    const walker = document.createTreeWalker(blockquote, NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+
+    while (current) {
+      if (current.nodeType === Node.TEXT_NODE) {
+        const textNode = current as Text;
+        const text = textNode.textContent ?? '';
+        if (!text) {
+          current = walker.nextNode();
+          continue;
+        }
+
+        const match = tokenPattern.exec(text);
+        if (!match) {
+          current = walker.nextNode();
+          continue;
+        }
+
+        textNode.textContent = text.slice(match[0].length);
+        blockquote.classList.add('leading-indent-block');
+        if (blockquote instanceof HTMLElement) {
+          blockquote.style.setProperty('--leading-indent-columns', match[1]);
+        }
+        return;
+      }
+
+      current = walker.nextNode();
+    }
   });
 }
 
@@ -850,13 +937,14 @@ function decorateClaudeTranscript(root: DocumentFragment): void {
 }
 
 export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
-  const markdown = extractMarkdownBody(text);
+  const markdown = annotateIndentedBlockquotes(extractMarkdownBody(text));
   const extractedFootnotes = extractFootnotes(markdown);
   const raw = marked.parse(extractedFootnotes.markdown, { gfm: true, breaks: options?.breaks ?? true }) as string;
   const sanitized = sanitizeHtml(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
   assignHeadingIds(template.content);
+  applyAnnotatedBlockquoteIndent(template.content);
   const footnoteReferences = applyFootnoteReferences(template.content, extractedFootnotes.definitions);
   appendFootnotesSection(template.content, footnoteReferences, extractedFootnotes.definitions);
 

@@ -160,6 +160,14 @@ test('parseMarkdownToHtml preserves leading indentation after soft breaks in lis
   t.true(html.includes('item<br><span class="leading-indent">  </span>continuation'));
 });
 
+test('parseMarkdownToHtml preserves leading indentation before blockquote markers', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('   > quote'));
+
+  t.true(html.includes('<blockquote class="leading-indent-block" style="--leading-indent-columns: 3;">'));
+  t.true(html.includes('<p>quote</p>'));
+  t.false(html.includes('BQINDENTTOKEN'));
+});
+
 test('parseMarkdownToHtml does not preserve repeated inline spaces as indentation', (t) => {
   const html = withDom(() => parseMarkdownToHtml('keep  inline spaces'));
 
