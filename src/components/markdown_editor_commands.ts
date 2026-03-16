@@ -207,6 +207,38 @@ export function insertNewlineContinueLooseListItem(view: EditorView): boolean {
   return true;
 }
 
+export function insertNewlineExitBlockquote(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty) return false;
+  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
+    return false;
+
+  const line = state.doc.lineAt(range.from);
+  if (range.from !== line.to) return false;
+
+  const context = getMarkdownListContext(state, range.from);
+  while (context.length && context[context.length - 1].from > range.from - line.from) context.pop();
+  if (!context.length) return false;
+
+  const inner = context[context.length - 1];
+  // Override CodeMirror's default markdown Enter behavior here so a completed
+  // plain blockquote line exits the quote instead of lazily continuing `>`.
+  if (inner.node.name !== 'Blockquote' || inner.item) return false;
+  if (!/\S/.test(line.text.slice(inner.to))) return false;
+
+  const insert = state.lineBreak;
+  view.dispatch(
+    state.update({
+      changes: { from: range.from, to: range.to, insert },
+      selection: EditorSelection.cursor(range.from + insert.length),
+      scrollIntoView: true,
+      userEvent: 'input',
+    }),
+  );
+  return true;
+}
+
 export function normalizeBlockquotePaste(state: EditorState, pos: number, text: string): string | null {
   if (!markdownLanguage.isActiveAt(state, pos, -1) && !markdownLanguage.isActiveAt(state, pos, 1)) return null;
 

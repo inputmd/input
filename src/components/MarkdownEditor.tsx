@@ -21,6 +21,7 @@ import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
   buildExternalContentSyncTransaction,
   insertNewlineContinueLooseListItem,
+  insertNewlineExitBlockquote,
   isExternalSyncTransaction,
   wrapWithMarker,
 } from './markdown_editor_commands';
@@ -139,6 +140,7 @@ export function MarkdownEditor({
                 return true;
               },
             },
+            { key: 'Enter', run: insertNewlineExitBlockquote },
             { key: 'Enter', run: insertNewlineContinueLooseListItem },
             { key: 'Tab', run: indentMore, shift: indentLess },
             ...historyKeymap,

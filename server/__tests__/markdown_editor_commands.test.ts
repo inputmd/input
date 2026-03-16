@@ -6,6 +6,7 @@ import {
   buildExternalContentSyncTransaction,
   externalSyncAnnotation,
   insertNewlineContinueLooseListItem,
+  insertNewlineExitBlockquote,
   isExternalSyncTransaction,
   normalizeBlockquotePaste,
   wrapWithMarker,
@@ -107,6 +108,22 @@ test('insertNewlineContinueLooseListItem ignores tight lists', (t) => {
   ]);
 
   t.false(insertNewlineContinueLooseListItem(view));
+});
+
+test('insertNewlineExitBlockquote exits a plain blockquote at line end', (t) => {
+  const view = makeMockView('> foo', EditorSelection.cursor('> foo'.length), [markdown({ base: markdownLanguage })]);
+
+  const handled = insertNewlineExitBlockquote(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '> foo\n');
+  t.is(view.state.selection.main.head, '> foo\n'.length);
+});
+
+test('insertNewlineExitBlockquote ignores non-terminal cursor positions', (t) => {
+  const view = makeMockView('> foo', EditorSelection.cursor('> fo'.length), [markdown({ base: markdownLanguage })]);
+
+  t.false(insertNewlineExitBlockquote(view));
 });
 
 test('normalizeBlockquotePaste continues blockquote prefixes for pasted multiline text', (t) => {
