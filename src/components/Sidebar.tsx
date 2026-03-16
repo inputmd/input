@@ -394,6 +394,7 @@ export function Sidebar({
   const [draggingFilePath, setDraggingFilePath] = useState<string | null>(null);
   const [draggingExternalFile, setDraggingExternalFile] = useState(false);
   const [dropFolderPath, setDropFolderPath] = useState<string | null>(null);
+  const [movingFilePath, setMovingFilePath] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -726,7 +727,12 @@ export function Sidebar({
     clearDragState();
     if (!draggedPath) return;
     if (parentFolderPath(draggedPath) === targetFolderPath) return;
-    await onMoveFile(draggedPath, targetFolderPath);
+    setMovingFilePath(draggedPath);
+    try {
+      await onMoveFile(draggedPath, targetFolderPath);
+    } finally {
+      setMovingFilePath((current) => (current === draggedPath ? null : current));
+    }
   };
 
   const handleSidebarBackgroundClick = (event: MouseEvent) => {
@@ -800,7 +806,11 @@ export function Sidebar({
         <span class={`sidebar-folder-caret${collapsed ? '' : ' open'}`} aria-hidden="true">
           <ChevronRight size={CHEVRON_SIZE} />
         </span>
-        <FolderIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+        {isRenaming ? (
+          <span class="sidebar-rename-spinner" aria-hidden="true" />
+        ) : (
+          <FolderIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+        )}
         {isRenaming ? (
           <input
             ref={renameInputRef}
@@ -887,11 +897,12 @@ export function Sidebar({
 
   const renderFileRow = (file: SidebarFileNode, depth: number) => {
     const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
+    const isMoving = movingFilePath === file.path;
     const FileIcon = getFileIcon(file.name, file.size);
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     const fileRow = (
       <div
-        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${draggingFilePath === file.path ? ' dragging' : ''}`}
+        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${draggingFilePath === file.path ? ' dragging' : ''}`}
         ref={(el) => {
           rowRefs.current[file.path] = el;
         }}
@@ -900,7 +911,7 @@ export function Sidebar({
         aria-level={depth + 1}
         aria-selected={file.active}
         aria-current={file.active ? 'true' : undefined}
-        draggable={!readOnly && file.editable && !isRenaming}
+        draggable={!readOnly && file.editable && !isRenaming && !isMoving}
         style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
         onClick={() => !file.active && onSelectFile(file.path)}
         onFocus={() => {
@@ -934,7 +945,11 @@ export function Sidebar({
         }}
       >
         <IndentGuides depth={depth} />
-        <FileIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+        {isRenaming || isMoving ? (
+          <span class="sidebar-rename-spinner" aria-hidden="true" />
+        ) : (
+          <FileIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
+        )}
         {isRenaming ? (
           <input
             ref={renameInputRef}

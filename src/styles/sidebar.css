@@ -279,6 +279,16 @@
   color: var(--text-secondary);
 }
 
+.sidebar-rename-spinner {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border: 2px solid color-mix(in srgb, var(--text-secondary) 35%, transparent);
+  border-top-color: var(--text-secondary);
+  border-radius: 999px;
+  animation: sidebar-rename-spin 0.8s linear infinite;
+}
+
 .sidebar-file.active .sidebar-node-icon {
   color: var(--text);
 }
@@ -286,6 +296,12 @@
 .sidebar-folder.has-active-descendant > .sidebar-node-icon,
 .sidebar-folder.has-active-descendant > .sidebar-folder-caret {
   color: var(--text);
+}
+
+@keyframes sidebar-rename-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* --- File / Folder names --- */
