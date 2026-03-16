@@ -697,3 +697,16 @@ export async function getSharedRepoFile(token: string): Promise<SharedRepoFile> 
   const res = await publicFetch(`/api/share/repo-file/${encodeURIComponent(token)}`);
   return (await res.json()) as SharedRepoFile;
 }
+
+export async function getSharedRepoFileByRef(
+  owner: string,
+  repo: string,
+  path: string,
+  token: string,
+): Promise<SharedRepoFile> {
+  const qs = new URLSearchParams({ t: token });
+  const res = await publicFetch(
+    `/api/share/repo-file/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}?${qs.toString()}`,
+  );
+  return (await res.json()) as SharedRepoFile;
+}

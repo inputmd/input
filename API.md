@@ -16,7 +16,8 @@
 | `GET` | `/api/public/repos/:owner/:repo/contents?path=...&ref=...` | Reads public repo file or directory contents |
 | `GET` | `/api/public/repos/:owner/:repo/raw?path=...` | Reads a public repo file as raw bytes |
 | `GET` | `/api/public/repos/:owner/:repo/tree?ref=...&markdown_only=...` | Lists files from a public repo tree |
-| `GET` | `/api/share/repo-file/:token` | Resolves a private repo-file share token |
+| `GET` | `/api/share/repo-file/:token` | Resolves a legacy private repo-file share token |
+| `GET` | `/api/share/repo-file/:owner/:repo/:path?t=...` | Resolves a private repo-file share reference |
 | `GET` | `/api/ai/models` | Lists available Reader AI models (requires server config) |
 
 ### Authenticated (requires `input_session_id` cookie)

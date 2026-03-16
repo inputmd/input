@@ -55,6 +55,7 @@ import {
   getRepoTree,
   getSelectedRepo,
   getSharedRepoFile,
+  getSharedRepoFileByRef,
   hasInstallState,
   type InstallationRepo,
   isRepoFile,
@@ -447,6 +448,9 @@ function buildReaderAiHistoryDocumentKey(options: {
     return `public:${publicRepoRef.owner.toLowerCase()}/${publicRepoRef.repo.toLowerCase()}:${currentRepoDocPath}`;
   }
   if (route.name === 'sharefile' && currentRepoDocPath) {
+    return `share:${route.params.owner}/${route.params.repo}:${currentRepoDocPath}`;
+  }
+  if (route.name === 'sharetoken' && currentRepoDocPath) {
     return `share:${route.params.token}:${currentRepoDocPath}`;
   }
   return null;
@@ -2370,13 +2374,16 @@ export function App() {
   );
 
   const loadSharedRepoFile = useCallback(
-    async (token: string) => {
+    async (params: { token: string } | { owner: string; repo: string; path: string; token: string }) => {
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
       if (shouldShowLoading) {
         setViewPhase('loading');
       }
       try {
-        const shared = await getSharedRepoFile(token);
+        const shared =
+          'owner' in params
+            ? await getSharedRepoFileByRef(params.owner, params.repo, params.path, params.token)
+            : await getSharedRepoFile(params.token);
         const contentBytes = decodeBase64ToBytes(shared.content);
         const binary = isLikelyBinaryBytes(contentBytes);
         const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
@@ -2539,8 +2546,22 @@ export function App() {
           await loadPublicRepoFile(owner, repo, decodedPath);
           return;
         }
-        case 'sharefile':
-          await loadSharedRepoFile(safeDecodeURIComponent(r.params.token));
+        case 'sharefile': {
+          const token = new URLSearchParams(window.location.search).get('t');
+          if (!token) {
+            showError('Invalid or expired share token');
+            return;
+          }
+          await loadSharedRepoFile({
+            owner: safeDecodeURIComponent(r.params.owner),
+            repo: safeDecodeURIComponent(r.params.repo),
+            path: safeDecodeURIComponent(r.params.path).replace(/^\/+/, ''),
+            token,
+          });
+          return;
+        }
+        case 'sharetoken':
+          await loadSharedRepoFile({ token: safeDecodeURIComponent(r.params.token) });
           return;
         case 'reponew': {
           const owner = safeDecodeURIComponent(r.params.owner);
@@ -5865,7 +5886,8 @@ export function App() {
     if (currentGistId) return `gist:${currentGistId}`;
     if (repoAccessMode === 'installed' && selectedRepo) return `repo:${selectedRepo}`;
     if (repoAccessMode === 'public' && publicRepoRef) return `public:${publicRepoRef.owner}/${publicRepoRef.repo}`;
-    if (route.name === 'sharefile') return `share:${route.params.token}`;
+    if (route.name === 'sharefile') return `share:${route.params.owner}/${route.params.repo}/${route.params.path}`;
+    if (route.name === 'sharetoken') return `share:${route.params.token}`;
     return 'none';
   }, [currentGistId, publicRepoRef, repoAccessMode, route, selectedRepo]);
 

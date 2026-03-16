@@ -963,9 +963,10 @@ async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
     ttlSeconds: SHARE_TOKEN_TTL_SECONDS,
   });
   const expiresAt = new Date(Date.now() + SHARE_TOKEN_TTL_SECONDS * 1000).toISOString();
+  const sharePath = `s/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(data.path)}`;
   json(ctx.res, 200, {
     token,
-    url: `${requestBaseUrl(ctx.req)}/s/${encodeURIComponent(token)}`,
+    url: `${requestBaseUrl(ctx.req)}/${sharePath}?t=${encodeURIComponent(token)}`,
     expiresAt,
   });
 }
@@ -979,6 +980,58 @@ async function handleGetSharedRepoFile(ctx: RouteContext): Promise<void> {
 
   const token = decodeURIComponent(ctx.match[1]);
   const payload = verifyRepoFileShareToken(SHARE_TOKEN_SECRET, token, Date.now());
+  if (!payload) {
+    json(ctx.res, 401, { error: 'Invalid or expired share token' });
+    return;
+  }
+
+  const ghPath = `/repos/${encodeURIComponent(payload.owner)}/${encodeURIComponent(payload.repo)}/contents/${encodePathPreserveSlashes(payload.path)}`;
+  const ghRes = await githubFetchWithInstallationToken(payload.installationId, ghPath);
+  const data = (await ghRes.json().catch(() => null)) as {
+    type?: string;
+    path?: string;
+    sha?: string;
+    name?: string;
+    content?: string;
+    encoding?: string;
+  } | null;
+  if (!data || data.type !== 'file' || typeof data.sha !== 'string' || typeof data.path !== 'string') {
+    throw new ClientError('Expected a file', 400);
+  }
+  if (!data.path.toLowerCase().endsWith('.md')) {
+    json(ctx.res, 410, { error: 'Shared file is no longer a markdown file' });
+    return;
+  }
+  if (typeof data.content !== 'string' || data.encoding !== 'base64') {
+    throw new ClientError('Unexpected file payload from GitHub', 502);
+  }
+
+  json(ctx.res, 200, {
+    owner: payload.owner,
+    repo: payload.repo,
+    path: data.path,
+    name: data.name ?? data.path.split('/').pop() ?? data.path,
+    sha: data.sha,
+    content: data.content,
+    encoding: data.encoding,
+    expiresAt: new Date(payload.exp * 1000).toISOString(),
+  });
+}
+
+async function handleGetSharedRepoFileByRef(ctx: RouteContext): Promise<void> {
+  if (!checkRateLimit(ctx.req, ctx.res)) return;
+  if (!SHARE_TOKEN_SECRET) {
+    json(ctx.res, 503, SHARE_LINKS_NOT_CONFIGURED_ERROR);
+    return;
+  }
+
+  const owner = decodeURIComponent(ctx.match[1]);
+  const repo = decodeURIComponent(ctx.match[2]);
+  const path = decodeURIComponent(ctx.match[3]);
+  const token = ctx.url.searchParams.get('t');
+  if (!token) throw new ClientError('Missing share token', 400);
+
+  const payload = verifyRepoFileShareToken(SHARE_TOKEN_SECRET, token, Date.now(), { owner, repo, path });
   if (!payload) {
     json(ctx.res, 401, { error: 'Invalid or expired share token' });
     return;
@@ -2839,6 +2892,7 @@ const PUBLIC_REPO_TREE_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tree$
 const TARBALL_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tarball$/;
 const PUBLIC_REPO_TARBALL_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tarball$/;
 const SHARE_REPO_FILE_PATTERN = /^\/api\/share\/repo-file\/([^/]+)$/;
+const SHARE_REPO_FILE_REF_PATTERN = /^\/api\/share\/repo-file\/([^/]+)\/([^/]+)\/(.+)$/;
 
 const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/auth\/github\/start$/, handler: handleAuthStart },
@@ -2856,6 +2910,7 @@ const routes: RouteDef[] = [
   { method: 'POST', pattern: /^\/api\/github-app\/disconnect$/, handler: handleDisconnectInstallation },
   { method: 'POST', pattern: /^\/api\/share\/repo-file$/, handler: handleCreateRepoFileShare },
   { method: 'GET', pattern: SHARE_REPO_FILE_PATTERN, handler: handleGetSharedRepoFile },
+  { method: 'GET', pattern: SHARE_REPO_FILE_REF_PATTERN, handler: handleGetSharedRepoFileByRef },
   { method: 'GET', pattern: /^\/api\/github-app\/installations\/([^/]+)\/repositories$/, handler: handleListRepos },
   { method: 'GET', pattern: CONTENTS_PATTERN, handler: handleGetContents },
   { method: 'PUT', pattern: CONTENTS_PATTERN, handler: handlePutContents },

@@ -7,7 +7,8 @@ export type Route =
   | { name: 'repofile'; params: { owner: string; repo: string; path: string } }
   | { name: 'reponew'; params: { owner: string; repo: string; path: string } }
   | { name: 'repoedit'; params: { owner: string; repo: string; path: string } }
-  | { name: 'sharefile'; params: { token: string } }
+  | { name: 'sharetoken'; params: { token: string } }
+  | { name: 'sharefile'; params: { owner: string; repo: string; path: string } }
   | { name: 'new'; params: Record<string, never> }
   | { name: 'edit'; params: { id: string; filename?: string } }
   | { name: 'gist'; params: { id: string; filename?: string } };
@@ -57,7 +58,11 @@ const ROUTE_TABLE: RouteDef[] = [
     build: (m) => ({ name: 'repofile', params: { owner: m[1], repo: m[2], path: m[3] } }),
     guard: (m) => !isReservedRootSegment(m[1]),
   },
-  { pattern: /^s\/([^/]+)$/, build: (m) => ({ name: 'sharefile', params: { token: m[1] } }) },
+  {
+    pattern: /^s\/([^/]+)\/([^/]+)\/(.+)$/,
+    build: (m) => ({ name: 'sharefile', params: { owner: m[1], repo: m[2], path: m[3] } }),
+  },
+  { pattern: /^s\/([^/]+)$/, build: (m) => ({ name: 'sharetoken', params: { token: m[1] } }) },
   { pattern: /^gist\/new$/, build: () => ({ name: 'new', params: {} }) },
   {
     pattern: new RegExp(`^edit\\/(${GIST_ID_PATTERN})\\/(.+)$`, 'i'),
@@ -96,7 +101,8 @@ export const routePath = {
     `repo/new/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
   repoEdit: (owner: string, repo: string, path: string) =>
     `repo/edit/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
-  shareFile: (token: string) => `s/${encodeURIComponent(token)}`,
+  shareFile: (owner: string, repo: string, path: string, token: string) =>
+    `s/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}?t=${encodeURIComponent(token)}`,
   freshDraft: () => 'gist/new',
   gistEdit: (id: string, filename?: string) => (filename ? `edit/${id}/${encodeURIComponent(filename)}` : `edit/${id}`),
   gistView: (id: string, filename?: string) => (filename ? `gist/${id}/${encodeURIComponent(filename)}` : `gist/${id}`),
