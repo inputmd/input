@@ -1,4 +1,5 @@
 import { responseToApiError } from './api_error';
+import { recordGitHubRateLimitFromResponse, recordServerLocalRateLimitFromResponse } from './github_rate_limit';
 import { SyncedCache } from './synced_cache';
 import { readCacheTtlMs } from './util';
 
@@ -96,6 +97,8 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
     ...(options.headers as Record<string, string>),
   };
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: 'same-origin' });
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
   if (res.status === 401) {
     throw new Error('Unauthorized');
   }
@@ -105,12 +108,16 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
 
 export async function getAuthSession(): Promise<AuthSessionResponse> {
   const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
   if (!res.ok) throw await responseToApiError(res);
   return res.json();
 }
 
 export async function logout(): Promise<void> {
   const res = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
   if (!res.ok) throw await responseToApiError(res);
 }
 

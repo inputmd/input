@@ -13,9 +13,10 @@ import {
   PanelLeftOpen,
   Sparkles,
 } from 'lucide-react';
-import { useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
+import type { GitHubRateLimitSnapshot } from '../github_rate_limit';
 import { routePath } from '../routing';
 
 function isLocalhostHostname(hostname: string): boolean {
@@ -29,6 +30,52 @@ function getOpenInInputMdUrl(): string | null {
 }
 
 export type ActiveView = 'workspaces' | 'loading' | 'error' | 'content' | 'edit';
+
+function animateRateLimitSnapshot(
+  snapshot: GitHubRateLimitSnapshot | null,
+  nowMs: number,
+): GitHubRateLimitSnapshot | null {
+  if (!snapshot || snapshot.resetAtUnixSeconds == null) return snapshot;
+  if (snapshot.remaining >= snapshot.limit) return snapshot;
+
+  const resetAtMs = snapshot.resetAtUnixSeconds * 1000;
+  if (resetAtMs <= snapshot.observedAtMs) return snapshot;
+  if (nowMs >= resetAtMs) {
+    return { ...snapshot, remaining: snapshot.limit };
+  }
+
+  const progress = Math.max(0, Math.min(1, (nowMs - snapshot.observedAtMs) / (resetAtMs - snapshot.observedAtMs)));
+  const refill = Math.round((snapshot.limit - snapshot.remaining) * progress);
+  return {
+    ...snapshot,
+    remaining: Math.min(snapshot.limit, snapshot.remaining + refill),
+  };
+}
+
+function rateFillPercent(snapshot: GitHubRateLimitSnapshot | null): number {
+  if (!snapshot || snapshot.limit <= 0) return 0;
+  return Math.max(0, Math.min(100, (snapshot.remaining / snapshot.limit) * 100));
+}
+
+function rateLimitTone(snapshot: GitHubRateLimitSnapshot | null): 'danger' | 'warn' | 'ok' {
+  if (!snapshot || snapshot.limit <= 0) return 'ok';
+  const usedRatio = (snapshot.limit - snapshot.remaining) / snapshot.limit;
+  if (usedRatio >= 0.85) return 'danger';
+  if (usedRatio >= 0.5) return 'warn';
+  return 'ok';
+}
+
+function pickMoreConstrainedRateLimit(
+  first: GitHubRateLimitSnapshot | null,
+  second: GitHubRateLimitSnapshot | null,
+): GitHubRateLimitSnapshot | null {
+  if (!first) return second;
+  if (!second) return first;
+  const firstRatio = first.limit > 0 ? first.remaining / first.limit : 1;
+  const secondRatio = second.limit > 0 ? second.remaining / second.limit : 1;
+  if (firstRatio !== secondRatio) return firstRatio < secondRatio ? first : second;
+  return first.remaining <= second.remaining ? first : second;
+}
 
 interface ToolbarProps {
   view: ActiveView;
@@ -82,12 +129,16 @@ interface ToolbarProps {
   onSignOut: () => void;
   onClearCache: () => void | Promise<void>;
   onToggleTheme: () => void;
+  onToggleShowRateLimits: () => void;
   onToggleSidebar: () => void;
   onEdit: () => void;
   showLeftLoading: boolean;
   preserveLeftControlsWhileLoading?: boolean;
   showGoToWorkspace: boolean;
   onGoToWorkspace: () => void;
+  showRateLimits: boolean;
+  localRateLimit: GitHubRateLimitSnapshot | null;
+  serverRateLimit: GitHubRateLimitSnapshot | null;
 }
 
 export function Toolbar({
@@ -142,14 +193,19 @@ export function Toolbar({
   onSignOut,
   onClearCache,
   onToggleTheme,
+  onToggleShowRateLimits,
   onToggleSidebar,
   onEdit,
   showLeftLoading,
   preserveLeftControlsWhileLoading = false,
   showGoToWorkspace,
   onGoToWorkspace,
+  showRateLimits,
+  localRateLimit,
+  serverRateLimit,
 }: ToolbarProps) {
   const [authorMenuOpen, setAuthorMenuOpen] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
   const showGitHubApp = !!user;
@@ -159,6 +215,26 @@ export function Toolbar({
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
   const showPreviewAndAiGroup = showPreviewToggle && showAiToggle;
+  const localRateLimitAnimated = useMemo(
+    () => animateRateLimitSnapshot(localRateLimit, nowMs),
+    [localRateLimit, nowMs],
+  );
+  const serverRateLimitAnimated = useMemo(
+    () => animateRateLimitSnapshot(serverRateLimit, nowMs),
+    [serverRateLimit, nowMs],
+  );
+  const constrainedRateLimit = useMemo(
+    () => pickMoreConstrainedRateLimit(localRateLimitAnimated, serverRateLimitAnimated),
+    [localRateLimitAnimated, serverRateLimitAnimated],
+  );
+  const showHealthBar = showRateLimits && constrainedRateLimit !== null;
+
+  useEffect(() => {
+    if (!showHealthBar) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [showHealthBar]);
+
   const runAuthorMenuAction = (event: Event, action: () => void, options?: { preventDefault?: boolean }): void => {
     if (options?.preventDefault) event.preventDefault();
     event.stopPropagation();
@@ -283,6 +359,63 @@ export function Toolbar({
       </DropdownMenu.Root>
     </div>
   );
+  const healthBar = showHealthBar ? (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          type="button"
+          class={`toolbar-health-bar toolbar-health-bar--${rateLimitTone(constrainedRateLimit)}`}
+          aria-label="Current rate limit health"
+          title="Current rate limit health"
+        >
+          <div class="toolbar-health-bar-track">
+            <div class="toolbar-health-bar-fill" style={{ width: `${rateFillPercent(constrainedRateLimit)}%` }} />
+          </div>
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content class="toolbar-health-tooltip" side="bottom" align="center" sideOffset={8}>
+          <div class="toolbar-health-tooltip-meters">
+            <div class="toolbar-health-tooltip-meter">
+              <div class="toolbar-health-tooltip-label">Browser to server</div>
+              <div
+                class={`toolbar-health-detail-bar toolbar-health-detail-bar--${rateLimitTone(localRateLimitAnimated)}`}
+              >
+                <div class="toolbar-health-detail-bar-track">
+                  <div
+                    class="toolbar-health-detail-bar-fill"
+                    style={{ width: `${rateFillPercent(localRateLimitAnimated)}%` }}
+                  />
+                </div>
+              </div>
+              <div class="toolbar-health-tooltip-value">
+                {localRateLimitAnimated ? `${localRateLimitAnimated.remaining}/${localRateLimitAnimated.limit}` : '--'}
+              </div>
+            </div>
+            <div class="toolbar-health-tooltip-meter">
+              <div class="toolbar-health-tooltip-label">Server to GitHub</div>
+              <div
+                class={`toolbar-health-detail-bar toolbar-health-detail-bar--${rateLimitTone(serverRateLimitAnimated)}`}
+              >
+                <div class="toolbar-health-detail-bar-track">
+                  <div
+                    class="toolbar-health-detail-bar-fill"
+                    style={{ width: `${rateFillPercent(serverRateLimitAnimated)}%` }}
+                  />
+                </div>
+              </div>
+              <div class="toolbar-health-tooltip-value">
+                {serverRateLimitAnimated
+                  ? `${serverRateLimitAnimated.remaining}/${serverRateLimitAnimated.limit}`
+                  : '--'}
+              </div>
+            </div>
+          </div>
+          <Tooltip.Arrow class="toolbar-tooltip-arrow" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  ) : null;
 
   return (
     <header class="toolbar">
@@ -567,6 +700,7 @@ export function Toolbar({
               )}
             </div>
           ) : null}
+          {healthBar}
           {user ? (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
@@ -590,6 +724,17 @@ export function Toolbar({
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                     Toggle Theme
                   </DropdownMenu.Item>
+                  <DropdownMenu.Separator class="user-menu-separator" />
+                  <DropdownMenu.CheckboxItem
+                    class="user-menu-item user-menu-checkbox-item"
+                    checked={showRateLimits}
+                    onCheckedChange={() => onToggleShowRateLimits()}
+                  >
+                    Show rate limits
+                    <DropdownMenu.ItemIndicator class="user-menu-item-indicator">
+                      <Check size={14} aria-hidden="true" />
+                    </DropdownMenu.ItemIndicator>
+                  </DropdownMenu.CheckboxItem>
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => void onClearCache()}>
                     Clear cache
                   </DropdownMenu.Item>

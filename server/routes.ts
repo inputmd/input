@@ -280,6 +280,7 @@ async function proxyGitHubJson(
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', path);
     return;
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, data);
 }
 
@@ -320,6 +321,18 @@ function githubErrorInfo(ghRes: Response, message: string): GitHubErrorInfo {
   };
 }
 
+function copyGitHubRateLimitHeaders(res: http.ServerResponse, ghRes: Response): void {
+  for (const headerName of [
+    'x-ratelimit-limit',
+    'x-ratelimit-remaining',
+    'x-ratelimit-reset',
+    'x-ratelimit-resource',
+  ]) {
+    const value = ghRes.headers.get(headerName);
+    if (value) res.setHeader(headerName, value);
+  }
+}
+
 function respondGitHubError(res: http.ServerResponse, ghRes: Response, fallbackMessage: string, source: string): void {
   const message = fallbackMessage || 'GitHub API error';
   const info = githubErrorInfo(ghRes, message);
@@ -327,6 +340,7 @@ function respondGitHubError(res: http.ServerResponse, ghRes: Response, fallbackM
   console.warn(
     `[github] ${source} -> ${info.status} "${message}" request_id=${info.requestId ?? '-'} rate_limited=${info.isRateLimited} remaining=${rate.remaining ?? '-'} reset=${rate.resetAt ?? '-'} retry_after=${rate.retryAfterSeconds ?? '-'}`,
   );
+  copyGitHubRateLimitHeaders(res, ghRes);
   json(res, ghRes.status, { error: message, github: info });
 }
 
@@ -845,6 +859,7 @@ async function handleListRepos(ctx: RouteContext): Promise<void> {
       installationId,
       `/installation/repositories?per_page=100&page=${page}`,
     );
+    copyGitHubRateLimitHeaders(ctx.res, ghRes);
     const data = (await ghRes.json()) as { total_count: number; repositories?: unknown[] };
     allRepos.push(...(data.repositories ?? []));
     if (allRepos.length >= data.total_count || (data.repositories ?? []).length < 100) break;
@@ -876,6 +891,7 @@ async function handleGetContents(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghUrl);
     return;
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, data);
 }
 
@@ -915,6 +931,7 @@ async function handlePutContents(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
     return;
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, await ghRes.json());
 }
 
@@ -941,6 +958,7 @@ async function handleDeleteContents(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
     return;
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, await ghRes.json());
 }
 
@@ -974,6 +992,7 @@ async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
   if (!data || data.type !== 'file' || typeof data.sha !== 'string' || typeof data.path !== 'string') {
     throw new ClientError('Expected a file', 400);
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   if (!data.path.toLowerCase().endsWith('.md')) throw new ClientError('Only markdown files can be shared', 400);
 
   const token = createRepoFileShareToken(SHARE_TOKEN_SECRET, {
@@ -1020,6 +1039,7 @@ async function handleGetSharedRepoFile(ctx: RouteContext): Promise<void> {
   if (!data || data.type !== 'file' || typeof data.sha !== 'string' || typeof data.path !== 'string') {
     throw new ClientError('Expected a file', 400);
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   if (!data.path.toLowerCase().endsWith('.md')) {
     json(ctx.res, 410, { error: 'Shared file is no longer a markdown file' });
     return;
@@ -1072,6 +1092,7 @@ async function handleGetSharedRepoFileByRef(ctx: RouteContext): Promise<void> {
   if (!data || data.type !== 'file' || typeof data.sha !== 'string' || typeof data.path !== 'string') {
     throw new ClientError('Expected a file', 400);
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   if (!data.path.toLowerCase().endsWith('.md')) {
     json(ctx.res, 410, { error: 'Shared file is no longer a markdown file' });
     return;
@@ -1121,6 +1142,7 @@ async function handleGetRawContent(ctx: RouteContext): Promise<void> {
   }
 
   ctx.res.statusCode = 200;
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
   ctx.res.setHeader('Cache-Control', 'private, max-age=300');
   const body = Buffer.from(await ghRes.arrayBuffer());
@@ -1145,6 +1167,7 @@ async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghUrl);
     return;
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, data);
 }
 
@@ -1175,6 +1198,7 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
   }
 
   ctx.res.statusCode = 200;
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
   ctx.res.setHeader('Cache-Control', 'public, max-age=300');
   const body = Buffer.from(await ghRes.arrayBuffer());
@@ -1281,6 +1305,7 @@ async function handleGetTree(ctx: RouteContext): Promise<void> {
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
   const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
   const data = (await ghRes.json()) as { tree: GitTreeEntry[]; truncated: boolean };
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, {
     files: filesFromTree(data.tree, markdownOnly),
     entries: entriesFromTree(data.tree),
@@ -1305,6 +1330,7 @@ async function handleListRecentCommits(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, repoRes, repoData?.message ?? 'Failed to load repository metadata', repoPath);
     return;
   }
+  copyGitHubRateLimitHeaders(ctx.res, repoRes);
 
   const branch = repoData.default_branch;
   const commitsPath = `${repoPath}/commits?sha=${encodeURIComponent(branch)}&per_page=${perPage}&page=1`;
@@ -1316,6 +1342,7 @@ async function handleListRecentCommits(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, commitsRes, err?.message ?? 'Failed to load recent commits', commitsPath);
     return;
   }
+  copyGitHubRateLimitHeaders(ctx.res, commitsRes);
 
   const commits = commitsData
     .map((commit, index) => {
@@ -1366,6 +1393,7 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
     return;
   }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, {
     files: filesFromTree(data?.tree ?? [], markdownOnly),
     entries: entriesFromTree(data?.tree ?? []),
@@ -1690,6 +1718,7 @@ async function handleCompactRecentCommits(ctx: RouteContext): Promise<void> {
     return;
   }
 
+  copyGitHubRateLimitHeaders(ctx.res, updateRefRes);
   json(ctx.res, 200, {
     branch,
     previousHeadSha: selection.headSha,
@@ -1747,6 +1776,7 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
     const etag = ghRes.headers.get('etag');
     setGistCacheEntry(gistId, data, etag, now);
     ctx.res.setHeader('X-Cache', 'miss');
+    copyGitHubRateLimitHeaders(ctx.res, ghRes);
     json(ctx.res, 200, data);
   } catch (err) {
     if (cached) {
@@ -2879,6 +2909,7 @@ async function handleRepoTarball(ctx: RouteContext): Promise<void> {
 
   if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
   const files = await extractTarball(ghRes.body);
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, { files });
 }
 
@@ -2899,6 +2930,7 @@ async function handlePublicRepoTarball(ctx: RouteContext): Promise<void> {
   }
   if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
   const files = await extractTarball(ghRes.body);
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, { files });
 }
 

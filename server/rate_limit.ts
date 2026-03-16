@@ -30,12 +30,19 @@ function getClientIp(req: http.IncomingMessage): string {
   return req.socket.remoteAddress || 'unknown';
 }
 
+function setRateLimitHeaders(res: http.ServerResponse, max: number, remaining: number, resetAtMs: number): void {
+  res.setHeader('X-Input-RateLimit-Limit', String(max));
+  res.setHeader('X-Input-RateLimit-Remaining', String(Math.max(0, remaining)));
+  res.setHeader('X-Input-RateLimit-Reset', String(Math.floor(resetAtMs / 1000)));
+}
+
 function checkLimit(key: string, max: number, res: http.ServerResponse): boolean {
   const now = Date.now();
   let entry = rateLimitWindows.get(key);
 
   if (!entry || now >= entry.resetAtMs) {
     if (!entry && rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES) {
+      setRateLimitHeaders(res, max, 0, now + RATE_LIMIT_WINDOW_MS);
       json(res, 429, { error: 'Too many requests' });
       return false;
     }
@@ -46,11 +53,13 @@ function checkLimit(key: string, max: number, res: http.ServerResponse): boolean
   entry.count++;
   if (entry.count > max) {
     const retryAfter = Math.ceil((entry.resetAtMs - now) / 1000);
+    setRateLimitHeaders(res, max, 0, entry.resetAtMs);
     res.setHeader('Retry-After', String(retryAfter));
     json(res, 429, { error: 'Too many requests' });
     return false;
   }
 
+  setRateLimitHeaders(res, max, max - entry.count, entry.resetAtMs);
   return true;
 }
 

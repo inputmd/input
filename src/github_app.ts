@@ -1,4 +1,5 @@
 import { ApiError, responseToApiError } from './api_error';
+import { recordGitHubRateLimitFromResponse, recordServerLocalRateLimitFromResponse } from './github_rate_limit';
 import { SyncedCache } from './synced_cache';
 import { type CacheEntry, readCacheTtlMs } from './util';
 
@@ -75,6 +76,8 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
     ...init,
     credentials: 'same-origin',
   });
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
   if (res.status === 401) {
     throw new SessionExpiredError();
   }
@@ -84,6 +87,8 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
 
 async function publicFetch(url: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(url, init);
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
   if (!res.ok) throw await responseToApiError(res);
   return res;
 }
@@ -97,6 +102,8 @@ export async function createSession(installationId: string): Promise<void> {
     credentials: 'same-origin',
     body: JSON.stringify({ installationId }),
   });
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
   if (!res.ok) throw await responseToApiError(res);
   await res.json();
 }
@@ -106,6 +113,8 @@ export async function disconnectInstallation(): Promise<void> {
     method: 'POST',
     credentials: 'same-origin',
   });
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
   if (!res.ok) throw await responseToApiError(res);
 }
 
@@ -182,6 +191,8 @@ export function consumeInstallState(actualState: string | null): boolean {
 
 export async function getInstallUrl(state: string): Promise<string> {
   const res = await fetch(`/api/github-app/install-url?state=${encodeURIComponent(state)}`);
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
   if (!res.ok) throw await responseToApiError(res);
   const data = (await res.json()) as { url: string };
   return data.url;

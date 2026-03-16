@@ -76,6 +76,13 @@ import {
   setSelectedRepo as storeSelectedRepo,
   tryBuildRepoFilesFromCache,
 } from './github_app';
+import {
+  type GitHubRateLimitSnapshot,
+  readStoredGitHubRateLimitSnapshot,
+  recordGitHubRateLimitFromResponse,
+  recordServerLocalRateLimitFromResponse,
+  subscribeGitHubRateLimitUpdates,
+} from './github_rate_limit';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
 import { parseMarkdownToHtml } from './markdown';
@@ -112,6 +119,7 @@ const READER_AI_WIDTH_KEY = 'reader_ai_width_px';
 const READER_AI_HISTORY_KEY = 'reader_ai_history_v1';
 const SIDEBAR_VISIBLE_KEY = 'sidebar_visible';
 const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
+const SHOW_RATE_LIMITS_KEY = 'show_rate_limits';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
@@ -1112,6 +1120,20 @@ export function App() {
   const [menuGistsAllLoaded, setMenuGistsAllLoaded] = useState(false);
   const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
+  const [showRateLimits, setShowRateLimits] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem(SHOW_RATE_LIMITS_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [localRateLimit, setLocalRateLimit] = useState<GitHubRateLimitSnapshot | null>(() =>
+    readStoredGitHubRateLimitSnapshot('serverLocal'),
+  );
+  const [serverRateLimit, setServerRateLimit] = useState<GitHubRateLimitSnapshot | null>(() =>
+    readStoredGitHubRateLimitSnapshot('server'),
+  );
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [compactCommitsOpen, setCompactCommitsOpen] = useState(false);
@@ -1664,6 +1686,8 @@ export function App() {
               file = gist.files[filename];
             } else {
               const res = await fetch(`/api/gists/${encodeURIComponent(gistId)}`);
+              recordServerLocalRateLimitFromResponse(res);
+              recordGitHubRateLimitFromResponse(res);
               if (!res.ok) return null;
               const data = (await res.json()) as { files?: Record<string, GistFile> } | null;
               file = data?.files?.[filename];
@@ -2056,6 +2080,8 @@ export function App() {
           if (!res.ok) {
             console.warn(`GitHub API failed (${res.status}), falling back to gist proxy`);
             res = await fetch(`/api/gists/${encodeURIComponent(id)}`);
+            recordServerLocalRateLimitFromResponse(res);
+            recordGitHubRateLimitFromResponse(res);
           }
           if (!res.ok) throw await responseToApiError(res);
           const data = await res.json();
@@ -3041,6 +3067,18 @@ export function App() {
     } catch {}
   }, []);
 
+  const toggleShowRateLimits = useCallback(() => {
+    setShowRateLimits((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(SHOW_RATE_LIMITS_KEY, next ? 'true' : 'false');
+      } catch {
+        // Ignore storage failures.
+      }
+      return next;
+    });
+  }, []);
+
   // --- Preview state ---
   useEffect(() => {
     const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
@@ -3049,6 +3087,18 @@ export function App() {
     media.addEventListener('change', onChange);
     return () => media.removeEventListener('change', onChange);
   }, []);
+
+  useEffect(
+    () =>
+      subscribeGitHubRateLimitUpdates((source, snapshot) => {
+        if (source === 'serverLocal') {
+          setLocalRateLimit(snapshot);
+          return;
+        }
+        setServerRateLimit(snapshot);
+      }),
+    [],
+  );
 
   useLayoutEffect(() => {
     try {
@@ -6238,10 +6288,14 @@ export function App() {
         onSignOut={signOut}
         onClearCache={onClearCaches}
         onToggleTheme={toggleTheme}
+        onToggleShowRateLimits={toggleShowRateLimits}
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
         showLeftLoading={showHeaderLeftLoading}
         preserveLeftControlsWhileLoading={preserveHeaderLeftControlsWhileLoading}
+        showRateLimits={showRateLimits}
+        localRateLimit={localRateLimit}
+        serverRateLimit={serverRateLimit}
         // Show only when a public repo file can be switched into an installed workspace:
         // route is a repo file, user is signed in with an installation, and the URL repo
         // matches one of the user's installation repos.
