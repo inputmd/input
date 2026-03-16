@@ -470,11 +470,54 @@ function isWhitespacePreservingElement(node: Node): boolean {
   );
 }
 
+function leadingIndentInfo(text: string): { raw: string; columns: number } | null {
+  const match = /^[ \t]+/.exec(text);
+  if (!match) return null;
+
+  let columns = 0;
+  for (const char of match[0]) {
+    columns += char === '\t' ? 2 : 1;
+  }
+
+  return { raw: match[0], columns };
+}
+
 function createLeadingIndentSpan(text: string): HTMLSpanElement {
   const span = document.createElement('span');
   span.className = 'leading-indent';
   span.textContent = text;
   return span;
+}
+
+function applyBlockLeadingIndent(element: Element): void {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+
+  let current = walker.nextNode();
+  while (current) {
+    if (current instanceof Text) {
+      const text = current.textContent ?? '';
+      if (!text) {
+        current = walker.nextNode();
+        continue;
+      }
+
+      const indent = leadingIndentInfo(text);
+      if (!indent) return;
+
+      current.textContent = text.slice(indent.raw.length);
+      element.classList.add('leading-indent-block');
+      if (element instanceof HTMLElement) {
+        element.style.setProperty('--leading-indent-columns', String(indent.columns));
+      }
+      return;
+    }
+
+    if (current instanceof HTMLElement) {
+      if (current.tagName === 'BR' || isWhitespacePreservingElement(current)) return;
+    }
+
+    current = walker.nextNode();
+  }
 }
 
 function preserveLeadingIndentationInNode(node: Node, atLineStart: { value: boolean }): void {
@@ -545,7 +588,8 @@ function preserveLeadingIndentation(root: ParentNode): void {
   root.querySelectorAll('p, li, blockquote').forEach((element) => {
     if (!isLeadingIndentPreservedBlock(element)) return;
     if (element.parentElement?.closest('p, li, blockquote')) return;
-    preserveLeadingIndentationInNode(element, { value: true });
+    applyBlockLeadingIndent(element);
+    preserveLeadingIndentationInNode(element, { value: false });
   });
 }
 

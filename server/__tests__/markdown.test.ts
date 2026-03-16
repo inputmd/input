@@ -150,7 +150,8 @@ test('marked preserves markdown links while styling bare bracketed text', (t) =>
 test('parseMarkdownToHtml preserves leading indentation in paragraphs', (t) => {
   const html = withDom(() => parseMarkdownToHtml('    one'));
 
-  t.true(html.includes('<span class="leading-indent">    </span>one'));
+  t.true(html.includes('<p class="leading-indent-block" style="--leading-indent-columns: 4;">one</p>'));
+  t.false(html.includes('leading-indent">    </span>one'));
 });
 
 test('parseMarkdownToHtml preserves leading indentation after soft breaks in list items', (t) => {

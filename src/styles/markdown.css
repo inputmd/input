@@ -320,6 +320,11 @@
   background: var(--btn-bg);
 }
 
+.rendered-markdown .leading-indent-block,
+.markdown-link-preview-body .leading-indent-block {
+  padding-left: calc(var(--leading-indent-columns, 0) * 2ch);
+}
+
 .rendered-markdown .leading-indent,
 .markdown-link-preview-body .leading-indent {
   white-space: pre;
