@@ -390,6 +390,7 @@ export function Sidebar({
   const [newFileName, setNewFileName] = useState('');
   const [createParentPath, setCreateParentPath] = useState('');
   const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
+  const [renamingInFlightTarget, setRenamingInFlightTarget] = useState<RenameTarget>(null);
   const [renameValue, setRenameValue] = useState('');
   const [draggingFilePath, setDraggingFilePath] = useState<string | null>(null);
   const [draggingExternalFile, setDraggingExternalFile] = useState(false);
@@ -530,22 +531,26 @@ export function Sidebar({
   const handleRenameSubmit = async () => {
     if (!renamingTarget || renameInFlightRef.current) return;
     cancelRenameOnBlurRef.current = false;
-    renameInFlightRef.current = true;
     const target = renamingTarget;
     const oldPath = target.path;
     const newPath = resolveRenamePath(oldPath, renameValue);
     setRenamingTarget(null);
     setRenameValue('');
+    if (!newPath || newPath === oldPath) return;
+
+    renameInFlightRef.current = true;
+    setRenamingInFlightTarget(target);
     try {
-      if (newPath && newPath !== oldPath) {
-        if (target.kind === 'file') {
-          await onRenameFile(oldPath, newPath);
-        } else {
-          await onRenameFolder(oldPath, newPath);
-        }
+      if (target.kind === 'file') {
+        await onRenameFile(oldPath, newPath);
+      } else {
+        await onRenameFolder(oldPath, newPath);
       }
     } finally {
       renameInFlightRef.current = false;
+      setRenamingInFlightTarget((current) =>
+        current?.path === target.path && current.kind === target.kind ? null : current,
+      );
     }
   };
 
@@ -745,6 +750,7 @@ export function Sidebar({
   const renderFolderRow = (folder: SidebarFolderNode, depth: number) => {
     const collapsed = Boolean(collapsedFolders[folder.path]);
     const isRenaming = renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
+    const isRenamePending = renamingInFlightTarget?.kind === 'folder' && renamingInFlightTarget.path === folder.path;
     const FolderIcon = collapsed ? FolderClosed : FolderOpen;
     const isDropTarget = (draggingFilePath !== null || draggingExternalFile) && dropFolderPath === folder.path;
     const folderRow = (
@@ -806,7 +812,7 @@ export function Sidebar({
         <span class={`sidebar-folder-caret${collapsed ? '' : ' open'}`} aria-hidden="true">
           <ChevronRight size={CHEVRON_SIZE} />
         </span>
-        {isRenaming ? (
+        {isRenamePending ? (
           <span class="sidebar-rename-spinner" aria-hidden="true" />
         ) : (
           <FolderIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
@@ -897,6 +903,7 @@ export function Sidebar({
 
   const renderFileRow = (file: SidebarFileNode, depth: number) => {
     const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
+    const isRenamePending = renamingInFlightTarget?.kind === 'file' && renamingInFlightTarget.path === file.path;
     const isMoving = movingFilePath === file.path;
     const FileIcon = getFileIcon(file.name, file.size);
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
@@ -911,7 +918,7 @@ export function Sidebar({
         aria-level={depth + 1}
         aria-selected={file.active}
         aria-current={file.active ? 'true' : undefined}
-        draggable={!readOnly && file.editable && !isRenaming && !isMoving}
+        draggable={!readOnly && file.editable && !isRenaming && !isRenamePending && !isMoving}
         style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
         onClick={() => !file.active && onSelectFile(file.path)}
         onFocus={() => {
@@ -945,7 +952,7 @@ export function Sidebar({
         }}
       >
         <IndentGuides depth={depth} />
-        {isRenaming || isMoving ? (
+        {isRenamePending || isMoving ? (
           <span class="sidebar-rename-spinner" aria-hidden="true" />
         ) : (
           <FileIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
