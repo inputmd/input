@@ -119,7 +119,6 @@ const READER_AI_WIDTH_KEY = 'reader_ai_width_px';
 const READER_AI_HISTORY_KEY = 'reader_ai_history_v1';
 const SIDEBAR_VISIBLE_KEY = 'sidebar_visible';
 const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
-const SHOW_RATE_LIMITS_KEY = 'show_rate_limits';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
@@ -1120,14 +1119,6 @@ export function App() {
   const [menuGistsAllLoaded, setMenuGistsAllLoaded] = useState(false);
   const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
-  const [showRateLimits, setShowRateLimits] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return localStorage.getItem(SHOW_RATE_LIMITS_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
   const [localRateLimit, setLocalRateLimit] = useState<GitHubRateLimitSnapshot | null>(() =>
     readStoredGitHubRateLimitSnapshot('serverLocal'),
   );
@@ -3065,18 +3056,6 @@ export function App() {
     try {
       localStorage.setItem('theme', next);
     } catch {}
-  }, []);
-
-  const toggleShowRateLimits = useCallback(() => {
-    setShowRateLimits((current) => {
-      const next = !current;
-      try {
-        localStorage.setItem(SHOW_RATE_LIMITS_KEY, next ? 'true' : 'false');
-      } catch {
-        // Ignore storage failures.
-      }
-      return next;
-    });
   }, []);
 
   // --- Preview state ---
@@ -6288,12 +6267,10 @@ export function App() {
         onSignOut={signOut}
         onClearCache={onClearCaches}
         onToggleTheme={toggleTheme}
-        onToggleShowRateLimits={toggleShowRateLimits}
         onToggleSidebar={onToggleSidebar}
         onEdit={onEdit}
         showLeftLoading={showHeaderLeftLoading}
         preserveLeftControlsWhileLoading={preserveHeaderLeftControlsWhileLoading}
-        showRateLimits={showRateLimits}
         localRateLimit={localRateLimit}
         serverRateLimit={serverRateLimit}
         // Show only when a public repo file can be switched into an installed workspace:

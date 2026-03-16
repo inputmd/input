@@ -1,5 +1,4 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   Check,
   ChevronDown,
@@ -16,7 +15,7 @@ import {
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
-import type { GitHubRateLimitSnapshot } from '../github_rate_limit';
+import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
 import { routePath } from '../routing';
 
 function isLocalhostHostname(hostname: string): boolean {
@@ -65,16 +64,9 @@ function rateLimitTone(snapshot: GitHubRateLimitSnapshot | null): 'danger' | 'wa
   return 'ok';
 }
 
-function pickMoreConstrainedRateLimit(
-  first: GitHubRateLimitSnapshot | null,
-  second: GitHubRateLimitSnapshot | null,
-): GitHubRateLimitSnapshot | null {
-  if (!first) return second;
-  if (!second) return first;
-  const firstRatio = first.limit > 0 ? first.remaining / first.limit : 1;
-  const secondRatio = second.limit > 0 ? second.remaining / second.limit : 1;
-  if (firstRatio !== secondRatio) return firstRatio < secondRatio ? first : second;
-  return first.remaining <= second.remaining ? first : second;
+function rateLimitAvailabilityLabel(snapshot: GitHubRateLimitSnapshot | null): string {
+  if (!snapshot || snapshot.limit <= 0) return '--';
+  return `${Math.round((snapshot.remaining / snapshot.limit) * 100)}%`;
 }
 
 interface ToolbarProps {
@@ -129,14 +121,12 @@ interface ToolbarProps {
   onSignOut: () => void;
   onClearCache: () => void | Promise<void>;
   onToggleTheme: () => void;
-  onToggleShowRateLimits: () => void;
   onToggleSidebar: () => void;
   onEdit: () => void;
   showLeftLoading: boolean;
   preserveLeftControlsWhileLoading?: boolean;
   showGoToWorkspace: boolean;
   onGoToWorkspace: () => void;
-  showRateLimits: boolean;
   localRateLimit: GitHubRateLimitSnapshot | null;
   serverRateLimit: GitHubRateLimitSnapshot | null;
 }
@@ -193,14 +183,12 @@ export function Toolbar({
   onSignOut,
   onClearCache,
   onToggleTheme,
-  onToggleShowRateLimits,
   onToggleSidebar,
   onEdit,
   showLeftLoading,
   preserveLeftControlsWhileLoading = false,
   showGoToWorkspace,
   onGoToWorkspace,
-  showRateLimits,
   localRateLimit,
   serverRateLimit,
 }: ToolbarProps) {
@@ -215,25 +203,20 @@ export function Toolbar({
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
   const showPreviewAndAiGroup = showPreviewToggle && showAiToggle;
+  const resolvedLocalRateLimit = localRateLimit ?? readStoredGitHubRateLimitSnapshot('serverLocal');
+  const resolvedServerRateLimit = serverRateLimit ?? readStoredGitHubRateLimitSnapshot('server');
   const localRateLimitAnimated = useMemo(
-    () => animateRateLimitSnapshot(localRateLimit, nowMs),
-    [localRateLimit, nowMs],
+    () => animateRateLimitSnapshot(resolvedLocalRateLimit, nowMs),
+    [resolvedLocalRateLimit, nowMs],
   );
   const serverRateLimitAnimated = useMemo(
-    () => animateRateLimitSnapshot(serverRateLimit, nowMs),
-    [serverRateLimit, nowMs],
+    () => animateRateLimitSnapshot(resolvedServerRateLimit, nowMs),
+    [resolvedServerRateLimit, nowMs],
   );
-  const constrainedRateLimit = useMemo(
-    () => pickMoreConstrainedRateLimit(localRateLimitAnimated, serverRateLimitAnimated),
-    [localRateLimitAnimated, serverRateLimitAnimated],
-  );
-  const showHealthBar = showRateLimits && constrainedRateLimit !== null;
-
   useEffect(() => {
-    if (!showHealthBar) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [showHealthBar]);
+  }, []);
 
   const runAuthorMenuAction = (event: Event, action: () => void, options?: { preventDefault?: boolean }): void => {
     if (options?.preventDefault) event.preventDefault();
@@ -359,64 +342,6 @@ export function Toolbar({
       </DropdownMenu.Root>
     </div>
   );
-  const healthBar = showHealthBar ? (
-    <Tooltip.Root>
-      <Tooltip.Trigger asChild>
-        <button
-          type="button"
-          class={`toolbar-health-bar toolbar-health-bar--${rateLimitTone(constrainedRateLimit)}`}
-          aria-label="Current rate limit health"
-          title="Current rate limit health"
-        >
-          <div class="toolbar-health-bar-track">
-            <div class="toolbar-health-bar-fill" style={{ width: `${rateFillPercent(constrainedRateLimit)}%` }} />
-          </div>
-        </button>
-      </Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Content class="toolbar-health-tooltip" side="bottom" align="center" sideOffset={8}>
-          <div class="toolbar-health-tooltip-meters">
-            <div class="toolbar-health-tooltip-meter">
-              <div class="toolbar-health-tooltip-label">Browser to server</div>
-              <div
-                class={`toolbar-health-detail-bar toolbar-health-detail-bar--${rateLimitTone(localRateLimitAnimated)}`}
-              >
-                <div class="toolbar-health-detail-bar-track">
-                  <div
-                    class="toolbar-health-detail-bar-fill"
-                    style={{ width: `${rateFillPercent(localRateLimitAnimated)}%` }}
-                  />
-                </div>
-              </div>
-              <div class="toolbar-health-tooltip-value">
-                {localRateLimitAnimated ? `${localRateLimitAnimated.remaining}/${localRateLimitAnimated.limit}` : '--'}
-              </div>
-            </div>
-            <div class="toolbar-health-tooltip-meter">
-              <div class="toolbar-health-tooltip-label">Server to GitHub</div>
-              <div
-                class={`toolbar-health-detail-bar toolbar-health-detail-bar--${rateLimitTone(serverRateLimitAnimated)}`}
-              >
-                <div class="toolbar-health-detail-bar-track">
-                  <div
-                    class="toolbar-health-detail-bar-fill"
-                    style={{ width: `${rateFillPercent(serverRateLimitAnimated)}%` }}
-                  />
-                </div>
-              </div>
-              <div class="toolbar-health-tooltip-value">
-                {serverRateLimitAnimated
-                  ? `${serverRateLimitAnimated.remaining}/${serverRateLimitAnimated.limit}`
-                  : '--'}
-              </div>
-            </div>
-          </div>
-          <Tooltip.Arrow class="toolbar-tooltip-arrow" />
-        </Tooltip.Content>
-      </Tooltip.Portal>
-    </Tooltip.Root>
-  ) : null;
-
   return (
     <header class="toolbar">
       <div class="toolbar-left">
@@ -570,87 +495,109 @@ export function Toolbar({
         )}
       </div>
       <div class="toolbar-right">
-        <Tooltip.Provider delayDuration={250}>
-          <div class="action-buttons">
-            {saveStatusText ? (
-              <div
-                class={`toolbar-save-status${saveStatusTone === 'warning' ? ' toolbar-save-status--warning' : ''}`}
-                role="status"
-                aria-live="polite"
-              >
-                {saveStatusText}
-              </div>
-            ) : null}
-            {showGoToWorkspace && (
-              <button type="button" onClick={onGoToWorkspace}>
-                Go to workspace
+        <div class="action-buttons">
+          {saveStatusText ? (
+            <div
+              class={`toolbar-save-status${saveStatusTone === 'warning' ? ' toolbar-save-status--warning' : ''}`}
+              role="status"
+              aria-live="polite"
+            >
+              {saveStatusText}
+            </div>
+          ) : null}
+          {showGoToWorkspace && (
+            <button type="button" onClick={onGoToWorkspace}>
+              Go to workspace
+            </button>
+          )}
+          {showEdit && (
+            <button type="button" onClick={onEdit}>
+              Edit
+            </button>
+          )}
+          {showShare && view !== 'edit' && authorMenu}
+          {editUrl && (
+            <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
+              Edit <ExternalLink size={14} aria-hidden="true" />
+            </a>
+          )}
+          {showCancel && (
+            <button type="button" onClick={onCancel}>
+              Cancel
+            </button>
+          )}
+          {showSave && (
+            <div class="toolbar-split-button-group" role="group" aria-label="Save options">
+              <button type="button" class="toolbar-split-button-main" onClick={onSave} disabled={saving || !canSave}>
+                {saving ? 'Saving...' : 'Save'}
               </button>
-            )}
-            {showEdit && (
-              <button type="button" onClick={onEdit}>
-                Edit
-              </button>
-            )}
-            {showShare && view !== 'edit' && authorMenu}
-            {editUrl && (
-              <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
-                Edit <ExternalLink size={14} aria-hidden="true" />
-              </a>
-            )}
-            {showCancel && (
-              <button type="button" onClick={onCancel}>
-                Cancel
-              </button>
-            )}
-            {showSave && (
-              <div class="toolbar-split-button-group" role="group" aria-label="Save options">
-                <button type="button" class="toolbar-split-button-main" onClick={onSave} disabled={saving || !canSave}>
-                  {saving ? 'Saving...' : 'Save'}
+              {saving || !canSave ? (
+                <button
+                  type="button"
+                  class="toolbar-split-button-toggle"
+                  aria-label="More save options"
+                  title="More save options"
+                  disabled
+                >
+                  <ChevronDown size={14} aria-hidden="true" />
                 </button>
-                {saving || !canSave ? (
-                  <button
-                    type="button"
-                    class="toolbar-split-button-toggle"
-                    aria-label="More save options"
-                    title="More save options"
-                    disabled
-                  >
-                    <ChevronDown size={14} aria-hidden="true" />
-                  </button>
-                ) : (
-                  <DropdownMenu.Root>
-                    <DropdownMenu.Trigger asChild>
-                      <button
-                        type="button"
-                        class="toolbar-split-button-toggle"
-                        aria-label="More save options"
-                        title="More save options"
-                      >
-                        <ChevronDown size={14} aria-hidden="true" />
-                      </button>
-                    </DropdownMenu.Trigger>
-                    <DropdownMenu.Portal>
-                      <DropdownMenu.Content
-                        class="user-menu-content toolbar-split-button-menu-content"
-                        sideOffset={6}
-                        align="end"
-                      >
-                        <DropdownMenu.Item class="user-menu-item" onSelect={onSaveAndExit}>
-                          Save and exit
-                        </DropdownMenu.Item>
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Portal>
-                  </DropdownMenu.Root>
-                )}
+              ) : (
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      class="toolbar-split-button-toggle"
+                      aria-label="More save options"
+                      title="More save options"
+                    >
+                      <ChevronDown size={14} aria-hidden="true" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      class="user-menu-content toolbar-split-button-menu-content"
+                      sideOffset={6}
+                      align="end"
+                    >
+                      <DropdownMenu.Item class="user-menu-item" onSelect={onSaveAndExit}>
+                        Save and exit
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              )}
+            </div>
+          )}
+          {showShare && view === 'edit' && authorMenu}
+          {showSignInToSave && signInButton}
+        </div>
+        {showPreviewToggle || showAiToggle ? (
+          <div class="toolbar-toggle-controls">
+            {showPreviewAndAiGroup ? (
+              <div class="toggle-button-group" role="group" aria-label="Preview and Reader AI controls">
+                <button
+                  type="button"
+                  class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
+                  title={previewVisible ? 'Hide preview' : 'Show preview'}
+                  aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
+                  onClick={onTogglePreview}
+                >
+                  <Eye size={16} />
+                </button>
+                <button
+                  type="button"
+                  class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
+                  title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                  aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                  disabled={aiDisabled}
+                  onClick={onToggleAi}
+                >
+                  <Sparkles size={16} />
+                </button>
               </div>
-            )}
-            {showShare && view === 'edit' && authorMenu}
-            {showSignInToSave && signInButton}
-          </div>
-          {showPreviewToggle || showAiToggle ? (
-            <div class="toolbar-toggle-controls">
-              {showPreviewAndAiGroup ? (
-                <div class="toggle-button-group" role="group" aria-label="Preview and Reader AI controls">
+            ) : (
+              <>
+                {showPreviewToggle && (
                   <button
                     type="button"
                     class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
@@ -660,6 +607,8 @@ export function Toolbar({
                   >
                     <Eye size={16} />
                   </button>
+                )}
+                {showAiToggle && (
                   <button
                     type="button"
                     class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
@@ -670,85 +619,97 @@ export function Toolbar({
                   >
                     <Sparkles size={16} />
                   </button>
-                </div>
-              ) : (
-                <>
-                  {showPreviewToggle && (
-                    <button
-                      type="button"
-                      class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
-                      title={previewVisible ? 'Hide preview' : 'Show preview'}
-                      aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
-                      onClick={onTogglePreview}
-                    >
-                      <Eye size={16} />
-                    </button>
-                  )}
-                  {showAiToggle && (
-                    <button
-                      type="button"
-                      class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
-                      title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
-                      aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
-                      disabled={aiDisabled}
-                      onClick={onToggleAi}
-                    >
-                      <Sparkles size={16} />
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          ) : null}
-          {healthBar}
-          {user ? (
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <button type="button" class="user-menu-trigger" aria-label="User menu" title="User menu">
-                  <img class="user-avatar" src={user.avatar_url} alt="" width={24} height={24} />
-                </button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
-                  <DropdownMenu.Label class="user-menu-label">
-                    <a href="https://github.com/settings/profile" target="_blank" rel="noopener noreferrer">
-                      {user.login}
-                    </a>
-                  </DropdownMenu.Label>
-                  <DropdownMenu.Separator class="user-menu-separator" />
-                  {view !== 'workspaces' ? (
-                    <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.workspaces())}>
-                      Workspaces
-                    </DropdownMenu.Item>
-                  ) : null}
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
-                    Toggle Theme
+                )}
+              </>
+            )}
+          </div>
+        ) : null}
+        {user ? (
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button type="button" class="user-menu-trigger" aria-label="User menu" title="User menu">
+                <img class="user-avatar" src={user.avatar_url} alt="" width={24} height={24} />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
+                <DropdownMenu.Label class="user-menu-label">
+                  <a href="https://github.com/settings/profile" target="_blank" rel="noopener noreferrer">
+                    {user.login}
+                  </a>
+                </DropdownMenu.Label>
+                <DropdownMenu.Separator class="user-menu-separator" />
+                {view !== 'workspaces' ? (
+                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.workspaces())}>
+                    Workspaces
                   </DropdownMenu.Item>
-                  <DropdownMenu.Separator class="user-menu-separator" />
-                  <DropdownMenu.CheckboxItem
-                    class="user-menu-item user-menu-checkbox-item"
-                    checked={showRateLimits}
-                    onCheckedChange={() => onToggleShowRateLimits()}
-                  >
+                ) : null}
+                <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
+                  Toggle Theme
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator class="user-menu-separator" />
+                <DropdownMenu.Sub>
+                  <DropdownMenu.SubTrigger class="user-menu-item user-menu-subtrigger">
                     Show rate limits
-                    <DropdownMenu.ItemIndicator class="user-menu-item-indicator">
-                      <Check size={14} aria-hidden="true" />
-                    </DropdownMenu.ItemIndicator>
-                  </DropdownMenu.CheckboxItem>
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => void onClearCache()}>
-                    Clear cache
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Separator class="user-menu-separator" />
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => onSignOut()}>
-                    Sign Out
-                  </DropdownMenu.Item>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          ) : !showSignInToSave ? (
-            signInButton
-          ) : null}
-        </Tooltip.Provider>
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.SubContent
+                      class="user-menu-content user-menu-subcontent"
+                      sideOffset={6}
+                      alignOffset={-6}
+                    >
+                      <div class="rate-limit-menu-content">
+                        <div class="rate-limit-menu-meter">
+                          <div class="rate-limit-menu-label">Your rate limit</div>
+                          <div
+                            class={`toolbar-health-detail-bar toolbar-health-detail-bar--${rateLimitTone(localRateLimitAnimated)}`}
+                          >
+                            <div class="toolbar-health-detail-bar-track">
+                              <div
+                                class="toolbar-health-detail-bar-fill"
+                                style={{ width: `${rateFillPercent(localRateLimitAnimated)}%` }}
+                              />
+                            </div>
+                          </div>
+                          <div class="rate-limit-menu-value">
+                            <span>{rateLimitAvailabilityLabel(localRateLimitAnimated)}</span>
+                            <span>{localRateLimitAnimated ? `${localRateLimitAnimated.limit}/min` : '--'}</span>
+                          </div>
+                        </div>
+                        <div class="rate-limit-menu-meter">
+                          <div class="rate-limit-menu-label">Shared rate limit</div>
+                          <div
+                            class={`toolbar-health-detail-bar toolbar-health-detail-bar--${rateLimitTone(serverRateLimitAnimated)}`}
+                          >
+                            <div class="toolbar-health-detail-bar-track">
+                              <div
+                                class="toolbar-health-detail-bar-fill"
+                                style={{ width: `${rateFillPercent(serverRateLimitAnimated)}%` }}
+                              />
+                            </div>
+                          </div>
+                          <div class="rate-limit-menu-value">
+                            <span>{rateLimitAvailabilityLabel(serverRateLimitAnimated)}</span>
+                            <span>{serverRateLimitAnimated ? `${serverRateLimitAnimated.limit}/hour` : '--'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </DropdownMenu.SubContent>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Sub>
+                <DropdownMenu.Item class="user-menu-item" onSelect={() => void onClearCache()}>
+                  Clear cache
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator class="user-menu-separator" />
+                <DropdownMenu.Item class="user-menu-item" onSelect={() => onSignOut()}>
+                  Sign Out
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        ) : !showSignInToSave ? (
+          signInButton
+        ) : null}
       </div>
     </header>
   );

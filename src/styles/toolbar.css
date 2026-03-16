@@ -152,31 +152,10 @@
   gap: 8px;
 }
 
-.toolbar-health-bar {
-  display: inline-flex;
-  align-items: center;
-  min-width: 72px;
-  width: 72px;
-  min-height: 35px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--toolbar-bg) 86%, var(--bg) 14%);
-  cursor: default;
-}
-
-.toolbar-health-bar:focus,
-.toolbar-health-bar:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
-}
-
-.toolbar-health-bar-track,
 .toolbar-health-detail-bar-track {
   position: relative;
   width: 100%;
   height: 8px;
-  border: 1px solid var(--border);
   border-radius: 999px;
   overflow: hidden;
   background:
@@ -185,10 +164,9 @@
       transparent 0 8px,
       color-mix(in srgb, var(--text-secondary) 14%, transparent) 8px 9px
     ),
-    color-mix(in srgb, var(--bg) 80%, black 20%);
+    color-mix(in srgb, var(--bg) 62%, var(--text-secondary) 38%);
 }
 
-.toolbar-health-bar-fill,
 .toolbar-health-detail-bar-fill {
   position: absolute;
   inset: 0 auto 0 0;
@@ -198,50 +176,44 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, white 18%, transparent);
 }
 
-.toolbar-health-bar--warn .toolbar-health-bar-fill,
 .toolbar-health-detail-bar--warn .toolbar-health-detail-bar-fill {
   background: linear-gradient(90deg, #e08a00, #ffbe5c);
 }
 
-.toolbar-health-bar--danger .toolbar-health-bar-fill,
 .toolbar-health-detail-bar--danger .toolbar-health-detail-bar-fill {
   background: linear-gradient(90deg, #c93737, #ff6a6a);
-}
-
-.toolbar-health-tooltip {
-  min-width: 220px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--toolbar-bg);
-  color: var(--text);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
-}
-
-.toolbar-health-tooltip-meters {
-  display: grid;
-  gap: 10px;
-}
-
-.toolbar-health-tooltip-meter {
-  display: grid;
-  gap: 6px;
-}
-
-.toolbar-health-tooltip-label {
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
 .toolbar-health-detail-bar {
   display: flex;
 }
 
-.toolbar-health-tooltip-value {
+.rate-limit-menu-content {
+  min-width: 172px;
+  display: grid;
+  gap: 10px;
+  padding: 2px 4px 1px;
+}
+
+.rate-limit-menu-meter {
+  display: grid;
+  gap: 6px;
+}
+
+.rate-limit-menu-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.rate-limit-menu-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
-  text-align: center;
+  white-space: nowrap;
 }
 
 .toolbar-save-status {
@@ -564,24 +536,12 @@
   font-size: 15px;
 }
 
-.user-menu-checkbox-item {
-  gap: 12px;
-}
-
-.user-menu-item-indicator {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 14px;
-  color: var(--text-secondary);
-}
-
 .user-menu-subtrigger[data-state="open"] {
   background: var(--btn-hover);
 }
 
 .user-menu-subcontent {
-  min-width: 170px;
+  min-width: 188px;
 }
 
 .user-menu-item[data-highlighted] {
@@ -596,20 +556,6 @@
   box-shadow: none;
 }
 
-.toolbar-tooltip {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--toolbar-bg);
-  color: var(--text);
-  font-size: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
-}
-
-.toolbar-tooltip-arrow {
-  fill: var(--toolbar-bg);
-}
-
 .user-menu-content button {
   width: 100%;
 }
@@ -620,10 +566,6 @@
 
 @media (max-width: 768px) {
   .repo-menu-current-name {
-    display: none;
-  }
-
-  .toolbar-health-bar {
     display: none;
   }
 }
