@@ -44,3 +44,31 @@ export function extractSubdomain(host: string | undefined): string | null {
 
   return null;
 }
+
+export function stripManagedSubdomain(host: string | undefined): string | null {
+  if (!host) return null;
+
+  const [rawHostname, rawPort] = host.split(':');
+  if (!rawHostname) return null;
+
+  const hostname = rawHostname.toLowerCase();
+  const portSuffix = rawPort ? `:${rawPort}` : '';
+
+  if (hostname.endsWith('.input.md')) {
+    const sub = hostname.slice(0, -'.input.md'.length);
+    if (sub && !sub.includes('.') && !PROTECTED_SUBDOMAINS.has(sub)) {
+      return `input.md${portSuffix}`;
+    }
+    return null;
+  }
+
+  if (hostname.endsWith('.localhost')) {
+    const sub = hostname.slice(0, -'.localhost'.length);
+    if (sub && !sub.includes('.') && !PROTECTED_SUBDOMAINS.has(sub)) {
+      return `localhost${portSuffix}`;
+    }
+    return null;
+  }
+
+  return null;
+}

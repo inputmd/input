@@ -6,6 +6,7 @@ import tar from 'tar-stream';
 import { resolveCommitCompactionSelection } from './commit_compaction';
 import {
   APP_URL,
+  CLIENT_PORT,
   GITHUB_CLIENT_ID,
   GITHUB_CLIENT_SECRET,
   GITHUB_FETCH_TIMEOUT_MS,
@@ -56,6 +57,7 @@ import {
   rememberInstallationForUser,
 } from './session';
 import { createRepoFileShareToken, verifyRepoFileShareToken } from './share_tokens';
+import { stripManagedSubdomain } from './subdomain';
 import type { Session } from './types';
 
 interface RouteContext {
@@ -187,6 +189,26 @@ function requestBaseUrl(req: http.IncomingMessage): string {
   const proto = req.headers['x-forwarded-proto'];
   const scheme = typeof proto === 'string' ? proto.split(',')[0].trim() : 'http';
   const host = req.headers.host ?? 'localhost';
+  return `${scheme}://${host}`;
+}
+
+function canonicalAppBaseUrl(req: http.IncomingMessage): string {
+  if (APP_URL) return APP_URL;
+
+  for (const candidate of [req.headers.origin, req.headers.referer]) {
+    if (typeof candidate !== 'string' || !candidate) continue;
+    try {
+      const url = new URL(candidate);
+      const host = stripManagedSubdomain(url.host) ?? url.host;
+      return `${url.protocol}//${host}`;
+    } catch {
+      // Ignore malformed client-supplied origins and fall back to request host.
+    }
+  }
+
+  const proto = req.headers['x-forwarded-proto'];
+  const scheme = typeof proto === 'string' ? proto.split(',')[0].trim() : 'http';
+  const host = stripManagedSubdomain(req.headers.host) ?? req.headers.host ?? `localhost:${CLIENT_PORT}`;
   return `${scheme}://${host}`;
 }
 
@@ -966,7 +988,7 @@ async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
   const sharePath = `s/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(data.path)}`;
   json(ctx.res, 200, {
     token,
-    url: `${requestBaseUrl(ctx.req)}/${sharePath}?t=${encodeURIComponent(token)}`,
+    url: `${canonicalAppBaseUrl(ctx.req)}/${sharePath}?t=${encodeURIComponent(token)}`,
     expiresAt,
   });
 }
