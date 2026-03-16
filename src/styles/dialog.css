@@ -28,12 +28,6 @@
   flex-direction: column;
 }
 
-.dialog-content :focus,
-.dialog-content :focus-visible {
-  outline: none;
-  box-shadow: none;
-}
-
 .dialog-message {
   font-size: 15px;
   line-height: 1.5;
@@ -62,6 +56,15 @@
 
 .dialog-input:focus {
   border-color: var(--border);
+}
+
+.dialog-content button:focus,
+.dialog-content button:focus-visible,
+.dialog-content input:focus,
+.dialog-content input:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
+  box-shadow: none;
 }
 
 .dialog-actions {
