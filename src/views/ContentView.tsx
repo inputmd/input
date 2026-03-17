@@ -534,7 +534,9 @@ export function ContentView({
         </div>
       ) : markdown ? (
         <>
-          {markdownCustomCss ? <style>{markdownCustomCss}</style> : null}
+          {markdownCustomCss ? (
+            <style key={markdownCustomCssScope ?? markdownCustomCss}>{markdownCustomCss}</style>
+          ) : null}
           <div
             ref={renderedMarkdownRef}
             class="rendered-markdown"

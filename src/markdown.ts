@@ -1,6 +1,5 @@
 import DOMPurify from 'dompurify';
 import { nameToEmoji } from 'gemoji';
-import matter from 'gray-matter';
 import { marked } from 'marked';
 import { parseImageDimensionTitle } from './image_markdown.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
@@ -338,6 +337,8 @@ export interface ParsedMarkdownDocument {
   html: string;
   customCss: string | null;
   customCssScope: string | null;
+  frontMatterError: string | null;
+  cssWarning: string | null;
 }
 
 interface ExtractedFootnotes {
@@ -421,18 +422,94 @@ function footnoteId(raw: string): string {
   return normalized || 'note';
 }
 
-function fallbackStripFrontMatter(source: string): string {
-  const lines = source.split(/\r?\n/);
-  if (lines.length < 3) return source;
-  const opening = lines[0].trim();
-  if (opening !== '---' && opening !== '+++') return source;
-  for (let i = 1; i < lines.length; i += 1) {
-    const line = lines[i].trim();
-    if (line === opening || line === '...') {
-      return lines.slice(i + 1).join('\n');
+function countIndent(raw: string): number {
+  let indent = 0;
+  for (const char of raw) {
+    if (char === ' ') {
+      indent += 1;
+      continue;
     }
+    if (char === '\t') {
+      indent += 2;
+      continue;
+    }
+    break;
   }
-  return source;
+  return indent;
+}
+
+function parseMarkdownFrontMatterBlock(source: string): { body: string; content: string; error: string | null } | null {
+  const lines = source.split(/\r?\n/);
+  if (lines.length < 3) return null;
+  if (lines[0].trim() !== '---') return null;
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (line !== '---' && line !== '...') continue;
+    return {
+      body: lines.slice(1, index).join('\n'),
+      content: lines.slice(index + 1).join('\n'),
+      error: null,
+    };
+  }
+
+  return {
+    body: '',
+    content: source,
+    error: 'Could not parse front matter',
+  };
+}
+
+function extractCustomCssFromFrontMatterBody(body: string): { css: string | null; error: string | null } {
+  const lines = body.split(/\r?\n/);
+  let css: string | null = null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.trim()) continue;
+    const match = /^([ \t]*)css\s*:\s*(.*)$/.exec(line);
+    if (!match) {
+      return { css: null, error: 'Could not parse front matter' };
+    }
+    if (match[1].trim()) {
+      return { css: null, error: 'Could not parse front matter' };
+    }
+    if (css !== null) {
+      return { css: null, error: 'Could not parse front matter' };
+    }
+
+    const baseIndent = countIndent(match[1]);
+    const value = match[2].trim();
+    if (!value) {
+      css = '';
+      continue;
+    }
+    if (value !== '|' && value !== '|-' && value !== '|+') {
+      css = value;
+      continue;
+    }
+
+    const cssLines: string[] = [];
+    let lookahead = index + 1;
+    for (; lookahead < lines.length; lookahead += 1) {
+      const current = lines[lookahead];
+      if (!current.trim()) {
+        cssLines.push('');
+        continue;
+      }
+
+      const indent = countIndent(current);
+      if (indent <= baseIndent) break;
+
+      const sliceIndex = Math.min(current.length, baseIndent + 2);
+      cssLines.push(current.slice(sliceIndex));
+    }
+
+    css = cssLines.join('\n');
+    index = lookahead - 1;
+  }
+
+  return { css, error: null };
 }
 
 function hashString(value: string): string {
@@ -525,6 +602,7 @@ const ALLOWED_CSS_PROPERTIES = new Set([
   'padding-left',
   'padding-right',
   'padding-top',
+  'position',
   'text-align',
   'text-decoration',
   'text-decoration-color',
@@ -640,7 +718,29 @@ function isAllowedSimpleSelector(selector: string): boolean {
   return true;
 }
 
-function sanitizeMarkdownCustomCss(rawCss: string): { css: string; scope: string } | null {
+interface ThemeQualifiedSelector {
+  theme: 'light' | 'dark' | null;
+  selector: string;
+}
+
+function parseThemeQualifiedSelector(selector: string): ThemeQualifiedSelector | null {
+  const trimmed = selector.trim();
+  if (!trimmed) return null;
+
+  const themeMatch = /^:(light|dark)(?:\s+(.+))?$/.exec(trimmed);
+  if (!themeMatch) {
+    return isAllowedSimpleSelector(trimmed) ? { theme: null, selector: trimmed } : null;
+  }
+
+  const themedSelector = themeMatch[2]?.trim() ?? '';
+  if (!themedSelector || !isAllowedSimpleSelector(themedSelector)) return null;
+  return {
+    theme: themeMatch[1] as 'light' | 'dark',
+    selector: themedSelector,
+  };
+}
+
+function sanitizeMarkdownCustomCss(rawCss: string): { css: string; scope: string; hadRejectedRules: boolean } | null {
   const withoutBom = rawCss.replace(/^\uFEFF/, '');
   const noComments = withoutBom.replace(/\/\*[\s\S]*?\*\//g, '');
   const source = noComments.trim();
@@ -660,7 +760,8 @@ function sanitizeMarkdownCustomCss(rawCss: string): { css: string; scope: string
 
   if (remaining.includes('@')) return null;
 
-  const rules: string[] = [];
+  const rules: Array<{ selectors: ThemeQualifiedSelector[]; declarations: string }> = [];
+  let hadRejectedRules = false;
   const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
   let cursor = 0;
   let match: RegExpExecArray | null;
@@ -672,74 +773,139 @@ function sanitizeMarkdownCustomCss(rawCss: string): { css: string; scope: string
       .split(',')
       .map((selector) => selector.trim())
       .filter(Boolean);
-    if (selectors.length === 0) return null;
-    if (!selectors.every(isAllowedSimpleSelector)) return null;
+    if (selectors.length === 0) {
+      hadRejectedRules = true;
+      continue;
+    }
+    const parsedSelectors = selectors.map(parseThemeQualifiedSelector);
+    if (parsedSelectors.some((selector) => selector === null)) {
+      hadRejectedRules = true;
+      continue;
+    }
+    const safeSelectors = parsedSelectors.filter((selector): selector is ThemeQualifiedSelector => selector !== null);
+    if (safeSelectors.length === 0) {
+      hadRejectedRules = true;
+      continue;
+    }
 
     const declarations = match[2]
       .split(';')
       .map((declaration) => declaration.trim())
       .filter(Boolean);
-    if (declarations.length === 0) return null;
-
-    const sanitizedDeclarations: string[] = [];
-    for (const declaration of declarations) {
-      const separatorIndex = declaration.indexOf(':');
-      if (separatorIndex <= 0) return null;
-      const property = declaration.slice(0, separatorIndex).trim().toLowerCase();
-      const value = declaration.slice(separatorIndex + 1).trim();
-      if (!ALLOWED_CSS_PROPERTIES.has(property)) return null;
-      if (!isSafeCssValue(value)) return null;
-      sanitizedDeclarations.push(`${property}: ${value}`);
+    if (declarations.length === 0) {
+      hadRejectedRules = true;
+      continue;
     }
 
-    rules.push(`${selectors.join(', ')} { ${sanitizedDeclarations.join('; ')}; }`);
+    const sanitizedDeclarations: string[] = [];
+    let invalidDeclaration = false;
+    for (const declaration of declarations) {
+      const separatorIndex = declaration.indexOf(':');
+      if (separatorIndex <= 0) {
+        invalidDeclaration = true;
+        break;
+      }
+      const property = declaration.slice(0, separatorIndex).trim().toLowerCase();
+      const value = declaration.slice(separatorIndex + 1).trim();
+      if (!ALLOWED_CSS_PROPERTIES.has(property)) {
+        invalidDeclaration = true;
+        break;
+      }
+      if (!isSafeCssValue(value)) {
+        invalidDeclaration = true;
+        break;
+      }
+      sanitizedDeclarations.push(`${property}: ${value}`);
+    }
+    if (invalidDeclaration || sanitizedDeclarations.length === 0) {
+      hadRejectedRules = true;
+      continue;
+    }
+
+    rules.push({
+      selectors: safeSelectors,
+      declarations: sanitizedDeclarations.join('; '),
+    });
   }
 
   if (remaining.slice(cursor).trim()) return null;
   if (rules.length === 0) return null;
 
-  const scope = hashString(`${imports.join('\n')}\n${rules.join('\n')}`);
+  const scope = hashString(
+    `${imports.join('\n')}\n${rules
+      .map(
+        (rule) =>
+          `${rule.selectors
+            .map((selector) => `${selector.theme ? `:${selector.theme} ` : ''}${selector.selector}`)
+            .join(', ')} { ${rule.declarations}; }`,
+      )
+      .join('\n')}`,
+  );
   const scopeSelector = `.rendered-markdown[data-markdown-custom-css="${scope}"]`;
   const scopedRules = rules
     .map((rule) => {
-      const match = /^([^{}]+)\{([^{}]+)\}$/.exec(rule);
-      if (!match) return null;
-      const selectors = match[1]
-        .split(',')
-        .map((selector) => `${scopeSelector} ${selector.trim()}`)
+      const selectors = rule.selectors
+        .map((selector) =>
+          selector.theme
+            ? `[data-theme="${selector.theme}"] ${scopeSelector} ${selector.selector}`
+            : `${scopeSelector} ${selector.selector}`,
+        )
         .join(', ');
-      return `${selectors} {${match[2]}}`;
+      return `${selectors} { ${rule.declarations}; }`;
     })
     .filter((rule): rule is string => Boolean(rule));
 
-  return { css: [...imports, ...scopedRules].join('\n'), scope };
+  return { css: [...imports, ...scopedRules].join('\n'), scope, hadRejectedRules };
 }
 
 function extractMarkdownDocument(text: string): {
   markdown: string;
   customCss: string | null;
   customCssScope: string | null;
+  frontMatterError: string | null;
+  cssWarning: string | null;
 } {
   const normalized = text.replace(/^\uFEFF/, '');
   const candidate = normalized.replace(/^(?:[ \t]*\r?\n)+/, '');
-
-  try {
-    const parsed = matter(candidate);
-    if (parsed.matter) {
-      const rawCss = typeof parsed.data.css === 'string' ? parsed.data.css : '';
-      const sanitizedCss = rawCss ? sanitizeMarkdownCustomCss(rawCss) : null;
-      return {
-        markdown: parsed.content,
-        customCss: sanitizedCss?.css ?? null,
-        customCssScope: sanitizedCss?.scope ?? null,
-      };
-    }
-    // Belt-and-suspenders fallback: still strip obvious fenced front matter if parser detection misses.
-    return { markdown: fallbackStripFrontMatter(candidate), customCss: null, customCssScope: null };
-  } catch {
-    // Keep rendering content if gray-matter fails at runtime, without showing front matter to users.
-    return { markdown: fallbackStripFrontMatter(candidate), customCss: null, customCssScope: null };
+  const frontMatter = parseMarkdownFrontMatterBlock(candidate);
+  if (!frontMatter) {
+    return { markdown: candidate, customCss: null, customCssScope: null, frontMatterError: null, cssWarning: null };
   }
+  if (frontMatter.error) {
+    console.error('[markdown-frontmatter] Could not parse front matter', {
+      error: frontMatter.error,
+    });
+    return {
+      markdown: candidate,
+      customCss: null,
+      customCssScope: null,
+      frontMatterError: frontMatter.error,
+      cssWarning: null,
+    };
+  }
+
+  const parsedFrontMatter = extractCustomCssFromFrontMatterBody(frontMatter.body);
+  if (parsedFrontMatter.error) {
+    console.error('[markdown-frontmatter] Could not parse front matter', {
+      error: parsedFrontMatter.error,
+    });
+    return {
+      markdown: candidate,
+      customCss: null,
+      customCssScope: null,
+      frontMatterError: parsedFrontMatter.error,
+      cssWarning: null,
+    };
+  }
+
+  const sanitizedCss = parsedFrontMatter.css ? sanitizeMarkdownCustomCss(parsedFrontMatter.css) : null;
+  return {
+    markdown: frontMatter.content,
+    customCss: sanitizedCss?.css ?? null,
+    customCssScope: sanitizedCss?.scope ?? null,
+    frontMatterError: null,
+    cssWarning: sanitizedCss?.hadRejectedRules ? 'Some custom CSS rules were ignored' : null,
+  };
 }
 
 function shouldSkipSmartPunctuation(node: Node | null): boolean {
@@ -1128,6 +1294,8 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
     html: template.innerHTML,
     customCss: extracted.customCss,
     customCssScope: extracted.customCssScope,
+    frontMatterError: extracted.frontMatterError,
+    cssWarning: extracted.cssWarning,
   };
 }
 

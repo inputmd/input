@@ -5937,6 +5937,8 @@ export function App() {
             previewHtml={editPreviewHtml}
             previewCustomCss={editPreviewCustomCss}
             previewCustomCssScope={editPreviewCustomCssScope}
+            previewFrontMatterError={editPreviewFrontMatterError}
+            previewCssWarning={editPreviewCssWarning}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             scrollStorageKey={currentDocumentScrollKey}
@@ -6168,7 +6170,7 @@ export function App() {
               resolveWikiLinkMeta: editPreviewWikiLinkResolver,
             },
           )
-        : { html: '', customCss: null, customCssScope: null },
+        : { html: '', customCss: null, customCssScope: null, frontMatterError: null, cssWarning: null },
     [
       currentRepoDocPath,
       editPreviewEnabled,
@@ -6182,6 +6184,8 @@ export function App() {
   const editPreviewHtml = editPreviewDocument.html;
   const editPreviewCustomCss = editPreviewDocument.customCss;
   const editPreviewCustomCssScope = editPreviewDocument.customCssScope;
+  const editPreviewFrontMatterError = editPreviewDocument.frontMatterError;
+  const editPreviewCssWarning = editPreviewDocument.cssWarning;
   const onToggleSidebar = useCallback(() => {
     setSidebarVisibilityOverride((prev) => {
       const current = prev ?? defaultShowSidebar;

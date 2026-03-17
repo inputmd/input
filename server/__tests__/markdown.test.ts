@@ -218,17 +218,78 @@ hello`,
   t.true(document.html.includes('<p>hello</p>'));
 });
 
-test('parseMarkdownDocument drops custom css with disallowed properties', (t) => {
+test('parseMarkdownDocument drops only invalid custom css rules', (t) => {
   const document = withDom(() =>
     parseMarkdownDocument(
       `---
 css: |
+  h1 {}
   p { position: fixed; color: red; }
+  h2 { color: #123456; }
 ---
 hello`,
     ),
   );
 
+  t.truthy(document.customCss);
+  t.truthy(document.customCssScope);
+  t.is(document.cssWarning, 'Some custom CSS rules were ignored');
+  t.true(document.customCss?.includes('position: fixed'));
+  t.false(document.customCss?.includes('h1'));
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] p { position: fixed; color: red; }`,
+    ),
+  );
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h2 { color: #123456; }`,
+    ),
+  );
+});
+
+test('parseMarkdownDocument rewrites :light and :dark custom css selectors to theme-scoped rules', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  :light h1 { color: #123456; }
+  :dark p { color: #abcdef; }
+---
+# Hello
+
+Text`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.truthy(document.customCssScope);
+  t.true(
+    document.customCss?.includes(
+      `[data-theme="light"] .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h1 { color: #123456; }`,
+    ),
+  );
+  t.true(
+    document.customCss?.includes(
+      `[data-theme="dark"] .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] p { color: #abcdef; }`,
+    ),
+  );
+  t.is(document.cssWarning, null);
+});
+
+test('parseMarkdownDocument reports malformed front matter bodies as parse errors', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  h1 { color: red; }
+broken
+---
+hello`,
+    ),
+  );
+
+  t.is(document.frontMatterError, 'Could not parse front matter');
   t.is(document.customCss, null);
   t.is(document.customCssScope, null);
 });

@@ -53,6 +53,8 @@ interface EditViewProps {
   previewHtml: string;
   previewCustomCss?: string | null;
   previewCustomCssScope?: string | null;
+  previewFrontMatterError?: string | null;
+  previewCssWarning?: string | null;
   previewVisible: boolean;
   canRenderPreview: boolean;
   scrollStorageKey?: string | null;
@@ -89,6 +91,8 @@ export function EditView({
   previewHtml,
   previewCustomCss = null,
   previewCustomCssScope = null,
+  previewFrontMatterError = null,
+  previewCssWarning = null,
   previewVisible,
   canRenderPreview,
   scrollStorageKey = null,
@@ -466,7 +470,13 @@ export function EditView({
               onPointerDown={onSplitPointerDown}
             />
             <div class="editor-preview-pane">
-              {previewCustomCss ? <style>{previewCustomCss}</style> : null}
+              {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
+              {!previewFrontMatterError && previewCssWarning ? (
+                <div class="editor-preview-alert">{previewCssWarning}</div>
+              ) : null}
+              {previewCustomCss ? (
+                <style key={previewCustomCssScope ?? previewCustomCss}>{previewCustomCss}</style>
+              ) : null}
               <div
                 ref={renderedMarkdownRef}
                 class="rendered-markdown"
@@ -486,7 +496,13 @@ export function EditView({
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane">
-            {previewCustomCss ? <style>{previewCustomCss}</style> : null}
+            {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
+            {!previewFrontMatterError && previewCssWarning ? (
+              <div class="editor-preview-alert">{previewCssWarning}</div>
+            ) : null}
+            {previewCustomCss ? (
+              <style key={previewCustomCssScope ?? previewCustomCss}>{previewCustomCss}</style>
+            ) : null}
             <div
               ref={renderedMarkdownRef}
               class="rendered-markdown"
