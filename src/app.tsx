@@ -82,7 +82,7 @@ import {
   recordServerLocalRateLimitFromResponse,
   subscribeGitHubRateLimitUpdates,
 } from './github_rate_limit';
-import { useDocumentStack, type StackEntry } from './hooks/useDocumentStack';
+import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
 import { parseMarkdownToHtml } from './markdown';
@@ -1429,10 +1429,24 @@ export function App() {
     } catch {}
   }, []);
 
+  const persistPendingGistDraft = useCallback(
+    (draft?: { title?: string; content?: string }) => {
+      if (!draftMode || editingBackend !== 'gist' || currentGistId !== null) return;
+      try {
+        localStorage.setItem(DRAFT_TITLE_KEY, draft?.title ?? editTitle);
+        localStorage.setItem(DRAFT_CONTENT_KEY, draft?.content ?? editContent);
+      } catch {
+        // Best effort only; continue with OAuth redirect.
+      }
+    },
+    [currentGistId, draftMode, editContent, editTitle, editingBackend],
+  );
+
   const startGitHubSignIn = useCallback(
     (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
       const normalizedReturnTo = returnTo.startsWith('/') ? returnTo : `/${returnTo}`;
       const currentPath = window.location.pathname;
+      persistPendingGistDraft();
       try {
         if (!options?.force && options?.guardKey) {
           if (hasAutoOnceGuard(options.guardKey)) return false;
@@ -1472,7 +1486,7 @@ export function App() {
       window.location.assign(authUrl.toString());
       return true;
     },
-    [showError],
+    [persistPendingGistDraft, showError],
   );
 
   const handleSessionExpired = useCallback(() => {
@@ -1593,7 +1607,7 @@ export function App() {
       setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
       setRenderedText(null);
       setRenderMode('ansi');
-        setReaderAiSource('');
+      setReaderAiSource('');
       setContentImagePreview(null);
       setContentAlertMessage('Binary file detected.');
       setContentAlertDownloadHref(downloadHref);
@@ -6209,11 +6223,12 @@ export function App() {
   const onEditContentChange = useCallback(
     (update: { content: string; origin: 'local'; revision: number }) => {
       if (readerAiEditLocked) return;
+      persistPendingGistDraft({ content: update.content });
       setNextEditContent(update.content, { origin: update.origin, revision: update.revision });
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
     },
-    [readerAiEditLocked, setNextEditContent],
+    [persistPendingGistDraft, readerAiEditLocked, setNextEditContent],
   );
   const handleSignInWithGitHub = useCallback(
     (options?: { includeGists?: boolean }) => {
