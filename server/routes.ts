@@ -358,6 +358,13 @@ async function readGitHubErrorMessage(ghRes: Response, fallback = 'GitHub API er
   }
 }
 
+function isPublicPatPolicyFailure(status: number, message: string): boolean {
+  if (status !== 401 && status !== 403) return false;
+  const normalized = message.toLowerCase();
+  if (!normalized.includes('fine-grained personal access token')) return false;
+  return normalized.includes('forbid') || normalized.includes('lifetime');
+}
+
 const READER_AI_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 const READER_AI_MAX_MESSAGES = 24;
 const READER_AI_MAX_MESSAGE_CHARS = 16_000;
@@ -593,9 +600,23 @@ async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<
     ...((init.headers as Record<string, string>) ?? {}),
   };
   if (GITHUB_TOKEN) headers.Authorization = `Bearer ${GITHUB_TOKEN}`;
-  return fetch(`https://api.github.com${path}`, {
+  const authedRes = await fetch(`https://api.github.com${path}`, {
     ...init,
     headers,
+    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+  });
+
+  if (!GITHUB_TOKEN) return authedRes;
+
+  const retryMessage = await readGitHubErrorMessage(authedRes.clone(), '');
+  if (!isPublicPatPolicyFailure(authedRes.status, retryMessage)) return authedRes;
+
+  const retryHeaders = { ...headers };
+  delete retryHeaders.Authorization;
+  console.warn(`[github] ${path} -> retrying public request without GITHUB_TOKEN after PAT policy rejection`);
+  return fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers: retryHeaders,
     signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });
 }
@@ -1740,18 +1761,9 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
     return;
   }
 
-  const ghHeaders: Record<string, string> = {
-    Accept: 'application/vnd.github+json',
-    'User-Agent': 'input-github-app-auth-server',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
-  if (GITHUB_TOKEN) ghHeaders.Authorization = `Bearer ${GITHUB_TOKEN}`;
-  if (cached?.etag) ghHeaders['If-None-Match'] = cached.etag;
-
   try {
-    const ghRes = await fetch(`https://api.github.com/gists/${encodeURIComponent(gistId)}`, {
-      headers: ghHeaders,
-      signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    const ghRes = await fetchPublicGitHub(`/gists/${encodeURIComponent(gistId)}`, {
+      headers: cached?.etag ? { 'If-None-Match': cached.etag } : undefined,
     });
 
     if (ghRes.status === 304 && cached) {
