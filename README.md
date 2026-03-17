@@ -1,22 +1,18 @@
 # Input
 
-Multi-file markdown documents, backed by Gists & repos.
+Input is a multi-file document editor, like Obsidian or HackMD.
+Use it for personal notes, knowledge bases, or as a shared wiki.
+
+View any public GitHub repo at https://input.md/:username/:repo.
 
 ## Features
 
-- **Multi-file documents** — Each gist or repo directory is a
-    collection of `.md` files. A sidebar lets you switch between files,
-    and create, rename, or delete them inline.
-- **Gist viewer** — Paste any public gist URL to render its
-    contents. Supports ANSI colors for e.g. Claude Code/Codex output.
-- **Connect to gists** — Sign in with GitHub (OAuth web flow) to list,
-    create, edit, and delete your gists as documents. Each gist holds
-    one or more `.md` files.
-- **Connect to repos** — Connects to your GitHub repos as an installed
-    application, to read/write Markdown files from the repo root.
-- **Reader AI for markdown** — In rendered markdown view, toggle a
-    right-side AI panel to ask questions about the current document using
-    free OpenRouter models.
+- **Multi-file**: Each gist or repo directory is a collection of `.md` files.
+  Switch between files, create, rename, or delete files inline.
+- **Gists or repos**: Use Gists if you don't want to connect a repo. Use
+  repos for privacy or flexibility.
+- **Reader AI**: Comes with an experimental AI interface like Cursor, that
+  uses OpenRouter free models. Great for proofreading or quick changes.
 
 ## Prerequisites
 
