@@ -460,56 +460,328 @@ function parseMarkdownFrontMatterBlock(source: string): { body: string; content:
   };
 }
 
+interface MarkdownFontConfig {
+  load: string[];
+  body: string | null;
+  headings: string | null;
+}
+
+function splitCommaSeparatedValues(value: string): string[] {
+  return value
+    .split(',')
+    .map((part) => stripMatchingQuotes(part.trim()))
+    .filter(Boolean);
+}
+
+function stripMatchingQuotes(value: string): string {
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' || first === "'") && first === last) {
+      return value.slice(1, -1).trim();
+    }
+  }
+  return value.trim();
+}
+
+function parseFontFamilyScalar(value: string): string | null {
+  const normalized = stripMatchingQuotes(value.trim());
+  if (!normalized) return null;
+  if (/[<>\\]/.test(normalized)) return null;
+  return normalized;
+}
+
+function parseFontFamilyList(value: string): string[] | null {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  const listSource = trimmed.startsWith('[') && trimmed.endsWith(']') ? trimmed.slice(1, -1).trim() : trimmed;
+  if (!listSource) return [];
+
+  const families = splitCommaSeparatedValues(listSource);
+  return families.length > 0 && families.every(Boolean) ? families : null;
+}
+
+function uniqueFontFamilies(families: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const family of families) {
+    const normalized = family.trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function parseIndentedList(
+  lines: string[],
+  startIndex: number,
+  parentIndent: number,
+): { values: string[]; nextIndex: number; error: string | null } {
+  const values: string[] = [];
+  let childIndent: number | null = null;
+  let index = startIndex;
+
+  for (; index < lines.length; index += 1) {
+    const current = lines[index];
+    if (!current.trim()) continue;
+
+    const indent = countIndent(current);
+    if (indent <= parentIndent) break;
+    if (childIndent == null) childIndent = indent;
+    if (indent !== childIndent) {
+      return { values: [], nextIndex: index, error: 'Could not parse front matter' };
+    }
+
+    const trimmed = current.trim();
+    if (!trimmed.startsWith('-')) {
+      return { values: [], nextIndex: index, error: 'Could not parse front matter' };
+    }
+    const value = parseFontFamilyScalar(trimmed.slice(1).trim());
+    if (!value) {
+      return { values: [], nextIndex: index, error: 'Could not parse front matter' };
+    }
+    values.push(value);
+  }
+
+  if (values.length === 0) {
+    return { values: [], nextIndex: index, error: 'Could not parse front matter' };
+  }
+
+  return { values, nextIndex: index, error: null };
+}
+
+function parseNestedFontConfig(
+  lines: string[],
+  startIndex: number,
+  parentIndent: number,
+): { config: MarkdownFontConfig; nextIndex: number; error: string | null } {
+  const config: MarkdownFontConfig = {
+    load: [],
+    body: null,
+    headings: null,
+  };
+  let childIndent: number | null = null;
+  let index = startIndex;
+
+  for (; index < lines.length; index += 1) {
+    const current = lines[index];
+    if (!current.trim()) continue;
+
+    const indent = countIndent(current);
+    if (indent <= parentIndent) break;
+    if (childIndent == null) childIndent = indent;
+    if (indent !== childIndent) {
+      return { config, nextIndex: index, error: 'Could not parse front matter' };
+    }
+
+    const match = /^([ \t]*)(load|body|headings)\s*:\s*(.*)$/.exec(current);
+    if (!match) {
+      return { config, nextIndex: index, error: 'Could not parse front matter' };
+    }
+    if (countIndent(match[1]) !== childIndent) {
+      return { config, nextIndex: index, error: 'Could not parse front matter' };
+    }
+
+    const key = match[2];
+    const value = match[3].trim();
+    if (key === 'load') {
+      if (config.load.length > 0) {
+        return { config, nextIndex: index, error: 'Could not parse front matter' };
+      }
+      if (value) {
+        const families = parseFontFamilyList(value);
+        if (!families) {
+          return { config, nextIndex: index, error: 'Could not parse front matter' };
+        }
+        config.load = families;
+        continue;
+      }
+
+      const list = parseIndentedList(lines, index + 1, childIndent);
+      if (list.error) return { config, nextIndex: list.nextIndex, error: list.error };
+      config.load = list.values;
+      index = list.nextIndex - 1;
+      continue;
+    }
+
+    const family = parseFontFamilyScalar(value);
+    if (!family) {
+      return { config, nextIndex: index, error: 'Could not parse front matter' };
+    }
+
+    if (key === 'body') {
+      if (config.body !== null) {
+        return { config, nextIndex: index, error: 'Could not parse front matter' };
+      }
+      config.body = family;
+      continue;
+    }
+
+    if (config.headings !== null) {
+      return { config, nextIndex: index, error: 'Could not parse front matter' };
+    }
+    config.headings = family;
+  }
+
+  return { config, nextIndex: index, error: null };
+}
+
+function parseFontsValue(
+  lines: string[],
+  startIndex: number,
+  value: string,
+): { config: MarkdownFontConfig; nextIndex: number; error: string | null } {
+  if (value) {
+    const families = parseFontFamilyList(value);
+    if (!families) {
+      return {
+        config: { load: [], body: null, headings: null },
+        nextIndex: startIndex + 1,
+        error: 'Could not parse front matter',
+      };
+    }
+    return {
+      config: { load: families, body: null, headings: null },
+      nextIndex: startIndex + 1,
+      error: null,
+    };
+  }
+
+  const nextLine = lines[startIndex + 1];
+  if (!nextLine || !nextLine.trim()) {
+    return {
+      config: { load: [], body: null, headings: null },
+      nextIndex: startIndex + 1,
+      error: 'Could not parse front matter',
+    };
+  }
+
+  const nextTrimmed = nextLine.trim();
+  if (nextTrimmed.startsWith('-')) {
+    const list = parseIndentedList(lines, startIndex + 1, 0);
+    if (list.error) {
+      return {
+        config: { load: [], body: null, headings: null },
+        nextIndex: list.nextIndex,
+        error: list.error,
+      };
+    }
+    return {
+      config: { load: list.values, body: null, headings: null },
+      nextIndex: list.nextIndex,
+      error: null,
+    };
+  }
+
+  return parseNestedFontConfig(lines, startIndex + 1, 0);
+}
+
+function buildGoogleFontsImportUrl(families: string[]): string {
+  const query = families.map((family) => `family=${encodeURIComponent(family).replace(/%20/g, '+')}`).join('&');
+  return `https://fonts.googleapis.com/css2?${query}&display=swap`;
+}
+
+function formatFontFamilyCssValue(family: string): string {
+  return `"${family.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", var(--font-sans), sans-serif`;
+}
+
+function buildMarkdownFontCss(config: MarkdownFontConfig | null): string | null {
+  if (!config) return null;
+
+  const load = uniqueFontFamilies(
+    config.load.concat(config.body ? [config.body] : [], config.headings ? [config.headings] : []),
+  );
+  if (load.length === 0) return null;
+
+  const css: string[] = [`@import url("${buildGoogleFontsImportUrl(load)}");`];
+  if (config.body) {
+    css.push(
+      `p, ul, ol, blockquote, table, li, td, th, div, section, span { font-family: ${formatFontFamilyCssValue(config.body)}; }`,
+    );
+  }
+  if (config.headings) {
+    css.push(`h1, h2, h3, h4, h5, h6 { font-family: ${formatFontFamilyCssValue(config.headings)}; }`);
+  }
+
+  return css.join('\n');
+}
+
 function extractCustomCssFromFrontMatterBody(body: string): { css: string | null; error: string | null } {
   const lines = body.split(/\r?\n/);
   let css: string | null = null;
+  let fonts: MarkdownFontConfig | null = null;
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (!line.trim()) continue;
-    const match = /^([ \t]*)css\s*:\s*(.*)$/.exec(line);
+
+    const match = /^([ \t]*)(css|fonts)\s*:\s*(.*)$/.exec(line);
     if (!match) {
       return { css: null, error: 'Could not parse front matter' };
     }
     if (match[1].trim()) {
       return { css: null, error: 'Could not parse front matter' };
     }
-    if (css !== null) {
-      return { css: null, error: 'Could not parse front matter' };
-    }
 
-    const baseIndent = countIndent(match[1]);
-    const value = match[2].trim();
-    if (!value) {
-      css = '';
-      continue;
-    }
-    if (value !== '|' && value !== '|-' && value !== '|+') {
-      css = value;
-      continue;
-    }
+    const key = match[2];
+    const value = match[3].trim();
+    if (key === 'css') {
+      if (css !== null) {
+        return { css: null, error: 'Could not parse front matter' };
+      }
 
-    const cssLines: string[] = [];
-    let lookahead = index + 1;
-    for (; lookahead < lines.length; lookahead += 1) {
-      const current = lines[lookahead];
-      if (!current.trim()) {
-        cssLines.push('');
+      const baseIndent = countIndent(match[1]);
+      if (!value) {
+        css = '';
+        continue;
+      }
+      if (value !== '|' && value !== '|-' && value !== '|+') {
+        css = value;
         continue;
       }
 
-      const indent = countIndent(current);
-      if (indent <= baseIndent) break;
+      const cssLines: string[] = [];
+      let lookahead = index + 1;
+      for (; lookahead < lines.length; lookahead += 1) {
+        const current = lines[lookahead];
+        if (!current.trim()) {
+          cssLines.push('');
+          continue;
+        }
 
-      const sliceIndex = Math.min(current.length, baseIndent + 2);
-      cssLines.push(current.slice(sliceIndex));
+        const indent = countIndent(current);
+        if (indent <= baseIndent) break;
+
+        const sliceIndex = Math.min(current.length, baseIndent + 2);
+        cssLines.push(current.slice(sliceIndex));
+      }
+
+      css = cssLines.join('\n');
+      index = lookahead - 1;
+      continue;
     }
 
-    css = cssLines.join('\n');
-    index = lookahead - 1;
+    if (fonts !== null) {
+      return { css: null, error: 'Could not parse front matter' };
+    }
+
+    const parsedFonts = parseFontsValue(lines, index, value);
+    if (parsedFonts.error) {
+      return { css: null, error: parsedFonts.error };
+    }
+    fonts = parsedFonts.config;
+    index = parsedFonts.nextIndex - 1;
   }
 
-  return { css, error: null };
+  const generatedFontCss = buildMarkdownFontCss(fonts);
+  const combinedCss = [generatedFontCss, css]
+    .filter((part): part is string => part != null && part.trim().length > 0)
+    .join('\n');
+  return { css: combinedCss || null, error: null };
 }
 
 function hashString(value: string): string {
@@ -740,7 +1012,9 @@ function parseThemeQualifiedSelector(selector: string): ThemeQualifiedSelector |
   };
 }
 
-function sanitizeMarkdownCustomCss(rawCss: string): { css: string; scope: string; hadRejectedRules: boolean } | null {
+function sanitizeMarkdownCustomCss(
+  rawCss: string,
+): { css: string; scope: string | null; hadRejectedRules: boolean } | null {
   const withoutBom = rawCss.replace(/^\uFEFF/, '');
   const noComments = withoutBom.replace(/\/\*[\s\S]*?\*\//g, '');
   const source = noComments.trim();
@@ -829,7 +1103,9 @@ function sanitizeMarkdownCustomCss(rawCss: string): { css: string; scope: string
   }
 
   if (remaining.slice(cursor).trim()) return null;
-  if (rules.length === 0) return null;
+  if (rules.length === 0) {
+    return imports.length > 0 ? { css: imports.join('\n'), scope: null, hadRejectedRules } : null;
+  }
 
   const scope = hashString(
     `${imports.join('\n')}\n${rules

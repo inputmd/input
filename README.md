@@ -127,6 +127,37 @@ css: |
 ---
 ```
 
+For Google Fonts, you can also use a higher-level `fonts` field instead of
+writing the import URL directly:
+
+```yaml
+---
+fonts: [Libre Franklin, Montserrat]
+css: |
+  p {
+    font-family: "Libre Franklin", var(--font-sans), sans-serif;
+  }
+
+  h1, h2, h3 {
+    font-family: "Montserrat", var(--font-sans), sans-serif;
+  }
+---
+```
+
+The `fonts` field also supports a structured form:
+
+```yaml
+---
+fonts:
+  body: Libre Franklin
+  headings: Montserrat
+---
+```
+
+When `fonts` is a list or comma-separated string, it is treated as `load`.
+When `body` or `headings` is set, Input automatically loads those families
+from Google Fonts and generates matching markdown font rules.
+
 The CSS support is intentionally limited:
 
 - Selectors are scoped to the rendered markdown root.

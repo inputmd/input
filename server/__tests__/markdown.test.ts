@@ -201,6 +201,84 @@ css: |
   );
 });
 
+test('parseMarkdownDocument loads google fonts from front matter shorthand', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+fonts: [Libre Franklin, Montserrat]
+---
+# Hello`,
+    ),
+  );
+
+  t.true(document.html.includes('<h1 id="hello">Hello</h1>'));
+  t.truthy(document.customCss);
+  t.is(document.customCssScope, null);
+  t.true(
+    document.customCss?.includes(
+      '@import url("https://fonts.googleapis.com/css2?family=Libre+Franklin&family=Montserrat&display=swap");',
+    ),
+  );
+  t.is(document.cssWarning, null);
+});
+
+test('parseMarkdownDocument generates body and heading font rules from front matter', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+fonts:
+  body: Libre Franklin
+  headings: Montserrat
+---
+# Hello
+
+Paragraph`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.truthy(document.customCssScope);
+  t.true(
+    document.customCss?.includes(
+      '@import url("https://fonts.googleapis.com/css2?family=Libre+Franklin&family=Montserrat&display=swap");',
+    ),
+  );
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] p, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] ul, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] ol, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] blockquote, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] table, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] li, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] td, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] th, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] div, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] section, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] span { font-family: "Libre Franklin", var(--font-sans), sans-serif; }`,
+    ),
+  );
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h1, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h2, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h3, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h4, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h5, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h6 { font-family: "Montserrat", var(--font-sans), sans-serif; }`,
+    ),
+  );
+});
+
+test('parseMarkdownDocument infers fonts load entries from structured body and headings', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+fonts:
+  body: Libre Franklin
+  headings: Montserrat
+css: |
+  p { color: #123456; }
+---
+hello`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.true(
+    document.customCss?.includes(
+      '@import url("https://fonts.googleapis.com/css2?family=Libre+Franklin&family=Montserrat&display=swap");',
+    ),
+  );
+  t.true(document.customCss?.includes('font-family: "Libre Franklin", var(--font-sans), sans-serif;'));
+  t.true(document.customCss?.includes('p { color: #123456; }'));
+});
+
 test('parseMarkdownDocument drops custom css that uses disallowed imports', (t) => {
   const document = withDom(() =>
     parseMarkdownDocument(
@@ -284,6 +362,23 @@ test('parseMarkdownDocument reports malformed front matter bodies as parse error
 css: |
   h1 { color: red; }
 broken
+---
+hello`,
+    ),
+  );
+
+  t.is(document.frontMatterError, 'Could not parse front matter');
+  t.is(document.customCss, null);
+  t.is(document.customCssScope, null);
+});
+
+test('parseMarkdownDocument reports malformed font front matter as parse errors', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+fonts:
+  load:
+    Libre Franklin
 ---
 hello`,
     ),
