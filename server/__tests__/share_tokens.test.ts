@@ -11,7 +11,7 @@ function createLegacyRepoFileShareToken(): string {
       iat: 1_700_000_000,
       exp: 1_700_003_600,
       installationId: '123',
-      owner: 'canvasxyz',
+      owner: 'inputmd',
       repo: 'input',
       path: 'docs/readme.md',
     }),
@@ -25,7 +25,7 @@ function createLegacyRepoFileShareToken(): string {
 test('createRepoFileShareToken produces compact tokens bound to repo file refs', (t) => {
   const token = createRepoFileShareToken('secret', {
     installationId: '123',
-    owner: 'canvasxyz',
+    owner: 'inputmd',
     repo: 'input',
     path: 'docs/readme.md',
     nowMs: 1_700_000_000_000,
@@ -35,14 +35,14 @@ test('createRepoFileShareToken produces compact tokens bound to repo file refs',
   t.is(token.split('.').length, 2);
 
   const verified = verifyRepoFileShareToken('secret', token, 1_700_000_100_000, {
-    owner: 'canvasxyz',
+    owner: 'inputmd',
     repo: 'input',
     path: 'docs/readme.md',
   });
 
   t.deepEqual(verified, {
     installationId: '123',
-    owner: 'canvasxyz',
+    owner: 'inputmd',
     repo: 'input',
     path: 'docs/readme.md',
     exp: 1_700_003_600,
@@ -52,7 +52,7 @@ test('createRepoFileShareToken produces compact tokens bound to repo file refs',
 test('verifyRepoFileShareToken rejects compact tokens for a different file ref', (t) => {
   const token = createRepoFileShareToken('secret', {
     installationId: '123',
-    owner: 'canvasxyz',
+    owner: 'inputmd',
     repo: 'input',
     path: 'docs/readme.md',
     nowMs: 1_700_000_000_000,
@@ -60,7 +60,7 @@ test('verifyRepoFileShareToken rejects compact tokens for a different file ref',
   });
 
   const verified = verifyRepoFileShareToken('secret', token, 1_700_000_100_000, {
-    owner: 'canvasxyz',
+    owner: 'inputmd',
     repo: 'input',
     path: 'docs/other.md',
   });
@@ -75,7 +75,7 @@ test('verifyRepoFileShareToken still accepts legacy embedded share tokens', (t) 
 
   t.truthy(verified);
   t.is(verified?.installationId, '123');
-  t.is(verified?.owner, 'canvasxyz');
+  t.is(verified?.owner, 'inputmd');
   t.is(verified?.repo, 'input');
   t.is(verified?.path, 'docs/readme.md');
   t.is(verified?.exp, 1_700_003_600);

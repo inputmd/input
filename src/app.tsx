@@ -175,7 +175,7 @@ It supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\].
 
 You can also view any public GitHub repo, by replacing github.com with input.md.
 
-[View on GitHub](https://github.com/canvasxyz/input)`;
+[View on GitHub](https://github.com/inputmd/input)`;
 const DOCUMENT_DRAFTS_STORAGE_KEY = 'document_drafts_v1';
 const MAX_DOCUMENT_DRAFTS = 10;
 const MAX_DOCUMENT_DRAFT_CONTENT_BYTES = 512 * 1024;
