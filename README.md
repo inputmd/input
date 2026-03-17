@@ -1,22 +1,31 @@
 # Input
 
-Input is a multi-file document editor, like Obsidian or HackMD.
-Use it for personal notes, knowledge bases, or as a shared wiki.
+Input is a multi-file Markdown document editor, like Obsidian or HackMD,
+where every workspace is a Git repo connected via the GitHub API.
 
-View any public GitHub repo at https://input.md/:username/:repo.
+Use it for personal notes, knowledge bases, or as a shared workspace for
+organizations.
+
+You can view any public GitHub repo inside Input by replacing github.com
+with input.md, e.g. https://input.md/:username/:repo.
 
 ## Features
 
 - **Multi-file**: Each gist or repo directory is a collection of `.md` files.
-  Switch between files, create, rename, or delete files inline.
-- **Gists or repos**: Use Gists if you don't want to connect a repo. Use
-  repos for privacy or flexibility.
-- **Reader AI**: Comes with an experimental AI interface like Cursor, that
-  uses OpenRouter free models. Great for proofreading or quick changes.
+  Create, rename, or delete files.
+- **Gists or repos**: Persist workspaces to specific Git repos without exposing
+  all your files. Or persist to Gists if you don't want to connect a repo.
+- **Share links**: Generate server-signed links for sharing individual private
+  files from a private repo.
+- **Reader AI**: Comes with an experimental AI interface similar to Cursor, that
+  uses OpenRouter free models. Great for proofreading or quick edits.
+- **Interoperable**: Except for share links, all data is stored in your Git repos.
+  The server is just a caching proxy on top of the GitHub API.
+- **Open source**: AGPL licensed, MIT licensed version coming soon.
 
 ## Prerequisites
 
-- Node.js (v18+)
+- Node.js (v22+)
 - npm
 
 ## Quickstart
