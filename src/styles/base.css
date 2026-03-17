@@ -238,6 +238,8 @@ select:disabled,
 
 .error-message {
   color: var(--error-color);
+  max-width: 600px;
+  padding: 0 20px;
 }
 
 .error-actions {
