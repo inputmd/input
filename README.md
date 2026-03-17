@@ -133,7 +133,8 @@ The CSS support is intentionally limited:
 - Only a safe subset of typography, spacing, border, color, list, and text
   decoration properties is allowed.
 - `@import` is allowed only for `https://fonts.googleapis.com/...`.
-- Rules using unsupported selectors, properties, or at-rules are ignored.
+- All custom CSS is rejected if any rule uses an unsupported selector,
+  property, or at-rule.
 
 ## Building for production
 
