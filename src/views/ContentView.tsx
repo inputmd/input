@@ -13,6 +13,8 @@ interface MarkdownLinkPreview {
 interface ContentViewProps {
   html: string;
   markdown: boolean;
+  markdownCustomCss?: string | null;
+  markdownCustomCssScope?: string | null;
   scrollStorageKey?: string | null;
   plainText?: string | null;
   plainTextFileName?: string | null;
@@ -79,6 +81,8 @@ function safeCssEscape(value: string): string {
 export function ContentView({
   html,
   markdown,
+  markdownCustomCss = null,
+  markdownCustomCssScope = null,
   scrollStorageKey = null,
   plainText = null,
   plainTextFileName = null,
@@ -501,9 +505,7 @@ export function ContentView({
     >
       {alertMessage ? (
         <ContentAlert>
-          <span class="content-alert-caption">
-            {alertMessage}
-          </span>
+          <span class="content-alert-caption">{alertMessage}</span>
           {alertDownloadHref ? (
             <a href={alertDownloadHref} download={alertDownloadName ?? undefined} class="content-alert-link">
               Download
@@ -531,16 +533,20 @@ export function ContentView({
           />
         </div>
       ) : markdown ? (
-        <div
-          ref={renderedMarkdownRef}
-          class="rendered-markdown"
-          onClick={onRenderedMarkdownClick}
-          onMouseDown={onRenderedMarkdownMouseDown}
-          onMouseUp={onRenderedMarkdownMouseUp}
-          onMouseMove={onRenderedMarkdownMouseMove}
-          onMouseLeave={hidePreview}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <>
+          {markdownCustomCss ? <style>{markdownCustomCss}</style> : null}
+          <div
+            ref={renderedMarkdownRef}
+            class="rendered-markdown"
+            data-markdown-custom-css={markdownCustomCssScope ?? undefined}
+            onClick={onRenderedMarkdownClick}
+            onMouseDown={onRenderedMarkdownMouseDown}
+            onMouseUp={onRenderedMarkdownMouseUp}
+            onMouseMove={onRenderedMarkdownMouseMove}
+            onMouseLeave={hidePreview}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        </>
       ) : plainText !== null ? (
         <TextCodeView content={plainText} fileName={plainTextFileName} scrollStorageKey={scrollStorageKey} />
       ) : (

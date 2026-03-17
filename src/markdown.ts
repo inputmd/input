@@ -334,6 +334,12 @@ interface ParseMarkdownOptions {
   resolveWikiLinkMeta?: (targetPath: string) => { exists: boolean; resolvedHref?: string | null } | null;
 }
 
+export interface ParsedMarkdownDocument {
+  html: string;
+  customCss: string | null;
+  customCssScope: string | null;
+}
+
 interface ExtractedFootnotes {
   markdown: string;
   definitions: Map<string, string>;
@@ -415,31 +421,324 @@ function footnoteId(raw: string): string {
   return normalized || 'note';
 }
 
-function extractMarkdownBody(text: string): string {
+function fallbackStripFrontMatter(source: string): string {
+  const lines = source.split(/\r?\n/);
+  if (lines.length < 3) return source;
+  const opening = lines[0].trim();
+  if (opening !== '---' && opening !== '+++') return source;
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (line === opening || line === '...') {
+      return lines.slice(i + 1).join('\n');
+    }
+  }
+  return source;
+}
+
+function hashString(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+const ALLOWED_MARKDOWN_TAGS = new Set([
+  'a',
+  'blockquote',
+  'br',
+  'code',
+  'del',
+  'div',
+  'em',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'hr',
+  'img',
+  'li',
+  'ol',
+  'p',
+  'pre',
+  'section',
+  'span',
+  'strong',
+  'sup',
+  'table',
+  'tbody',
+  'td',
+  'th',
+  'thead',
+  'tr',
+  'ul',
+]);
+
+const ALLOWED_MARKDOWN_CLASSES = new Set([
+  'bracketed-text',
+  'emoji-shortcode',
+  'footnote-backref',
+  'footnote-backrefs',
+  'footnote-ref',
+  'footnotes',
+  'github-inline-avatar',
+  'leading-indent',
+  'leading-indent-block',
+  'missing-wikilink',
+  'superscript-link',
+]);
+
+const ALLOWED_MARKDOWN_PSEUDOS = new Set(['first-child', 'focus', 'focus-visible', 'hover', 'last-child', 'visited']);
+
+const ALLOWED_CSS_PROPERTIES = new Set([
+  'background',
+  'background-color',
+  'border',
+  'border-bottom',
+  'border-color',
+  'border-left',
+  'border-radius',
+  'border-right',
+  'border-style',
+  'border-top',
+  'border-width',
+  'color',
+  'font-family',
+  'font-size',
+  'font-style',
+  'font-weight',
+  'letter-spacing',
+  'line-height',
+  'list-style',
+  'list-style-position',
+  'list-style-type',
+  'margin',
+  'margin-bottom',
+  'margin-left',
+  'margin-right',
+  'margin-top',
+  'padding',
+  'padding-bottom',
+  'padding-left',
+  'padding-right',
+  'padding-top',
+  'text-align',
+  'text-decoration',
+  'text-decoration-color',
+  'text-decoration-line',
+  'text-decoration-style',
+  'text-indent',
+  'text-transform',
+]);
+
+function isAllowedGoogleFontsImport(statement: string): boolean {
+  const match =
+    /^@import\s+(?:url\(\s*(['"]?)(https:\/\/fonts\.googleapis\.com\/[^'")\s]+)\1\s*\)|(['"])(https:\/\/fonts\.googleapis\.com\/[^'"\s]+)\3)(?:\s+[a-z0-9\s(),.-]+)?\s*;$/i.exec(
+      statement.trim(),
+    );
+  if (!match) return false;
+  const href = match[2] ?? match[4] ?? '';
+  try {
+    const url = new URL(href);
+    return url.protocol === 'https:' && url.hostname === 'fonts.googleapis.com';
+  } catch {
+    return false;
+  }
+}
+
+function readLeadingImportStatement(source: string): { statement: string; rest: string } | null {
+  let index = 0;
+  while (index < source.length && /\s/.test(source[index])) index += 1;
+  if (!source.slice(index).toLowerCase().startsWith('@import')) return null;
+
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let parenDepth = 0;
+
+  for (let cursor = index; cursor < source.length; cursor += 1) {
+    const char = source[cursor];
+    const previous = cursor > 0 ? source[cursor - 1] : '';
+
+    if (char === "'" && !inDoubleQuote && previous !== '\\') {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+    if (char === '"' && !inSingleQuote && previous !== '\\') {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+    if (inSingleQuote || inDoubleQuote) continue;
+    if (char === '(') {
+      parenDepth += 1;
+      continue;
+    }
+    if (char === ')' && parenDepth > 0) {
+      parenDepth -= 1;
+      continue;
+    }
+    if (char === ';' && parenDepth === 0) {
+      return {
+        statement: source.slice(index, cursor + 1).trim(),
+        rest: source.slice(cursor + 1),
+      };
+    }
+  }
+
+  return null;
+}
+
+function isSafeCssValue(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (/[<>\\]/.test(normalized)) return false;
+  const lower = normalized.toLowerCase();
+  if (
+    lower.includes('@import') ||
+    lower.includes('expression(') ||
+    lower.includes('javascript:') ||
+    lower.includes('vbscript:') ||
+    lower.includes('behavior:') ||
+    lower.includes('-moz-binding') ||
+    lower.includes('url(')
+  ) {
+    return false;
+  }
+  return /^[a-z0-9\s#(),.%+/'"_-]+$/i.test(normalized);
+}
+
+function isAllowedSimpleSelector(selector: string): boolean {
+  const trimmed = selector.trim();
+  if (!trimmed) return false;
+  if (/[#[*]/.test(trimmed)) return false;
+  if (trimmed.includes('::')) return false;
+  if (/[<>]/.test(trimmed)) return false;
+
+  const segments = trimmed.split(/\s*[>+~]\s*|\s+/).filter(Boolean);
+  if (segments.length === 0) return false;
+
+  for (const segment of segments) {
+    const tokens = segment.match(/(?:^[a-z][a-z0-9-]*)|\.[a-z][a-z0-9-]*|:[a-z-]+/gi);
+    if (!tokens) return false;
+    if (tokens.join('') !== segment) return false;
+
+    for (const token of tokens) {
+      if (token.startsWith('.')) {
+        if (!ALLOWED_MARKDOWN_CLASSES.has(token.slice(1).toLowerCase())) return false;
+        continue;
+      }
+      if (token.startsWith(':')) {
+        if (!ALLOWED_MARKDOWN_PSEUDOS.has(token.slice(1).toLowerCase())) return false;
+        continue;
+      }
+      if (!ALLOWED_MARKDOWN_TAGS.has(token.toLowerCase())) return false;
+    }
+  }
+
+  return true;
+}
+
+function sanitizeMarkdownCustomCss(rawCss: string): { css: string; scope: string } | null {
+  const withoutBom = rawCss.replace(/^\uFEFF/, '');
+  const noComments = withoutBom.replace(/\/\*[\s\S]*?\*\//g, '');
+  const source = noComments.trim();
+  if (!source) return null;
+  if (source.includes('@media') || source.includes('@supports') || source.includes('@layer')) return null;
+
+  const imports: string[] = [];
+  let remaining = source;
+  while (true) {
+    const match = readLeadingImportStatement(remaining);
+    if (!match) break;
+    const statement = match.statement;
+    if (!isAllowedGoogleFontsImport(statement)) return null;
+    imports.push(statement);
+    remaining = match.rest;
+  }
+
+  if (remaining.includes('@')) return null;
+
+  const rules: string[] = [];
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = rulePattern.exec(remaining))) {
+    if (remaining.slice(cursor, match.index).trim()) return null;
+    cursor = match.index + match[0].length;
+
+    const selectors = match[1]
+      .split(',')
+      .map((selector) => selector.trim())
+      .filter(Boolean);
+    if (selectors.length === 0) return null;
+    if (!selectors.every(isAllowedSimpleSelector)) return null;
+
+    const declarations = match[2]
+      .split(';')
+      .map((declaration) => declaration.trim())
+      .filter(Boolean);
+    if (declarations.length === 0) return null;
+
+    const sanitizedDeclarations: string[] = [];
+    for (const declaration of declarations) {
+      const separatorIndex = declaration.indexOf(':');
+      if (separatorIndex <= 0) return null;
+      const property = declaration.slice(0, separatorIndex).trim().toLowerCase();
+      const value = declaration.slice(separatorIndex + 1).trim();
+      if (!ALLOWED_CSS_PROPERTIES.has(property)) return null;
+      if (!isSafeCssValue(value)) return null;
+      sanitizedDeclarations.push(`${property}: ${value}`);
+    }
+
+    rules.push(`${selectors.join(', ')} { ${sanitizedDeclarations.join('; ')}; }`);
+  }
+
+  if (remaining.slice(cursor).trim()) return null;
+  if (rules.length === 0) return null;
+
+  const scope = hashString(`${imports.join('\n')}\n${rules.join('\n')}`);
+  const scopeSelector = `.rendered-markdown[data-markdown-custom-css="${scope}"]`;
+  const scopedRules = rules
+    .map((rule) => {
+      const match = /^([^{}]+)\{([^{}]+)\}$/.exec(rule);
+      if (!match) return null;
+      const selectors = match[1]
+        .split(',')
+        .map((selector) => `${scopeSelector} ${selector.trim()}`)
+        .join(', ');
+      return `${selectors} {${match[2]}}`;
+    })
+    .filter((rule): rule is string => Boolean(rule));
+
+  return { css: [...imports, ...scopedRules].join('\n'), scope };
+}
+
+function extractMarkdownDocument(text: string): {
+  markdown: string;
+  customCss: string | null;
+  customCssScope: string | null;
+} {
   const normalized = text.replace(/^\uFEFF/, '');
   const candidate = normalized.replace(/^(?:[ \t]*\r?\n)+/, '');
-  const fallbackStrip = (source: string): string => {
-    const lines = source.split(/\r?\n/);
-    if (lines.length < 3) return source;
-    const opening = lines[0].trim();
-    if (opening !== '---' && opening !== '+++') return source;
-    for (let i = 1; i < lines.length; i += 1) {
-      const line = lines[i].trim();
-      if (line === opening || line === '...') {
-        return lines.slice(i + 1).join('\n');
-      }
-    }
-    return source;
-  };
 
   try {
     const parsed = matter(candidate);
-    if (parsed.matter) return parsed.content;
+    if (parsed.matter) {
+      const rawCss = typeof parsed.data.css === 'string' ? parsed.data.css : '';
+      const sanitizedCss = rawCss ? sanitizeMarkdownCustomCss(rawCss) : null;
+      return {
+        markdown: parsed.content,
+        customCss: sanitizedCss?.css ?? null,
+        customCssScope: sanitizedCss?.scope ?? null,
+      };
+    }
     // Belt-and-suspenders fallback: still strip obvious fenced front matter if parser detection misses.
-    return fallbackStrip(candidate);
+    return { markdown: fallbackStripFrontMatter(candidate), customCss: null, customCssScope: null };
   } catch {
     // Keep rendering content if gray-matter fails at runtime, without showing front matter to users.
-    return fallbackStrip(candidate);
+    return { markdown: fallbackStripFrontMatter(candidate), customCss: null, customCssScope: null };
   }
 }
 
@@ -753,9 +1052,9 @@ function sanitizeHtml(dirty: string, config?: object): string {
   return dirty;
 }
 
-export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
-  const markdown = extractMarkdownBody(text);
-  const extractedFootnotes = extractFootnotes(markdown);
+export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptions): ParsedMarkdownDocument {
+  const extracted = extractMarkdownDocument(text);
+  const extractedFootnotes = extractFootnotes(extracted.markdown);
   const raw = marked.parse(extractedFootnotes.markdown, { gfm: true, breaks: options?.breaks ?? true }) as string;
   const sanitized = sanitizeHtml(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
@@ -825,5 +1124,13 @@ export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions
   preserveLeadingIndentation(template.content);
   applySmartPunctuation(template.content);
 
-  return template.innerHTML;
+  return {
+    html: template.innerHTML,
+    customCss: extracted.customCss,
+    customCssScope: extracted.customCssScope,
+  };
+}
+
+export function parseMarkdownToHtml(text: string, options?: ParseMarkdownOptions): string {
+  return parseMarkdownDocument(text, options).html;
 }

@@ -51,6 +51,8 @@ interface EditViewProps {
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   previewHtml: string;
+  previewCustomCss?: string | null;
+  previewCustomCssScope?: string | null;
   previewVisible: boolean;
   canRenderPreview: boolean;
   scrollStorageKey?: string | null;
@@ -85,6 +87,8 @@ export function EditView({
   contentRevision = 0,
   contentSelection = null,
   previewHtml,
+  previewCustomCss = null,
+  previewCustomCssScope = null,
   previewVisible,
   canRenderPreview,
   scrollStorageKey = null,
@@ -462,9 +466,11 @@ export function EditView({
               onPointerDown={onSplitPointerDown}
             />
             <div class="editor-preview-pane">
+              {previewCustomCss ? <style>{previewCustomCss}</style> : null}
               <div
                 ref={renderedMarkdownRef}
                 class="rendered-markdown"
+                data-markdown-custom-css={previewCustomCssScope ?? undefined}
                 onClick={onPreviewClick}
                 onMouseDown={onRenderedMarkdownMouseDown}
                 onMouseUp={onRenderedMarkdownMouseUp}
@@ -480,9 +486,11 @@ export function EditView({
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane">
+            {previewCustomCss ? <style>{previewCustomCss}</style> : null}
             <div
               ref={renderedMarkdownRef}
               class="rendered-markdown"
+              data-markdown-custom-css={previewCustomCssScope ?? undefined}
               onClick={onPreviewClick}
               onMouseDown={onRenderedMarkdownMouseDown}
               onMouseUp={onRenderedMarkdownMouseUp}

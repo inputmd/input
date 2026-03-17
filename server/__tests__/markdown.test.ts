@@ -1,7 +1,7 @@
 import test from 'ava';
 import { JSDOM } from 'jsdom';
 import { marked } from 'marked';
-import { parseMarkdownToHtml } from '../../src/markdown.ts';
+import { parseMarkdownDocument, parseMarkdownToHtml } from '../../src/markdown.ts';
 
 function withDom<T>(callback: () => T): T {
   const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -172,4 +172,63 @@ test('parseMarkdownToHtml keeps fenced code blocks unchanged while preserving pr
 
   t.true(html.includes('<pre><code>    code\n</code></pre>'));
   t.false(html.includes('leading-indent'));
+});
+
+test('parseMarkdownDocument extracts and scopes allowed custom css from front matter', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap");
+  h1, p { color: #123456; font-family: "IBM Plex Sans", var(--reader-font-family), sans-serif; }
+---
+# Hello`,
+    ),
+  );
+
+  t.true(document.html.includes('<h1 id="hello">Hello</h1>'));
+  t.truthy(document.customCss);
+  t.truthy(document.customCssScope);
+  t.true(
+    document.customCss?.includes(
+      '@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap");',
+    ),
+  );
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h1, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] p`,
+    ),
+  );
+});
+
+test('parseMarkdownDocument drops custom css that uses disallowed imports', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  @import url("https://example.com/evil.css");
+  p { color: red; }
+---
+hello`,
+    ),
+  );
+
+  t.is(document.customCss, null);
+  t.is(document.customCssScope, null);
+  t.true(document.html.includes('<p>hello</p>'));
+});
+
+test('parseMarkdownDocument drops custom css with disallowed properties', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  p { position: fixed; color: red; }
+---
+hello`,
+    ),
+  );
+
+  t.is(document.customCss, null);
+  t.is(document.customCssScope, null);
 });

@@ -110,6 +110,31 @@ Optional Reader AI setup:
 - Reader AI requests are proxied through the backend (`/api/ai/*`) and
   do not call OpenRouter directly from the browser.
 
+## Custom CSS
+
+Markdown documents can include a `css` block in front matter. When present,
+Input applies the sanitized CSS in both the document viewer and the editor
+preview.
+
+```yaml
+---
+css: |
+  @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap");
+  h1, p {
+    color: #123456;
+    font-family: "IBM Plex Sans", var(--reader-font-family), sans-serif;
+  }
+---
+```
+
+The CSS support is intentionally limited:
+
+- Selectors are scoped to the rendered markdown root.
+- Only a safe subset of typography, spacing, border, color, list, and text
+  decoration properties is allowed.
+- `@import` is allowed only for `https://fonts.googleapis.com/...`.
+- Rules using unsupported selectors, properties, or at-rules are ignored.
+
 ## Building for production
 
 ```

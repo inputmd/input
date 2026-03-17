@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { STACK_PEEK_WIDTH_PX, type StackEntry } from '../hooks/useDocumentStack';
 import { ContentView } from './ContentView';
-import {
-  STACK_PEEK_WIDTH_PX,
-  type StackEntry,
-} from '../hooks/useDocumentStack';
 
 interface MarkdownLinkPreview {
   title: string;
@@ -111,6 +108,8 @@ export function DocumentStackView({
               <ContentView
                 html={entry.html}
                 markdown={entry.markdown}
+                markdownCustomCss={entry.customCss}
+                markdownCustomCssScope={entry.customCssScope}
                 containScroll
                 onInternalLinkNavigate={isTopmost ? onInternalLinkNavigate : undefined}
                 onRequestMarkdownLinkPreview={isTopmost ? onRequestMarkdownLinkPreview : undefined}

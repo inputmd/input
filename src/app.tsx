@@ -85,7 +85,7 @@ import {
 import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
-import { parseMarkdownToHtml } from './markdown';
+import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
 import {
   applyReaderAiChanges,
   askReaderAiStream,
@@ -1136,6 +1136,8 @@ export function App() {
   // --- View state ---
   const [viewPhase, setViewPhase] = useState<'loading' | 'error' | null>('loading');
   const [renderedHtml, setRenderedHtml] = useState('');
+  const [renderedCustomCss, setRenderedCustomCss] = useState<string | null>(null);
+  const [renderedCustomCssScope, setRenderedCustomCssScope] = useState<string | null>(null);
   const [renderedText, setRenderedText] = useState<string | null>(null);
   const [renderMode, setRenderMode] = useState<'ansi' | 'markdown' | 'image'>('ansi');
   const [contentLoadPending, setContentLoadPending] = useState(false);
@@ -1382,6 +1384,8 @@ export function App() {
 
   const clearRenderedContent = useCallback(() => {
     setRenderedHtml('');
+    setRenderedCustomCss(null);
+    setRenderedCustomCssScope(null);
     setRenderedText(null);
     setRenderMode('ansi');
     setReaderAiSource('');
@@ -1565,18 +1569,21 @@ export function App() {
             ? createWikiLinkResolver(wikiLinkContext.currentDocPath, wikiLinkContext.knownMarkdownPaths)
             : undefined;
 
-        setRenderedHtml(
-          parseMarkdownToHtml(content, {
-            resolveImageSrc: (src) => resolveMarkdownImageSrc(src, repoDocPath, repoSource),
-            resolveWikiLinkMeta: wikiLinkResolver,
-          }),
-        );
+        const rendered = parseMarkdownDocument(content, {
+          resolveImageSrc: (src) => resolveMarkdownImageSrc(src, repoDocPath, repoSource),
+          resolveWikiLinkMeta: wikiLinkResolver,
+        });
+        setRenderedHtml(rendered.html);
+        setRenderedCustomCss(rendered.customCss);
+        setRenderedCustomCssScope(rendered.customCssScope);
         setRenderedText(null);
         setRenderMode('markdown');
         setContentLoadPending(false);
         return;
       }
       setRenderedHtml('');
+      setRenderedCustomCss(null);
+      setRenderedCustomCssScope(null);
       setRenderedText(content);
       setRenderMode('ansi');
       setReaderAiSource('');
@@ -1591,6 +1598,8 @@ export function App() {
 
   const renderImageFileContent = useCallback((fileName: string | null | undefined, imageSrc: string) => {
     setRenderedHtml('');
+    setRenderedCustomCss(null);
+    setRenderedCustomCssScope(null);
     setRenderedText(null);
     setRenderMode('image');
     setReaderAiSource('');
@@ -1605,6 +1614,8 @@ export function App() {
     (fileName: string | null | undefined, downloadHref: string | null = null) => {
       const label = fileName || 'file';
       setRenderedHtml(parseAnsiToHtml(`Binary file preview is not supported for ${label}.`));
+      setRenderedCustomCss(null);
+      setRenderedCustomCssScope(null);
       setRenderedText(null);
       setRenderMode('ansi');
       setReaderAiSource('');
@@ -1790,12 +1801,19 @@ export function App() {
       const wikiLinkResolver =
         docPath && knownPaths.length > 0 ? createWikiLinkResolver(docPath, knownPaths) : undefined;
 
-      const html = parseMarkdownToHtml(content, {
+      const rendered = parseMarkdownDocument(content, {
         resolveImageSrc: (src) => resolveMarkdownImageSrc(src, docPath, repoSource),
         resolveWikiLinkMeta: wikiLinkResolver,
       });
 
-      return { route: routePathname, html, title, markdown: true };
+      return {
+        route: routePathname,
+        html: rendered.html,
+        customCss: rendered.customCss,
+        customCssScope: rendered.customCssScope,
+        title,
+        markdown: true,
+      };
     },
     [currentGistId, gistFiles, repoFiles, resolveMarkdownImageSrc, selectedRepo, user],
   );
@@ -5880,6 +5898,8 @@ export function App() {
             <ContentView
               html={renderedHtml}
               markdown={renderMode === 'markdown' || renderMode === 'image'}
+              markdownCustomCss={renderedCustomCss}
+              markdownCustomCssScope={renderedCustomCssScope}
               scrollStorageKey={currentDocumentScrollKey}
               plainText={renderMode === 'ansi' && !contentImagePreview ? renderedText : null}
               plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
@@ -5915,6 +5935,8 @@ export function App() {
             contentRevision={editContentRevision}
             contentSelection={editContentSelection}
             previewHtml={editPreviewHtml}
+            previewCustomCss={editPreviewCustomCss}
+            previewCustomCssScope={editPreviewCustomCssScope}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             scrollStorageKey={currentDocumentScrollKey}
@@ -6135,10 +6157,10 @@ export function App() {
       : [...knownMarkdownPaths, currentFileName];
     return createWikiLinkResolver(currentFileName, wikiPaths);
   }, [editPreviewEnabled, editingBackend, currentRepoDocPath, repoFiles, currentFileName, gistFiles]);
-  const editPreviewHtml = useMemo(
+  const editPreviewDocument = useMemo(
     () =>
       editPreviewEnabled
-        ? parseMarkdownToHtml(
+        ? parseMarkdownDocument(
             showLoggedOutNewDocPreviewDescription ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION : deferredEditContent,
             {
               resolveImageSrc: (src) =>
@@ -6146,7 +6168,7 @@ export function App() {
               resolveWikiLinkMeta: editPreviewWikiLinkResolver,
             },
           )
-        : '',
+        : { html: '', customCss: null, customCssScope: null },
     [
       currentRepoDocPath,
       editPreviewEnabled,
@@ -6157,6 +6179,9 @@ export function App() {
       showLoggedOutNewDocPreviewDescription,
     ],
   );
+  const editPreviewHtml = editPreviewDocument.html;
+  const editPreviewCustomCss = editPreviewDocument.customCss;
+  const editPreviewCustomCssScope = editPreviewDocument.customCssScope;
   const onToggleSidebar = useCallback(() => {
     setSidebarVisibilityOverride((prev) => {
       const current = prev ?? defaultShowSidebar;

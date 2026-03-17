@@ -17,6 +17,10 @@ export interface StackEntry {
   route: string;
   /** Rendered HTML content. */
   html: string;
+  /** Sanitized custom CSS from front matter, if present. */
+  customCss?: string | null;
+  /** Scope token paired with sanitized custom CSS. */
+  customCssScope?: string | null;
   /** Display title (file name). */
   title: string;
   /** Whether this is a markdown document. */
@@ -50,18 +54,15 @@ export function useDocumentStack() {
     setEntries([]);
   }, []);
 
-  const canPush = useCallback(
-    (availableWidth: number): boolean => {
-      const currentCount = entriesRef.current.length;
-      if (currentCount >= STACK_MAX_LAYERS) return false;
-      // Each stack layer plus the base document each need STACK_PEEK_WIDTH_PX,
-      // and the topmost needs STACK_LAYER_MIN_WIDTH_PCT of available width
-      const minTopWidth = (availableWidth * STACK_LAYER_MIN_WIDTH_PCT) / 100;
-      const peekSpace = (currentCount + 1) * STACK_PEEK_WIDTH_PX;
-      return peekSpace + minTopWidth <= availableWidth;
-    },
-    [],
-  );
+  const canPush = useCallback((availableWidth: number): boolean => {
+    const currentCount = entriesRef.current.length;
+    if (currentCount >= STACK_MAX_LAYERS) return false;
+    // Each stack layer plus the base document each need STACK_PEEK_WIDTH_PX,
+    // and the topmost needs STACK_LAYER_MIN_WIDTH_PCT of available width
+    const minTopWidth = (availableWidth * STACK_LAYER_MIN_WIDTH_PCT) / 100;
+    const peekSpace = (currentCount + 1) * STACK_PEEK_WIDTH_PX;
+    return peekSpace + minTopWidth <= availableWidth;
+  }, []);
 
   return {
     entries,
