@@ -110,6 +110,33 @@ Optional Reader AI setup:
 - Reader AI requests are proxied through the backend (`/api/ai/*`) and
   do not call OpenRouter directly from the browser.
 
+## Local Codex app-server
+
+To use Reader AI and inline Editor AI with a local Codex instance instead of
+OpenRouter, start the local bridge:
+
+```sh
+npm run codex-bridge
+```
+
+By default this starts a local HTTP bridge on `http://127.0.0.1:8788` and
+connects it to a Codex app-server at `ws://127.0.0.1:8765`. If the app-server
+is not already running, the bridge will try to start it for you by running
+`codex app-server --listen ws://127.0.0.1:8765`.
+
+Optional environment variables:
+
+- `CODEX_BRIDGE_PORT` to change the local bridge port.
+- `CODEX_APP_SERVER_URL` to point at a different Codex app-server URL.
+- `CODEX_BRIDGE_START_APP_SERVER=0` to disable auto-starting the Codex
+  app-server.
+- `CODEX_BRIDGE_ALLOWED_ORIGINS` to add extra allowed browser origins.
+
+Very briefly, the bridge keeps the Codex JSON-RPC protocol out of the browser.
+The UI talks to the local bridge over HTTP/SSE, and the bridge talks to the
+local Codex app-server over WebSocket while adapting Reader AI and inline edit
+requests into Codex threads and turns.
+
 ## Custom CSS
 
 Markdown documents can include a `css` block in front matter. When present,

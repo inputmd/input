@@ -662,6 +662,9 @@ function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
   return models
     .map((model, originalIndex) => ({ model, originalIndex, rank: readerAiModelPriorityRank(model) }))
     .sort((a, b) => {
+      const aLocal = a.model.provider === 'codex_local';
+      const bLocal = b.model.provider === 'codex_local';
+      if (aLocal !== bLocal) return aLocal ? -1 : 1;
       if (a.rank !== b.rank) {
         if (a.rank === -1) return 1;
         if (b.rank === -1) return -1;
@@ -3489,11 +3492,11 @@ export function App() {
       setReaderAiRepoFiles(null);
       setReaderAiRetryAfterProjectModeEnable(false);
       if (readerAiProjectId) {
-        void deleteReaderAiProjectSession(readerAiProjectId);
+        void deleteReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
         setReaderAiProjectId(null);
       }
     }
-  }, [repoModeAvailable, readerAiProjectId]);
+  }, [repoModeAvailable, readerAiProjectId, readerAiSelectedModel]);
 
   // Auto-enable repo mode when all files are already cached
   useEffect(() => {
@@ -3511,7 +3514,7 @@ export function App() {
       setReaderAiRepoFiles(cached);
       setReaderAiRepoMode(true);
       // Upload to server for project session
-      void createReaderAiProjectSession(cached)
+      void createReaderAiProjectSession(cached, readerAiSelectedModel)
         .then((ps) => {
           setReaderAiProjectId(ps.projectId);
         })
@@ -3530,6 +3533,7 @@ export function App() {
     installationId,
     selectedRepo,
     publicRepoRef,
+    readerAiSelectedModel,
   ]);
 
   const onToggleRepoMode = useCallback(
@@ -3543,7 +3547,7 @@ export function App() {
         setReaderAiRepoFiles(null);
         setReaderAiRetryAfterProjectModeEnable(false);
         if (readerAiProjectId) {
-          void deleteReaderAiProjectSession(readerAiProjectId);
+          void deleteReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
           setReaderAiProjectId(null);
         }
         return;
@@ -3568,7 +3572,7 @@ export function App() {
           return;
         }
         // Upload files to server and get a project session ID
-        const ps = await createReaderAiProjectSession(files);
+        const ps = await createReaderAiProjectSession(files, readerAiSelectedModel);
         setReaderAiRepoFiles(files);
         setReaderAiProjectId(ps.projectId);
         setReaderAiRepoMode(true);
@@ -3596,6 +3600,7 @@ export function App() {
       readerAiMessages.length,
       isGistContext,
       gistFiles,
+      readerAiSelectedModel,
     ],
   );
 
@@ -3645,16 +3650,21 @@ export function App() {
             : [...readerAiRepoFiles, { path: currentEditingDocPath, content: currentEditContent, size: contentSize }];
           if (effectiveProjectId) {
             try {
-              await updateReaderAiProjectSessionFile(effectiveProjectId, currentEditingDocPath, currentEditContent);
+              await updateReaderAiProjectSessionFile(
+                effectiveProjectId,
+                currentEditingDocPath,
+                currentEditContent,
+                readerAiSelectedModel,
+              );
             } catch (err) {
               // Recover from expired/missing project session by creating a fresh one.
               if (!(err instanceof ApiError) || err.status !== 404) throw err;
-              const nextProject = await createReaderAiProjectSession(nextFiles);
+              const nextProject = await createReaderAiProjectSession(nextFiles, readerAiSelectedModel);
               effectiveProjectId = nextProject.projectId;
               setReaderAiProjectId(nextProject.projectId);
             }
           } else {
-            const nextProject = await createReaderAiProjectSession(nextFiles);
+            const nextProject = await createReaderAiProjectSession(nextFiles, readerAiSelectedModel);
             effectiveProjectId = nextProject.projectId;
             setReaderAiProjectId(nextProject.projectId);
           }
@@ -3664,7 +3674,7 @@ export function App() {
         // Build project context if repo mode is active (send project_id, not files)
         // If the project session was invalidated but we still have files, recreate it.
         if (readerAiRepoMode && !effectiveProjectId && readerAiRepoFiles) {
-          const nextProject = await createReaderAiProjectSession(readerAiRepoFiles);
+          const nextProject = await createReaderAiProjectSession(readerAiRepoFiles, readerAiSelectedModel);
           effectiveProjectId = nextProject.projectId;
           setReaderAiProjectId(nextProject.projectId);
         }
@@ -3918,8 +3928,8 @@ export function App() {
     setReaderAiDocumentEditedContent(null);
     setReaderAiError(null);
     setReaderAiSuggestProjectMode(false);
-    if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
-  }, [readerAiHistoryDocumentKey, readerAiProjectId]);
+    if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
+  }, [readerAiHistoryDocumentKey, readerAiProjectId, readerAiSelectedModel]);
 
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
@@ -4022,7 +4032,7 @@ export function App() {
           recordAppliedChanges(applied);
           setReaderAiStagedChanges([]);
           setReaderAiStagedFileContents({});
-          if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId);
+          if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
         }
 
         // Invalidate caches so the UI reflects the applied changes
@@ -4054,6 +4064,7 @@ export function App() {
       readerAiStagedChangesInvalid,
       setNextEditContent,
       showRateLimitToastIfNeeded,
+      readerAiSelectedModel,
     ],
   );
 
@@ -5961,6 +5972,7 @@ export function App() {
             hasUserTypedUnsavedChanges={hasUserTypedUnsavedChanges}
             onSave={onSave}
             locked={readerAiEditLocked}
+            showLockIndicator={inlinePromptStreaming || !showReaderAiPanel}
             lockLabel={editorLockLabel}
             imageUploadIssue={
               failedImageUpload

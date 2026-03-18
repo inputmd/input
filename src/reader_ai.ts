@@ -5,6 +5,7 @@ export interface ReaderAiModel {
   name: string;
   context_length: number;
   featured?: boolean;
+  provider?: 'cloud' | 'codex_local';
 }
 
 type ReaderAiModelsResponse = {
@@ -55,16 +56,86 @@ interface ReaderAiStreamOptions {
   signal?: AbortSignal;
 }
 
+const LOCAL_CODEX_MODEL_PREFIX = 'codex_local::';
+const LOCAL_CODEX_BRIDGE_DEFAULT_URL = 'http://127.0.0.1:8788';
+const LOCAL_CODEX_BRIDGE_STORAGE_KEY = 'input.localCodexBridgeUrl';
+
+function getLocalCodexBridgeBaseUrl(): string {
+  if (typeof window === 'undefined') return LOCAL_CODEX_BRIDGE_DEFAULT_URL;
+  try {
+    const raw = window.localStorage.getItem(LOCAL_CODEX_BRIDGE_STORAGE_KEY)?.trim();
+    if (raw) return raw.replace(/\/+$/, '');
+  } catch {
+    // ignore
+  }
+  return LOCAL_CODEX_BRIDGE_DEFAULT_URL;
+}
+
+function isLocalCodexModel(modelId: string): boolean {
+  return modelId.startsWith(LOCAL_CODEX_MODEL_PREFIX);
+}
+
+function stripLocalCodexModelPrefix(modelId: string): string {
+  return isLocalCodexModel(modelId) ? modelId.slice(LOCAL_CODEX_MODEL_PREFIX.length) : modelId;
+}
+
+function modelRequestBaseUrl(modelId: string): string {
+  return isLocalCodexModel(modelId) ? getLocalCodexBridgeBaseUrl() : '';
+}
+
+function withBaseUrl(baseUrl: string, path: string): string {
+  return baseUrl ? `${baseUrl}${path}` : path;
+}
+
+async function fetchJsonWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = 1200,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+    return await fetch(input, { ...init, signal });
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+async function listLocalCodexModels(): Promise<ReaderAiModel[]> {
+  const res = await fetchJsonWithTimeout(withBaseUrl(getLocalCodexBridgeBaseUrl(), '/api/ai/models'));
+  if (!res.ok) throw await responseToApiError(res);
+  const data = (await res.json()) as ReaderAiModelsResponse;
+  return (Array.isArray(data.models) ? data.models : []).map((model) => ({
+    ...model,
+    id: `${LOCAL_CODEX_MODEL_PREFIX}${model.id}`,
+    provider: 'codex_local',
+  }));
+}
+
 /** Returns 0 for featured models, -1 for non-featured. */
 export function readerAiModelPriorityRank(model: ReaderAiModel): number {
   return model.featured ? 0 : -1;
 }
 
 export async function listReaderAiModels(): Promise<ReaderAiModel[]> {
-  const res = await fetch('/api/ai/models', { credentials: 'same-origin' });
-  if (!res.ok) throw await responseToApiError(res);
-  const data = (await res.json()) as ReaderAiModelsResponse;
-  return Array.isArray(data.models) ? data.models : [];
+  const [local, cloud] = await Promise.allSettled([
+    listLocalCodexModels(),
+    (async () => {
+      const res = await fetch('/api/ai/models', { credentials: 'same-origin' });
+      if (!res.ok) throw await responseToApiError(res);
+      const data = (await res.json()) as ReaderAiModelsResponse;
+      return (Array.isArray(data.models) ? data.models : []).map((model) => ({ ...model, provider: 'cloud' as const }));
+    })(),
+  ]);
+
+  const models: ReaderAiModel[] = [];
+  if (local.status === 'fulfilled') models.push(...local.value);
+  if (cloud.status === 'fulfilled') models.push(...cloud.value);
+  if (models.length > 0) return models;
+
+  if (local.status === 'rejected') throw local.reason;
+  throw cloud.status === 'rejected' ? cloud.reason : new Error('No Reader AI models available');
 }
 
 function extractStreamDelta(payload: unknown): string {
@@ -106,10 +177,14 @@ export interface ReaderAiProjectSession {
   fileCount: number;
 }
 
-export async function createReaderAiProjectSession(files: ReaderAiProjectFile[]): Promise<ReaderAiProjectSession> {
-  const res = await fetch('/api/ai/project', {
+export async function createReaderAiProjectSession(
+  files: ReaderAiProjectFile[],
+  modelId?: string,
+): Promise<ReaderAiProjectSession> {
+  const baseUrl = modelId ? modelRequestBaseUrl(modelId) : '';
+  const res = await fetch(withBaseUrl(baseUrl, '/api/ai/project'), {
     method: 'POST',
-    credentials: 'same-origin',
+    credentials: baseUrl ? 'omit' : 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ files }),
   });
@@ -119,11 +194,12 @@ export async function createReaderAiProjectSession(files: ReaderAiProjectFile[])
   return { projectId: data.project_id, fileCount: data.file_count ?? files.length };
 }
 
-export async function resetReaderAiProjectSession(projectId: string): Promise<void> {
+export async function resetReaderAiProjectSession(projectId: string, modelId?: string): Promise<void> {
   try {
-    await fetch(`/api/ai/project/${encodeURIComponent(projectId)}/reset`, {
+    const baseUrl = modelId ? modelRequestBaseUrl(modelId) : '';
+    await fetch(withBaseUrl(baseUrl, `/api/ai/project/${encodeURIComponent(projectId)}/reset`), {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: baseUrl ? 'omit' : 'same-origin',
     });
   } catch {
     // Best-effort — ignore errors.
@@ -134,21 +210,24 @@ export async function updateReaderAiProjectSessionFile(
   projectId: string,
   path: string,
   content: string,
+  modelId?: string,
 ): Promise<void> {
-  const res = await fetch(`/api/ai/project/${encodeURIComponent(projectId)}/file`, {
+  const baseUrl = modelId ? modelRequestBaseUrl(modelId) : '';
+  const res = await fetch(withBaseUrl(baseUrl, `/api/ai/project/${encodeURIComponent(projectId)}/file`), {
     method: 'POST',
-    credentials: 'same-origin',
+    credentials: baseUrl ? 'omit' : 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content }),
   });
   if (!res.ok) throw await responseToApiError(res);
 }
 
-export async function deleteReaderAiProjectSession(projectId: string): Promise<void> {
+export async function deleteReaderAiProjectSession(projectId: string, modelId?: string): Promise<void> {
   try {
-    await fetch(`/api/ai/project/${encodeURIComponent(projectId)}`, {
+    const baseUrl = modelId ? modelRequestBaseUrl(modelId) : '';
+    await fetch(withBaseUrl(baseUrl, `/api/ai/project/${encodeURIComponent(projectId)}`), {
       method: 'DELETE',
-      credentials: 'same-origin',
+      credentials: baseUrl ? 'omit' : 'same-origin',
     });
   } catch {
     // Best-effort cleanup — ignore errors.
@@ -224,13 +303,14 @@ export async function askReaderAiStream(
 ): Promise<void> {
   // Resolve current_doc_path: projectContext takes precedence when present
   const resolvedDocPath = projectContext?.currentDocPath ?? currentDocPath ?? null;
-  const res = await fetch('/api/ai/chat', {
+  const baseUrl = modelRequestBaseUrl(model);
+  const res = await fetch(withBaseUrl(baseUrl, '/api/ai/chat'), {
     method: 'POST',
-    credentials: 'same-origin',
+    credentials: baseUrl ? 'omit' : 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     signal: options.signal,
     body: JSON.stringify({
-      model,
+      model: stripLocalCodexModelPrefix(model),
       source,
       messages,
       ...(summary ? { summary } : {}),

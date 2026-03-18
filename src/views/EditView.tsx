@@ -73,6 +73,7 @@ interface EditViewProps {
   hasUserTypedUnsavedChanges?: boolean;
   onSave: () => void;
   locked?: boolean;
+  showLockIndicator?: boolean;
   lockLabel?: string;
   imageUploadIssue?: {
     message: string;
@@ -111,6 +112,7 @@ export function EditView({
   hasUserTypedUnsavedChanges = false,
   onSave,
   locked = false,
+  showLockIndicator = true,
   lockLabel = 'Reader AI',
   imageUploadIssue,
 }: EditViewProps) {
@@ -422,7 +424,7 @@ export function EditView({
         </div>
       ) : null}
       <div class="editor-workspace" ref={splitRef} style={layoutStyle}>
-        {locked ? (
+        {locked && showLockIndicator ? (
           <div class="editor-lock-indicator" role="status" aria-live="polite">
             <span class="editor-loading-spinner" aria-hidden="true" />
             <span>{lockLabel}</span>

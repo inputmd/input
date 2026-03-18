@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "server": "tsx server/index.ts",
+    "codex-bridge": "tsx server/codex_bridge.ts",
     "dev": "vite",
     "build": "tsc && tsc -p tsconfig.server.json && vite build",
     "preview": "vite preview",
@@ -59,6 +60,7 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-toast": "^1.2.15",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@types/ws": "^8.18.1",
     "diff": "^8.0.3",
     "dompurify": "^3.3.1",
     "dotenv": "^17.3.1",
@@ -66,6 +68,7 @@
     "lucide-react": "^0.575.0",
     "marked": "^17.0.3",
     "preact": "^10.28.3",
-    "tar-stream": "^3.1.8"
+    "tar-stream": "^3.1.8",
+    "ws": "^8.19.0"
   }
 }
