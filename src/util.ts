@@ -55,3 +55,7 @@ export function encodePathForHref(path: string): string {
     .map((part) => encodeURIComponent(part))
     .join('/');
 }
+
+export function reusableImageSrc(image: Pick<HTMLImageElement, 'src' | 'currentSrc' | 'getAttribute'>): string {
+  return image.src.trim() || image.currentSrc.trim() || (image.getAttribute('src') ?? '').trim();
+}

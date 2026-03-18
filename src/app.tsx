@@ -105,6 +105,7 @@ import {
   encodePathForHref,
   encodeUtf8ToBase64,
   isMarkdownFileName,
+  reusableImageSrc,
 } from './util';
 import { ContentView } from './views/ContentView';
 import { DocumentStackView } from './views/DocumentStackView';
@@ -6227,7 +6228,7 @@ export function App() {
     [isDesktopWidth],
   );
   const onOpenLightbox = useCallback((image: HTMLImageElement) => {
-    const src = image.currentSrc.trim() || (image.getAttribute('src') ?? '').trim();
+    const src = reusableImageSrc(image);
     if (!src) return;
     let lightboxSrc = src;
     if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
