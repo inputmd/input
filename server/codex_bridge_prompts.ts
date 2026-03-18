@@ -3,6 +3,7 @@ import type { ReaderAiFileEntry } from './reader_ai_tools';
 interface BuildCodexBridgePromptOptions {
   source: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  mode?: 'default' | 'prompt_list';
   summary?: string;
   currentDocPath?: string | null;
   projectFiles?: ReaderAiFileEntry[] | null;
@@ -18,6 +19,19 @@ export function buildCodexBridgeDeveloperInstructions(options: BuildCodexBridgeP
       'Return only the replacement text for the requested inline edit.',
       'Do not wrap the answer in markdown fences.',
       'Do not add commentary before or after the replacement text.',
+    ].join('\n');
+  }
+
+  if (options.mode === 'prompt_list') {
+    return [
+      'You are Reader AI inside Input.',
+      'You are continuing an inline AI conversation embedded inside a document.',
+      'You must only use the text supplied in the user input.',
+      'Do not use filesystem, shell, network, MCP, or any external tools.',
+      'Prioritize coherence with the inline conversation over broad document analysis.',
+      'You do not have document context for this turn.',
+      'Respond in plain text. Keep the answer concise, but short paragraphs are allowed.',
+      'Avoid markdown-heavy formatting unless the user explicitly asks for it.',
     ].join('\n');
   }
 
@@ -77,6 +91,9 @@ export function buildCodexBridgeInput(options: BuildCodexBridgePromptOptions): s
       sections.push(truncateContent(file.content, 60_000));
       sections.push('```');
     }
+  } else if (options.mode === 'prompt_list') {
+    sections.push('');
+    sections.push('Prompt-list mode is enabled.');
   } else {
     sections.push('');
     sections.push(`Current document path: ${options.currentDocPath || 'current-document.md'}`);

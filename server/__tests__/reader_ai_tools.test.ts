@@ -1,6 +1,7 @@
 import test from 'ava';
 import {
   buildReaderAiProjectSystemPrompt,
+  buildReaderAiPromptListSystemPrompt,
   buildReaderAiSystemPrompt,
   compactToolResults,
   estimateMessagesTokens,
@@ -390,6 +391,14 @@ test('system prompt includes document info', (t) => {
   const prompt = buildReaderAiSystemPrompt(source, lines, 10_000);
   t.true(prompt.includes('3 lines'));
   t.true(prompt.includes(`${source.length} characters`));
+});
+
+test('prompt-list system prompt focuses on inline thread and local excerpt', (t) => {
+  const prompt = buildReaderAiPromptListSystemPrompt();
+
+  t.true(prompt.includes('inline AI conversation'));
+  t.true(prompt.includes('You do not have document context for this turn.'));
+  t.false(prompt.includes('<local-excerpt>'));
 });
 
 // ── parseReaderAiUpstreamStream ──

@@ -25,6 +25,7 @@ import { json, readJson, requireEnv, requireString } from './http_helpers';
 import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
 import {
   buildReaderAiProjectSystemPrompt,
+  buildReaderAiPromptListSystemPrompt,
   buildReaderAiSystemPrompt,
   compactToolResults,
   estimateMessagesTokens,
@@ -148,6 +149,7 @@ interface ReaderAiChatBody {
   model?: unknown;
   source?: unknown;
   messages?: unknown;
+  mode?: unknown;
   summary?: unknown;
   /** Project mode: server-side project session ID (preferred). */
   project_id?: unknown;
@@ -2323,9 +2325,10 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   const body = (await readJson(ctx.req)) as ReaderAiChatBody | null;
   const model = typeof body?.model === 'string' ? body.model.trim() : '';
+  const mode = body?.mode === 'prompt_list' ? 'prompt_list' : 'default';
   const source = typeof body?.source === 'string' ? body.source.trim() : '';
   if (!model) throw new ClientError('model is required', 400);
-  if (!source) throw new ClientError('source is required', 400);
+  if (!source && mode !== 'prompt_list') throw new ClientError('source is required', 400);
   // Validate model against the cached free models list to prevent use of non-free models
   const allowedModels = readerAiModelsCache?.value;
   if (allowedModels && allowedModels.length > 0 && !allowedModels.some((m) => m.id === model)) {
@@ -2355,7 +2358,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   let chatMessages: ReaderAiChatMessage[];
   let newSummary: string | null = null;
   let summarizationFailed = false;
-  if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
+  if (mode === 'prompt_list') {
+    chatMessages = allMessages;
+  } else if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
     if (existingSummary) {
       chatMessages = [
         { role: 'user', content: `[Summary of earlier conversation]\n${existingSummary}` },
@@ -2410,6 +2415,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           return name !== 'propose_create_file' && name !== 'propose_delete_file' && name !== 'task';
         })
       : READER_AI_PROJECT_TOOLS;
+  } else if (mode === 'prompt_list') {
+    systemPrompt = buildReaderAiPromptListSystemPrompt();
+    tools = [];
   } else {
     const maxPreviewChars =
       contextTokens > 0

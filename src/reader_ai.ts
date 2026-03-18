@@ -53,6 +53,7 @@ interface ReaderAiStreamOptions {
   onStreamError?: (message: string) => void;
   onTurnStart?: (iteration: number) => void;
   onTurnEnd?: (iteration: number, reason: string) => void;
+  mode?: 'default' | 'prompt_list';
   signal?: AbortSignal;
 }
 
@@ -313,6 +314,7 @@ export async function askReaderAiStream(
       model: stripLocalCodexModelPrefix(model),
       source,
       messages,
+      ...(options.mode ? { mode: options.mode } : {}),
       ...(summary ? { summary } : {}),
       ...(typeof resolvedDocPath === 'string' && resolvedDocPath ? { current_doc_path: resolvedDocPath } : {}),
       ...(editModeCurrentDocOnly ? { edit_mode_current_doc_only: true } : {}),

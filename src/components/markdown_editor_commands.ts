@@ -5,13 +5,34 @@ import type { EditorView } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 import { matchPromptListLine } from '../prompt_list_syntax.ts';
 
+interface PromptListThreadMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface PromptListRequest {
   prompt: string;
   documentContent: string;
+  messages: PromptListThreadMessage[];
+  answerIndent: string;
   insertFrom: number;
   insertTo: number;
   insertedPrefix: string;
   answerFrom: number;
+}
+
+interface PromptListItem {
+  kind: 'question' | 'answer';
+  indent: string;
+  lineNumber: number;
+  lastLineNumber: number;
+  from: number;
+  to: number;
+  content: string;
+}
+
+interface PromptListBlock {
+  items: PromptListItem[];
 }
 
 export function wrapWithMarker(view: EditorView, marker: string): boolean {
@@ -188,6 +209,82 @@ function isNonTightList(
   return line1.number + (empty ? 0 : 1) < line2.number;
 }
 
+function isPromptListContinuationLine(text: string, indent: string): boolean {
+  return text.startsWith(`${indent}  `) || text.startsWith(`${indent}\t`);
+}
+
+function stripPromptListContinuationIndent(text: string, indent: string): string {
+  if (text.startsWith(`${indent}  `)) return text.slice(`${indent}  `.length);
+  if (text.startsWith(`${indent}\t`)) return text.slice(`${indent}\t`.length);
+  return text;
+}
+
+function parsePromptListBlocks(state: EditorState): PromptListBlock[] {
+  const blocks: PromptListBlock[] = [];
+  let lineNumber = 1;
+
+  while (lineNumber <= state.doc.lines) {
+    const line = state.doc.line(lineNumber);
+    const match = matchPromptListLine(line.text);
+    if (!match) {
+      lineNumber += 1;
+      continue;
+    }
+
+    const items: PromptListItem[] = [];
+    let cursor = lineNumber;
+
+    while (cursor <= state.doc.lines) {
+      const currentLine = state.doc.line(cursor);
+      const currentMatch = matchPromptListLine(currentLine.text);
+      if (!currentMatch) break;
+
+      const contentLines = [currentMatch.content];
+      let lastLineNumber = cursor;
+      while (lastLineNumber < state.doc.lines) {
+        const nextLine = state.doc.line(lastLineNumber + 1);
+        if (matchPromptListLine(nextLine.text)) break;
+        if (!isPromptListContinuationLine(nextLine.text, currentMatch.indent)) break;
+        contentLines.push(stripPromptListContinuationIndent(nextLine.text, currentMatch.indent));
+        lastLineNumber += 1;
+      }
+
+      items.push({
+        kind: currentMatch.kind,
+        indent: currentMatch.indent,
+        lineNumber: cursor,
+        lastLineNumber,
+        from: currentLine.from,
+        to: state.doc.line(lastLineNumber).to,
+        content: contentLines.join('\n').trim(),
+      });
+
+      cursor = lastLineNumber + 1;
+      if (cursor > state.doc.lines) break;
+      if (!matchPromptListLine(state.doc.line(cursor).text)) break;
+    }
+
+    blocks.push({ items });
+    lineNumber = items[items.length - 1].lastLineNumber + 1;
+  }
+
+  return blocks;
+}
+
+function findPromptListBlockAt(
+  state: EditorState,
+  lineNumber: number,
+): { block: PromptListBlock; itemIndex: number } | null {
+  const blocks = parsePromptListBlocks(state);
+  for (const block of blocks) {
+    const itemIndex = block.items.findIndex(
+      (item) => lineNumber >= item.lineNumber && lineNumber <= item.lastLineNumber,
+    );
+    if (itemIndex >= 0) return { block, itemIndex };
+  }
+  return null;
+}
+
 export function insertNewlineContinueLooseListItem(view: EditorView): boolean {
   const { state } = view;
   const range = state.selection.main;
@@ -290,18 +387,31 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
 
   const prompt = match.content.trim();
   if (!prompt) return null;
+  const thread = findPromptListBlockAt(state, line.number);
+  if (!thread) return null;
 
-  const nextLine = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
-  const nextLineMatch = nextLine ? matchPromptListLine(nextLine.text) : null;
-  if (nextLine && nextLineMatch?.kind === 'answer') {
-    const insertedPrefix = `${nextLine.text.slice(0, nextLineMatch.indent.length)}-${nextLineMatch.marker} `;
+  const currentItem = thread.block.items[thread.itemIndex];
+  const priorMessages = thread.block.items
+    .slice(0, thread.itemIndex)
+    .filter((item) => item.content.length > 0)
+    .map((item) => ({
+      role: item.kind === 'question' ? ('user' as const) : ('assistant' as const),
+      content: item.content,
+    }));
+  const messages = [...priorMessages, { role: 'user' as const, content: currentItem.content }];
+
+  const nextItem = thread.block.items[thread.itemIndex + 1];
+  if (nextItem?.kind === 'answer') {
+    const insertedPrefix = `${nextItem.indent}-⏺ `;
     return {
       prompt,
       documentContent: state.doc.toString(),
-      insertFrom: nextLine.from,
-      insertTo: nextLine.to,
+      messages,
+      answerIndent: nextItem.indent,
+      insertFrom: nextItem.from,
+      insertTo: nextItem.to,
       insertedPrefix,
-      answerFrom: nextLine.from + insertedPrefix.length,
+      answerFrom: nextItem.from + insertedPrefix.length,
     };
   }
 
@@ -309,6 +419,8 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
   return {
     prompt,
     documentContent: state.doc.toString(),
+    messages,
+    answerIndent: match.indent,
     insertFrom: line.to,
     insertTo: line.to,
     insertedPrefix,
@@ -368,11 +480,13 @@ export function insertNewlineContinuePromptAnswer(view: EditorView): boolean {
 
   const line = state.doc.lineAt(range.from);
   if (range.from !== line.to) return false;
+  const thread = findPromptListBlockAt(state, line.number);
+  if (!thread) return false;
 
-  const match = matchPromptListLine(line.text);
-  if (!match || match.kind !== 'answer') return false;
+  const item = thread.block.items[thread.itemIndex];
+  if (item.kind !== 'answer' || line.number !== item.lastLineNumber) return false;
 
-  const insert = `${state.lineBreak}${match.indent}-* `;
+  const insert = `${state.lineBreak}${item.indent}-* `;
   view.dispatch(
     state.update({
       changes: { from: range.from, to: range.to, insert },

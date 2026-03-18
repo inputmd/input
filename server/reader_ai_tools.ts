@@ -1316,6 +1316,19 @@ export function buildReaderAiSystemPrompt(
   ].join('\n');
 }
 
+export function buildReaderAiPromptListSystemPrompt(): string {
+  return [
+    'You are continuing an inline AI conversation embedded inside a document.',
+    'Prioritize coherence with the conversation thread over broad document analysis.',
+    '',
+    'Use the thread history as the primary context for your answer.',
+    'You do not have document context for this turn.',
+    'If the answer depends on document details that are not in the thread, say what is missing instead of guessing.',
+    'Respond in plain text. Keep the answer concise but allow short paragraphs when they help.',
+    'Avoid markdown-heavy formatting unless the user explicitly asks for it.',
+  ].join('\n');
+}
+
 function buildFileTree(files: ReaderAiFileEntry[]): string {
   const lines: string[] = [];
   for (const f of files) {

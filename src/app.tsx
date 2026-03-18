@@ -417,16 +417,33 @@ function trimReaderAiSource(source: string): string {
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
 }
 
-function normalizePromptListAnswer(text: string): string {
-  return text
-    .replace(/\r\n?/g, '\n')
-    .replace(/\n+/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .trim();
-}
+function formatPromptListAnswer(text: string, indent: string): string {
+  const normalized = text.replace(/\r\n?/g, '\n');
+  const rawLines = normalized.split('\n').map((line) => line.trimEnd());
+  while (rawLines.length > 0 && rawLines[0].trim().length === 0) rawLines.shift();
+  while (rawLines.length > 0 && rawLines[rawLines.length - 1].trim().length === 0) rawLines.pop();
+  if (rawLines.length === 0) return '';
 
-function buildPromptListAnswerMessage(prompt: string): string {
-  return `Answer the following question in plain text on a single line. Do not use markdown formatting or line breaks.\n\n${prompt}`;
+  const compactLines: string[] = [];
+  let previousBlank = false;
+  for (const rawLine of rawLines) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (previousBlank) continue;
+      compactLines.push('');
+      previousBlank = true;
+      continue;
+    }
+    compactLines.push(line);
+    previousBlank = false;
+  }
+
+  return compactLines
+    .map((line, index) => {
+      if (index === 0) return line;
+      return `${indent}   ${line}`;
+    })
+    .join('\n');
 }
 
 interface ReaderAiHistoryEntry {
@@ -4167,7 +4184,16 @@ export function App() {
   );
 
   const onPromptListSubmit = useCallback(
-    async ({ prompt, documentContent, insertFrom, insertTo, insertedPrefix, answerFrom }: PromptListRequest) => {
+    async ({
+      prompt,
+      documentContent,
+      messages,
+      answerIndent,
+      insertFrom,
+      insertTo,
+      insertedPrefix,
+      answerFrom,
+    }: PromptListRequest) => {
       const trimmedPrompt = prompt.trim();
       if (!trimmedPrompt || inlinePromptStreaming || readerAiSending || readerAiApplyingChanges) return;
       if (!readerAiSelectedModel) {
@@ -4195,13 +4221,14 @@ export function App() {
       try {
         await askReaderAiStream(
           readerAiSelectedModel,
-          trimReaderAiSource(documentContent),
-          [{ role: 'user', content: buildPromptListAnswerMessage(trimmedPrompt) }],
+          '',
+          messages,
           {
             signal: controller.signal,
+            mode: 'prompt_list',
             onDelta: (delta) => {
               streamedRaw += delta;
-              const nextAnswer = normalizePromptListAnswer(streamedRaw);
+              const nextAnswer = formatPromptListAnswer(streamedRaw, answerIndent);
               if (nextAnswer === streamedAnswer) return;
               streamedAnswer = nextAnswer;
               const nextHead = answerFrom + streamedAnswer.length;

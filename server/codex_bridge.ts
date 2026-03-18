@@ -45,6 +45,7 @@ interface ReaderAiChatBody {
   model?: unknown;
   source?: unknown;
   messages?: unknown;
+  mode?: unknown;
   summary?: unknown;
   project_id?: unknown;
   current_doc_path?: unknown;
@@ -320,6 +321,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
     const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : null;
     const source = typeof body?.source === 'string' ? body.source : '';
     const messages = parseMessages(body?.messages);
+    const mode = body?.mode === 'prompt_list' ? 'prompt_list' : 'default';
     const summary = typeof body?.summary === 'string' ? body.summary : undefined;
     const currentDocPath =
       typeof body?.current_doc_path === 'string' && body.current_doc_path ? body.current_doc_path : null;
@@ -337,6 +339,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
       const developerInstructions = buildCodexBridgeDeveloperInstructions({
         source,
         messages,
+        mode,
         summary,
         currentDocPath,
         projectFiles,
@@ -345,6 +348,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
       const input = buildCodexBridgeInput({
         source,
         messages,
+        mode,
         summary,
         currentDocPath,
         projectFiles,

@@ -153,6 +153,17 @@ test('insertNewlineContinuePromptAnswer preserves indent for nested prompt answe
   t.is(view.state.selection.main.head, '  -⏺ Existing answer\n  -* '.length);
 });
 
+test('insertNewlineContinuePromptAnswer works from the last continuation line of a multiline answer', (t) => {
+  const doc = '-⏺ Existing answer\n  continuation';
+  const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
+
+  const handled = insertNewlineContinuePromptAnswer(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '-⏺ Existing answer\n  continuation\n-* ');
+  t.is(view.state.selection.main.head, '-⏺ Existing answer\n  continuation\n-* '.length);
+});
+
 test('insertNewlineContinuePromptAnswer ignores non-answer or non-terminal positions', (t) => {
   const questionView = makeMockView('-* Question', EditorSelection.cursor('-* Question'.length), [
     markdown({ base: markdownLanguage }),
@@ -212,6 +223,8 @@ test('getPromptListRequest returns an insert request for question lines at line 
   t.deepEqual(getPromptListRequest(state), {
     prompt: 'What is Solomonoff induction?',
     documentContent: '-* What is Solomonoff induction?',
+    messages: [{ role: 'user', content: 'What is Solomonoff induction?' }],
+    answerIndent: '',
     insertFrom: '-* What is Solomonoff induction?'.length,
     insertTo: '-* What is Solomonoff induction?'.length,
     insertedPrefix: '\n-⏺ ',
@@ -230,10 +243,56 @@ test('getPromptListRequest replaces an existing answer line', (t) => {
   t.deepEqual(getPromptListRequest(state), {
     prompt: 'What is Solomonoff induction?',
     documentContent: doc,
+    messages: [{ role: 'user', content: 'What is Solomonoff induction?' }],
+    answerIndent: '',
     insertFrom: '-* What is Solomonoff induction?\n'.length,
     insertTo: doc.length,
     insertedPrefix: '-⏺ ',
     answerFrom: '-* What is Solomonoff induction?\n-⏺ '.length,
+  });
+});
+
+test('getPromptListRequest replaces an existing multiline answer block', (t) => {
+  const doc = '-* Question\n-⏺ Old answer\n  continuation';
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor('-* Question'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'Question',
+    documentContent: doc,
+    messages: [{ role: 'user', content: 'Question' }],
+    answerIndent: '',
+    insertFrom: '-* Question\n'.length,
+    insertTo: doc.length,
+    insertedPrefix: '-⏺ ',
+    answerFrom: '-* Question\n-⏺ '.length,
+  });
+});
+
+test('getPromptListRequest includes prior prompt-list history and local multiline excerpt', (t) => {
+  const doc = ['Before', '-* First question', '-⏺ First answer', '-* Follow-up question', 'After'].join('\n');
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor('Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'Follow-up question',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'First question' },
+      { role: 'assistant', content: 'First answer' },
+      { role: 'user', content: 'Follow-up question' },
+    ],
+    answerIndent: '',
+    insertFrom: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length,
+    insertTo: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length,
+    insertedPrefix: '\n-⏺ ',
+    answerFrom: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question\n-⏺ '.length,
   });
 });
 
