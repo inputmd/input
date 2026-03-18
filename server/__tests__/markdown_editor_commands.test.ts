@@ -7,7 +7,9 @@ import {
   externalSyncAnnotation,
   getPromptListRequest,
   insertNewlineContinueLooseListItem,
+  insertNewlineContinuePromptAnswer,
   insertNewlineExitBlockquote,
+  insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
   normalizeBlockquotePaste,
   wrapWithMarker,
@@ -125,6 +127,79 @@ test('insertNewlineExitBlockquote ignores non-terminal cursor positions', (t) =>
   const view = makeMockView('> foo', EditorSelection.cursor('> fo'.length), [markdown({ base: markdownLanguage })]);
 
   t.false(insertNewlineExitBlockquote(view));
+});
+
+test('insertNewlineContinuePromptAnswer creates a prompt question line after an answer', (t) => {
+  const view = makeMockView('-⏺ Existing answer', EditorSelection.cursor('-⏺ Existing answer'.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  const handled = insertNewlineContinuePromptAnswer(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '-⏺ Existing answer\n-* ');
+  t.is(view.state.selection.main.head, '-⏺ Existing answer\n-* '.length);
+});
+
+test('insertNewlineContinuePromptAnswer preserves indent for nested prompt answers', (t) => {
+  const view = makeMockView('  -⏺ Existing answer', EditorSelection.cursor('  -⏺ Existing answer'.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  const handled = insertNewlineContinuePromptAnswer(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '  -⏺ Existing answer\n  -* ');
+  t.is(view.state.selection.main.head, '  -⏺ Existing answer\n  -* '.length);
+});
+
+test('insertNewlineContinuePromptAnswer ignores non-answer or non-terminal positions', (t) => {
+  const questionView = makeMockView('-* Question', EditorSelection.cursor('-* Question'.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+  const midLineView = makeMockView('-⏺ Existing answer', EditorSelection.cursor('-⏺ Existing'.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  t.false(insertNewlineContinuePromptAnswer(questionView));
+  t.false(insertNewlineContinuePromptAnswer(midLineView));
+});
+
+test('insertNewlineExitPromptQuestion clears an empty trailing prompt question at document end', (t) => {
+  const doc = '-* Question\n-⏺ Answer\n-* ';
+  const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
+
+  const handled = insertNewlineExitPromptQuestion(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '-* Question\n-⏺ Answer\n\n');
+  t.is(view.state.selection.main.head, '-* Question\n-⏺ Answer\n\n'.length);
+});
+
+test('insertNewlineExitPromptQuestion clears an empty trailing prompt question before a non-list line', (t) => {
+  const doc = '-* Question\n-⏺ Answer\n-* \nParagraph';
+  const questionLineEnd = '-* Question\n-⏺ Answer\n-* '.length;
+  const view = makeMockView(doc, EditorSelection.cursor(questionLineEnd), [markdown({ base: markdownLanguage })]);
+
+  const handled = insertNewlineExitPromptQuestion(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '-* Question\n-⏺ Answer\n\nParagraph');
+  t.is(view.state.selection.main.head, '-* Question\n-⏺ Answer\n'.length);
+});
+
+test('insertNewlineExitPromptQuestion ignores empty prompt questions without prior list entries or with following list items', (t) => {
+  const firstLineView = makeMockView('-* ', EditorSelection.cursor('-* '.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+  const nonTrailingView = makeMockView(
+    '-* Question\n-* \n-⏺ Answer',
+    EditorSelection.cursor('-* Question\n-* '.length),
+    [markdown({ base: markdownLanguage })],
+  );
+
+  t.false(insertNewlineExitPromptQuestion(firstLineView));
+  t.false(insertNewlineExitPromptQuestion(nonTrailingView));
 });
 
 test('getPromptListRequest returns an insert request for question lines at line end', (t) => {

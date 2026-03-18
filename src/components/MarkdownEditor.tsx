@@ -16,13 +16,15 @@ import { continuedIndentExtension } from './codemirror_continued_indent';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { type InlinePromptRequest, inlinePromptCompletionSource } from './codemirror_inline_prompt';
-import { markdownEditorLanguageSupport } from './codemirror_markdown';
+import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codemirror_markdown';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
   buildExternalContentSyncTransaction,
   getPromptListRequest,
   insertNewlineContinueLooseListItem,
+  insertNewlineContinuePromptAnswer,
   insertNewlineExitBlockquote,
+  insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
   type PromptListRequest,
   wrapWithMarker,
@@ -65,6 +67,7 @@ export function MarkdownEditor({
   const viewRef = useRef<EditorView | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
+  const promptListAnsweringCompartment = useRef(new Compartment());
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
@@ -122,6 +125,7 @@ export function MarkdownEditor({
           ],
         }),
         markdownEditorLanguageSupport(),
+        promptListAnsweringCompartment.current.of(promptListAnsweringFacet.of(inlinePromptActive)),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
@@ -147,6 +151,8 @@ export function MarkdownEditor({
                 return true;
               },
             },
+            { key: 'Enter', run: insertNewlineExitPromptQuestion },
+            { key: 'Enter', run: insertNewlineContinuePromptAnswer },
             {
               key: 'Escape',
               run: () => {
@@ -260,6 +266,14 @@ export function MarkdownEditor({
       effects: readOnlyCompartment.current.reconfigure(EditorState.readOnly.of(readOnly)),
     });
   }, [readOnly]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: promptListAnsweringCompartment.current.reconfigure(promptListAnsweringFacet.of(inlinePromptActive)),
+    });
+  }, [inlinePromptActive]);
 
   // Sync placeholder
   useEffect(() => {

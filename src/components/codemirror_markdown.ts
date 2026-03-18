@@ -1,6 +1,13 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { RangeSetBuilder } from '@codemirror/state';
-import { Decoration, type DecorationSet, type EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
+import { EditorState, Facet, RangeSetBuilder } from '@codemirror/state';
+import {
+  Decoration,
+  type DecorationSet,
+  type EditorView,
+  ViewPlugin,
+  type ViewUpdate,
+  WidgetType,
+} from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
 import { matchPromptListLine } from '../prompt_list_syntax.ts';
@@ -91,6 +98,34 @@ const markdownParserExtensions: MarkdownExtension = [
   wikiLinkMarkdownExtension,
 ];
 
+export const promptListAnsweringFacet = Facet.define<boolean, boolean>({
+  combine: (values) => values.some(Boolean),
+});
+
+const promptListHintLabels = new WeakMap<PromptListHintWidget, string>();
+
+class PromptListHintWidget extends WidgetType {
+  constructor(label: string) {
+    super();
+    promptListHintLabels.set(this, label);
+  }
+
+  eq(other: PromptListHintWidget): boolean {
+    return promptListHintLabels.get(this) === promptListHintLabels.get(other);
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span');
+    span.className = 'cm-prompt-list-hint';
+    span.textContent = promptListHintLabels.get(this) ?? '';
+    return span;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
 function buildPromptListDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
 
@@ -147,6 +182,77 @@ const promptListLineClassExtension = ViewPlugin.fromClass(
   },
 );
 
+export function promptListHintLabelForText(text: string, answering = false): string | null {
+  const match = matchPromptListLine(text);
+  if (!match) return null;
+  if (match.kind === 'question') return match.content.trim() ? null : 'Type to ask AI';
+  if (match.kind === 'answer' && answering && !match.content.trim()) return 'Answering...';
+  return null;
+}
+
+function promptListHintLabel(view: EditorView): { lineTo: number; label: string } | null {
+  if (view.state.facet(EditorState.readOnly)) return null;
+
+  const selection = view.state.selection.main;
+  if (!selection.empty) return null;
+
+  const line = view.state.doc.lineAt(selection.head);
+  const label = promptListHintLabelForText(line.text, view.state.facet(promptListAnsweringFacet));
+  if (!label) return null;
+
+  return {
+    lineTo: line.to,
+    label,
+  };
+}
+
+function buildPromptListHintDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  const hint = promptListHintLabel(view);
+  if (!hint) return builder.finish();
+
+  builder.add(
+    hint.lineTo,
+    hint.lineTo,
+    Decoration.widget({
+      widget: new PromptListHintWidget(hint.label),
+      side: 1,
+    }),
+  );
+
+  return builder.finish();
+}
+
+const promptListHintExtension = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildPromptListHintDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (
+        update.docChanged ||
+        update.selectionSet ||
+        update.viewportChanged ||
+        update.geometryChanged ||
+        update.heightChanged
+      ) {
+        this.decorations = buildPromptListHintDecorations(update.view);
+        return;
+      }
+
+      if (update.startState.facet(promptListAnsweringFacet) !== update.state.facet(promptListAnsweringFacet)) {
+        this.decorations = buildPromptListHintDecorations(update.view);
+      }
+    }
+  },
+  {
+    decorations: (value) => value.decorations,
+  },
+);
+
 export function markdownEditorLanguageSupport() {
   return [
     markdown({
@@ -155,6 +261,7 @@ export function markdownEditorLanguageSupport() {
       extensions: markdownParserExtensions,
     }),
     promptListLineClassExtension,
+    promptListHintExtension,
   ];
 }
 

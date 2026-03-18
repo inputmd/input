@@ -315,3 +315,71 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
     answerFrom: line.to + insertedPrefix.length,
   };
 }
+
+export function insertNewlineExitPromptQuestion(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty) return false;
+  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
+    return false;
+
+  const line = state.doc.lineAt(range.from);
+  if (range.from !== line.to) return false;
+
+  const match = matchPromptListLine(line.text);
+  if (!match || match.kind !== 'question' || match.content.trim()) return false;
+
+  const previousLine = line.number > 1 ? state.doc.line(line.number - 1) : null;
+  if (!previousLine || !matchPromptListLine(previousLine.text)) return false;
+
+  const nextLine = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
+  if (nextLine && matchPromptListLine(nextLine.text)) return false;
+
+  if (nextLine) {
+    view.dispatch(
+      state.update({
+        changes: { from: line.from, to: line.to, insert: '' },
+        selection: EditorSelection.cursor(line.from),
+        scrollIntoView: true,
+        userEvent: 'input',
+      }),
+    );
+    return true;
+  }
+
+  const insert = state.lineBreak;
+  view.dispatch(
+    state.update({
+      changes: { from: line.from, to: line.to, insert },
+      selection: EditorSelection.cursor(line.from + insert.length),
+      scrollIntoView: true,
+      userEvent: 'input',
+    }),
+  );
+  return true;
+}
+
+export function insertNewlineContinuePromptAnswer(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty) return false;
+  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
+    return false;
+
+  const line = state.doc.lineAt(range.from);
+  if (range.from !== line.to) return false;
+
+  const match = matchPromptListLine(line.text);
+  if (!match || match.kind !== 'answer') return false;
+
+  const insert = `${state.lineBreak}${match.indent}-* `;
+  view.dispatch(
+    state.update({
+      changes: { from: range.from, to: range.to, insert },
+      selection: EditorSelection.cursor(range.from + insert.length),
+      scrollIntoView: true,
+      userEvent: 'input',
+    }),
+  );
+  return true;
+}

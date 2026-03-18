@@ -54,6 +54,13 @@
   color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
 }
 
+.doc-editor .cm-prompt-list-hint {
+  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+  font-style: italic;
+  pointer-events: none;
+  user-select: none;
+}
+
 .doc-editor .cm-selectionBackground {
   /* biome-ignore lint/complexity/noImportantStyles: CodeMirror injects selection styles that require !important to override reliably. */
   background: color-mix(in srgb, var(--selection-bg) 40%, transparent) !important;
