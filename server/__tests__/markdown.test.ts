@@ -147,6 +147,25 @@ test('marked preserves markdown links while styling bare bracketed text', (t) =>
   t.true(html.includes('<a href="https://example.com">docs</a>'));
 });
 
+test('marked renders prompt question and answer lines as list items inside a single unordered list', (t) => {
+  const html = marked.parse(
+    '-* Can you explain Solomonoff induction?\n-⏺ Solomonoff induction is a theoretical framework.',
+  );
+
+  t.true(typeof html === 'string');
+  t.true(
+    html.includes(
+      '<ul><li class="prompt-question">Can you explain Solomonoff induction?</li><li class="prompt-answer">Solomonoff induction is a theoretical framework.</li></ul>',
+    ),
+  );
+});
+
+test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt list items', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('-* Ask about **Solomonoff induction**'));
+
+  t.true(html.includes('<ul><li class="prompt-question">Ask about <strong>Solomonoff induction</strong></li></ul>'));
+});
+
 test('parseMarkdownToHtml preserves leading indentation in paragraphs', (t) => {
   const html = withDom(() => parseMarkdownToHtml('    one'));
 

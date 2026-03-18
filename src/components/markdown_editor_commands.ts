@@ -3,6 +3,16 @@ import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, type EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
+import { matchPromptListLine } from '../prompt_list_syntax.ts';
+
+export interface PromptListRequest {
+  prompt: string;
+  documentContent: string;
+  insertFrom: number;
+  insertTo: number;
+  insertedPrefix: string;
+  answerFrom: number;
+}
 
 export function wrapWithMarker(view: EditorView, marker: string): boolean {
   const { from, to } = view.state.selection.main;
@@ -264,4 +274,44 @@ export function normalizeBlockquotePaste(state: EditorState, pos: number, text: 
   if (lines.length < 2) return null;
 
   return lines.map((segment, index) => (index === 0 ? segment : `${blockquotePrefix}${segment}`)).join(state.lineBreak);
+}
+
+export function getPromptListRequest(state: EditorState): PromptListRequest | null {
+  const range = state.selection.main;
+  if (!range.empty) return null;
+  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
+    return null;
+
+  const line = state.doc.lineAt(range.from);
+  if (range.from !== line.to) return null;
+
+  const match = matchPromptListLine(line.text);
+  if (!match || match.kind !== 'question') return null;
+
+  const prompt = match.content.trim();
+  if (!prompt) return null;
+
+  const nextLine = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
+  const nextLineMatch = nextLine ? matchPromptListLine(nextLine.text) : null;
+  if (nextLine && nextLineMatch?.kind === 'answer') {
+    const insertedPrefix = `${nextLine.text.slice(0, nextLineMatch.indent.length)}-${nextLineMatch.marker} `;
+    return {
+      prompt,
+      documentContent: state.doc.toString(),
+      insertFrom: nextLine.from,
+      insertTo: nextLine.to,
+      insertedPrefix,
+      answerFrom: nextLine.from + insertedPrefix.length,
+    };
+  }
+
+  const insertedPrefix = `${state.lineBreak}-⏺ `;
+  return {
+    prompt,
+    documentContent: state.doc.toString(),
+    insertFrom: line.to,
+    insertTo: line.to,
+    insertedPrefix,
+    answerFrom: line.to + insertedPrefix.length,
+  };
 }

@@ -5,6 +5,7 @@ import test from 'ava';
 import {
   buildExternalContentSyncTransaction,
   externalSyncAnnotation,
+  getPromptListRequest,
   insertNewlineContinueLooseListItem,
   insertNewlineExitBlockquote,
   isExternalSyncTransaction,
@@ -124,6 +125,57 @@ test('insertNewlineExitBlockquote ignores non-terminal cursor positions', (t) =>
   const view = makeMockView('> foo', EditorSelection.cursor('> fo'.length), [markdown({ base: markdownLanguage })]);
 
   t.false(insertNewlineExitBlockquote(view));
+});
+
+test('getPromptListRequest returns an insert request for question lines at line end', (t) => {
+  const state = EditorState.create({
+    doc: '-* What is Solomonoff induction?',
+    selection: EditorSelection.cursor('-* What is Solomonoff induction?'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'What is Solomonoff induction?',
+    documentContent: '-* What is Solomonoff induction?',
+    insertFrom: '-* What is Solomonoff induction?'.length,
+    insertTo: '-* What is Solomonoff induction?'.length,
+    insertedPrefix: '\n-⏺ ',
+    answerFrom: '-* What is Solomonoff induction?\n-⏺ '.length,
+  });
+});
+
+test('getPromptListRequest replaces an existing answer line', (t) => {
+  const doc = '-* What is Solomonoff induction?\n-⏺ Old answer';
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor('-* What is Solomonoff induction?'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'What is Solomonoff induction?',
+    documentContent: doc,
+    insertFrom: '-* What is Solomonoff induction?\n'.length,
+    insertTo: doc.length,
+    insertedPrefix: '-⏺ ',
+    answerFrom: '-* What is Solomonoff induction?\n-⏺ '.length,
+  });
+});
+
+test('getPromptListRequest ignores non-question prompt list lines and non-terminal cursors', (t) => {
+  const nonTerminal = EditorState.create({
+    doc: '-* What is Solomonoff induction?',
+    selection: EditorSelection.cursor('-* What is Sol'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+  const answerLine = EditorState.create({
+    doc: '-⏺ Existing answer',
+    selection: EditorSelection.cursor('-⏺ Existing answer'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(getPromptListRequest(nonTerminal), null);
+  t.is(getPromptListRequest(answerLine), null);
 });
 
 test('normalizeBlockquotePaste continues blockquote prefixes for pasted multiline text', (t) => {

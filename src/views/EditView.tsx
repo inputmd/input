@@ -4,6 +4,7 @@ import type { JSX } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { InlinePromptRequest } from '../components/codemirror_inline_prompt';
 import { MarkdownEditor } from '../components/MarkdownEditor';
+import type { PromptListRequest } from '../components/markdown_editor_commands';
 import { TextEditor } from '../components/TextEditor';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 
@@ -62,6 +63,7 @@ interface EditViewProps {
   onTogglePreview: () => void;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
   onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
+  onPromptListSubmit?: (request: PromptListRequest) => void;
   onCancelInlinePrompt?: () => void;
   inlinePromptActive?: boolean;
   onInternalLinkNavigate?: (route: string) => void;
@@ -101,6 +103,7 @@ export function EditView({
   onTogglePreview,
   onContentChange,
   onInlinePromptSubmit,
+  onPromptListSubmit,
   onCancelInlinePrompt,
   inlinePromptActive = false,
   onInternalLinkNavigate,
@@ -445,6 +448,7 @@ export function EditView({
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onInlinePromptSubmit={onInlinePromptSubmit}
+            onPromptListSubmit={onPromptListSubmit}
             onCancelInlinePrompt={onCancelInlinePrompt}
             inlinePromptActive={inlinePromptActive}
             onPaste={onEditorPaste}

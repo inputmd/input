@@ -79,6 +79,33 @@ function maybeConsumeUnorderedListPrefix(
   return { consumed: true, offset: offset + 2, columns: advanceColumns(columns + 1, next, tabSize) };
 }
 
+function maybeConsumePromptListPrefix(
+  text: string,
+  offset: number,
+  columns: number,
+  tabSize: number,
+): { consumed: boolean; offset: number; columns: number } {
+  if (text[offset] !== '-') {
+    return { consumed: false, offset, columns };
+  }
+
+  const marker = text[offset + 1];
+  if (marker !== '*' && marker !== '⏺') {
+    return { consumed: false, offset, columns };
+  }
+
+  const spacer = text[offset + 2];
+  if (spacer !== ' ' && spacer !== '\t') {
+    return { consumed: false, offset, columns };
+  }
+
+  return {
+    consumed: true,
+    offset: offset + 3,
+    columns: advanceColumns(columns + 2, spacer, tabSize),
+  };
+}
+
 function maybeConsumeOrderedListPrefix(
   text: string,
   offset: number,
@@ -157,10 +184,16 @@ function computeContinuationColumns(text: string, tabSize: number, mode: Continu
     offset = unordered.offset;
     columns = unordered.columns;
   } else {
-    const ordered = maybeConsumeOrderedListPrefix(text, offset, columns, tabSize);
-    if (ordered.consumed) {
-      offset = ordered.offset;
-      columns = ordered.columns;
+    const prompt = maybeConsumePromptListPrefix(text, offset, columns, tabSize);
+    if (prompt.consumed) {
+      offset = prompt.offset;
+      columns = prompt.columns;
+    } else {
+      const ordered = maybeConsumeOrderedListPrefix(text, offset, columns, tabSize);
+      if (ordered.consumed) {
+        offset = ordered.offset;
+        columns = ordered.columns;
+      }
     }
   }
 

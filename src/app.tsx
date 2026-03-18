@@ -8,6 +8,7 @@ import type { InlinePromptRequest } from './components/codemirror_inline_prompt'
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageLightbox } from './components/ImageLightbox';
+import type { PromptListRequest } from './components/markdown_editor_commands';
 import { normalizeBlockquotePaste } from './components/markdown_editor_commands';
 import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
@@ -414,6 +415,18 @@ function removeImagesFromHtml(html: string): string {
 function trimReaderAiSource(source: string): string {
   if (source.length <= READER_AI_SOURCE_MAX_CHARS) return source;
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
+}
+
+function normalizePromptListAnswer(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n+/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
+
+function buildPromptListAnswerMessage(prompt: string): string {
+  return `Answer the following question in plain text on a single line. Do not use markdown formatting or line breaks.\n\n${prompt}`;
 }
 
 interface ReaderAiHistoryEntry {
@@ -4153,6 +4166,80 @@ export function App() {
     ],
   );
 
+  const onPromptListSubmit = useCallback(
+    async ({ prompt, documentContent, insertFrom, insertTo, insertedPrefix, answerFrom }: PromptListRequest) => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt || inlinePromptStreaming || readerAiSending || readerAiApplyingChanges) return;
+      if (!readerAiSelectedModel) {
+        showFailureToast('Select a Reader AI model before running a prompt question.');
+        return;
+      }
+
+      const controller = new AbortController();
+      inlinePromptAbortRef.current?.abort();
+      inlinePromptAbortRef.current = controller;
+      setInlinePromptStreaming(true);
+
+      const before = documentContent.slice(0, insertFrom);
+      const after = documentContent.slice(insertTo);
+      const baseContent = `${before}${insertedPrefix}`;
+      let streamedRaw = '';
+      let streamedAnswer = '';
+
+      setNextEditContent(baseContent + after, {
+        selection: { anchor: answerFrom, head: answerFrom },
+      });
+      setHasUserTypedUnsavedChanges(true);
+      setHasUnsavedChanges(true);
+
+      try {
+        await askReaderAiStream(
+          readerAiSelectedModel,
+          trimReaderAiSource(documentContent),
+          [{ role: 'user', content: buildPromptListAnswerMessage(trimmedPrompt) }],
+          {
+            signal: controller.signal,
+            onDelta: (delta) => {
+              streamedRaw += delta;
+              const nextAnswer = normalizePromptListAnswer(streamedRaw);
+              if (nextAnswer === streamedAnswer) return;
+              streamedAnswer = nextAnswer;
+              const nextHead = answerFrom + streamedAnswer.length;
+              setNextEditContent(baseContent + streamedAnswer + after, {
+                selection: { anchor: nextHead, head: nextHead },
+              });
+            },
+          },
+          undefined,
+          undefined,
+          currentEditingDocPath,
+          true,
+        );
+      } catch (err) {
+        if (streamedAnswer.length === 0) {
+          setNextEditContent(documentContent, {
+            selection: { anchor: insertFrom, head: insertFrom },
+          });
+        }
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          showFailureToast(err instanceof Error ? err.message : 'Prompt question failed');
+        }
+      } finally {
+        if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
+        setInlinePromptStreaming(false);
+      }
+    },
+    [
+      currentEditingDocPath,
+      inlinePromptStreaming,
+      readerAiApplyingChanges,
+      readerAiSelectedModel,
+      readerAiSending,
+      setNextEditContent,
+      showFailureToast,
+    ],
+  );
+
   useEffect(() => {
     if (!readerAiRetryAfterProjectModeEnable || !readerAiRepoMode || readerAiSending) return;
     setReaderAiRetryAfterProjectModeEnable(false);
@@ -5958,6 +6045,7 @@ export function App() {
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
             onInlinePromptSubmit={onInlinePromptSubmit}
+            onPromptListSubmit={onPromptListSubmit}
             onCancelInlinePrompt={cancelInlinePrompt}
             inlinePromptActive={inlinePromptStreaming}
             onInternalLinkNavigate={(rawRoute) => {

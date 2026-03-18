@@ -20,9 +20,11 @@ import { markdownEditorLanguageSupport } from './codemirror_markdown';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import {
   buildExternalContentSyncTransaction,
+  getPromptListRequest,
   insertNewlineContinueLooseListItem,
   insertNewlineExitBlockquote,
   isExternalSyncTransaction,
+  type PromptListRequest,
   wrapWithMarker,
 } from './markdown_editor_commands';
 
@@ -33,6 +35,7 @@ interface MarkdownEditorProps {
   contentSelection?: { anchor: number; head: number } | null;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
   onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
+  onPromptListSubmit?: (request: PromptListRequest) => void;
   onCancelInlinePrompt?: () => void;
   inlinePromptActive?: boolean;
   onPaste?: (event: ClipboardEvent, view: EditorView) => void;
@@ -49,6 +52,7 @@ export function MarkdownEditor({
   contentSelection = null,
   onContentChange,
   onInlinePromptSubmit,
+  onPromptListSubmit,
   onCancelInlinePrompt,
   inlinePromptActive = false,
   onPaste,
@@ -70,6 +74,8 @@ export function MarkdownEditor({
   onContentChangeRef.current = onContentChange;
   const onInlinePromptSubmitRef = useRef(onInlinePromptSubmit);
   onInlinePromptSubmitRef.current = onInlinePromptSubmit;
+  const onPromptListSubmitRef = useRef(onPromptListSubmit);
+  onPromptListSubmitRef.current = onPromptListSubmit;
   const onCancelInlinePromptRef = useRef(onCancelInlinePrompt);
   onCancelInlinePromptRef.current = onCancelInlinePrompt;
   const inlinePromptActiveRef = useRef(inlinePromptActive);
@@ -132,6 +138,15 @@ export function MarkdownEditor({
           keymap.of([
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },
+            {
+              key: 'Enter',
+              run: (view) => {
+                const request = getPromptListRequest(view.state);
+                if (!request) return false;
+                onPromptListSubmitRef.current?.(request);
+                return true;
+              },
+            },
             {
               key: 'Escape',
               run: () => {

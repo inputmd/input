@@ -201,6 +201,11 @@
   margin-top: 0.2em;
 }
 
+.rendered-markdown li.prompt-question,
+.rendered-markdown li.prompt-answer {
+  list-style: disc;
+}
+
 .rendered-markdown li > ul,
 .rendered-markdown li > ol {
   margin-top: 0.2em;

@@ -1,7 +1,9 @@
 import DOMPurify from 'dompurify';
 import { nameToEmoji } from 'gemoji';
+import type { RendererThis, Token, TokenizerThis, Tokens } from 'marked';
 import { marked } from 'marked';
 import { parseImageDimensionTitle } from './image_markdown.ts';
+import { matchPromptListLine } from './prompt_list_syntax.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
 
 marked.setOptions({
@@ -14,6 +16,16 @@ const domPurify = DOMPurify as unknown as {
 };
 
 const WEB_TLDS = new Set(['com', 'org', 'net', 'app', 'dev', 'xyz']);
+
+interface PromptListToken extends Tokens.Generic {
+  type: 'promptList';
+  items: Array<{
+    kind: 'question' | 'answer';
+    className: 'prompt-question' | 'prompt-answer';
+    text: string;
+    tokens: Token[];
+  }>;
+}
 
 function wikiSlug(raw: string): string {
   return raw.trim().toLowerCase().replace(/[/\\]/g, '-').replace(/\s+/g, '-');
@@ -128,6 +140,53 @@ marked.use({
     },
   },
   extensions: [
+    {
+      name: 'promptList',
+      level: 'block',
+      start(src: string) {
+        const match = /(?:^|\n)(?: {0,3})-(?:\*|⏺)[ \t]+/u.exec(src);
+        return match ? match.index + (match[0].startsWith('\n') ? 1 : 0) : undefined;
+      },
+      tokenizer(this: TokenizerThis, src: string) {
+        let offset = 0;
+        const items: PromptListToken['items'] = [];
+
+        while (offset < src.length) {
+          const lineEnd = src.indexOf('\n', offset);
+          const nextOffset = lineEnd === -1 ? src.length : lineEnd + 1;
+          const line = src.slice(offset, lineEnd === -1 ? src.length : lineEnd);
+          const match = matchPromptListLine(line);
+          if (!match) break;
+
+          items.push({
+            kind: match.kind,
+            className: match.kind === 'question' ? 'prompt-question' : 'prompt-answer',
+            text: match.content,
+            tokens: this.lexer.inlineTokens(match.content),
+          });
+
+          offset = nextOffset;
+        }
+
+        if (items.length === 0) return undefined;
+
+        return {
+          type: 'promptList',
+          raw: src.slice(0, offset),
+          items,
+        };
+      },
+      renderer(this: RendererThis<string, string>, token: Tokens.Generic) {
+        const promptListToken = token as PromptListToken;
+
+        const itemsHtml = promptListToken.items
+          .map((item) => {
+            return `<li class="${item.className}">${this.parser.parseInline(item.tokens ?? [])}</li>`;
+          })
+          .join('');
+        return `<ul>${itemsHtml}</ul>`;
+      },
+    },
     {
       name: 'emojiShortcode',
       level: 'inline',

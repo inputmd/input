@@ -1,6 +1,9 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { RangeSetBuilder } from '@codemirror/state';
+import { Decoration, type DecorationSet, type EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
+import { matchPromptListLine } from '../prompt_list_syntax.ts';
 
 const wikiLinkInlineParser: InlineParser = {
   name: 'WikiLink',
@@ -88,25 +91,87 @@ const markdownParserExtensions: MarkdownExtension = [
   wikiLinkMarkdownExtension,
 ];
 
+function buildPromptListDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+
+  for (const { from, to } of view.visibleRanges) {
+    let lineNumber = view.state.doc.lineAt(from).number;
+    const lastLineNumber = view.state.doc.lineAt(to).number;
+
+    for (; lineNumber <= lastLineNumber; lineNumber += 1) {
+      const line = view.state.doc.line(lineNumber);
+      const match = matchPromptListLine(line.text);
+      if (!match) continue;
+
+      const classes = ['cm-prompt-list-item', match.kind === 'question' ? 'cm-prompt-question' : 'cm-prompt-answer'];
+
+      builder.add(
+        line.from,
+        line.from,
+        Decoration.line({
+          attributes: {
+            class: classes.join(' '),
+          },
+        }),
+      );
+
+      builder.add(
+        line.from + match.indent.length,
+        line.from + match.markerEnd,
+        Decoration.mark({
+          class: 'cm-prompt-list-mark',
+        }),
+      );
+    }
+  }
+
+  return builder.finish();
+}
+
+const promptListLineClassExtension = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildPromptListDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged || update.geometryChanged || update.heightChanged) {
+        this.decorations = buildPromptListDecorations(update.view);
+      }
+    }
+  },
+  {
+    decorations: (value) => value.decorations,
+  },
+);
+
 export function markdownEditorLanguageSupport() {
-  return markdown({
-    base: markdownLanguage,
-    completeHTMLTags: false,
-    extensions: markdownParserExtensions,
-  });
+  return [
+    markdown({
+      base: markdownLanguage,
+      completeHTMLTags: false,
+      extensions: markdownParserExtensions,
+    }),
+    promptListLineClassExtension,
+  ];
 }
 
 export function markdownCodeLanguageSupport() {
-  return markdown({
-    base: markdownLanguage,
-    completeHTMLTags: false,
-    extensions: [
-      {
-        // Keep IndentedCode removed here too so read-only markdown parsing stays
-        // aligned with the editor and renderer behavior.
-        remove: ['HTMLBlock', 'HTMLTag', 'IndentedCode'],
-      },
-      htmlCommentMarkdownExtension,
-    ],
-  });
+  return [
+    markdown({
+      base: markdownLanguage,
+      completeHTMLTags: false,
+      extensions: [
+        {
+          // Keep IndentedCode removed here too so read-only markdown parsing stays
+          // aligned with the editor and renderer behavior.
+          remove: ['HTMLBlock', 'HTMLTag', 'IndentedCode'],
+        },
+        htmlCommentMarkdownExtension,
+      ],
+    }),
+    promptListLineClassExtension,
+  ];
 }
