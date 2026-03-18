@@ -8,7 +8,7 @@ export interface PromptListLineMatch {
   markerEnd: number;
 }
 
-const PROMPT_LIST_LINE_RE = /^( {0,3})-(\*|⏺)([ \t]+)(.*)$/u;
+const PROMPT_LIST_LINE_RE = /^( {0,3})-(\*|-)([ \t]+)(.*)$/u;
 
 export function matchPromptListLine(text: string): PromptListLineMatch | null {
   const match = PROMPT_LIST_LINE_RE.exec(text);

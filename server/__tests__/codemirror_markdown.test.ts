@@ -87,12 +87,12 @@ test('promptListHintLabelForText returns question hint labels', (t) => {
 });
 
 test('promptListHintLabelForText returns answering hint for blank answers while streaming', (t) => {
-  t.is(promptListHintLabelForText('-⏺ ', true), 'Answering...');
-  t.is(promptListHintLabelForText('-⏺ Existing answer', true), null);
-  t.is(promptListHintLabelForText('-⏺ ', false), null);
+  t.is(promptListHintLabelForText('-- ', true), 'Answering...');
+  t.is(promptListHintLabelForText('-- Existing answer', true), null);
+  t.is(promptListHintLabelForText('-- ', false), null);
 });
 
 test('promptListHintLabelForText ignores non-question lines', (t) => {
-  t.is(promptListHintLabelForText('-⏺ Existing answer'), null);
+  t.is(promptListHintLabelForText('-- Existing answer'), null);
   t.is(promptListHintLabelForText('- regular bullet'), null);
 });

@@ -418,6 +418,14 @@ function trimReaderAiSource(source: string): string {
 }
 
 function formatPromptListAnswer(text: string, indent: string): string {
+  const normalizePromptListContinuationLine = (line: string): string => {
+    if (/^\d+([.)])\s+/.test(line)) {
+      return line.replace(/^(\d+)([.)])(\s+)/, '$1\\$2$3');
+    }
+    if (/^([#>]|[-+*]\s|```|~~~)/.test(line)) return `\\${line}`;
+    return line;
+  };
+
   const normalized = text.replace(/\r\n?/g, '\n');
   const rawLines = normalized.split('\n').map((line) => line.trimEnd());
   while (rawLines.length > 0 && rawLines[0].trim().length === 0) rawLines.shift();
@@ -441,7 +449,7 @@ function formatPromptListAnswer(text: string, indent: string): string {
   return compactLines
     .map((line, index) => {
       if (index === 0) return line;
-      return `${indent}   ${line}`;
+      return `${indent}   ${normalizePromptListContinuationLine(line)}`;
     })
     .join('\n');
 }

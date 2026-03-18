@@ -149,13 +149,13 @@ test('marked preserves markdown links while styling bare bracketed text', (t) =>
 
 test('marked renders prompt question and answer lines as list items inside a single unordered list', (t) => {
   const html = marked.parse(
-    '-* Can you explain Solomonoff induction?\n-⏺ Solomonoff induction is a theoretical framework.',
+    '-* Can you explain Solomonoff induction?\n-- Solomonoff induction is a theoretical framework.',
   );
 
   t.true(typeof html === 'string');
   t.true(
     html.includes(
-      '<ul><li class="prompt-question">Can you explain Solomonoff induction?</li><li class="prompt-answer">Solomonoff induction is a theoretical framework.</li></ul>',
+      '<ul class="prompt-list"><li class="prompt-question">Can you explain Solomonoff induction?</li><li class="prompt-answer">Solomonoff induction is a theoretical framework.</li></ul>',
     ),
   );
 });
@@ -163,7 +163,25 @@ test('marked renders prompt question and answer lines as list items inside a sin
 test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('-* Ask about **Solomonoff induction**'));
 
-  t.true(html.includes('<ul><li class="prompt-question">Ask about <strong>Solomonoff induction</strong></li></ul>'));
+  t.true(
+    html.includes(
+      '<ul class="prompt-list"><li class="prompt-question">Ask about <strong>Solomonoff induction</strong></li></ul>',
+    ),
+  );
+});
+
+test('parseMarkdownToHtml keeps multiline prompt answer content inside the prompt-answer list item', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml(
+      ['-* Question', '-- First paragraph', '  ', '  Second paragraph', '  - Nested item'].join('\n'),
+    ),
+  );
+
+  t.true(html.includes('<li class="prompt-answer"><p>First paragraph</p>'));
+  t.true(html.includes('<p>Second paragraph</p>'));
+  t.true(html.includes('<ul>'));
+  t.true(html.includes('<li>Nested item</li>'));
+  t.true(html.includes('</ul>\n</li></ul>'));
 });
 
 test('parseMarkdownToHtml preserves leading indentation in paragraphs', (t) => {

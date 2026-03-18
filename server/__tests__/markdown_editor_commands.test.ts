@@ -130,45 +130,45 @@ test('insertNewlineExitBlockquote ignores non-terminal cursor positions', (t) =>
 });
 
 test('insertNewlineContinuePromptAnswer creates a prompt question line after an answer', (t) => {
-  const view = makeMockView('-⏺ Existing answer', EditorSelection.cursor('-⏺ Existing answer'.length), [
+  const view = makeMockView('-- Existing answer', EditorSelection.cursor('-- Existing answer'.length), [
     markdown({ base: markdownLanguage }),
   ]);
 
   const handled = insertNewlineContinuePromptAnswer(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '-⏺ Existing answer\n-* ');
-  t.is(view.state.selection.main.head, '-⏺ Existing answer\n-* '.length);
+  t.is(view.state.doc.toString(), '-- Existing answer\n-* ');
+  t.is(view.state.selection.main.head, '-- Existing answer\n-* '.length);
 });
 
 test('insertNewlineContinuePromptAnswer preserves indent for nested prompt answers', (t) => {
-  const view = makeMockView('  -⏺ Existing answer', EditorSelection.cursor('  -⏺ Existing answer'.length), [
+  const view = makeMockView('  -- Existing answer', EditorSelection.cursor('  -- Existing answer'.length), [
     markdown({ base: markdownLanguage }),
   ]);
 
   const handled = insertNewlineContinuePromptAnswer(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '  -⏺ Existing answer\n  -* ');
-  t.is(view.state.selection.main.head, '  -⏺ Existing answer\n  -* '.length);
+  t.is(view.state.doc.toString(), '  -- Existing answer\n  -* ');
+  t.is(view.state.selection.main.head, '  -- Existing answer\n  -* '.length);
 });
 
 test('insertNewlineContinuePromptAnswer works from the last continuation line of a multiline answer', (t) => {
-  const doc = '-⏺ Existing answer\n  continuation';
+  const doc = '-- Existing answer\n  continuation';
   const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
 
   const handled = insertNewlineContinuePromptAnswer(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '-⏺ Existing answer\n  continuation\n-* ');
-  t.is(view.state.selection.main.head, '-⏺ Existing answer\n  continuation\n-* '.length);
+  t.is(view.state.doc.toString(), '-- Existing answer\n  continuation\n-* ');
+  t.is(view.state.selection.main.head, '-- Existing answer\n  continuation\n-* '.length);
 });
 
 test('insertNewlineContinuePromptAnswer ignores non-answer or non-terminal positions', (t) => {
   const questionView = makeMockView('-* Question', EditorSelection.cursor('-* Question'.length), [
     markdown({ base: markdownLanguage }),
   ]);
-  const midLineView = makeMockView('-⏺ Existing answer', EditorSelection.cursor('-⏺ Existing'.length), [
+  const midLineView = makeMockView('-- Existing answer', EditorSelection.cursor('-- Existing'.length), [
     markdown({ base: markdownLanguage }),
   ]);
 
@@ -177,40 +177,45 @@ test('insertNewlineContinuePromptAnswer ignores non-answer or non-terminal posit
 });
 
 test('insertNewlineExitPromptQuestion clears an empty trailing prompt question at document end', (t) => {
-  const doc = '-* Question\n-⏺ Answer\n-* ';
+  const doc = '-* Question\n-- Answer\n-* ';
   const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
 
   const handled = insertNewlineExitPromptQuestion(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '-* Question\n-⏺ Answer\n\n');
-  t.is(view.state.selection.main.head, '-* Question\n-⏺ Answer\n\n'.length);
+  t.is(view.state.doc.toString(), '-* Question\n-- Answer\n\n');
+  t.is(view.state.selection.main.head, '-* Question\n-- Answer\n\n'.length);
 });
 
 test('insertNewlineExitPromptQuestion clears an empty trailing prompt question before a non-list line', (t) => {
-  const doc = '-* Question\n-⏺ Answer\n-* \nParagraph';
-  const questionLineEnd = '-* Question\n-⏺ Answer\n-* '.length;
+  const doc = '-* Question\n-- Answer\n-* \nParagraph';
+  const questionLineEnd = '-* Question\n-- Answer\n-* '.length;
   const view = makeMockView(doc, EditorSelection.cursor(questionLineEnd), [markdown({ base: markdownLanguage })]);
 
   const handled = insertNewlineExitPromptQuestion(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '-* Question\n-⏺ Answer\n\nParagraph');
-  t.is(view.state.selection.main.head, '-* Question\n-⏺ Answer\n'.length);
+  t.is(view.state.doc.toString(), '-* Question\n-- Answer\n\n\nParagraph');
+  t.is(view.state.selection.main.head, '-* Question\n-- Answer\n\n'.length);
 });
 
-test('insertNewlineExitPromptQuestion ignores empty prompt questions without prior list entries or with following list items', (t) => {
+test('insertNewlineExitPromptQuestion clears empty prompt questions without requiring prior or trailing list context', (t) => {
   const firstLineView = makeMockView('-* ', EditorSelection.cursor('-* '.length), [
     markdown({ base: markdownLanguage }),
   ]);
   const nonTrailingView = makeMockView(
-    '-* Question\n-* \n-⏺ Answer',
+    '-* Question\n-* \n-- Answer',
     EditorSelection.cursor('-* Question\n-* '.length),
     [markdown({ base: markdownLanguage })],
   );
 
-  t.false(insertNewlineExitPromptQuestion(firstLineView));
-  t.false(insertNewlineExitPromptQuestion(nonTrailingView));
+  t.true(insertNewlineExitPromptQuestion(firstLineView));
+  t.is(firstLineView.state.doc.toString(), '\n');
+  t.is(firstLineView.state.selection.main.head, 1);
+
+  t.true(insertNewlineExitPromptQuestion(nonTrailingView));
+  t.is(nonTrailingView.state.doc.toString(), '-* Question\n\n\n-- Answer');
+  t.is(nonTrailingView.state.selection.main.head, '-* Question\n\n'.length);
 });
 
 test('getPromptListRequest returns an insert request for question lines at line end', (t) => {
@@ -227,13 +232,13 @@ test('getPromptListRequest returns an insert request for question lines at line 
     answerIndent: '',
     insertFrom: '-* What is Solomonoff induction?'.length,
     insertTo: '-* What is Solomonoff induction?'.length,
-    insertedPrefix: '\n-⏺ ',
-    answerFrom: '-* What is Solomonoff induction?\n-⏺ '.length,
+    insertedPrefix: '\n-- ',
+    answerFrom: '-* What is Solomonoff induction?\n-- '.length,
   });
 });
 
 test('getPromptListRequest replaces an existing answer line', (t) => {
-  const doc = '-* What is Solomonoff induction?\n-⏺ Old answer';
+  const doc = '-* What is Solomonoff induction?\n-- Old answer';
   const state = EditorState.create({
     doc,
     selection: EditorSelection.cursor('-* What is Solomonoff induction?'.length),
@@ -247,13 +252,13 @@ test('getPromptListRequest replaces an existing answer line', (t) => {
     answerIndent: '',
     insertFrom: '-* What is Solomonoff induction?\n'.length,
     insertTo: doc.length,
-    insertedPrefix: '-⏺ ',
-    answerFrom: '-* What is Solomonoff induction?\n-⏺ '.length,
+    insertedPrefix: '-- ',
+    answerFrom: '-* What is Solomonoff induction?\n-- '.length,
   });
 });
 
 test('getPromptListRequest replaces an existing multiline answer block', (t) => {
-  const doc = '-* Question\n-⏺ Old answer\n  continuation';
+  const doc = '-* Question\n-- Old answer\n  continuation';
   const state = EditorState.create({
     doc,
     selection: EditorSelection.cursor('-* Question'.length),
@@ -267,16 +272,16 @@ test('getPromptListRequest replaces an existing multiline answer block', (t) => 
     answerIndent: '',
     insertFrom: '-* Question\n'.length,
     insertTo: doc.length,
-    insertedPrefix: '-⏺ ',
-    answerFrom: '-* Question\n-⏺ '.length,
+    insertedPrefix: '-- ',
+    answerFrom: '-* Question\n-- '.length,
   });
 });
 
 test('getPromptListRequest includes prior prompt-list history and local multiline excerpt', (t) => {
-  const doc = ['Before', '-* First question', '-⏺ First answer', '-* Follow-up question', 'After'].join('\n');
+  const doc = ['Before', '-* First question', '-- First answer', '-* Follow-up question', 'After'].join('\n');
   const state = EditorState.create({
     doc,
-    selection: EditorSelection.cursor('Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length),
+    selection: EditorSelection.cursor('Before\n-* First question\n-- First answer\n-* Follow-up question'.length),
     extensions: [markdown({ base: markdownLanguage })],
   });
 
@@ -289,10 +294,10 @@ test('getPromptListRequest includes prior prompt-list history and local multilin
       { role: 'user', content: 'Follow-up question' },
     ],
     answerIndent: '',
-    insertFrom: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length,
-    insertTo: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length,
-    insertedPrefix: '\n-⏺ ',
-    answerFrom: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question\n-⏺ '.length,
+    insertFrom: 'Before\n-* First question\n-- First answer\n-* Follow-up question'.length,
+    insertTo: 'Before\n-* First question\n-- First answer\n-* Follow-up question'.length,
+    insertedPrefix: '\n-- ',
+    answerFrom: 'Before\n-* First question\n-- First answer\n-* Follow-up question\n-- '.length,
   });
 });
 
@@ -303,8 +308,8 @@ test('getPromptListRequest ignores non-question prompt list lines and non-termin
     extensions: [markdown({ base: markdownLanguage })],
   });
   const answerLine = EditorState.create({
-    doc: '-⏺ Existing answer',
-    selection: EditorSelection.cursor('-⏺ Existing answer'.length),
+    doc: '-- Existing answer',
+    selection: EditorSelection.cursor('-- Existing answer'.length),
     extensions: [markdown({ base: markdownLanguage })],
   });
 

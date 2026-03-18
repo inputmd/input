@@ -1325,6 +1325,7 @@ export function buildReaderAiPromptListSystemPrompt(): string {
     'You do not have document context for this turn.',
     'If the answer depends on document details that are not in the thread, say what is missing instead of guessing.',
     'Respond in plain text. Keep the answer concise but allow short paragraphs when they help.',
+    'Do not output tables.',
     'Avoid markdown-heavy formatting unless the user explicitly asks for it.',
   ].join('\n');
 }

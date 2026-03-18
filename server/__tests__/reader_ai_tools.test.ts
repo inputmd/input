@@ -398,6 +398,7 @@ test('prompt-list system prompt focuses on inline thread and local excerpt', (t)
 
   t.true(prompt.includes('inline AI conversation'));
   t.true(prompt.includes('You do not have document context for this turn.'));
+  t.true(prompt.includes('Do not output tables.'));
   t.false(prompt.includes('<local-excerpt>'));
 });
 

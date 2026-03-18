@@ -110,6 +110,24 @@ Optional Reader AI setup:
 - Reader AI requests are proxied through the backend (`/api/ai/*`) and
   do not call OpenRouter directly from the browser.
 
+### Prompt dialogue markdown
+
+Reader AI prompt threads can be written directly in markdown using a custom
+list syntax:
+
+```md
+-* What does this function do?
+-- It normalizes the input and returns a stable cache key.
+```
+
+- `-* ` starts a prompt question.
+- `-- ` starts a prompt answer.
+- Indented continuation lines stay inside the same prompt item, so answers can
+  include multiple paragraphs or nested lists.
+
+These prompt dialogue lists render with a dedicated `prompt-list` class in the
+viewer and keep prompt answers visually distinct from normal prose.
+
 ## Local Codex app-server
 
 To use Reader AI and inline Editor AI with a local Codex instance instead of

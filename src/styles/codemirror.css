@@ -39,6 +39,7 @@
   position: absolute;
   left: 0.2em;
   color: color-mix(in srgb, var(--text-secondary) 78%, var(--text));
+  opacity: 0.25;
   content: "•";
 }
 
@@ -47,7 +48,18 @@
 }
 
 .doc-editor .cm-line.cm-prompt-list-item.cm-prompt-answer {
-  color: color-mix(in srgb, var(--text) 92%, var(--focus-border));
+  color: var(--code-content-color);
+}
+
+.doc-editor .cm-line.cm-prompt-answer-continuation {
+  color: var(--code-content-color);
+}
+
+.doc-editor .cm-line.cm-prompt-list-item.cm-prompt-answer .tok-content,
+.doc-editor .cm-line.cm-prompt-list-item.cm-prompt-answer .tok-variableName,
+.doc-editor .cm-line.cm-prompt-answer-continuation .tok-content,
+.doc-editor .cm-line.cm-prompt-answer-continuation .tok-variableName {
+  color: var(--code-content-color);
 }
 
 .doc-editor .cm-line .cm-prompt-list-mark {

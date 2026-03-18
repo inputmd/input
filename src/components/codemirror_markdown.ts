@@ -132,11 +132,37 @@ function buildPromptListDecorations(view: EditorView): DecorationSet {
   for (const { from, to } of view.visibleRanges) {
     let lineNumber = view.state.doc.lineAt(from).number;
     const lastLineNumber = view.state.doc.lineAt(to).number;
+    let activePromptKind: 'question' | 'answer' | null = null;
+    let activePromptIndent = '';
 
     for (; lineNumber <= lastLineNumber; lineNumber += 1) {
       const line = view.state.doc.line(lineNumber);
       const match = matchPromptListLine(line.text);
-      if (!match) continue;
+      if (!match) {
+        if (activePromptKind === 'answer' && /^\s*$/.test(line.text)) continue;
+        if (
+          activePromptKind === 'answer' &&
+          (line.text.startsWith(`${activePromptIndent}  `) || line.text.startsWith(`${activePromptIndent}\t`))
+        ) {
+          builder.add(
+            line.from,
+            line.from,
+            Decoration.line({
+              attributes: {
+                class: 'cm-prompt-answer-continuation',
+              },
+            }),
+          );
+          continue;
+        }
+
+        activePromptKind = null;
+        activePromptIndent = '';
+        continue;
+      }
+
+      activePromptKind = match.kind;
+      activePromptIndent = match.indent;
 
       const classes = ['cm-prompt-list-item', match.kind === 'question' ? 'cm-prompt-question' : 'cm-prompt-answer'];
 

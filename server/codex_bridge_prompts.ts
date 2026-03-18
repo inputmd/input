@@ -31,6 +31,7 @@ export function buildCodexBridgeDeveloperInstructions(options: BuildCodexBridgeP
       'Prioritize coherence with the inline conversation over broad document analysis.',
       'You do not have document context for this turn.',
       'Respond in plain text. Keep the answer concise, but short paragraphs are allowed.',
+      'Do not output tables.',
       'Avoid markdown-heavy formatting unless the user explicitly asks for it.',
     ].join('\n');
   }

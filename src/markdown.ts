@@ -22,9 +22,19 @@ interface PromptListToken extends Tokens.Generic {
   items: Array<{
     kind: 'question' | 'answer';
     className: 'prompt-question' | 'prompt-answer';
-    text: string;
+    renderAsBlock: boolean;
     tokens: Token[];
   }>;
+}
+
+function isPromptListContinuationLine(text: string, indent: string): boolean {
+  return text.startsWith(`${indent}  `) || text.startsWith(`${indent}\t`);
+}
+
+function stripPromptListContinuationIndent(text: string, indent: string): string {
+  if (text.startsWith(`${indent}  `)) return text.slice(`${indent}  `.length);
+  if (text.startsWith(`${indent}\t`)) return text.slice(`${indent}\t`.length);
+  return text;
 }
 
 function wikiSlug(raw: string): string {
@@ -144,35 +154,78 @@ marked.use({
       name: 'promptList',
       level: 'block',
       start(src: string) {
-        const match = /(?:^|\n)(?: {0,3})-(?:\*|⏺)[ \t]+/u.exec(src);
+        const match = /(?:^|\n)(?: {0,3})-(?:\*|-)[ \t]+/u.exec(src);
         return match ? match.index + (match[0].startsWith('\n') ? 1 : 0) : undefined;
       },
       tokenizer(this: TokenizerThis, src: string) {
-        let offset = 0;
+        const sourceLines = src.split('\n');
+        let lineIndex = 0;
         const items: PromptListToken['items'] = [];
+        const rawLines: string[] = [];
 
-        while (offset < src.length) {
-          const lineEnd = src.indexOf('\n', offset);
-          const nextOffset = lineEnd === -1 ? src.length : lineEnd + 1;
-          const line = src.slice(offset, lineEnd === -1 ? src.length : lineEnd);
+        while (lineIndex < sourceLines.length) {
+          const rawLine = sourceLines[lineIndex];
+          const line = rawLine.replace(/\r$/, '');
           const match = matchPromptListLine(line);
           if (!match) break;
+
+          const contentLines = [match.content];
+          rawLines.push(rawLine);
+
+          let nextIndex = lineIndex + 1;
+          while (nextIndex < sourceLines.length) {
+            const continuationRawLine = sourceLines[nextIndex];
+            const continuationLine = continuationRawLine.replace(/\r$/, '');
+            if (matchPromptListLine(continuationLine)) break;
+
+            if (/^\s*$/.test(continuationLine)) {
+              const blankLines: string[] = [];
+              let scanIndex = nextIndex;
+              while (scanIndex < sourceLines.length) {
+                const scanLine = sourceLines[scanIndex].replace(/\r$/, '');
+                if (!/^\s*$/.test(scanLine)) break;
+                blankLines.push('');
+                scanIndex += 1;
+              }
+
+              if (scanIndex >= sourceLines.length) break;
+
+              const resumedLine = sourceLines[scanIndex].replace(/\r$/, '');
+              if (matchPromptListLine(resumedLine)) break;
+              if (!isPromptListContinuationLine(resumedLine, match.indent)) break;
+
+              contentLines.push(...blankLines);
+              rawLines.push(...sourceLines.slice(nextIndex, scanIndex));
+              nextIndex = scanIndex;
+              continue;
+            }
+
+            if (!isPromptListContinuationLine(continuationLine, match.indent)) break;
+
+            contentLines.push(stripPromptListContinuationIndent(continuationLine, match.indent));
+            rawLines.push(continuationRawLine);
+            nextIndex += 1;
+          }
+
+          const content = contentLines.join('\n').trimEnd();
+          const renderAsBlock = content.includes('\n') || /^\s*$/.test(content);
+          const tokens = renderAsBlock ? this.lexer.blockTokens(content) : this.lexer.inlineTokens(content);
 
           items.push({
             kind: match.kind,
             className: match.kind === 'question' ? 'prompt-question' : 'prompt-answer',
-            text: match.content,
-            tokens: this.lexer.inlineTokens(match.content),
+            renderAsBlock,
+            tokens,
           });
 
-          offset = nextOffset;
+          lineIndex = nextIndex;
         }
 
         if (items.length === 0) return undefined;
 
         return {
           type: 'promptList',
-          raw: src.slice(0, offset),
+          raw: rawLines.join('\n'),
           items,
         };
       },
@@ -181,10 +234,20 @@ marked.use({
 
         const itemsHtml = promptListToken.items
           .map((item) => {
-            return `<li class="${item.className}">${this.parser.parseInline(item.tokens ?? [])}</li>`;
+            const isSingleParagraphBlock =
+              item.renderAsBlock &&
+              item.tokens.length === 1 &&
+              item.tokens[0]?.type === 'paragraph' &&
+              'tokens' in item.tokens[0];
+            const contentHtml = !item.renderAsBlock
+              ? this.parser.parseInline(item.tokens ?? [])
+              : isSingleParagraphBlock
+                ? this.parser.parseInline((item.tokens[0] as Tokens.Paragraph).tokens ?? [])
+                : this.parser.parse(item.tokens ?? []);
+            return `<li class="${item.className}">${contentHtml}</li>`;
           })
           .join('');
-        return `<ul>${itemsHtml}</ul>`;
+        return `<ul class="prompt-list">${itemsHtml}</ul>`;
       },
     },
     {

@@ -402,7 +402,7 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
 
   const nextItem = thread.block.items[thread.itemIndex + 1];
   if (nextItem?.kind === 'answer') {
-    const insertedPrefix = `${nextItem.indent}-⏺ `;
+    const insertedPrefix = `${nextItem.indent}-- `;
     return {
       prompt,
       documentContent: state.doc.toString(),
@@ -415,7 +415,7 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
     };
   }
 
-  const insertedPrefix = `${state.lineBreak}-⏺ `;
+  const insertedPrefix = `${state.lineBreak}-- `;
   return {
     prompt,
     documentContent: state.doc.toString(),
@@ -440,24 +440,6 @@ export function insertNewlineExitPromptQuestion(view: EditorView): boolean {
 
   const match = matchPromptListLine(line.text);
   if (!match || match.kind !== 'question' || match.content.trim()) return false;
-
-  const previousLine = line.number > 1 ? state.doc.line(line.number - 1) : null;
-  if (!previousLine || !matchPromptListLine(previousLine.text)) return false;
-
-  const nextLine = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
-  if (nextLine && matchPromptListLine(nextLine.text)) return false;
-
-  if (nextLine) {
-    view.dispatch(
-      state.update({
-        changes: { from: line.from, to: line.to, insert: '' },
-        selection: EditorSelection.cursor(line.from),
-        scrollIntoView: true,
-        userEvent: 'input',
-      }),
-    );
-    return true;
-  }
 
   const insert = state.lineBreak;
   view.dispatch(
