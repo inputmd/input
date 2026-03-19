@@ -230,6 +230,32 @@ function promptListHintLabel(view: EditorView): { lineTo: number; label: string 
 
 function buildPromptListHintDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
+  const answering = view.state.facet(promptListAnsweringFacet);
+
+  if (answering) {
+    for (const { from, to } of view.visibleRanges) {
+      let lineNumber = view.state.doc.lineAt(from).number;
+      const lastLineNumber = view.state.doc.lineAt(to).number;
+
+      for (; lineNumber <= lastLineNumber; lineNumber += 1) {
+        const line = view.state.doc.line(lineNumber);
+        const label = promptListHintLabelForText(line.text, true);
+        if (!label) continue;
+
+        builder.add(
+          line.to,
+          line.to,
+          Decoration.widget({
+            widget: new PromptListHintWidget(label),
+            side: 1,
+          }),
+        );
+      }
+    }
+
+    return builder.finish();
+  }
+
   const hint = promptListHintLabel(view);
   if (!hint) return builder.finish();
 
