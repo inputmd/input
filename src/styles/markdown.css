@@ -227,6 +227,14 @@
   background: color-mix(in srgb, var(--bg-elevated) 68%, transparent);
 }
 
+[data-theme="light"] .rendered-markdown li.prompt-question {
+  background: var(--input-bg);
+}
+
+[data-theme="dark"] .rendered-markdown li.prompt-question {
+  background: var(--btn-bg);
+}
+
 .rendered-markdown ul.prompt-list > li.prompt-question:first-child {
   /* biome-ignore lint/complexity/noImportantStyles: The first prompt bubble should align flush with the start of the list. */
   margin-top: 0 !important;

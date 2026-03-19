@@ -160,6 +160,10 @@
   overflow: hidden;
 }
 
+[data-theme="light"] .doc-editor {
+  background: var(--bg);
+}
+
 .editor-splitter,
 .editor-preview-pane {
   display: none;

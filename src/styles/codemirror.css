@@ -8,6 +8,10 @@
   color: var(--text);
 }
 
+[data-theme="light"] .doc-editor .cm-editor {
+  background: var(--bg);
+}
+
 .doc-editor .cm-editor.cm-focused {
   outline: none;
 }
@@ -50,7 +54,7 @@
 }
 
 [data-theme="light"] .doc-editor .cm-editor.cm-focused .cm-activeLine::after {
-  background: color-mix(in srgb, var(--selection-bg) 24%, transparent);
+  background: color-mix(in srgb, var(--selection-bg) 10%, transparent);
 }
 
 [data-theme="light"] .doc-editor .cm-editor.cm-focused .cm-activeLine {
