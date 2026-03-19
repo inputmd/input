@@ -519,6 +519,7 @@ export function Toolbar({
           {showEdit && (
             <button
               type="button"
+              class={mobileEditIcon === 'source-toggle' ? 'toolbar-mobile-icon-btn' : undefined}
               onClick={onEdit}
               aria-label={mobileEditIcon === 'source-toggle' ? editLabel : undefined}
               title={mobileEditIcon === 'source-toggle' ? editLabel : undefined}
@@ -526,7 +527,7 @@ export function Toolbar({
               {mobileEditIcon === 'source-toggle' ? (
                 <>
                   <span class="toolbar-desktop-only">{editLabel}</span>
-                  <span class="toolbar-mobile-only" aria-hidden="true">
+                  <span class="toolbar-mobile-only toolbar-mobile-source-icon" aria-hidden="true">
                     <CodeXml size={16} />
                   </span>
                 </>

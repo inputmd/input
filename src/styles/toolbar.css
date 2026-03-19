@@ -587,4 +587,17 @@
     align-items: center;
     justify-content: center;
   }
+
+  .action-buttons .toolbar-mobile-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 35px;
+    width: 35px;
+    padding: 0 2px;
+  }
+
+  .toolbar-mobile-source-icon svg {
+    transform: translateY(0);
+  }
 }
