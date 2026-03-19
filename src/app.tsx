@@ -6761,7 +6761,7 @@ export function App() {
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
-  const readerAiToggleDisabled = viewPhase === 'loading';
+  const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
     repoAccessMode === 'installed' &&

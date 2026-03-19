@@ -37,6 +37,10 @@
   --selection-bg: #123f88;
   --selection-color: #eef5ff;
   --toolbar-height: 52px;
+  --document-stack-layer-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
+  --document-stack-collapsed-bg: color-mix(in srgb, var(--toolbar-bg) 55%, var(--bg) 45%);
+  --document-stack-collapsed-shadow:
+    -10px 0 30px rgba(0, 0, 0, 0.42), -1px 0 0 color-mix(in srgb, var(--border) 90%, transparent);
 
   --ansi-black: #555555;
   --ansi-red: #f44747;
@@ -86,6 +90,9 @@
   --code-content-color: color-mix(in srgb, var(--text) 60%, var(--code-content-accent));
   --selection-bg: #2a70ff;
   --selection-color: #ffffff;
+  --document-stack-layer-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
+  --document-stack-collapsed-bg: var(--bg);
+  --document-stack-collapsed-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
 
   --ansi-black: #1e1e1e;
   --ansi-red: #cd3131;

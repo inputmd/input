@@ -19,6 +19,7 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: 24px;
+  background: var(--document-stack-collapsed-bg);
   pointer-events: none;
 }
 
@@ -43,7 +44,7 @@
   flex-direction: column;
   background: var(--bg);
   border-left: 1px solid var(--border);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--document-stack-layer-shadow);
   transition: transform 250ms ease;
   transform: translateX(0);
 }
@@ -58,7 +59,10 @@
 }
 
 .document-stack-layer:not(.document-stack-layer--active) {
+  /* Collapsed layers need a darker mixed surface so their left-edge shadow stays visible in dark mode. */
   cursor: pointer;
+  background: var(--document-stack-collapsed-bg);
+  box-shadow: var(--document-stack-collapsed-shadow);
 }
 
 .document-stack-layer-peek {
@@ -72,6 +76,7 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: 24px;
+  background: var(--document-stack-collapsed-bg);
   pointer-events: none;
 }
 
@@ -96,5 +101,6 @@
 
 /* Non-active layers are dimmed */
 .document-stack-layer:not(.document-stack-layer--active) .document-stack-layer-content {
+  background: var(--document-stack-collapsed-bg);
   opacity: 0.4;
 }

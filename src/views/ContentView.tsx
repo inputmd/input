@@ -96,6 +96,7 @@ export function ContentView({
   onRequestMarkdownLinkPreview,
   onImageClick,
 }: ContentViewProps) {
+  const contentViewRef = useRef<HTMLDivElement | null>(null);
   const renderedMarkdownRef = useRef<HTMLDivElement | null>(null);
   const imagePreviewRef = useRef<HTMLImageElement | null>(null);
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
@@ -312,6 +313,34 @@ export function ContentView({
     return resolved.pathname.replace(/^\//, '');
   }, []);
 
+  const getPreviewPositionForAnchor = useCallback(
+    (anchor: HTMLAnchorElement) => {
+      const rect = anchor.getBoundingClientRect();
+      if (!containScroll) {
+        return {
+          top: Math.round(rect.bottom + 8),
+          left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
+        };
+      }
+
+      const container = contentViewRef.current;
+      if (!container) {
+        return {
+          top: Math.round(rect.bottom + 8),
+          left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
+        };
+      }
+
+      const containerRect = container.getBoundingClientRect();
+      const maxLeft = Math.max(16, container.clientWidth - 380);
+      return {
+        top: Math.round(rect.bottom - containerRect.top + container.scrollTop + 8),
+        left: Math.round(Math.min(maxLeft, Math.max(16, rect.left - containerRect.left + container.scrollLeft))),
+      };
+    },
+    [containScroll],
+  );
+
   const showPreviewForAnchor = useCallback(
     (anchor: HTMLAnchorElement) => {
       if (!onRequestMarkdownLinkPreview) return;
@@ -325,15 +354,15 @@ export function ContentView({
         return;
       }
 
-      const rect = anchor.getBoundingClientRect();
+      const position = getPreviewPositionForAnchor(anchor);
       const requestId = hoverRequestIdRef.current + 1;
       hoverRequestIdRef.current = requestId;
       hoverAnchorRef.current = anchor;
       setPreview({
         visible: true,
         loading: true,
-        top: Math.round(rect.bottom + 8),
-        left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
+        top: position.top,
+        left: position.left,
         title: lastPathSegment(route),
         html: '',
         url: null,
@@ -360,7 +389,7 @@ export function ContentView({
           hidePreview();
         });
     },
-    [hidePreview, onRequestMarkdownLinkPreview, resolveInternalRoute],
+    [getPreviewPositionForAnchor, hidePreview, onRequestMarkdownLinkPreview, resolveInternalRoute],
   );
 
   const showUrlOnlyPreviewForAnchor = useCallback(
@@ -370,7 +399,7 @@ export function ContentView({
         hidePreview();
         return;
       }
-      const rect = anchor.getBoundingClientRect();
+      const position = getPreviewPositionForAnchor(anchor);
       const resolvedHref = anchor.href || href;
       const requestId = hoverRequestIdRef.current + 1;
       hoverRequestIdRef.current = requestId;
@@ -378,14 +407,14 @@ export function ContentView({
       setPreview({
         visible: true,
         loading: false,
-        top: Math.round(rect.bottom + 8),
-        left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
+        top: position.top,
+        left: position.left,
         title: 'Link',
         html: '',
         url: resolvedHref,
       });
     },
-    [hidePreview],
+    [getPreviewPositionForAnchor, hidePreview],
   );
 
   const showCitationPreviewForAnchor = useCallback(
@@ -423,21 +452,21 @@ export function ContentView({
         return;
       }
 
-      const rect = anchor.getBoundingClientRect();
+      const position = getPreviewPositionForAnchor(anchor);
       const requestId = hoverRequestIdRef.current + 1;
       hoverRequestIdRef.current = requestId;
       hoverAnchorRef.current = anchor;
       setPreview({
         visible: true,
         loading: false,
-        top: Math.round(rect.bottom + 8),
-        left: Math.round(Math.min(window.innerWidth - 380, Math.max(16, rect.left))),
+        top: position.top,
+        left: position.left,
         title: `Citation ${anchor.textContent?.trim() || ''}`.trim(),
         html: htmlContent,
         url: null,
       });
     },
-    [hidePreview],
+    [getPreviewPositionForAnchor, hidePreview],
   );
 
   const onRenderedMarkdownMouseMove = useCallback(
@@ -501,6 +530,7 @@ export function ContentView({
 
   return (
     <div
+      ref={contentViewRef}
       class={`content-view ${imagePreview ? 'content-view--image' : markdown ? 'content-view--markdown' : 'content-view--plain'}`}
     >
       {alertMessage ? (
@@ -556,7 +586,7 @@ export function ContentView({
       )}
       {preview.visible ? (
         <div
-          class={`markdown-link-preview-popover${preview.url ? ' markdown-link-preview-popover--url' : ''}`}
+          class={`markdown-link-preview-popover${preview.url ? ' markdown-link-preview-popover--url' : ''}${containScroll ? ' markdown-link-preview-popover--contained' : ''}`}
           style={{
             top: `${preview.top}px`,
             left: `${preview.left}px`,
