@@ -261,7 +261,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
         .filter((model) => !model.hidden)
         .map((model) => ({
           id: model.model,
-          name: `${model.displayName} (Local Codex)`,
+          name: model.displayName,
           context_length: 0,
           featured: model.isDefault,
           provider: 'codex_local',

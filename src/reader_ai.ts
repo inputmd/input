@@ -107,11 +107,24 @@ async function listLocalCodexModels(): Promise<ReaderAiModel[]> {
   const res = await fetchJsonWithTimeout(withBaseUrl(getLocalCodexBridgeBaseUrl(), '/api/ai/models'));
   if (!res.ok) throw await responseToApiError(res);
   const data = (await res.json()) as ReaderAiModelsResponse;
-  return (Array.isArray(data.models) ? data.models : []).map((model) => ({
-    ...model,
-    id: `${LOCAL_CODEX_MODEL_PREFIX}${model.id}`,
-    provider: 'codex_local',
-  }));
+  return (Array.isArray(data.models) ? data.models : [])
+    .map((model, originalIndex) => ({
+      ...model,
+      id: `${LOCAL_CODEX_MODEL_PREFIX}${model.id}`,
+      provider: 'codex_local' as const,
+      originalIndex,
+    }))
+    .sort((a, b) => {
+      const aNormalized = `${a.id} ${a.name}`.toLowerCase();
+      const bNormalized = `${b.id} ${b.name}`.toLowerCase();
+      const aCodexVariant = aNormalized.includes('-codex');
+      const bCodexVariant = bNormalized.includes('-codex');
+      if (aCodexVariant !== bCodexVariant) return aCodexVariant ? 1 : -1;
+      if (a.featured !== b.featured) return a.featured ? -1 : 1;
+      return a.originalIndex - b.originalIndex;
+    })
+    .slice(0, 3)
+    .map(({ originalIndex: _originalIndex, ...model }) => model);
 }
 
 /** Returns 0 for featured models, -1 for non-featured. */

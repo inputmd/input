@@ -105,8 +105,10 @@ Optional Reader AI setup:
   AI panel.
 - Optionally set `OPENROUTER_PAID_API_KEY` to enable a small hardcoded list
   of paid OpenRouter models that always use the paid key:
-  `google/gemini-3-flash-preview` and
-  `google/gemini-3.1-flash-lite-preview`.
+  `anthropic/claude-opus-4.6`,
+  `anthropic/claude-sonnet-4.6`,
+  `google/gemini-3-flash-preview`, and
+  `google/gemini-3-pro-preview`.
 - Reader AI requests are proxied through the backend (`/api/ai/*`) and
   do not call OpenRouter directly from the browser.
 

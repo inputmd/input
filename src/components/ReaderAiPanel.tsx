@@ -98,15 +98,6 @@ function ReaderAiAssistantMessage({ content, streaming }: { content: string; str
   return <div ref={contentRef} class="reader-ai-message-content rendered-markdown" />;
 }
 
-function displayModelName(name: string): string {
-  return name.replace(/\s+\(free\)\s*$/i, '');
-}
-
-function isPublicDatasetModel(model: ReaderAiModel): boolean {
-  const id = model.id.trim().toLowerCase();
-  return id.includes('gpt-oss-120b') || id.includes('gpt-oss-20b');
-}
-
 function isLocalCodexModel(model: ReaderAiModel): boolean {
   return model.provider === 'codex_local';
 }
@@ -114,6 +105,15 @@ function isLocalCodexModel(model: ReaderAiModel): boolean {
 function isPaidModel(model: ReaderAiModel): boolean {
   if (isLocalCodexModel(model)) return false;
   return !model.id.trim().toLowerCase().endsWith(':free');
+}
+
+function displayModelName(model: ReaderAiModel): string {
+  const baseName = model.name.replace(/\s+\((free|local codex|paid)\)\s*$/i, '');
+  if (isLocalCodexModel(model)) return baseName.toLowerCase();
+  if (!isLocalCodexModel(model) && isPaidModel(model)) {
+    return baseName.replace(/^[^:]+:\s*/, '');
+  }
+  return baseName;
 }
 
 export function ReaderAiPanel({
@@ -166,15 +166,17 @@ export function ReaderAiPanel({
   const hasMessages = messageCount > 0;
   const composerAtTop = !hasMessages;
   const modelSelectDisabled = modelsLoading || models.length === 0 || sending;
-  const selectedModelName = displayModelName(models.find((model) => model.id === selectedModel)?.name ?? '');
+  const selectedModelName = (() => {
+    const model = models.find((entry) => entry.id === selectedModel);
+    return model ? displayModelName(model) : '';
+  })();
   const modelTriggerLabel = selectedModelName || (modelsLoading ? 'Loading models...' : 'No models');
   const localModels = models.filter((model) => isLocalCodexModel(model));
   const paidModels = models.filter((model) => !isLocalCodexModel(model) && isPaidModel(model));
   const freeModels = models.filter((model) => !isLocalCodexModel(model) && !isPaidModel(model));
   const featuredModels = freeModels.filter((model) => readerAiModelPriorityRank(model) !== -1);
   const nonFeaturedModels = freeModels.filter((model) => readerAiModelPriorityRank(model) === -1);
-  const publicDatasetModels = nonFeaturedModels.filter((model) => isPublicDatasetModel(model));
-  const unverifiedModels = nonFeaturedModels.filter((model) => !isPublicDatasetModel(model));
+  const unverifiedModels = nonFeaturedModels;
   const hasRecommendedSection = localModels.length > 0 || paidModels.length > 0 || featuredModels.length > 0;
   const statusText = useMemo(() => {
     if (modelsLoading) return 'Loading free models...';
@@ -366,28 +368,28 @@ export function ReaderAiPanel({
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="reader-ai-model-menu" sideOffset={6} align="start">
             <DropdownMenu.RadioGroup value={selectedModel} onValueChange={handleSelectModel}>
-              {localModels.length > 0 ? (
-                <>
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    Local Codex
-                  </DropdownMenu.Item>
-                  {localModels.map((model) => (
-                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model.name)}
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </>
-              ) : null}
-
               {paidModels.length > 0 ? (
                 <>
-                  {localModels.length > 0 ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Recommended models
                   </DropdownMenu.Item>
                   {paidModels.map((model) => (
                     <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model.name)}
+                      {displayModelName(model)}
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </>
+              ) : null}
+
+              {localModels.length > 0 ? (
+                <>
+                  {paidModels.length > 0 ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                    Via local Codex server
+                  </DropdownMenu.Item>
+                  {localModels.map((model) => (
+                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
+                      {displayModelName(model)}
                     </DropdownMenu.RadioItem>
                   ))}
                 </>
@@ -395,13 +397,15 @@ export function ReaderAiPanel({
 
               {featuredModels.length > 0 ? (
                 <>
-                  {paidModels.length > 0 ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
+                  {paidModels.length > 0 || localModels.length > 0 ? (
+                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
+                  ) : null}
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Recommended free models
                   </DropdownMenu.Item>
                   {featuredModels.map((model) => (
                     <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model.name)}
+                      {displayModelName(model)}
                     </DropdownMenu.RadioItem>
                   ))}
                 </>
@@ -415,23 +419,7 @@ export function ReaderAiPanel({
                   </DropdownMenu.Item>
                   {unverifiedModels.map((model) => (
                     <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model.name)}
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </>
-              ) : null}
-
-              {publicDatasetModels.length > 0 ? (
-                <>
-                  {hasRecommendedSection || unverifiedModels.length > 0 ? (
-                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
-                  ) : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    May publish to public datasets
-                  </DropdownMenu.Item>
-                  {publicDatasetModels.map((model) => (
-                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model.name)}
+                      {displayModelName(model)}
                     </DropdownMenu.RadioItem>
                   ))}
                 </>

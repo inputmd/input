@@ -339,7 +339,14 @@ function sanitizeScratchFileNameInput(input: string): string {
     .trim()
     .replace(/\\/g, '/')
     .replace(/^\/+|\/+$/g, '');
-  if (!normalized || normalized.includes('/') || normalized === '.' || normalized === '..' || /[:<>*?"|]/.test(normalized)) return '';
+  if (
+    !normalized ||
+    normalized.includes('/') ||
+    normalized === '.' ||
+    normalized === '..' ||
+    /[:<>*?"|]/.test(normalized)
+  )
+    return '';
   return normalized;
 }
 
@@ -2856,7 +2863,8 @@ export function App() {
           setCurrentDocumentSavedContent(null);
           setPreviewVisible(defaultPreviewVisible());
           setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'title')) || UNSAVED_FILE_LABEL);
-          const persistedRepoNewContent = localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'content')) ?? '';
+          const persistedRepoNewContent =
+            localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'content')) ?? '';
           setNextEditContent(persistedRepoNewContent);
           setHasUnsavedChanges(Boolean(persistedRepoNewContent));
           setViewPhase(null);

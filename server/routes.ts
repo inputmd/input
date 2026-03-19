@@ -123,24 +123,27 @@ interface ReaderAiModelEntry {
  * Featured free model patterns — matched case-insensitively against model id/name.
  * Maintained server-side so updates don't require client deploys.
  */
-const FEATURED_MODEL_PATTERNS = [
-  'nemotron 3 nano 30b',
-  'nemotron 3 super',
-  'step-3.5-flash',
-  'step 3.5 flash',
-  'trinity mini',
-  'trinity large preview',
-];
+const FEATURED_MODEL_PATTERNS = ['nemotron 3 nano 30b', 'nemotron 3 super', 'trinity mini', 'trinity large preview'];
 
 const OPENROUTER_PAID_MODELS: ReaderAiModelEntry[] = [
+  {
+    id: 'anthropic/claude-opus-4.6',
+    name: 'Anthropic: Claude Opus 4.6 (Paid)',
+    context_length: 1_000_000,
+  },
+  {
+    id: 'anthropic/claude-sonnet-4.6',
+    name: 'Anthropic: Claude Sonnet 4.6 (Paid)',
+    context_length: 1_000_000,
+  },
   {
     id: 'google/gemini-3-flash-preview',
     name: 'Google: Gemini 3 Flash Preview (Paid)',
     context_length: 1_048_576,
   },
   {
-    id: 'google/gemini-3.1-flash-lite-preview',
-    name: 'Google: Gemini 3.1 Flash Lite Preview (Paid)',
+    id: 'google/gemini-3-pro-preview',
+    name: 'Google: Gemini 3 Pro Preview (Paid)',
     context_length: 1_048_576,
   },
 ];
