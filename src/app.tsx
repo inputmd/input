@@ -4318,6 +4318,7 @@ export function App() {
 
       let streamed = '';
 
+      editViewControllerRef.current?.startStreamingCursorTracking(from);
       editViewControllerRef.current?.applyExternalChange({
         from,
         to,
@@ -4346,6 +4347,7 @@ export function App() {
                 insert: delta,
               });
               streamed += delta;
+              editViewControllerRef.current?.updateStreamingCursorTracking(insertAt + delta.length);
               setNextEditContent(
                 (previousContent) => previousContent.slice(0, insertAt) + delta + previousContent.slice(insertAt),
               );
@@ -4362,6 +4364,7 @@ export function App() {
         }
       } finally {
         if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
+        editViewControllerRef.current?.stopStreamingCursorTracking();
         setInlinePromptStreaming(false);
       }
     },
@@ -4402,6 +4405,7 @@ export function App() {
       let streamedRaw = '';
       let streamedAnswer = '';
 
+      editViewControllerRef.current?.startStreamingCursorTracking(answerFrom);
       editViewControllerRef.current?.applyExternalChange({
         from: insertFrom,
         to: insertTo,
@@ -4440,6 +4444,7 @@ export function App() {
                 insert: insertText,
               });
               streamedAnswer = nextAnswer;
+              editViewControllerRef.current?.updateStreamingCursorTracking(answerFrom + streamedAnswer.length);
               setNextEditContent(
                 (previousContent) =>
                   previousContent.slice(0, replaceFrom) + insertText + previousContent.slice(replaceTo),
@@ -4462,6 +4467,7 @@ export function App() {
         }
       } finally {
         if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
+        editViewControllerRef.current?.stopStreamingCursorTracking();
         setInlinePromptStreaming(false);
       }
     },

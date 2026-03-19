@@ -67,6 +67,7 @@ export function MarkdownEditor({
   onEditorReady,
   class: className,
 }: MarkdownEditorProps) {
+  const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const editorControllerRef = useRef<EditorController | null>(null);
@@ -76,6 +77,9 @@ export function MarkdownEditor({
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
+  const streamingCursorPositionRef = useRef<number | null>(null);
+  const streamingCursorFollowingRef = useRef(false);
+  const ignoreNextStreamingScrollEventRef = useRef(false);
 
   // Stable refs for callbacks
   const onContentChangeRef = useRef(onContentChange);
@@ -97,6 +101,36 @@ export function MarkdownEditor({
 
   const readScrollPosition = (view: EditorView): number => {
     return view.scrollDOM.scrollTop;
+  };
+
+  const clampPosition = (view: EditorView, position: number): number => {
+    return Math.max(0, Math.min(position, view.state.doc.length));
+  };
+
+  const isPositionNearViewport = (view: EditorView, position: number): boolean => {
+    const clampedPosition = clampPosition(view, position);
+    const lineBlock = view.lineBlockAt(clampedPosition);
+    const viewportTop = view.scrollDOM.scrollTop;
+    const viewportBottom = viewportTop + view.scrollDOM.clientHeight;
+    const blockTop = lineBlock.top;
+    const blockBottom = lineBlock.top + lineBlock.height;
+    return (
+      blockTop >= viewportTop - STREAMING_CURSOR_VIEWPORT_MARGIN_PX &&
+      blockBottom <= viewportBottom + STREAMING_CURSOR_VIEWPORT_MARGIN_PX
+    );
+  };
+
+  const scrollStreamingCursorIntoView = (view: EditorView, position: number) => {
+    ignoreNextStreamingScrollEventRef.current = true;
+    view.dispatch({
+      effects: EditorView.scrollIntoView(clampPosition(view, position), {
+        y: 'end',
+        yMargin: STREAMING_CURSOR_VIEWPORT_MARGIN_PX,
+      }),
+    });
+    window.requestAnimationFrame(() => {
+      ignoreNextStreamingScrollEventRef.current = false;
+    });
   };
 
   // Create editor on mount — intentionally empty deps
@@ -188,6 +222,26 @@ export function MarkdownEditor({
         view.dispatch(transaction);
         return true;
       },
+      startStreamingCursorTracking: (position) => {
+        const clampedPosition = clampPosition(view, position);
+        streamingCursorPositionRef.current = clampedPosition;
+        streamingCursorFollowingRef.current = isPositionNearViewport(view, clampedPosition);
+        if (streamingCursorFollowingRef.current) {
+          scrollStreamingCursorIntoView(view, clampedPosition);
+        }
+      },
+      updateStreamingCursorTracking: (position) => {
+        if (streamingCursorPositionRef.current == null) return;
+        const clampedPosition = clampPosition(view, position);
+        streamingCursorPositionRef.current = clampedPosition;
+        if (!streamingCursorFollowingRef.current) return;
+        scrollStreamingCursorIntoView(view, clampedPosition);
+      },
+      stopStreamingCursorTracking: () => {
+        streamingCursorPositionRef.current = null;
+        streamingCursorFollowingRef.current = false;
+        ignoreNextStreamingScrollEventRef.current = false;
+      },
     };
     onEditorReadyRef.current?.(editorControllerRef.current);
 
@@ -201,6 +255,9 @@ export function MarkdownEditor({
     };
 
     const syncScrollPosition = () => {
+      if (streamingCursorPositionRef.current != null && !ignoreNextStreamingScrollEventRef.current) {
+        streamingCursorFollowingRef.current = isPositionNearViewport(view, streamingCursorPositionRef.current);
+      }
       const key = currentScrollStorageKeyRef.current;
       if (!key) return;
       setStoredScrollPosition(key, readScrollPosition(view));
@@ -222,6 +279,9 @@ export function MarkdownEditor({
       window.removeEventListener('beforeunload', persistOnPageHide);
       restoreScrollPositionRef.current = null;
       editorControllerRef.current = null;
+      streamingCursorPositionRef.current = null;
+      streamingCursorFollowingRef.current = false;
+      ignoreNextStreamingScrollEventRef.current = false;
       onEditorReadyRef.current?.(null);
       view.destroy();
       viewRef.current = null;

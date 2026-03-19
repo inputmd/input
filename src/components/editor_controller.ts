@@ -12,4 +12,7 @@ export interface ExternalEditorChange {
 
 export interface EditorController {
   applyExternalChange: (change: ExternalEditorChange) => boolean;
+  startStreamingCursorTracking: (position: number) => void;
+  updateStreamingCursorTracking: (position: number) => void;
+  stopStreamingCursorTracking: () => void;
 }
