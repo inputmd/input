@@ -136,6 +136,28 @@
   line-height: 1;
 }
 
+.sidebar-add-group {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.sidebar-add-btn-primary {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.sidebar-add-btn-menu {
+  min-width: 24px;
+  padding: 0 4px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.sidebar-add-btn-menu-icon {
+  transform: translateY(1px);
+}
+
 .sidebar-add-btn:focus,
 .sidebar-add-btn:focus-visible {
   outline: 2px solid var(--focus-border);

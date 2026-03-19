@@ -41,6 +41,7 @@ interface SidebarProps {
   onViewFolderOnGitHub: (path: string) => void;
   canViewOnGitHub: boolean;
   onCreateFile: (path: string) => void | Promise<void>;
+  onCreateScratchFile: (parentPath: string) => void | Promise<void>;
   onCreateDirectory: (path: string) => void | Promise<void>;
   onDeleteFile: (path: string) => void;
   onDeleteFolder: (path: string) => void;
@@ -375,6 +376,7 @@ export function Sidebar({
   onViewFolderOnGitHub,
   canViewOnGitHub,
   onCreateFile,
+  onCreateScratchFile,
   onCreateDirectory,
   onDeleteFile,
   onDeleteFolder,
@@ -425,6 +427,7 @@ export function Sidebar({
     return map;
   }, [visibleNodes]);
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
+  const [createContextPath, setCreateContextPath] = useState<string | null>(null);
   const [createAtRoot, setCreateAtRoot] = useState(false);
 
   useEffect(() => {
@@ -528,6 +531,10 @@ export function Sidebar({
     setNewFileName('');
   };
 
+  const startCreateScratchFile = (parentPath = '') => {
+    void onCreateScratchFile(sanitizePathInput(parentPath));
+  };
+
   const handleRenameSubmit = async () => {
     if (!renamingTarget || renameInFlightRef.current) return;
     cancelRenameOnBlurRef.current = false;
@@ -578,6 +585,7 @@ export function Sidebar({
   const focusTreeRow = (path: string) => {
     setCreateAtRoot(false);
     setFocusedPath(path);
+    setCreateContextPath(path);
     rowRefs.current[path]?.focus();
   };
 
@@ -604,8 +612,13 @@ export function Sidebar({
 
   const resolveCreateParentFromFocus = (): string => {
     if (createAtRoot) return '';
-    if (!focusedPath) return '';
-    const index = visibleIndexByPath.get(focusedPath);
+    if (activeFilePath && visibleIndexByPath.has(activeFilePath)) {
+      const activeNode = visibleNodes[visibleIndexByPath.get(activeFilePath) ?? -1];
+      if (!activeNode) return '';
+      return activeNode.kind === 'folder' ? activeNode.path : parentFolderPath(activeNode.path);
+    }
+    if (!createContextPath) return '';
+    const index = visibleIndexByPath.get(createContextPath);
     if (index === undefined) return '';
     const node = visibleNodes[index];
     if (!node) return '';
@@ -744,6 +757,7 @@ export function Sidebar({
     if (event.target !== event.currentTarget) return;
     setCreateAtRoot(true);
     setFocusedPath(null);
+    setCreateContextPath(null);
     onClearSelection?.();
   };
 
@@ -770,6 +784,7 @@ export function Sidebar({
         onFocus={() => {
           setCreateAtRoot(false);
           setFocusedPath(folder.path);
+          setCreateContextPath(folder.path);
         }}
         onDragOver={(e) => {
           if (readOnly) return;
@@ -924,6 +939,7 @@ export function Sidebar({
         onFocus={() => {
           setCreateAtRoot(false);
           setFocusedPath(file.path);
+          setCreateContextPath(file.path);
         }}
         onDblClick={() => {
           if (!readOnly && file.editable) void startRename({ kind: 'file', path: file.path });
@@ -1123,29 +1139,44 @@ export function Sidebar({
       <div class="sidebar-header">
         {filterControl}
         {!readOnly && (
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <button type="button" class="sidebar-add-btn" title="Add">
-                <span class="sidebar-add-btn-icon">+</span>
-              </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content class="sidebar-filter-menu" sideOffset={6} align="end">
-                <DropdownMenu.Item
-                  class="sidebar-filter-menu-item"
-                  onSelect={() => startCreate('file', resolveCreateParentFromFocus())}
+          <div class="sidebar-add-group">
+            <button
+              type="button"
+              class="sidebar-add-btn sidebar-add-btn-primary"
+              title="Add file"
+              onClick={() => startCreateScratchFile(resolveCreateParentFromFocus())}
+            >
+              <span class="sidebar-add-btn-icon">+</span>
+            </button>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  class="sidebar-add-btn sidebar-add-btn-menu"
+                  title="Add options"
+                  aria-label="Add options"
                 >
-                  Add file
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  class="sidebar-filter-menu-item"
-                  onSelect={() => startCreate('directory', resolveCreateParentFromFocus())}
-                >
-                  Add directory
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+                  <ChevronDown size={14} className="sidebar-add-btn-menu-icon" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content class="sidebar-filter-menu" sideOffset={6} align="end">
+                  <DropdownMenu.Item
+                    class="sidebar-filter-menu-item"
+                    onSelect={() => startCreate('file', resolveCreateParentFromFocus())}
+                  >
+                    Add file
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    class="sidebar-filter-menu-item"
+                    onSelect={() => startCreate('directory', resolveCreateParentFromFocus())}
+                  >
+                    Add directory
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
         )}
       </div>
       <div
