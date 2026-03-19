@@ -11,7 +11,7 @@ import {
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
-import { useCallback, useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
@@ -35,7 +35,7 @@ import {
 
 interface MarkdownEditorProps {
   content: string;
-  contentOrigin?: 'local' | 'external';
+  contentOrigin?: 'local' | 'external' | 'streaming';
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
@@ -69,7 +69,6 @@ export function MarkdownEditor({
   class: className,
 }: MarkdownEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
-  const SCROLL_DEBUG_STORAGE_KEY = 'input_debug_editor_scroll';
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const editorControllerRef = useRef<EditorController | null>(null);
@@ -102,28 +101,8 @@ export function MarkdownEditor({
   const latestLocalRevisionRef = useRef(0);
 
   const readScrollPosition = (view: EditorView): number => {
-    return view.scrollDOM.scrollTop;
+    return editorUsesOwnScroll(view) ? view.scrollDOM.scrollTop : window.scrollY;
   };
-
-  const debugScroll = useCallback((event: string, details?: Record<string, unknown>) => {
-    if (typeof window === 'undefined') return;
-    let enabled = false;
-    try {
-      enabled =
-        window.localStorage.getItem(SCROLL_DEBUG_STORAGE_KEY) === '1' ||
-        (window as typeof window & { __INPUT_DEBUG_EDITOR_SCROLL__?: boolean }).__INPUT_DEBUG_EDITOR_SCROLL__ === true;
-    } catch {}
-    if (!enabled) return;
-    console.debug('[editor-scroll]', 'markdown', event, {
-      scrollTop: viewRef.current?.scrollDOM.scrollTop ?? null,
-      scrollHeight: viewRef.current?.scrollDOM.scrollHeight ?? null,
-      clientHeight: viewRef.current?.scrollDOM.clientHeight ?? null,
-      windowScrollY: typeof window !== 'undefined' ? window.scrollY : null,
-      streamingCursor: streamingCursorPositionRef.current,
-      following: streamingCursorFollowingRef.current,
-      ...details,
-    });
-  }, []);
 
   const clampPosition = (view: EditorView, position: number): number => {
     return Math.max(0, Math.min(position, view.state.doc.length));
@@ -174,7 +153,6 @@ export function MarkdownEditor({
   };
 
   const scrollStreamingCursorIntoView = (view: EditorView, position: number) => {
-    debugScroll('stream-scroll-into-view', { position });
     ignoreNextStreamingScrollEventRef.current = true;
     if (editorUsesOwnScroll(view)) {
       view.dispatch({
@@ -285,7 +263,6 @@ export function MarkdownEditor({
         const clampedPosition = clampPosition(view, position);
         streamingCursorPositionRef.current = clampedPosition;
         streamingCursorFollowingRef.current = isPositionNearViewport(view, clampedPosition);
-        debugScroll('stream-start', { position: clampedPosition });
         if (streamingCursorFollowingRef.current) {
           scrollStreamingCursorIntoView(view, clampedPosition);
         }
@@ -294,12 +271,10 @@ export function MarkdownEditor({
         if (streamingCursorPositionRef.current == null) return;
         const clampedPosition = clampPosition(view, position);
         streamingCursorPositionRef.current = clampedPosition;
-        debugScroll('stream-update', { position: clampedPosition });
         if (!streamingCursorFollowingRef.current) return;
         scrollStreamingCursorIntoView(view, clampedPosition);
       },
       stopStreamingCursorTracking: () => {
-        debugScroll('stream-stop');
         streamingCursorPositionRef.current = null;
         streamingCursorFollowingRef.current = false;
         ignoreNextStreamingScrollEventRef.current = false;
@@ -309,27 +284,27 @@ export function MarkdownEditor({
 
     restoreScrollPositionRef.current = () => {
       if (streamingCursorPositionRef.current != null) {
-        debugScroll('restore-skipped-streaming');
         return;
       }
       const key = currentScrollStorageKeyRef.current;
       const nextScrollTop = key ? (getStoredScrollPosition(key) ?? 0) : 0;
-      debugScroll('restore-scheduled', { key, nextScrollTop });
+      const useEditorScroll = editorUsesOwnScroll(view);
       window.requestAnimationFrame(() => {
         if (viewRef.current !== view) return;
         if (streamingCursorPositionRef.current != null) {
-          debugScroll('restore-cancelled-streaming', { key, nextScrollTop });
           return;
         }
-        debugScroll('restore-applied', { key, nextScrollTop });
-        view.scrollDOM.scrollTop = nextScrollTop;
+        if (useEditorScroll) {
+          view.scrollDOM.scrollTop = nextScrollTop;
+        } else {
+          window.scrollTo({ top: nextScrollTop });
+        }
       });
     };
 
     const syncScrollPosition = () => {
       if (streamingCursorPositionRef.current != null && !ignoreNextStreamingScrollEventRef.current) {
         streamingCursorFollowingRef.current = isPositionNearViewport(view, streamingCursorPositionRef.current);
-        debugScroll('stream-follow-state', { following: streamingCursorFollowingRef.current });
       }
       const key = currentScrollStorageKeyRef.current;
       if (!key) return;
@@ -374,34 +349,31 @@ export function MarkdownEditor({
     if (!view) return;
     const currentDoc = view.state.doc.toString();
     if (content === currentDoc) {
-      debugScroll('external-sync-noop', { contentOrigin, contentRevision });
       if (pendingScrollRestoreKeyRef.current === scrollStorageKey) pendingScrollRestoreKeyRef.current = null;
       return;
     }
 
     if (contentOrigin === 'local' && contentRevision <= latestLocalRevisionRef.current) {
-      debugScroll('external-sync-skipped-local', {
-        contentRevision,
-        latestLocalRevision: latestLocalRevisionRef.current,
-      });
+      return;
+    }
+
+    if (contentOrigin === 'streaming') {
+      return;
+    }
+
+    if (streamingCursorPositionRef.current != null && contentOrigin === 'external') {
       return;
     }
 
     const transaction = buildExternalContentSyncTransaction(view.state, content, contentSelection);
     if (!transaction) return;
-    debugScroll('external-sync-dispatch', {
-      contentOrigin,
-      contentRevision,
-      selectionAnchor: contentSelection?.anchor ?? null,
-      selectionHead: contentSelection?.head ?? null,
-    });
     view.dispatch(transaction);
 
     if (pendingScrollRestoreKeyRef.current === scrollStorageKey) {
       pendingScrollRestoreKeyRef.current = null;
     }
     restoreScrollPositionRef.current?.();
-  }, [content, contentOrigin, contentRevision, contentSelection, scrollStorageKey, debugScroll]);
+  }, [content, contentOrigin, contentRevision, contentSelection, scrollStorageKey]);
 
   useEffect(() => {
     const view = viewRef.current;

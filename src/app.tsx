@@ -1372,7 +1372,7 @@ export function App() {
   const [editingBackend, setEditingBackend] = useState<'gist' | 'repo' | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
-  const [editContentOrigin, setEditContentOrigin] = useState<'local' | 'external'>('external');
+  const [editContentOrigin, setEditContentOrigin] = useState<'local' | 'external' | 'streaming'>('external');
   const [editContentRevision, setEditContentRevision] = useState(0);
   const [currentDocumentSavedContent, setCurrentDocumentSavedContent] = useState<string | null>(null);
   const [currentDocumentDraft, setCurrentDocumentDraft] = useState<PersistedDocumentDraft | null>(null);
@@ -1457,7 +1457,7 @@ export function App() {
     (
       nextContent: string | ((previousContent: string) => string),
       options?: {
-        origin?: 'local' | 'external';
+        origin?: 'local' | 'external' | 'streaming';
         revision?: number;
         selection?: { anchor: number; head: number } | null;
       },
@@ -4326,6 +4326,7 @@ export function App() {
         selection: { anchor: from, head: from },
       });
       setNextEditContent((previousContent) => previousContent.slice(0, from) + previousContent.slice(to), {
+        origin: 'streaming',
         selection: { anchor: from, head: from },
       });
       setHasUserTypedUnsavedChanges(true);
@@ -4350,6 +4351,7 @@ export function App() {
               editViewControllerRef.current?.updateStreamingCursorTracking(insertAt + delta.length);
               setNextEditContent(
                 (previousContent) => previousContent.slice(0, insertAt) + delta + previousContent.slice(insertAt),
+                { origin: 'streaming' },
               );
             },
           },
@@ -4415,6 +4417,7 @@ export function App() {
       setNextEditContent(
         (previousContent) => previousContent.slice(0, insertFrom) + insertedPrefix + previousContent.slice(insertTo),
         {
+          origin: 'streaming',
           selection: { anchor: answerFrom, head: answerFrom },
         },
       );
@@ -4448,6 +4451,7 @@ export function App() {
               setNextEditContent(
                 (previousContent) =>
                   previousContent.slice(0, replaceFrom) + insertText + previousContent.slice(replaceTo),
+                { origin: 'streaming' },
               );
             },
           },

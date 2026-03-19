@@ -49,7 +49,7 @@ interface EditViewProps {
   fileName?: string | null;
   markdown?: boolean;
   content: string;
-  contentOrigin?: 'local' | 'external';
+  contentOrigin?: 'local' | 'external' | 'streaming';
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   previewHtml: string;
