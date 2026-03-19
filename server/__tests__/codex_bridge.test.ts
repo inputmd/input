@@ -77,7 +77,10 @@ async function readSse(res: Response): Promise<Array<{ event: string; data: stri
 }
 
 function startFakeCodexServer(
-  responder: (inputText: string) => { deltas: string[]; requestApprovalWithStringId?: boolean },
+  responder: (
+    inputText: string,
+    params?: { threadStart?: Record<string, unknown>; turnStart?: Record<string, unknown> },
+  ) => { deltas: string[]; requestApprovalWithStringId?: boolean },
 ): {
   server: http.Server;
   urlPromise: Promise<string>;
@@ -88,6 +91,7 @@ function startFakeCodexServer(
   let turnId = 0;
 
   wss.on('connection', (ws) => {
+    let lastThreadStartParams: Record<string, unknown> | undefined;
     ws.on('message', (raw) => {
       const message = JSON.parse(String(raw)) as { id?: number; method?: string; params?: Record<string, unknown> };
       if (message.method === 'initialize') {
@@ -122,6 +126,7 @@ function startFakeCodexServer(
         return;
       }
       if (message.method === 'thread/start') {
+        lastThreadStartParams = message.params;
         threadId += 1;
         ws.send(JSON.stringify({ id: message.id, result: { thread: { id: `thread-${threadId}` } } }));
         return;
@@ -131,7 +136,10 @@ function startFakeCodexServer(
         const turn = `turn-${turnId}`;
         const input = Array.isArray(message.params?.input) ? message.params.input : [];
         const inputText = typeof input[0]?.text === 'string' ? input[0].text : '';
-        const { deltas, requestApprovalWithStringId } = responder(inputText);
+        const { deltas, requestApprovalWithStringId } = responder(inputText, {
+          threadStart: lastThreadStartParams,
+          turnStart: message.params,
+        });
         if (requestApprovalWithStringId) {
           ws.send(JSON.stringify({ id: 'approval-1', method: 'permissions/request', params: { reason: 'noop' } }));
         }
@@ -446,4 +454,38 @@ test.serial('bridge supports project sessions for project-mode chat', async (t) 
   t.truthy(delta);
   const payload = JSON.parse(delta!.data) as { choices: Array<{ delta: { content: string } }> };
   t.is(payload.choices[0]?.delta.content, 'Project looks healthy.');
+});
+
+test.serial('bridge enables live web search for prompt-list mode', async (t) => {
+  let seenThreadStart: Record<string, unknown> | undefined;
+  let seenTurnStart: Record<string, unknown> | undefined;
+  const fake = startFakeCodexServer((_inputText, params) => {
+    seenThreadStart = params?.threadStart;
+    seenTurnStart = params?.turnStart;
+    return { deltas: ['looked it up'] };
+  });
+  const bridgePort = await reservePort();
+  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
+  await waitForBridge(bridgePort);
+
+  t.teardown(async () => {
+    bridge.kill('SIGTERM');
+    await closeServer(fake.server);
+  });
+
+  const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-5.4',
+      source: '',
+      mode: 'prompt_list',
+      messages: [{ role: 'user', content: 'What happened today?' }],
+    }),
+  });
+  const events = await readSse(res);
+  const delta = events.find((event) => !event.event && event.data !== '[DONE]');
+  t.truthy(delta);
+  t.is((seenThreadStart?.config as { web_search?: string } | undefined)?.web_search, 'live');
+  t.is((seenTurnStart?.sandboxPolicy as { networkAccess?: boolean } | undefined)?.networkAccess ?? null, true);
 });

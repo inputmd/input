@@ -33,6 +33,7 @@ export interface CodexBridgeTurnOptions {
   model?: string | null;
   developerInstructions: string;
   input: string;
+  webSearch?: 'disabled' | 'live';
   signal?: AbortSignal;
   onDelta?: (delta: string) => void;
 }
@@ -120,6 +121,7 @@ export class CodexBridgeClient {
         approvalPolicy: 'never',
         personality: 'pragmatic',
         ...(options.model ? { model: options.model } : {}),
+        ...(options.webSearch ? { config: { web_search: options.webSearch } } : {}),
         developerInstructions: options.developerInstructions,
       })) as { thread?: { id?: unknown } };
       const threadId = typeof thread?.thread?.id === 'string' ? thread.thread.id : '';
@@ -166,7 +168,7 @@ export class CodexBridgeClient {
         input: [{ type: 'text', text: options.input }],
         sandboxPolicy: {
           type: 'readOnly',
-          networkAccess: false,
+          networkAccess: options.webSearch === 'live',
           access: {
             type: 'restricted',
             includePlatformDefaults: false,

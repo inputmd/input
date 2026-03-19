@@ -360,6 +360,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
           model,
           developerInstructions,
           input,
+          webSearch: mode === 'prompt_list' ? 'live' : 'disabled',
           signal: abortController.signal,
           onDelta: (delta) => writeDelta(res, delta),
         });
@@ -376,6 +377,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
         model,
         developerInstructions,
         input,
+        webSearch: mode === 'prompt_list' ? 'live' : 'disabled',
         signal: abortController.signal,
         onDelta: (delta) => {
           incrementalRaw += delta;
