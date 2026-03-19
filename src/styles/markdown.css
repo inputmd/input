@@ -206,6 +206,11 @@
   list-style: disc;
 }
 
+.rendered-markdown li.prompt-question > p,
+.rendered-markdown li.prompt-answer > p {
+  margin: 0;
+}
+
 .rendered-markdown li > ul,
 .rendered-markdown li > ol {
   margin-top: 0.2em;

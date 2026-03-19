@@ -37,6 +37,20 @@ function stripPromptListContinuationIndent(text: string, indent: string): string
   return text;
 }
 
+function isPromptListBlockConstruct(text: string): boolean {
+  return /^(?:[-+*][ \t]|\d+\.[ \t]|>[ \t]?|#{1,6}[ \t]|```|~~~)/u.test(text);
+}
+
+function stripPromptListResumedContinuationIndent(text: string, indent: string): string {
+  const threeSpaceIndent = `${indent}   `;
+  const fourSpaceIndent = `${indent}    `;
+  if (text.startsWith(threeSpaceIndent) && !text.startsWith(fourSpaceIndent)) {
+    const candidate = text.slice(threeSpaceIndent.length);
+    if (!isPromptListBlockConstruct(candidate)) return candidate;
+  }
+  return stripPromptListContinuationIndent(text, indent);
+}
+
 function wikiSlug(raw: string): string {
   return raw.trim().toLowerCase().replace(/[/\\]/g, '-').replace(/\s+/g, '-');
 }
@@ -195,8 +209,9 @@ marked.use({
               if (!isPromptListContinuationLine(resumedLine, match.indent)) break;
 
               contentLines.push(...blankLines);
-              rawLines.push(...sourceLines.slice(nextIndex, scanIndex));
-              nextIndex = scanIndex;
+              contentLines.push(stripPromptListResumedContinuationIndent(resumedLine, match.indent));
+              rawLines.push(...sourceLines.slice(nextIndex, scanIndex + 1));
+              nextIndex = scanIndex + 1;
               continue;
             }
 

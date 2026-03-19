@@ -184,6 +184,25 @@ test('parseMarkdownToHtml keeps multiline prompt answer content inside the promp
   t.true(html.includes('</ul>\n</li></ul>'));
 });
 
+test('parseMarkdownToHtml does not preserve an extra leading space on resumed prompt-answer paragraphs', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml(
+      [
+        '-* What symbols are used as prompts by different shells?',
+        "-- Different shells use various symbols as prompts to indicate the user's current context.",
+        '   ',
+        '   - $ for regular users',
+        '   - # for root users',
+        '   ',
+        "   It's worth noting that prompts are customizable.",
+      ].join('\n'),
+    ),
+  );
+
+  t.true(html.includes("<p>It's worth noting that prompts are customizable.</p>"));
+  t.false(html.includes('<span class="leading-indent"> </span>It'));
+});
+
 test('parseMarkdownToHtml preserves leading indentation in paragraphs', (t) => {
   const html = withDom(() => parseMarkdownToHtml('    one'));
 
