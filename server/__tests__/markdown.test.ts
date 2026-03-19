@@ -382,6 +382,91 @@ hello`,
   );
 });
 
+test('parseMarkdownDocument allows arbitrary class selectors inside scoped custom css', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  .prompt-answer { font-family: "Noto Serif", var(--font-sans), sans-serif; }
+  li.prompt-answer:hover { color: #123456; }
+---
+-* Question
+- Answer`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.truthy(document.customCssScope);
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] .prompt-answer { font-family: "Noto Serif", var(--font-sans), sans-serif; }`,
+    ),
+  );
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] li.prompt-answer:hover { color: #123456; }`,
+    ),
+  );
+  t.is(document.cssWarning, null);
+});
+
+test('parseMarkdownDocument allows opacity in scoped custom css', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  .prompt-answer { opacity: 0.65; }
+---
+-* Question
+- Answer`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.truthy(document.customCssScope);
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] .prompt-answer { opacity: 0.65; }`,
+    ),
+  );
+  t.is(document.cssWarning, null);
+});
+
+test('parseMarkdownDocument allows additional low-risk layout and typography properties', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  .prompt-answer {
+    display: inline-block;
+    font-variant: small-caps;
+    font-stretch: condensed;
+    white-space: pre-wrap;
+    max-width: 90%;
+    width: 18rem;
+    height: 3rem;
+    vertical-align: middle;
+    word-break: break-word;
+    hyphens: auto;
+    column-count: 2;
+    column-gap: 1.5rem;
+  }
+---
+-* Question
+- Answer`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.truthy(document.customCssScope);
+  t.true(
+    document.customCss?.includes(
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] .prompt-answer { display: inline-block; font-variant: small-caps; font-stretch: condensed; white-space: pre-wrap; max-width: 90%; width: 18rem; height: 3rem; vertical-align: middle; word-break: break-word; hyphens: auto; column-count: 2; column-gap: 1.5rem; }`,
+    ),
+  );
+  t.is(document.cssWarning, null);
+});
+
 test('parseMarkdownDocument rewrites :light and :dark custom css selectors to theme-scoped rules', (t) => {
   const document = withDom(() =>
     parseMarkdownDocument(

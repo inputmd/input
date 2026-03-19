@@ -52,6 +52,12 @@ Markdown documents can include a `css` block in front matter. When present,
 Input applies the sanitized CSS in both the document viewer and the editor
 preview.
 
+Selectors are scoped to the rendered markdown container, and class selectors
+inside that container are allowed. ID selectors, attribute selectors,
+pseudo-elements, and non-Google Fonts imports are still rejected.
+Allowed properties cover common typography, spacing, sizing, wrapping, simple
+layout, and list styling.
+
 ```yaml
 ---
 css: |

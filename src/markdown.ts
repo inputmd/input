@@ -963,20 +963,6 @@ const ALLOWED_MARKDOWN_TAGS = new Set([
   'ul',
 ]);
 
-const ALLOWED_MARKDOWN_CLASSES = new Set([
-  'bracketed-text',
-  'emoji-shortcode',
-  'footnote-backref',
-  'footnote-backrefs',
-  'footnote-ref',
-  'footnotes',
-  'github-inline-avatar',
-  'leading-indent',
-  'leading-indent-block',
-  'missing-wikilink',
-  'superscript-link',
-]);
-
 const ALLOWED_MARKDOWN_PSEUDOS = new Set(['first-child', 'focus', 'focus-visible', 'hover', 'last-child', 'visited']);
 
 const ALLOWED_CSS_PROPERTIES = new Set([
@@ -992,10 +978,17 @@ const ALLOWED_CSS_PROPERTIES = new Set([
   'border-top',
   'border-width',
   'color',
+  'column-count',
+  'column-gap',
+  'display',
   'font-family',
   'font-size',
   'font-style',
+  'font-stretch',
+  'font-variant',
   'font-weight',
+  'height',
+  'hyphens',
   'letter-spacing',
   'line-height',
   'list-style',
@@ -1006,6 +999,8 @@ const ALLOWED_CSS_PROPERTIES = new Set([
   'margin-left',
   'margin-right',
   'margin-top',
+  'max-width',
+  'opacity',
   'padding',
   'padding-bottom',
   'padding-left',
@@ -1019,6 +1014,10 @@ const ALLOWED_CSS_PROPERTIES = new Set([
   'text-decoration-style',
   'text-indent',
   'text-transform',
+  'vertical-align',
+  'white-space',
+  'width',
+  'word-break',
 ]);
 
 function isAllowedGoogleFontsImport(statement: string): boolean {
@@ -1113,7 +1112,6 @@ function isAllowedSimpleSelector(selector: string): boolean {
 
     for (const token of tokens) {
       if (token.startsWith('.')) {
-        if (!ALLOWED_MARKDOWN_CLASSES.has(token.slice(1).toLowerCase())) return false;
         continue;
       }
       if (token.startsWith(':')) {
