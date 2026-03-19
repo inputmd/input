@@ -50,4 +50,4 @@ export function isAllowedOrigin(origin: string): boolean {
 }
 
 export const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self' 'sha256-wBdtWdXsHnAU2DdByySW4LlXFAScrBvmBgkXtydwJdg='; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com; connect-src 'self' https://api.github.com https://gist.githubusercontent.com http://127.0.0.1:8788 http://localhost:8788; font-src 'self' https://fonts.gstatic.com";
+  "default-src 'self'; script-src 'self' 'sha256-wBdtWdXsHnAU2DdByySW4LlXFAScrBvmBgkXtydwJdg='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; connect-src 'self' https://api.github.com https://gist.githubusercontent.com http://127.0.0.1:8788 http://localhost:8788; font-src 'self' https://fonts.gstatic.com";

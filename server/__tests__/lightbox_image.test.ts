@@ -1,4 +1,5 @@
 import test from 'ava';
+import { CONTENT_SECURITY_POLICY } from '../../server/config.ts';
 import { reusableImageSrc } from '../../src/util.ts';
 
 test('reusableImageSrc prefers img.src over currentSrc', (t) => {
@@ -31,4 +32,8 @@ test('reusableImageSrc falls back to currentSrc and src attribute', (t) => {
 
   t.is(reusableImageSrc(currentOnly), 'https://app.test/api/public/repos/o/r/raw?path=docs%2F.assets%2Fcat.png');
   t.is(reusableImageSrc(attributeOnly), './.assets/cat.png');
+});
+
+test('content security policy allows lightbox data urls for images', (t) => {
+  t.true(CONTENT_SECURITY_POLICY.includes("img-src 'self' data: https://avatars.githubusercontent.com"));
 });
