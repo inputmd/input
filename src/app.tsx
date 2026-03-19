@@ -3669,7 +3669,7 @@ export function App() {
   const REPO_MODE_MAX_FILE_SIZE = 50 * 1024 * 1024;
 
   const isGistContext = currentGistId !== null && gistFiles !== null;
-  const repoModeAvailable = repoAccessMode !== null || isGistContext;
+  const repoModeAvailable = Boolean(user) && (repoAccessMode !== null || isGistContext);
 
   const repoModeFileCount = readerAiRepoFiles?.length ?? 0;
 
@@ -7029,7 +7029,6 @@ export function App() {
               onPointerDown={onReaderAiSplitPointerDown}
             />
             <ReaderAiPanel
-              authenticated={Boolean(user)}
               models={readerAiModels}
               modelsLoading={readerAiModelsLoading}
               modelsError={readerAiModelsError}

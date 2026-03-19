@@ -15,7 +15,6 @@ export interface ReaderAiMessage {
 }
 
 interface ReaderAiPanelProps {
-  authenticated: boolean;
   models: ReaderAiModel[];
   modelsLoading: boolean;
   modelsError: string | null;
@@ -117,7 +116,6 @@ function displayModelName(model: ReaderAiModel): string {
 }
 
 export function ReaderAiPanel({
-  authenticated,
   models,
   modelsLoading,
   modelsError,
@@ -162,7 +160,7 @@ export function ReaderAiPanel({
   const thinkingStartedAtRef = useRef<number | null>(null);
   const pendingFocusAfterClearRef = useRef(false);
   const messageCount = messages.length;
-  const canSend = authenticated && draft.trim().length > 0 && !sending && Boolean(selectedModel);
+  const canSend = draft.trim().length > 0 && !sending && Boolean(selectedModel);
   const hasMessages = messageCount > 0;
   const composerAtTop = !hasMessages;
   const modelSelectDisabled = modelsLoading || models.length === 0 || sending;
@@ -184,7 +182,7 @@ export function ReaderAiPanel({
     if (!selectedModel) return 'No free model available.';
     return null;
   }, [modelsLoading, modelsError, selectedModel]);
-  const composerInputDisabled = sending || !selectedModel || !authenticated;
+  const composerInputDisabled = sending || !selectedModel;
   let lastUserMessageIndex = -1;
   for (let i = messageCount - 1; i >= 0; i--) {
     if (messages[i].role === 'user') {
@@ -192,11 +190,7 @@ export function ReaderAiPanel({
       break;
     }
   }
-  const composerPlaceholder = !authenticated
-    ? 'Sign in to enable chat'
-    : repoModeEnabled
-      ? 'Ask about this project...'
-      : 'Ask about this document...';
+  const composerPlaceholder = repoModeEnabled ? 'Ask about this project...' : 'Ask about this document...';
   const isAssistantThinking =
     sending &&
     messageCount > 0 &&

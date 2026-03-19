@@ -24,6 +24,12 @@ import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationTok
 import { json, readJson, requireEnv, requireString } from './http_helpers';
 import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
 import {
+  canAccessReaderAiModel,
+  getReaderAiModelSource,
+  type ReaderAiModelAccessScope,
+  readerAiModelAccessScopeForAuthenticated,
+} from './reader_ai_access';
+import {
   buildReaderAiProjectSystemPrompt,
   buildReaderAiPromptListSystemPrompt,
   buildReaderAiSystemPrompt,
@@ -388,9 +394,9 @@ const READER_AI_SUMMARIZE_TIMEOUT_MS = 30_000;
 const READER_AI_MIN_MODEL_PARAMS_B = 15;
 const READER_AI_MAX_TOOL_ITERATIONS = 30;
 const READER_AI_PER_CALL_TIMEOUT_MS = 60_000;
-let readerAiModelsCache: { value: ReaderAiModelEntry[]; expiresAt: number } | null = null;
+const readerAiModelsCache = new Map<ReaderAiModelAccessScope, { value: ReaderAiModelEntry[]; expiresAt: number }>();
 /** In-flight model fetch promise for stampede protection. */
-let readerAiModelsFetchPromise: Promise<ReaderAiModelEntry[]> | null = null;
+const readerAiModelsFetchPromise = new Map<ReaderAiModelAccessScope, Promise<ReaderAiModelEntry[]>>();
 
 function modelParamsEstimateBillions(entry: { id?: unknown; name?: unknown; description?: unknown }): number | null {
   const text = [
@@ -428,19 +434,24 @@ function modelParamsEstimateBillions(entry: { id?: unknown; name?: unknown; desc
   return best > 0 ? best : null;
 }
 
-function ensureReaderAiConfigured(): void {
-  if (!OPENROUTER_API_KEY && !OPENROUTER_PAID_API_KEY) {
+function ensureReaderAiConfigured(session: Session | null): void {
+  if ((session && !OPENROUTER_API_KEY && !OPENROUTER_PAID_API_KEY) || (!session && !OPENROUTER_API_KEY)) {
     throw new ClientError('Reader AI is not configured on this server', 503);
   }
 }
 
-function getReaderAiModelSource(model: string): 'free' | 'paid' {
-  return OPENROUTER_PAID_MODELS.some((entry) => entry.id === model) ? 'paid' : 'free';
+const paidReaderAiModelIds = new Set(OPENROUTER_PAID_MODELS.map((entry) => entry.id));
+
+function readerAiModelAccessScopeForSession(session: Session | null): ReaderAiModelAccessScope {
+  return readerAiModelAccessScopeForAuthenticated(session !== null);
 }
 
-function getOpenRouterApiKeyForModel(model: string): string {
-  const source = getReaderAiModelSource(model);
+function getOpenRouterApiKeyForModel(model: string, session: Session | null): string {
+  const source = getReaderAiModelSource(model, paidReaderAiModelIds);
   if (source === 'paid') {
+    if (!session) {
+      throw new ClientError('Selected paid model requires sign in', 401);
+    }
     if (!OPENROUTER_PAID_API_KEY) {
       throw new ClientError('Selected paid model is not configured on this server', 503);
     }
@@ -499,6 +510,7 @@ async function summarizeReaderAiConversation(
   evictedMessages: ReaderAiChatMessage[],
   existingSummary: string,
   req: http.IncomingMessage,
+  session: Session | null,
 ): Promise<string> {
   const parts: string[] = [];
   if (existingSummary) parts.push(`Previous summary:\n${existingSummary}`);
@@ -507,7 +519,7 @@ async function summarizeReaderAiConversation(
   }
   const toSummarize = parts.join('\n\n');
 
-  const apiKey = getOpenRouterApiKeyForModel(model);
+  const apiKey = getOpenRouterApiKeyForModel(model, session);
   const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: openRouterHeaders(req, apiKey),
@@ -536,19 +548,26 @@ async function summarizeReaderAiConversation(
   return summary ? summary.slice(0, READER_AI_MAX_SUMMARY_CHARS) : existingSummary;
 }
 
-async function fetchReaderAiModels(req: http.IncomingMessage): Promise<ReaderAiModelEntry[]> {
+async function fetchReaderAiModels(req: http.IncomingMessage, session: Session | null): Promise<ReaderAiModelEntry[]> {
+  const scope = readerAiModelAccessScopeForSession(session);
   const now = Date.now();
-  if (readerAiModelsCache && readerAiModelsCache.expiresAt > now) return readerAiModelsCache.value;
+  const cached = readerAiModelsCache.get(scope);
+  if (cached && cached.expiresAt > now) return cached.value;
 
   // Stampede protection: if another request is already fetching, reuse it
-  if (readerAiModelsFetchPromise) return readerAiModelsFetchPromise;
-  readerAiModelsFetchPromise = fetchReaderAiModelsUncached(req).finally(() => {
-    readerAiModelsFetchPromise = null;
+  const inFlight = readerAiModelsFetchPromise.get(scope);
+  if (inFlight) return inFlight;
+  const promise = fetchReaderAiModelsUncached(req, scope).finally(() => {
+    readerAiModelsFetchPromise.delete(scope);
   });
-  return readerAiModelsFetchPromise;
+  readerAiModelsFetchPromise.set(scope, promise);
+  return promise;
 }
 
-async function fetchReaderAiModelsUncached(req: http.IncomingMessage): Promise<ReaderAiModelEntry[]> {
+async function fetchReaderAiModelsUncached(
+  req: http.IncomingMessage,
+  scope: ReaderAiModelAccessScope,
+): Promise<ReaderAiModelEntry[]> {
   const now = Date.now();
   const modelsById = new Map<string, ReaderAiModelEntry>();
 
@@ -594,7 +613,7 @@ async function fetchReaderAiModelsUncached(req: http.IncomingMessage): Promise<R
     }
   }
 
-  if (OPENROUTER_PAID_API_KEY) {
+  if (scope === 'with_paid' && OPENROUTER_PAID_API_KEY) {
     for (const model of OPENROUTER_PAID_MODELS) {
       modelsById.set(model.id, model);
     }
@@ -602,7 +621,7 @@ async function fetchReaderAiModelsUncached(req: http.IncomingMessage): Promise<R
 
   const models = [...modelsById.values()].sort((a, b) => a.name.localeCompare(b.name));
 
-  readerAiModelsCache = { value: models, expiresAt: now + READER_AI_MODELS_CACHE_TTL_MS };
+  readerAiModelsCache.set(scope, { value: models, expiresAt: now + READER_AI_MODELS_CACHE_TTL_MS });
   return models;
 }
 
@@ -1858,8 +1877,8 @@ async function handleGetPublicGist(ctx: RouteContext): Promise<void> {
 async function handleReaderAiModels(ctx: RouteContext): Promise<void> {
   const session = getSession(ctx.req);
   if (!checkRateLimitForSession(ctx, session)) return;
-  ensureReaderAiConfigured();
-  const models = await fetchReaderAiModels(ctx.req);
+  ensureReaderAiConfigured(session);
+  const models = await fetchReaderAiModels(ctx.req, session);
   json(ctx.res, 200, { models });
 }
 
@@ -2371,9 +2390,9 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
 }
 
 async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
-  const session = requireAuthSession(ctx);
+  const session = getSession(ctx.req);
   if (!checkRateLimitForSession(ctx, session)) return;
-  ensureReaderAiConfigured();
+  ensureReaderAiConfigured(session);
 
   const body = (await readJson(ctx.req)) as ReaderAiChatBody | null;
   const model = typeof body?.model === 'string' ? body.model.trim() : '';
@@ -2381,9 +2400,11 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const source = typeof body?.source === 'string' ? body.source.trim() : '';
   if (!model) throw new ClientError('model is required', 400);
   if (!source && mode !== 'prompt_list') throw new ClientError('source is required', 400);
-  // Validate model against the cached free models list to prevent use of non-free models
-  const allowedModels = readerAiModelsCache?.value;
-  if (allowedModels && allowedModels.length > 0 && !allowedModels.some((m) => m.id === model)) {
+  if (!canAccessReaderAiModel(model, session !== null, paidReaderAiModelIds)) {
+    throw new ClientError('Selected paid model requires sign in', 401);
+  }
+  const allowedModels = await fetchReaderAiModels(ctx.req, session);
+  if (!allowedModels.some((m) => m.id === model)) {
     throw new ClientError('Selected model is not available', 400);
   }
   const allMessages = normalizeReaderAiMessages(body?.messages);
@@ -2394,6 +2415,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   let projectFiles: ReaderAiFileEntry[] | null = null;
   const projectId = typeof body?.project_id === 'string' ? body.project_id.trim() : '';
   if (projectId) {
+    if (!session) throw new ClientError('Project mode requires sign in', 401);
     const ps = getProjectSession(projectId, session.githubUserId);
     if (!ps) throw new ClientError('Project session not found or expired', 404);
     // Touch TTL so long-running tool loops don't expire the session mid-request
@@ -2426,7 +2448,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     const evicted = allMessages.slice(0, -READER_AI_CONTEXT_WINDOW_MESSAGES);
     const kept = allMessages.slice(-READER_AI_CONTEXT_WINDOW_MESSAGES);
     try {
-      newSummary = await summarizeReaderAiConversation(model, evicted, existingSummary, ctx.req);
+      newSummary = await summarizeReaderAiConversation(model, evicted, existingSummary, ctx.req, session);
     } catch {
       newSummary = existingSummary || null;
       if (!existingSummary) summarizationFailed = true;
@@ -2452,8 +2474,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
   };
-  const cachedModels = readerAiModelsCache?.value ?? [];
-  const modelEntry = cachedModels.find((m) => m.id === model);
+  const modelEntry = allowedModels.find((m) => m.id === model);
   const contextTokens = modelEntry?.context_length || 0;
 
   // Build system prompt and tool set based on mode
@@ -2495,7 +2516,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const onClientClose = () => abortController.abort();
   ctx.req.on('close', onClientClose);
 
-  const upstreamHeaders = openRouterHeaders(ctx.req, getOpenRouterApiKeyForModel(model));
+  const upstreamHeaders = openRouterHeaders(ctx.req, getOpenRouterApiKeyForModel(model, session));
 
   const callUpstream = (timeoutMs: number) =>
     fetch('https://openrouter.ai/api/v1/chat/completions', {
