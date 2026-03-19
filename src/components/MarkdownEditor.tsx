@@ -216,7 +216,7 @@ export function MarkdownEditor({
             onPasteRef.current?.(event, view);
           },
         }),
-        Prec.high(
+        Prec.highest(
           keymap.of([
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },

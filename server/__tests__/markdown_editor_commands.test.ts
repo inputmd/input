@@ -1,7 +1,18 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { EditorSelection, EditorState, type Extension, Transaction, type TransactionSpec } from '@codemirror/state';
-import type { EditorView } from '@codemirror/view';
+import {
+  EditorSelection,
+  EditorState,
+  type Extension,
+  Prec,
+  Transaction,
+  type TransactionSpec,
+} from '@codemirror/state';
+import { EditorView, keymap, runScopeHandlers } from '@codemirror/view';
 import test from 'ava';
+import { JSDOM } from 'jsdom';
+import { continuedIndentExtension } from '../../src/components/codemirror_continued_indent.ts';
+import { fencedCodeLineClassExtension } from '../../src/components/codemirror_fenced_code_lines.ts';
+import { markdownEditorLanguageSupport, promptListAnsweringFacet } from '../../src/components/codemirror_markdown.ts';
 import {
   buildExternalContentSyncTransaction,
   buildExternalEditorChangeTransaction,
@@ -28,6 +39,45 @@ function makeMockView(doc: string, selection?: EditorSelection, extensions: Exte
       currentState = transaction.state;
     },
   } as EditorView;
+}
+
+function installDomGlobals(dom: JSDOM): () => void {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousMutationObserver = globalThis.MutationObserver;
+  const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
+  const previousCancelAnimationFrame = globalThis.cancelAnimationFrame;
+  const previousHTMLElement = globalThis.HTMLElement;
+  const previousNode = globalThis.Node;
+  const previousWindowCtor = (globalThis as typeof globalThis & { Window?: typeof Window }).Window;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+  dom.window.requestAnimationFrame = () => 0;
+  dom.window.cancelAnimationFrame = () => {};
+  globalThis.window = dom.window as typeof globalThis.window;
+  globalThis.document = dom.window.document;
+  globalThis.MutationObserver = dom.window.MutationObserver as typeof globalThis.MutationObserver;
+  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
+  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
+  Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
+  globalThis.HTMLElement = dom.window.HTMLElement as typeof globalThis.HTMLElement;
+  globalThis.Node = dom.window.Node as typeof globalThis.Node;
+  (globalThis as typeof globalThis & { Window?: typeof Window }).Window = dom.window.Window as typeof Window;
+  globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+
+  return () => {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.MutationObserver = previousMutationObserver;
+    globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+    globalThis.cancelAnimationFrame = previousCancelAnimationFrame;
+    globalThis.HTMLElement = previousHTMLElement;
+    globalThis.Node = previousNode;
+    (globalThis as typeof globalThis & { Window?: typeof Window }).Window = previousWindowCtor;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+    if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+  };
 }
 
 test('wrapWithMarker wraps selected text and keeps selection around content', (t) => {
@@ -377,6 +427,56 @@ test('getPromptListRequest ignores non-question prompt list lines and non-termin
 
   t.is(getPromptListRequest(nonTerminal), null);
   t.is(getPromptListRequest(answerLine), null);
+});
+
+test('prompt question Enter binding wins over markdown Enter handling for multiline answers', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    let submitted = false;
+    const doc = [
+      '-* What are some novel HCI interfaces that I could implement inside a text editor?',
+      '-⏺ - Semantic zoom for code: pinch/keys to smoothly move between tokens, lines, blocks, functions, and architecture views.',
+      '   - Intent lens: hold a modifier to reveal why code exists, likely next edits, and affected symbols inline.',
+      '-* More?',
+    ].join('\n');
+
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(doc.length),
+        extensions: [
+          markdownEditorLanguageSupport(),
+          promptListAnsweringFacet.of(false),
+          EditorState.tabSize.of(2),
+          EditorView.lineWrapping,
+          fencedCodeLineClassExtension,
+          continuedIndentExtension({ mode: 'markdown', maxColumns: 10 }),
+          Prec.highest(
+            keymap.of([
+              {
+                key: 'Enter',
+                run: (editorView) => {
+                  const request = getPromptListRequest(editorView.state);
+                  if (!request) return false;
+                  submitted = true;
+                  return true;
+                },
+              },
+            ]),
+          ),
+        ],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    const event = new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+    t.true(runScopeHandlers(view, event, 'editor'));
+    t.true(submitted);
+  } finally {
+    restore();
+  }
 });
 
 test('normalizeBlockquotePaste continues blockquote prefixes for pasted multiline text', (t) => {
