@@ -143,7 +143,7 @@ const PASTED_IMAGE_QUALITY = 0.82;
 const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
 function displayReaderAiModelName(name: string): string {
-  return name.replace(/\s+\(free\)\s*$/i, '');
+  return name.replace(/\s+\((free|paid)\)\s*$/i, '');
 }
 
 function formatBytes(bytes: number): string {
