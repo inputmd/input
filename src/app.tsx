@@ -1410,6 +1410,7 @@ export function App() {
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const editViewControllerRef = useRef<EditorController | null>(null);
   const saveInFlightRef = useRef(false);
+  const postSaveVerificationRef = useRef<PostSaveVerificationState | null>(postSaveVerification);
   const currentFileNameRef = useRef<string | null>(currentFileName);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
@@ -1418,6 +1419,26 @@ export function App() {
   const editContentRef = useRef(editContent);
   editContentRef.current = editContent;
   currentFileNameRef.current = currentFileName;
+  const updatePostSaveVerification = useCallback(
+    (
+      next:
+        | PostSaveVerificationState
+        | null
+        | ((previous: PostSaveVerificationState | null) => PostSaveVerificationState | null),
+    ) => {
+      if (typeof next === 'function') {
+        setPostSaveVerification((previous) => {
+          const resolved = next(previous);
+          postSaveVerificationRef.current = resolved;
+          return resolved;
+        });
+        return;
+      }
+      postSaveVerificationRef.current = next;
+      setPostSaveVerification(next);
+    },
+    [],
+  );
   const setNextEditContent = useCallback(
     (
       nextContent: string | ((previousContent: string) => string),
@@ -1445,9 +1466,9 @@ export function App() {
     (editingBackend !== 'repo' || currentRepoDocPath !== targetRepoEditPath || currentFileName !== targetRepoEditPath);
   const shouldPreserveVerifiedContent =
     currentRouteKey !== null &&
-    postSaveVerification !== null &&
-    postSaveVerification.routeKey === currentRouteKey &&
-    (postSaveVerification.status === 'verifying' || postSaveVerification.status === 'delayed');
+    postSaveVerificationRef.current !== null &&
+    postSaveVerificationRef.current.routeKey === currentRouteKey &&
+    (postSaveVerificationRef.current.status === 'verifying' || postSaveVerificationRef.current.status === 'delayed');
   const currentEditingDocPath = useMemo(
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
@@ -2772,7 +2793,7 @@ export function App() {
           return;
         }
         case 'repofile': {
-          if (routeKeyFromRoute(r) === postSaveVerification?.routeKey) {
+          if (routeKeyFromRoute(r) === postSaveVerificationRef.current?.routeKey) {
             setViewPhase(null);
             setContentLoadPending(false);
             return;
@@ -3064,7 +3085,7 @@ export function App() {
           return;
         }
         case 'gist': {
-          if (routeKeyFromRoute(r) === postSaveVerification?.routeKey) {
+          if (routeKeyFromRoute(r) === postSaveVerificationRef.current?.routeKey) {
             setViewPhase(null);
             setContentLoadPending(false);
             return;
@@ -3102,7 +3123,6 @@ export function App() {
       handleSessionExpired,
       showRateLimitToastIfNeeded,
       showAlert,
-      postSaveVerification,
       defaultPreviewVisible,
       selectedRepo,
       installationRepos,
@@ -3157,8 +3177,8 @@ export function App() {
     if (!postSaveVerification) return;
     if (postSaveVerification.routeKey === currentRouteKey) return;
     if (currentRouteKey === null && (route.name === 'edit' || route.name === 'repoedit')) return;
-    setPostSaveVerification(null);
-  }, [currentRouteKey, postSaveVerification, route.name]);
+    updatePostSaveVerification(null);
+  }, [currentRouteKey, postSaveVerification, route.name, updatePostSaveVerification]);
 
   useEffect(() => {
     if (!postSaveVerification || postSaveVerification.status !== 'verifying') return;
@@ -3183,7 +3203,7 @@ export function App() {
             });
             if (cancelled) return;
             if (isRepoFile(verified) && verified.sha === expectedSha) {
-              setPostSaveVerification((prev) => (prev?.routeKey === postSaveVerification.routeKey ? null : prev));
+              updatePostSaveVerification((prev) => (prev?.routeKey === postSaveVerification.routeKey ? null : prev));
               return;
             }
           } else {
@@ -3194,7 +3214,7 @@ export function App() {
             const verified = await getGist(gistId, { forceRefresh: true });
             if (cancelled) return;
             if (verified.updated_at === expectedUpdatedAt && verified.files[filename]) {
-              setPostSaveVerification((prev) => (prev?.routeKey === postSaveVerification.routeKey ? null : prev));
+              updatePostSaveVerification((prev) => (prev?.routeKey === postSaveVerification.routeKey ? null : prev));
               return;
             }
           }
@@ -3204,7 +3224,7 @@ export function App() {
       }
 
       if (cancelled) return;
-      setPostSaveVerification((prev) =>
+      updatePostSaveVerification((prev) =>
         prev?.routeKey === postSaveVerification.routeKey ? { ...prev, status: 'delayed' } : prev,
       );
       showFailureToast('Saved, but GitHub has not returned the new version yet. Keeping your local content on screen.');
@@ -3214,7 +3234,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [postSaveVerification, showFailureToast]);
+  }, [postSaveVerification, showFailureToast, updatePostSaveVerification]);
 
   // --- Draft persistence ---
   useEffect(() => {
@@ -4875,7 +4895,7 @@ export function App() {
           });
           if (selectedRepoRef) {
             const routeKey = routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath);
-            setPostSaveVerification({
+            updatePostSaveVerification({
               routeKey,
               status: 'verifying',
               kind: 'repo',
@@ -4938,7 +4958,7 @@ export function App() {
           });
           if (selectedRepoRef) {
             const routeKey = routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, createdPath);
-            setPostSaveVerification({
+            updatePostSaveVerification({
               routeKey,
               status: 'verifying',
               kind: 'repo',
@@ -4999,7 +5019,7 @@ export function App() {
             knownMarkdownPaths: Object.keys(gist.files),
           });
           const routeKey = routeKeyForGist(gist.id, filename);
-          setPostSaveVerification({
+          updatePostSaveVerification({
             routeKey,
             status: 'verifying',
             kind: 'gist',
@@ -5063,6 +5083,7 @@ export function App() {
       showAlert,
       showRateLimitToastIfNeeded,
       showSuccessToast,
+      updatePostSaveVerification,
       user,
       gistFiles,
     ],
