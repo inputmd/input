@@ -11,6 +11,8 @@ import {
   FolderClosed,
   FolderOpen,
   Image,
+  MoreVertical,
+  Plus,
 } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
@@ -1146,7 +1148,7 @@ export function Sidebar({
               title="Add file"
               onClick={() => startCreateScratchFile(resolveCreateParentFromFocus())}
             >
-              <span class="sidebar-add-btn-icon">+</span>
+              <Plus size={14} className="sidebar-add-btn-icon" aria-hidden="true" />
             </button>
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
@@ -1156,7 +1158,7 @@ export function Sidebar({
                   title="Add options"
                   aria-label="Add options"
                 >
-                  <ChevronDown size={14} className="sidebar-add-btn-menu-icon" />
+                  <MoreVertical size={14} className="sidebar-add-btn-menu-icon" />
                 </button>
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>

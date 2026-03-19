@@ -130,8 +130,9 @@
 
 .sidebar-add-btn {
   min-height: 24px;
+  width: 28px;
   min-width: 28px;
-  padding: 0 6px;
+  padding: 0;
   font-size: 16px;
   line-height: 1;
 }
@@ -147,8 +148,6 @@
 }
 
 .sidebar-add-btn-menu {
-  min-width: 24px;
-  padding: 0 4px;
   border-left: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
@@ -166,8 +165,7 @@
 }
 
 .sidebar-add-btn-icon {
-  display: inline-block;
-  transform: translateY(-1px);
+  transform: translateY(1px);
 }
 
 .sidebar-files {
