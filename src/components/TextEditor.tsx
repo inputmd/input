@@ -14,7 +14,12 @@ import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_posi
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { detectedLanguageForFileName } from './codemirror_languages';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
-import { buildExternalContentSyncTransaction, isExternalSyncTransaction } from './markdown_editor_commands';
+import type { EditorController } from './editor_controller';
+import {
+  buildExternalContentSyncTransaction,
+  buildExternalEditorChangeTransaction,
+  isExternalSyncTransaction,
+} from './markdown_editor_commands';
 
 interface TextEditorProps {
   content: string;
@@ -26,6 +31,7 @@ interface TextEditorProps {
   readOnly?: boolean;
   placeholder?: string;
   scrollStorageKey?: string | null;
+  onEditorReady?: (controller: EditorController | null) => void;
   class?: string;
 }
 
@@ -39,10 +45,12 @@ export function TextEditor({
   readOnly = false,
   placeholder = 'Write your text here...',
   scrollStorageKey = null,
+  onEditorReady,
   class: className,
 }: TextEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const editorControllerRef = useRef<EditorController | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
   const languageCompartment = useRef(new Compartment());
@@ -53,6 +61,8 @@ export function TextEditor({
 
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
+  const onEditorReadyRef = useRef(onEditorReady);
+  onEditorReadyRef.current = onEditorReady;
 
   const latestLocalRevisionRef = useRef(0);
 
@@ -94,6 +104,15 @@ export function TextEditor({
     const view = new EditorView({ state, parent: containerRef.current });
     viewRef.current = view;
     currentScrollStorageKeyRef.current = scrollStorageKey;
+    editorControllerRef.current = {
+      applyExternalChange: (change) => {
+        const transaction = buildExternalEditorChangeTransaction(view.state, change);
+        if (!transaction) return false;
+        view.dispatch(transaction);
+        return true;
+      },
+    };
+    onEditorReadyRef.current?.(editorControllerRef.current);
 
     restoreScrollPositionRef.current = () => {
       const key = currentScrollStorageKeyRef.current;
@@ -125,10 +144,16 @@ export function TextEditor({
       window.removeEventListener('pagehide', persistOnPageHide);
       window.removeEventListener('beforeunload', persistOnPageHide);
       restoreScrollPositionRef.current = null;
+      editorControllerRef.current = null;
+      onEditorReadyRef.current?.(null);
       view.destroy();
       viewRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    onEditorReady?.(editorControllerRef.current);
+  }, [onEditorReady]);
 
   useEffect(() => {
     const view = viewRef.current;

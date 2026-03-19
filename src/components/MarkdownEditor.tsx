@@ -18,8 +18,10 @@ import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { type InlinePromptRequest, inlinePromptCompletionSource } from './codemirror_inline_prompt';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codemirror_markdown';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
+import type { EditorController } from './editor_controller';
 import {
   buildExternalContentSyncTransaction,
+  buildExternalEditorChangeTransaction,
   getPromptListRequest,
   insertNewlineContinueLooseListItem,
   insertNewlineContinuePromptAnswer,
@@ -44,6 +46,7 @@ interface MarkdownEditorProps {
   readOnly?: boolean;
   placeholder?: string;
   scrollStorageKey?: string | null;
+  onEditorReady?: (controller: EditorController | null) => void;
   class?: string;
 }
 
@@ -61,10 +64,12 @@ export function MarkdownEditor({
   readOnly = false,
   placeholder = 'Write your markdown here...',
   scrollStorageKey = null,
+  onEditorReady,
   class: className,
 }: MarkdownEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const editorControllerRef = useRef<EditorController | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
   const promptListAnsweringCompartment = useRef(new Compartment());
@@ -85,6 +90,8 @@ export function MarkdownEditor({
   inlinePromptActiveRef.current = inlinePromptActive;
   const onPasteRef = useRef(onPaste);
   onPasteRef.current = onPaste;
+  const onEditorReadyRef = useRef(onEditorReady);
+  onEditorReadyRef.current = onEditorReady;
 
   const latestLocalRevisionRef = useRef(0);
 
@@ -174,6 +181,15 @@ export function MarkdownEditor({
     const view = new EditorView({ state, parent: containerRef.current });
     viewRef.current = view;
     currentScrollStorageKeyRef.current = scrollStorageKey;
+    editorControllerRef.current = {
+      applyExternalChange: (change) => {
+        const transaction = buildExternalEditorChangeTransaction(view.state, change);
+        if (!transaction) return false;
+        view.dispatch(transaction);
+        return true;
+      },
+    };
+    onEditorReadyRef.current?.(editorControllerRef.current);
 
     restoreScrollPositionRef.current = () => {
       const key = currentScrollStorageKeyRef.current;
@@ -205,11 +221,17 @@ export function MarkdownEditor({
       window.removeEventListener('pagehide', persistOnPageHide);
       window.removeEventListener('beforeunload', persistOnPageHide);
       restoreScrollPositionRef.current = null;
+      editorControllerRef.current = null;
+      onEditorReadyRef.current?.(null);
       view.destroy();
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    onEditorReady?.(editorControllerRef.current);
+  }, [onEditorReady]);
 
   // Sync external content changes (Reader AI applying edits, file switch, etc.)
   useEffect(() => {

@@ -7,6 +7,7 @@ import { CompactCommitsDialog } from './components/CompactCommitsDialog';
 import type { InlinePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import type { EditorController } from './components/editor_controller';
 import { ImageLightbox } from './components/ImageLightbox';
 import type { PromptListRequest } from './components/markdown_editor_commands';
 import { normalizeBlockquotePaste } from './components/markdown_editor_commands';
@@ -141,6 +142,20 @@ const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
 const PASTED_IMAGE_MAX_SIDE_PX = 1600;
 const PASTED_IMAGE_QUALITY = 0.82;
 const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+
+function commonPrefixLength(a: string, b: string): number {
+  const limit = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < limit && a.charCodeAt(i) === b.charCodeAt(i)) i += 1;
+  return i;
+}
+
+function commonSuffixLength(a: string, b: string, prefixLength: number): number {
+  const max = Math.min(a.length, b.length) - prefixLength;
+  let i = 0;
+  while (i < max && a.charCodeAt(a.length - 1 - i) === b.charCodeAt(b.length - 1 - i)) i += 1;
+  return i;
+}
 
 function displayReaderAiModelName(name: string): string {
   return name.replace(/\s+\((free|paid)\)\s*$/i, '');
@@ -1428,6 +1443,7 @@ export function App() {
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
+  const editViewControllerRef = useRef<EditorController | null>(null);
   const saveInFlightRef = useRef(false);
   const currentFileNameRef = useRef<string | null>(currentFileName);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
@@ -4300,11 +4316,15 @@ export function App() {
       inlinePromptAbortRef.current = controller;
       setInlinePromptStreaming(true);
 
-      const before = documentContent.slice(0, from);
-      const after = documentContent.slice(to);
       let streamed = '';
 
-      setNextEditContent(before + after, {
+      editViewControllerRef.current?.applyExternalChange({
+        from,
+        to,
+        insert: '',
+        selection: { anchor: from, head: from },
+      });
+      setNextEditContent((previousContent) => previousContent.slice(0, from) + previousContent.slice(to), {
         selection: { anchor: from, head: from },
       });
       setHasUserTypedUnsavedChanges(true);
@@ -4318,11 +4338,17 @@ export function App() {
           {
             signal: controller.signal,
             onDelta: (delta) => {
-              streamed += delta;
-              const nextHead = from + streamed.length;
-              setNextEditContent(before + streamed + after, {
-                selection: { anchor: nextHead, head: nextHead },
+              if (!delta) return;
+              const insertAt = from + streamed.length;
+              editViewControllerRef.current?.applyExternalChange({
+                from: insertAt,
+                to: insertAt,
+                insert: delta,
               });
+              streamed += delta;
+              setNextEditContent(
+                (previousContent) => previousContent.slice(0, insertAt) + delta + previousContent.slice(insertAt),
+              );
             },
           },
           undefined,
@@ -4373,15 +4399,21 @@ export function App() {
       inlinePromptAbortRef.current = controller;
       setInlinePromptStreaming(true);
 
-      const before = documentContent.slice(0, insertFrom);
-      const after = documentContent.slice(insertTo);
-      const baseContent = `${before}${insertedPrefix}`;
       let streamedRaw = '';
       let streamedAnswer = '';
 
-      setNextEditContent(baseContent + after, {
+      editViewControllerRef.current?.applyExternalChange({
+        from: insertFrom,
+        to: insertTo,
+        insert: insertedPrefix,
         selection: { anchor: answerFrom, head: answerFrom },
       });
+      setNextEditContent(
+        (previousContent) => previousContent.slice(0, insertFrom) + insertedPrefix + previousContent.slice(insertTo),
+        {
+          selection: { anchor: answerFrom, head: answerFrom },
+        },
+      );
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
 
@@ -4397,11 +4429,21 @@ export function App() {
               streamedRaw += delta;
               const nextAnswer = formatPromptListAnswer(streamedRaw, answerIndent);
               if (nextAnswer === streamedAnswer) return;
-              streamedAnswer = nextAnswer;
-              const nextHead = answerFrom + streamedAnswer.length;
-              setNextEditContent(baseContent + streamedAnswer + after, {
-                selection: { anchor: nextHead, head: nextHead },
+              const prefix = commonPrefixLength(streamedAnswer, nextAnswer);
+              const suffix = commonSuffixLength(streamedAnswer, nextAnswer, prefix);
+              const replaceFrom = answerFrom + prefix;
+              const replaceTo = answerFrom + streamedAnswer.length - suffix;
+              const insertText = nextAnswer.slice(prefix, nextAnswer.length - suffix);
+              editViewControllerRef.current?.applyExternalChange({
+                from: replaceFrom,
+                to: replaceTo,
+                insert: insertText,
               });
+              streamedAnswer = nextAnswer;
+              setNextEditContent(
+                (previousContent) =>
+                  previousContent.slice(0, replaceFrom) + insertText + previousContent.slice(replaceTo),
+              );
             },
           },
           undefined,
@@ -6436,6 +6478,9 @@ export function App() {
             onRequestMarkdownLinkPreview={onRequestMarkdownLinkPreview}
             onPreviewImageClick={onOpenLightbox}
             onEditorPaste={editPreviewEnabled ? handleEditorPaste : undefined}
+            onEditorReady={(controller) => {
+              editViewControllerRef.current = controller;
+            }}
             saving={saving}
             canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
             hasUserTypedUnsavedChanges={hasUserTypedUnsavedChanges}

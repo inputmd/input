@@ -4,6 +4,7 @@ import { EditorSelection, type EditorState, Transaction, type TransactionSpec } 
 import type { EditorView } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 import { matchPromptListLine } from '../prompt_list_syntax.ts';
+import type { ExternalEditorChange } from './editor_controller';
 
 interface PromptListThreadMessage {
   role: 'user' | 'assistant';
@@ -80,11 +81,42 @@ export function buildExternalContentSyncTransaction(
   if (currentDoc === content) return null;
 
   const prevSel = state.selection.main;
+  return buildExternalEditorChangeTransaction(state, {
+    from: 0,
+    to: currentDoc.length,
+    insert: content,
+    selection: selection ?? {
+      anchor: Math.min(prevSel.anchor, content.length),
+      head: Math.min(prevSel.head, content.length),
+    },
+  });
+}
+
+export function buildExternalEditorChangeTransaction(
+  state: EditorState,
+  change: ExternalEditorChange,
+): TransactionSpec | null {
+  const currentDoc = state.doc.toString();
+  const contentLength = currentDoc.length;
+  const from = Math.max(0, Math.min(change.from, contentLength));
+  const to = Math.max(from, Math.min(change.to, contentLength));
+  const insert = change.insert;
+  const hasDocChange = currentDoc.slice(from, to) !== insert;
+
+  let nextSelection: { anchor: number; head: number } | undefined;
+  if (change.selection) {
+    const nextContentLength = contentLength - (to - from) + insert.length;
+    nextSelection = {
+      anchor: Math.max(0, Math.min(change.selection.anchor, nextContentLength)),
+      head: Math.max(0, Math.min(change.selection.head, nextContentLength)),
+    };
+  }
+
+  if (!hasDocChange && nextSelection === undefined) return null;
+
   return {
-    changes: { from: 0, to: currentDoc.length, insert: content },
-    selection: selection
-      ? EditorSelection.range(Math.min(selection.anchor, content.length), Math.min(selection.head, content.length))
-      : EditorSelection.cursor(Math.min(prevSel.head, content.length)),
+    changes: hasDocChange ? { from, to, insert } : undefined,
+    selection: nextSelection,
     annotations: [externalSyncAnnotation, Transaction.addToHistory.of(false)],
   };
 }
