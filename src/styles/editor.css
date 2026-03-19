@@ -188,7 +188,7 @@
 
 .mobile-preview-pane .rendered-markdown {
   max-width: 640px;
-  margin: 24px auto 0;
+  margin: calc(var(--editor-padding-y) - 2px) auto 0;
 }
 
 @media (min-width: 1024px) {
@@ -238,7 +238,7 @@
   }
 
   .editor-preview-pane .rendered-markdown {
-    padding: 24px 27px 40px;
+    padding: calc(var(--editor-padding-y) - 2px) var(--editor-padding-x) 40px;
     min-height: 100%;
   }
 }

@@ -14,7 +14,7 @@
 
 .doc-editor .cm-scroller {
   overflow: auto;
-  padding: 24px 27px;
+  padding: var(--editor-padding-y) var(--editor-padding-x);
   font-family: inherit;
   font-size: inherit;
   line-height: var(--reader-editor-line-height);
@@ -28,6 +28,41 @@
 
 .doc-editor .cm-line {
   padding: 0;
+}
+
+.doc-editor .cm-activeLine {
+  position: relative;
+  z-index: 0;
+  background: transparent;
+}
+
+.doc-editor .cm-activeLine::after {
+  position: absolute;
+  inset: 0 calc(-1 * var(--editor-padding-x));
+  background: transparent;
+  content: "";
+  pointer-events: none;
+  z-index: -1;
+}
+
+.doc-editor .cm-editor.cm-focused .cm-activeLine {
+  background: transparent;
+}
+
+[data-theme="light"] .doc-editor .cm-editor.cm-focused .cm-activeLine::after {
+  background: color-mix(in srgb, var(--selection-bg) 24%, transparent);
+}
+
+[data-theme="light"] .doc-editor .cm-editor.cm-focused .cm-activeLine {
+  background: transparent;
+}
+
+[data-theme="dark"] .doc-editor .cm-editor.cm-focused .cm-activeLine::after {
+  background: color-mix(in srgb, var(--text-secondary) 14%, transparent);
+}
+
+[data-theme="dark"] .doc-editor .cm-editor.cm-focused .cm-activeLine {
+  background: transparent;
 }
 
 .doc-editor .cm-line.cm-prompt-list-item {

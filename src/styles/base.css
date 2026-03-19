@@ -32,6 +32,8 @@
   --reader-metadata-font-size: 0.94em;
   --sidebar-font-size: 14px;
   --reader-editor-line-height: 1.6;
+  --editor-padding-y: 24px;
+  --editor-padding-x: 27px;
   --code-content-accent: #a25031;
   --code-content-color: color-mix(in srgb, var(--text) 70%, var(--code-content-accent));
   --selection-bg: #123f88;

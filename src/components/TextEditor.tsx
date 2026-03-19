@@ -4,6 +4,7 @@ import { Compartment, EditorState } from '@codemirror/state';
 import {
   drawSelection,
   EditorView,
+  highlightActiveLine,
   highlightSpecialChars,
   keymap,
   placeholder as placeholderExt,
@@ -121,6 +122,7 @@ export function TextEditor({
         highlightSpecialChars(),
         history(),
         drawSelection(),
+        highlightActiveLine(),
         indentOnInput(),
         syntaxHighlighting(appCodeMirrorHighlighter, { fallback: true }),
         bracketMatching(),

@@ -5,6 +5,7 @@ import { Compartment, EditorState, Prec } from '@codemirror/state';
 import {
   drawSelection,
   EditorView,
+  highlightActiveLine,
   highlightSpecialChars,
   keymap,
   placeholder as placeholderExt,
@@ -156,6 +157,7 @@ export function MarkdownEditor({
         highlightSpecialChars(),
         history(),
         drawSelection(),
+        highlightActiveLine(),
         indentOnInput(),
         syntaxHighlighting(appCodeMirrorHighlighter),
         bracketMatching(),
