@@ -29,7 +29,8 @@
   --reader-metadata-font-size: 0.94em;
   --sidebar-font-size: 14px;
   --reader-editor-line-height: 1.6;
-  --code-content-color: color-mix(in srgb, var(--text) 70%, var(--ansi-cyan));
+  --code-content-accent: #a25031;
+  --code-content-color: color-mix(in srgb, var(--text) 70%, var(--code-content-accent));
   --selection-bg: #123f88;
   --selection-color: #eef5ff;
   --toolbar-height: 52px;
@@ -78,7 +79,8 @@
   --editor-font-size: 14.5px;
   --reader-markdown-font-size: 15.5px;
   --reader-preformatted-font-size: 14px;
-  --code-content-color: color-mix(in srgb, var(--text) 60%, var(--ansi-cyan));
+  --code-content-accent: #f5b98b;
+  --code-content-color: color-mix(in srgb, var(--text) 60%, var(--code-content-accent));
   --selection-bg: #2a70ff;
   --selection-color: #ffffff;
 
