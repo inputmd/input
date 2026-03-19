@@ -11,7 +11,7 @@ import {
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
-import { useEffect, useRef } from 'preact/hooks';
+import { useCallback, useEffect, useRef } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
@@ -69,6 +69,7 @@ export function MarkdownEditor({
   class: className,
 }: MarkdownEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
+  const SCROLL_DEBUG_STORAGE_KEY = 'input_debug_editor_scroll';
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const editorControllerRef = useRef<EditorController | null>(null);
@@ -104,12 +105,63 @@ export function MarkdownEditor({
     return view.scrollDOM.scrollTop;
   };
 
+  const debugScroll = useCallback((event: string, details?: Record<string, unknown>) => {
+    if (typeof window === 'undefined') return;
+    let enabled = false;
+    try {
+      enabled =
+        window.localStorage.getItem(SCROLL_DEBUG_STORAGE_KEY) === '1' ||
+        (window as typeof window & { __INPUT_DEBUG_EDITOR_SCROLL__?: boolean }).__INPUT_DEBUG_EDITOR_SCROLL__ === true;
+    } catch {}
+    if (!enabled) return;
+    console.debug('[editor-scroll]', 'markdown', event, {
+      scrollTop: viewRef.current?.scrollDOM.scrollTop ?? null,
+      scrollHeight: viewRef.current?.scrollDOM.scrollHeight ?? null,
+      clientHeight: viewRef.current?.scrollDOM.clientHeight ?? null,
+      windowScrollY: typeof window !== 'undefined' ? window.scrollY : null,
+      streamingCursor: streamingCursorPositionRef.current,
+      following: streamingCursorFollowingRef.current,
+      ...details,
+    });
+  }, []);
+
   const clampPosition = (view: EditorView, position: number): number => {
     return Math.max(0, Math.min(position, view.state.doc.length));
   };
 
+  const editorUsesOwnScroll = (view: EditorView): boolean => {
+    return view.scrollDOM.scrollHeight > view.scrollDOM.clientHeight + 1;
+  };
+
+  const scrollWindowToKeepPositionVisible = (view: EditorView, position: number) => {
+    const coords = view.coordsAtPos(clampPosition(view, position));
+    if (!coords) return;
+    const viewportTop = window.scrollY;
+    const viewportBottom = viewportTop + window.innerHeight;
+    const targetTop = coords.top + window.scrollY;
+    const targetBottom = coords.bottom + window.scrollY;
+    const minVisibleTop = viewportTop + STREAMING_CURSOR_VIEWPORT_MARGIN_PX;
+    const maxVisibleBottom = viewportBottom - STREAMING_CURSOR_VIEWPORT_MARGIN_PX;
+
+    if (targetBottom > maxVisibleBottom) {
+      window.scrollTo({ top: Math.max(0, targetBottom - window.innerHeight + STREAMING_CURSOR_VIEWPORT_MARGIN_PX) });
+      return;
+    }
+    if (targetTop < minVisibleTop) {
+      window.scrollTo({ top: Math.max(0, targetTop - STREAMING_CURSOR_VIEWPORT_MARGIN_PX) });
+    }
+  };
+
   const isPositionNearViewport = (view: EditorView, position: number): boolean => {
     const clampedPosition = clampPosition(view, position);
+    if (!editorUsesOwnScroll(view)) {
+      const coords = view.coordsAtPos(clampedPosition);
+      if (!coords) return true;
+      return (
+        coords.top >= STREAMING_CURSOR_VIEWPORT_MARGIN_PX &&
+        coords.bottom <= window.innerHeight - STREAMING_CURSOR_VIEWPORT_MARGIN_PX
+      );
+    }
     const lineBlock = view.lineBlockAt(clampedPosition);
     const viewportTop = view.scrollDOM.scrollTop;
     const viewportBottom = viewportTop + view.scrollDOM.clientHeight;
@@ -122,13 +174,18 @@ export function MarkdownEditor({
   };
 
   const scrollStreamingCursorIntoView = (view: EditorView, position: number) => {
+    debugScroll('stream-scroll-into-view', { position });
     ignoreNextStreamingScrollEventRef.current = true;
-    view.dispatch({
-      effects: EditorView.scrollIntoView(clampPosition(view, position), {
-        y: 'end',
-        yMargin: STREAMING_CURSOR_VIEWPORT_MARGIN_PX,
-      }),
-    });
+    if (editorUsesOwnScroll(view)) {
+      view.dispatch({
+        effects: EditorView.scrollIntoView(clampPosition(view, position), {
+          y: 'end',
+          yMargin: STREAMING_CURSOR_VIEWPORT_MARGIN_PX,
+        }),
+      });
+    } else {
+      scrollWindowToKeepPositionVisible(view, position);
+    }
     window.requestAnimationFrame(() => {
       ignoreNextStreamingScrollEventRef.current = false;
     });
@@ -228,6 +285,7 @@ export function MarkdownEditor({
         const clampedPosition = clampPosition(view, position);
         streamingCursorPositionRef.current = clampedPosition;
         streamingCursorFollowingRef.current = isPositionNearViewport(view, clampedPosition);
+        debugScroll('stream-start', { position: clampedPosition });
         if (streamingCursorFollowingRef.current) {
           scrollStreamingCursorIntoView(view, clampedPosition);
         }
@@ -236,10 +294,12 @@ export function MarkdownEditor({
         if (streamingCursorPositionRef.current == null) return;
         const clampedPosition = clampPosition(view, position);
         streamingCursorPositionRef.current = clampedPosition;
+        debugScroll('stream-update', { position: clampedPosition });
         if (!streamingCursorFollowingRef.current) return;
         scrollStreamingCursorIntoView(view, clampedPosition);
       },
       stopStreamingCursorTracking: () => {
+        debugScroll('stream-stop');
         streamingCursorPositionRef.current = null;
         streamingCursorFollowingRef.current = false;
         ignoreNextStreamingScrollEventRef.current = false;
@@ -248,10 +308,20 @@ export function MarkdownEditor({
     onEditorReadyRef.current?.(editorControllerRef.current);
 
     restoreScrollPositionRef.current = () => {
+      if (streamingCursorPositionRef.current != null) {
+        debugScroll('restore-skipped-streaming');
+        return;
+      }
       const key = currentScrollStorageKeyRef.current;
       const nextScrollTop = key ? (getStoredScrollPosition(key) ?? 0) : 0;
+      debugScroll('restore-scheduled', { key, nextScrollTop });
       window.requestAnimationFrame(() => {
         if (viewRef.current !== view) return;
+        if (streamingCursorPositionRef.current != null) {
+          debugScroll('restore-cancelled-streaming', { key, nextScrollTop });
+          return;
+        }
+        debugScroll('restore-applied', { key, nextScrollTop });
         view.scrollDOM.scrollTop = nextScrollTop;
       });
     };
@@ -259,12 +329,14 @@ export function MarkdownEditor({
     const syncScrollPosition = () => {
       if (streamingCursorPositionRef.current != null && !ignoreNextStreamingScrollEventRef.current) {
         streamingCursorFollowingRef.current = isPositionNearViewport(view, streamingCursorPositionRef.current);
+        debugScroll('stream-follow-state', { following: streamingCursorFollowingRef.current });
       }
       const key = currentScrollStorageKeyRef.current;
       if (!key) return;
       setStoredScrollPosition(key, readScrollPosition(view));
     };
     view.scrollDOM.addEventListener('scroll', syncScrollPosition, { passive: true });
+    window.addEventListener('scroll', syncScrollPosition, { passive: true });
 
     const persistOnPageHide = () => {
       syncScrollPosition();
@@ -277,6 +349,7 @@ export function MarkdownEditor({
     return () => {
       syncScrollPosition();
       view.scrollDOM.removeEventListener('scroll', syncScrollPosition);
+      window.removeEventListener('scroll', syncScrollPosition);
       window.removeEventListener('pagehide', persistOnPageHide);
       window.removeEventListener('beforeunload', persistOnPageHide);
       restoreScrollPositionRef.current = null;
@@ -301,26 +374,34 @@ export function MarkdownEditor({
     if (!view) return;
     const currentDoc = view.state.doc.toString();
     if (content === currentDoc) {
-      if (pendingScrollRestoreKeyRef.current === scrollStorageKey) {
-        pendingScrollRestoreKeyRef.current = null;
-        restoreScrollPositionRef.current?.();
-      }
+      debugScroll('external-sync-noop', { contentOrigin, contentRevision });
+      if (pendingScrollRestoreKeyRef.current === scrollStorageKey) pendingScrollRestoreKeyRef.current = null;
       return;
     }
 
     if (contentOrigin === 'local' && contentRevision <= latestLocalRevisionRef.current) {
+      debugScroll('external-sync-skipped-local', {
+        contentRevision,
+        latestLocalRevision: latestLocalRevisionRef.current,
+      });
       return;
     }
 
     const transaction = buildExternalContentSyncTransaction(view.state, content, contentSelection);
     if (!transaction) return;
+    debugScroll('external-sync-dispatch', {
+      contentOrigin,
+      contentRevision,
+      selectionAnchor: contentSelection?.anchor ?? null,
+      selectionHead: contentSelection?.head ?? null,
+    });
     view.dispatch(transaction);
 
     if (pendingScrollRestoreKeyRef.current === scrollStorageKey) {
       pendingScrollRestoreKeyRef.current = null;
     }
     restoreScrollPositionRef.current?.();
-  }, [content, contentOrigin, contentRevision, contentSelection, scrollStorageKey]);
+  }, [content, contentOrigin, contentRevision, contentSelection, scrollStorageKey, debugScroll]);
 
   useEffect(() => {
     const view = viewRef.current;
