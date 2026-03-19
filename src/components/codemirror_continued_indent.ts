@@ -90,7 +90,7 @@ function maybeConsumePromptListPrefix(
   }
 
   const marker = text[offset + 1];
-  if (marker !== '*' && marker !== '-') {
+  if (marker !== '*' && marker !== '⏺') {
     return { consumed: false, offset, columns };
   }
 

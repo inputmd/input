@@ -149,7 +149,7 @@ test('marked preserves markdown links while styling bare bracketed text', (t) =>
 
 test('marked renders prompt question and answer lines as list items inside a single unordered list', (t) => {
   const html = marked.parse(
-    '-* Can you explain Solomonoff induction?\n-- Solomonoff induction is a theoretical framework.',
+    '-* Can you explain Solomonoff induction?\n-⏺ Solomonoff induction is a theoretical framework.',
   );
 
   t.true(typeof html === 'string');
@@ -173,7 +173,7 @@ test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt
 test('parseMarkdownToHtml keeps multiline prompt answer content inside the prompt-answer list item', (t) => {
   const html = withDom(() =>
     parseMarkdownToHtml(
-      ['-* Question', '-- First paragraph', '  ', '  Second paragraph', '  - Nested item'].join('\n'),
+      ['-* Question', '-⏺ First paragraph', '  ', '  Second paragraph', '  - Nested item'].join('\n'),
     ),
   );
 
@@ -189,7 +189,7 @@ test('parseMarkdownToHtml does not preserve an extra leading space on resumed pr
     parseMarkdownToHtml(
       [
         '-* What symbols are used as prompts by different shells?',
-        "-- Different shells use various symbols as prompts to indicate the user's current context.",
+        "-⏺ Different shells use various symbols as prompts to indicate the user's current context.",
         '   ',
         '   - $ for regular users',
         '   - # for root users',

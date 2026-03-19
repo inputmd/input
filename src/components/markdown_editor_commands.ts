@@ -402,7 +402,7 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
 
   const nextItem = thread.block.items[thread.itemIndex + 1];
   if (nextItem?.kind === 'answer') {
-    const insertedPrefix = `${nextItem.indent}-- `;
+    const insertedPrefix = `${nextItem.indent}-⏺ `;
     return {
       prompt,
       documentContent: state.doc.toString(),
@@ -415,7 +415,7 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
     };
   }
 
-  const insertedPrefix = `${state.lineBreak}-- `;
+  const insertedPrefix = `${state.lineBreak}-⏺ `;
   return {
     prompt,
     documentContent: state.doc.toString(),

@@ -12,9 +12,9 @@ test('matchPromptListLine parses prompt question markers', (t) => {
 });
 
 test('matchPromptListLine parses prompt answer markers', (t) => {
-  t.deepEqual(matchPromptListLine('-- Solomonoff induction is a theoretical framework.'), {
+  t.deepEqual(matchPromptListLine('-⏺ Solomonoff induction is a theoretical framework.'), {
     indent: '',
-    marker: '-',
+    marker: '⏺',
     kind: 'answer',
     content: 'Solomonoff induction is a theoretical framework.',
     markerEnd: 3,
