@@ -2,6 +2,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Check,
   ChevronDown,
+  CodeXml,
   ExternalLink,
   Eye,
   Globe,
@@ -96,6 +97,7 @@ interface ToolbarProps {
   onCompactCommits?: () => void;
   showEdit: boolean;
   editLabel?: string;
+  mobileEditIcon?: 'source-toggle' | null;
   editUrl: string | null;
   showPreviewToggle: boolean;
   previewVisible: boolean;
@@ -159,6 +161,7 @@ export function Toolbar({
   onCompactCommits,
   showEdit,
   editLabel = 'Edit',
+  mobileEditIcon = null,
   editUrl,
   showPreviewToggle,
   previewVisible,
@@ -321,7 +324,8 @@ export function Toolbar({
   const signInButton = (
     <div class="github-signin-group" role="group" aria-label="Sign in with GitHub options">
       <button type="button" class="github-signin-btn github-signin-btn-main" onClick={() => onSignInWithGitHub()}>
-        Sign in with GitHub
+        <span class="toolbar-desktop-only">Sign in with GitHub</span>
+        <span class="toolbar-mobile-only">Sign in</span>
       </button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
@@ -513,8 +517,22 @@ export function Toolbar({
             </button>
           )}
           {showEdit && (
-            <button type="button" onClick={onEdit}>
-              {editLabel}
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label={mobileEditIcon === 'source-toggle' ? editLabel : undefined}
+              title={mobileEditIcon === 'source-toggle' ? editLabel : undefined}
+            >
+              {mobileEditIcon === 'source-toggle' ? (
+                <>
+                  <span class="toolbar-desktop-only">{editLabel}</span>
+                  <span class="toolbar-mobile-only" aria-hidden="true">
+                    <CodeXml size={16} />
+                  </span>
+                </>
+              ) : (
+                editLabel
+              )}
             </button>
           )}
           {showShare && view !== 'edit' && authorMenu}

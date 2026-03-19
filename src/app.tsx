@@ -6953,6 +6953,7 @@ export function App() {
         onCompactCommits={openCompactCommitsDialog}
         showEdit={showHeaderPrimaryAction}
         editLabel={headerPrimaryActionLabel}
+        mobileEditIcon={showHeaderSourceToggle ? 'source-toggle' : null}
         editUrl={null}
         navigate={navigate}
         onOpenRepoMenu={onOpenRepoMenu}

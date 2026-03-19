@@ -20,6 +20,10 @@
   gap: 8px;
 }
 
+.toolbar-mobile-only {
+  display: none;
+}
+
 .toolbar-left-loading {
   display: inline-flex;
   align-items: center;
@@ -572,5 +576,15 @@
 @media (max-width: 768px) {
   .repo-menu-current-name {
     display: none;
+  }
+
+  .toolbar-desktop-only {
+    display: none;
+  }
+
+  .toolbar-mobile-only {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
