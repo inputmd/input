@@ -198,18 +198,65 @@
   padding-left: 1.5em;
 }
 
+.rendered-markdown ul.prompt-list {
+  padding-left: 0;
+  list-style: none;
+}
+
 .rendered-markdown li + li {
   margin-top: 0.2em;
 }
 
-.rendered-markdown li.prompt-question,
-.rendered-markdown li.prompt-answer {
-  list-style: disc;
+.rendered-markdown ul.prompt-list > li + li {
+  margin-top: 0.6em;
 }
 
-.rendered-markdown li.prompt-question > p,
-.rendered-markdown li.prompt-answer > p {
+.rendered-markdown li.prompt-question,
+.rendered-markdown li.prompt-answer {
+  list-style: none;
+}
+
+.rendered-markdown li.prompt-question {
+  display: inline-block;
+  max-width: min(36rem, 100%);
+  /* biome-ignore lint/complexity/noImportantStyles: Prompt question bubble spacing must override generic markdown list margins. */
+  margin: 1em 0 0.325em !important;
+  padding: 0.7em 0.95em;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 16px 16px 16px 6px;
+  background: color-mix(in srgb, var(--bg-elevated) 68%, transparent);
+}
+
+.rendered-markdown ul.prompt-list > li.prompt-question:first-child {
+  /* biome-ignore lint/complexity/noImportantStyles: The first prompt bubble should align flush with the start of the list. */
+  margin-top: 0 !important;
+}
+
+.rendered-markdown li.prompt-answer {
+  padding: 0;
+  color: inherit;
+}
+
+.rendered-markdown li.prompt-answer > * + * {
+  margin-top: 0.65em;
+}
+
+.rendered-markdown li.prompt-question > p {
   margin-top: 0;
+  margin-bottom: 0;
+}
+
+.rendered-markdown li.prompt-answer > p:first-child {
+  margin-top: 0;
+}
+
+.rendered-markdown li.prompt-answer > p:last-child {
+  margin-bottom: 0;
+}
+
+.rendered-markdown li.prompt-answer > ul,
+.rendered-markdown li.prompt-answer > ol {
+  margin-bottom: 0;
 }
 
 .rendered-markdown li > ul,
