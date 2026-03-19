@@ -86,7 +86,7 @@ export function buildExternalContentSyncTransaction(
     to: currentDoc.length,
     insert: content,
     selection: selection ?? {
-      anchor: Math.min(prevSel.anchor, content.length),
+      anchor: Math.min(prevSel.head, content.length),
       head: Math.min(prevSel.head, content.length),
     },
   });

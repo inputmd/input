@@ -4,6 +4,7 @@ import type { EditorView } from '@codemirror/view';
 import test from 'ava';
 import {
   buildExternalContentSyncTransaction,
+  buildExternalEditorChangeTransaction,
   externalSyncAnnotation,
   getPromptListRequest,
   insertNewlineContinueLooseListItem,
@@ -65,6 +66,20 @@ test('buildExternalContentSyncTransaction emits external non-history transaction
   t.is(transaction.state.selection.main.head, 3);
 });
 
+test('buildExternalContentSyncTransaction collapses a prior selection to the previous head by default', (t) => {
+  const state = EditorState.create({
+    doc: 'abcdef',
+    selection: EditorSelection.range(1, 4),
+  });
+
+  const spec = buildExternalContentSyncTransaction(state, 'xyz');
+  t.truthy(spec);
+
+  const transaction = state.update(spec!);
+  t.is(transaction.state.selection.main.anchor, 3);
+  t.is(transaction.state.selection.main.head, 3);
+});
+
 test('buildExternalContentSyncTransaction can restore an explicit selection', (t) => {
   const state = EditorState.create({
     doc: 'abcdef',
@@ -82,6 +97,53 @@ test('buildExternalContentSyncTransaction can restore an explicit selection', (t
 test('buildExternalContentSyncTransaction returns null when content is unchanged', (t) => {
   const state = EditorState.create({ doc: 'same' });
   t.is(buildExternalContentSyncTransaction(state, 'same'), null);
+});
+
+test('buildExternalEditorChangeTransaction emits an external non-history range replacement', (t) => {
+  const state = EditorState.create({
+    doc: 'hello world',
+    selection: EditorSelection.cursor(11),
+  });
+
+  const spec = buildExternalEditorChangeTransaction(state, {
+    from: 6,
+    to: 11,
+    insert: 'reader',
+    selection: { anchor: 12, head: 12 },
+  });
+  t.truthy(spec);
+
+  const transaction = state.update(spec!);
+  t.true(isExternalSyncTransaction(transaction));
+  t.is(transaction.annotation(Transaction.addToHistory), false);
+  t.is(transaction.state.doc.toString(), 'hello reader');
+  t.is(transaction.state.selection.main.anchor, 12);
+  t.is(transaction.state.selection.main.head, 12);
+});
+
+test('buildExternalEditorChangeTransaction returns null for unchanged content without selection', (t) => {
+  const state = EditorState.create({ doc: 'same' });
+  t.is(buildExternalEditorChangeTransaction(state, { from: 0, to: 4, insert: 'same' }), null);
+});
+
+test('buildExternalEditorChangeTransaction can update selection without changing content', (t) => {
+  const state = EditorState.create({
+    doc: 'same',
+    selection: EditorSelection.cursor(0),
+  });
+
+  const spec = buildExternalEditorChangeTransaction(state, {
+    from: 0,
+    to: 4,
+    insert: 'same',
+    selection: { anchor: 2, head: 2 },
+  });
+  t.truthy(spec);
+
+  const transaction = state.update(spec!);
+  t.is(transaction.state.doc.toString(), 'same');
+  t.is(transaction.state.selection.main.anchor, 2);
+  t.is(transaction.state.selection.main.head, 2);
 });
 
 test('isExternalSyncTransaction detects only external user events', (t) => {
