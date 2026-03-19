@@ -63,7 +63,7 @@ export function MarkdownEditor({
   inlinePromptActive = false,
   onPaste,
   readOnly = false,
-  placeholder = 'Write your markdown here...',
+  placeholder = 'Write here, or use -* to prompt...',
   scrollStorageKey = null,
   onEditorReady,
   class: className,
