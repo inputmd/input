@@ -30,6 +30,14 @@ function isHeadPrefixSelection(commits: RecentRepoCommit[], selectedShas: Set<st
   return true;
 }
 
+function compactableHeadPrefixLength(commits: RecentRepoCommit[]): number {
+  let prefixLength = 0;
+  while (prefixLength < commits.length && commits[prefixLength]!.parentCount === 1) {
+    prefixLength += 1;
+  }
+  return prefixLength;
+}
+
 interface CompactCommitsDialogProps {
   open: boolean;
   branch: string | null;
@@ -68,6 +76,7 @@ export function CompactCommitsDialog({
   const selectionValid = isHeadPrefixSelection(commits, selectedShas);
   const selectedCount = selectedShas.size;
   const hasAnySelected = selectedCount > 0;
+  const compactablePrefixLength = compactableHeadPrefixLength(commits);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(nextOpen: boolean) => (!nextOpen ? onClose() : undefined)}>
@@ -111,9 +120,9 @@ export function CompactCommitsDialog({
               <div class="compact-commits-state">No recent commits were returned.</div>
             ) : null}
             {!loading && !error
-              ? commits.map((commit) => {
+              ? commits.map((commit, index) => {
                   const checked = selectedShas.has(commit.sha);
-                  const disabled = submitting;
+                  const disabled = submitting || index >= compactablePrefixLength;
                   return (
                     <label
                       key={commit.sha}

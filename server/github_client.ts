@@ -176,8 +176,16 @@ export async function githubFetchWithInstallationToken(
     console.error(
       `GitHub API error on ${ghPath}: ${res.status} ${details.message} request_id=${details.requestId ?? '-'} rate_limited=${details.isRateLimited} remaining=${details.remaining ?? '-'} reset=${details.resetAt ?? '-'}`,
     );
-    const statusCode = res.status >= 400 && res.status < 500 ? res.status : 502;
-    throw new ClientError(details.message, statusCode);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (details.requestId) headers['x-github-request-id'] = details.requestId;
+    if (details.remaining !== null) headers['x-ratelimit-remaining'] = String(details.remaining);
+    if (details.resetAt) headers['x-ratelimit-reset'] = String(Math.floor(new Date(details.resetAt).getTime() / 1000));
+    return new Response(JSON.stringify({ message: details.message }), {
+      status: res.status >= 400 && res.status < 500 ? res.status : 502,
+      headers,
+    });
   }
 
   return res;

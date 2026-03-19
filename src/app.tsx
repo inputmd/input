@@ -4647,7 +4647,11 @@ export function App() {
       const commits = compactCommitsData?.commits ?? [];
       if (commits.length === 0) return current;
       if (current.size > 0) return new Set<string>();
-      return new Set(commits.map((commit) => commit.sha));
+      let compactablePrefixLength = 0;
+      while (compactablePrefixLength < commits.length && commits[compactablePrefixLength]!.parentCount === 1) {
+        compactablePrefixLength += 1;
+      }
+      return new Set(commits.slice(0, compactablePrefixLength).map((commit) => commit.sha));
     });
   }, [compactCommitsData]);
 

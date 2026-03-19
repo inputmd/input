@@ -370,6 +370,15 @@ function isPublicPatPolicyFailure(status: number, message: string): boolean {
   return normalized.includes('forbid') || normalized.includes('lifetime');
 }
 
+function isEmptyGitRepositoryError(status: number, message: string): boolean {
+  if (status !== 404 && status !== 409) return false;
+  return /git repository is empty|repository is empty/i.test(message);
+}
+
+function isRootContentsRequest(path: string): boolean {
+  return path.trim() === '';
+}
+
 const READER_AI_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 const READER_AI_MAX_MESSAGES = 24;
 const READER_AI_MAX_MESSAGE_CHARS = 16_000;
@@ -914,6 +923,11 @@ async function handleGetContents(ctx: RouteContext): Promise<void> {
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
     if (ghRes.status === 401) throw new ClientError('Unauthorized', 401);
+    if (isRootContentsRequest(pathParam) && isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+      copyGitHubRateLimitHeaders(ctx.res, ghRes);
+      json(ctx.res, 200, []);
+      return;
+    }
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghUrl);
     return;
   }
@@ -1190,6 +1204,11 @@ async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
   const data = (await ghRes.json().catch(() => null)) as GitHubApiError | unknown;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
+    if (isRootContentsRequest(pathParam) && isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+      copyGitHubRateLimitHeaders(ctx.res, ghRes);
+      json(ctx.res, 200, []);
+      return;
+    }
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghUrl);
     return;
   }
@@ -1330,12 +1349,26 @@ async function handleGetTree(ctx: RouteContext): Promise<void> {
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
   const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
-  const data = (await ghRes.json()) as { tree: GitTreeEntry[]; truncated: boolean };
+  const data = (await ghRes.json().catch(() => null)) as {
+    tree?: GitTreeEntry[];
+    truncated?: boolean;
+    message?: string;
+  } | null;
+  if (!ghRes.ok) {
+    const err = data as GitHubApiError | null;
+    if (isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+      copyGitHubRateLimitHeaders(ctx.res, ghRes);
+      json(ctx.res, 200, { files: [], entries: [], truncated: false });
+      return;
+    }
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
+    return;
+  }
   copyGitHubRateLimitHeaders(ctx.res, ghRes);
   json(ctx.res, 200, {
-    files: filesFromTree(data.tree, markdownOnly),
-    entries: entriesFromTree(data.tree),
-    truncated: data.truncated,
+    files: filesFromTree(data?.tree ?? [], markdownOnly),
+    entries: entriesFromTree(data?.tree ?? []),
+    truncated: data?.truncated ?? false,
   });
 }
 
@@ -1365,6 +1398,17 @@ async function handleListRecentCommits(ctx: RouteContext): Promise<void> {
   if (!commitsRes.ok || !Array.isArray(commitsData)) {
     if (commitsRes.status === 401) throw new ClientError('Unauthorized', 401);
     const err = commitsData as GitHubApiError | null;
+    if (isEmptyGitRepositoryError(commitsRes.status, err?.message ?? '')) {
+      copyGitHubRateLimitHeaders(ctx.res, commitsRes);
+      json(ctx.res, 200, {
+        branch,
+        headSha: null,
+        commits: [],
+        pageSize: perPage,
+        hasMore: false,
+      });
+      return;
+    }
     respondGitHubError(ctx.res, commitsRes, err?.message ?? 'Failed to load recent commits', commitsPath);
     return;
   }
@@ -1416,6 +1460,11 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
   } | null;
   if (!ghRes.ok) {
     const err = data as GitHubApiError | null;
+    if (isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+      copyGitHubRateLimitHeaders(ctx.res, ghRes);
+      json(ctx.res, 200, { files: [], entries: [], truncated: false });
+      return;
+    }
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
     return;
   }
@@ -2929,6 +2978,16 @@ async function handleRepoTarball(ctx: RouteContext): Promise<void> {
     headers: { Accept: 'application/vnd.github+json' },
     signal: AbortSignal.timeout(REPO_TARBALL_TIMEOUT_MS),
   });
+  if (!ghRes.ok) {
+    const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+    if (isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+      copyGitHubRateLimitHeaders(ctx.res, ghRes);
+      json(ctx.res, 200, { files: [] });
+      return;
+    }
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
+    return;
+  }
 
   if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
   const files = await extractTarball(ghRes.body);
@@ -2948,6 +3007,11 @@ async function handlePublicRepoTarball(ctx: RouteContext): Promise<void> {
   });
   if (!ghRes.ok) {
     const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+    if (isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+      copyGitHubRateLimitHeaders(ctx.res, ghRes);
+      json(ctx.res, 200, { files: [] });
+      return;
+    }
     respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
     return;
   }
