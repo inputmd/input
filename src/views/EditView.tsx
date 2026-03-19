@@ -76,6 +76,7 @@ interface EditViewProps {
   canSave: boolean;
   hasUserTypedUnsavedChanges?: boolean;
   onSave: () => void;
+  readOnly?: boolean;
   locked?: boolean;
   showLockIndicator?: boolean;
   lockLabel?: string;
@@ -117,6 +118,7 @@ export function EditView({
   canSave,
   hasUserTypedUnsavedChanges = false,
   onSave,
+  readOnly = false,
   locked = false,
   showLockIndicator = true,
   lockLabel = 'Reader AI',
@@ -145,12 +147,12 @@ export function EditView({
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        if (!loading && !locked && canSave && !saving) onSave();
+        if (!loading && !locked && !readOnly && canSave && !saving) onSave();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [canSave, loading, saving, onSave, locked]);
+  }, [canSave, loading, saving, onSave, locked, readOnly]);
 
   const clearHoverDelay = useCallback(() => {
     if (hoverDelayTimerRef.current == null) return;
@@ -456,7 +458,7 @@ export function EditView({
             onCancelInlinePrompt={onCancelInlinePrompt}
             inlinePromptActive={inlinePromptActive}
             onPaste={onEditorPaste}
-            readOnly={locked || loading}
+            readOnly={readOnly || locked || loading}
           />
         ) : (
           <TextEditor
@@ -469,7 +471,7 @@ export function EditView({
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={onEditorReady}
-            readOnly={locked || loading}
+            readOnly={readOnly || locked || loading}
           />
         )}
         {markdown && previewVisible && canRenderPreview && (

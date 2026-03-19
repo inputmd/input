@@ -95,6 +95,7 @@ interface ToolbarProps {
   showCompactCommits?: boolean;
   onCompactCommits?: () => void;
   showEdit: boolean;
+  editLabel?: string;
   editUrl: string | null;
   showPreviewToggle: boolean;
   previewVisible: boolean;
@@ -157,6 +158,7 @@ export function Toolbar({
   showCompactCommits = false,
   onCompactCommits,
   showEdit,
+  editLabel = 'Edit',
   editUrl,
   showPreviewToggle,
   previewVisible,
@@ -512,7 +514,7 @@ export function Toolbar({
           )}
           {showEdit && (
             <button type="button" onClick={onEdit}>
-              Edit
+              {editLabel}
             </button>
           )}
           {showShare && view !== 'edit' && authorMenu}

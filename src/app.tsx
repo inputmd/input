@@ -1304,6 +1304,7 @@ export function App() {
   const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
   const [readerAiSummary, setReaderAiSummary] = useState<string>('');
   const [readerAiSending, setReaderAiSending] = useState(false);
+  const [contentSourceViewVisible, setContentSourceViewVisible] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
   const [readerAiToolLog, setReaderAiToolLog] = useState<
     Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>
@@ -4482,6 +4483,15 @@ export function App() {
     else if (currentGistId) navigate(routePath.gistEdit(currentGistId));
   }, [repoAccessMode, currentRepoDocPath, currentGistId, currentFileName, navigate, selectedRepoRef]);
 
+  const onToggleContentSourceView = useCallback(() => {
+    setContentSourceViewVisible((current) => !current);
+  }, []);
+
+  useEffect(() => {
+    if (activeView === 'content' && repoAccessMode === 'public') return;
+    setContentSourceViewVisible(false);
+  }, [activeView, repoAccessMode]);
+
   const onCancel = useCallback(async () => {
     if (readerAiEditLocked) return;
     if (pendingImageUploads.size > 0) {
@@ -6374,6 +6384,33 @@ export function App() {
         ) : null;
       }
       case 'content': {
+        if (contentSourceViewVisible && currentDocumentSavedContent !== null) {
+          return (
+            <EditView
+              fileName={currentFileName}
+              markdown={isMarkdownFileName(currentFileName)}
+              content={currentDocumentSavedContent}
+              contentOrigin="external"
+              contentRevision={0}
+              contentSelection={null}
+              previewHtml=""
+              previewVisible={false}
+              canRenderPreview={false}
+              scrollStorageKey={currentDocumentScrollKey}
+              loading={contentLoadPending}
+              onTogglePreview={() => {}}
+              onContentChange={() => {}}
+              saving={false}
+              canSave={false}
+              hasUserTypedUnsavedChanges={false}
+              onSave={() => {}}
+              readOnly
+              locked={false}
+              showLockIndicator={false}
+            />
+          );
+        }
+
         const handleStackLinkNavigate = (rawRoute: string) => {
           const routePathname = rawRoute.replace(/^\/+/, '');
           if (!isMarkdownFileName(routePathname)) {
@@ -6782,6 +6819,14 @@ export function App() {
     activeView === 'content' &&
     isEditableTextFilePath(currentFileName) &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
+  const showHeaderSourceToggle =
+    activeView === 'content' &&
+    repoAccessMode === 'public' &&
+    currentDocumentSavedContent !== null &&
+    Boolean(currentFileName) &&
+    !contentLoadPending;
+  const showHeaderPrimaryAction = showHeaderEdit || showHeaderSourceToggle;
+  const headerPrimaryActionLabel = showHeaderEdit ? 'Edit' : contentSourceViewVisible ? 'View Rendered' : 'View Source';
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
@@ -6885,7 +6930,8 @@ export function App() {
         onViewInGitHub={onHeaderViewInGitHub}
         showCompactCommits={repoAccessMode === 'installed' && currentRepoDocPath !== null && Boolean(selectedRepo)}
         onCompactCommits={openCompactCommitsDialog}
-        showEdit={showHeaderEdit}
+        showEdit={showHeaderPrimaryAction}
+        editLabel={headerPrimaryActionLabel}
         editUrl={null}
         navigate={navigate}
         onOpenRepoMenu={onOpenRepoMenu}
@@ -6896,7 +6942,7 @@ export function App() {
         onClearCache={onClearCaches}
         onToggleTheme={toggleTheme}
         onToggleSidebar={onToggleSidebar}
-        onEdit={onEdit}
+        onEdit={showHeaderEdit ? onEdit : onToggleContentSourceView}
         showLeftLoading={showHeaderLeftLoading}
         preserveLeftControlsWhileLoading={preserveHeaderLeftControlsWhileLoading}
         localRateLimit={localRateLimit}
