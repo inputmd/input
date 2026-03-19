@@ -11,7 +11,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: var(--sidebar-font-size);
 }
 
@@ -334,7 +334,7 @@
   text-overflow: ellipsis;
   width: 100%;
   min-width: 0;
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: var(--sidebar-font-size);
 }
 
@@ -344,7 +344,7 @@
   text-overflow: ellipsis;
   width: 100%;
   min-width: 0;
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: var(--sidebar-font-size);
 }
 
@@ -418,7 +418,7 @@
   width: 100%;
   padding: 2px 0;
   font-size: var(--sidebar-font-size);
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   border: 0;
   border-radius: 3px;
   background: transparent;
