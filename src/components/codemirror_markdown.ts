@@ -102,6 +102,10 @@ export const promptListAnsweringFacet = Facet.define<boolean, boolean>({
   combine: (values) => values.some(Boolean),
 });
 
+function isPromptListAnswerContinuationLine(text: string, indent: string): boolean {
+  return text.startsWith(`${indent}  `) || text.startsWith(`${indent}\t`);
+}
+
 const promptListHintLabels = new WeakMap<PromptListHintWidget, string>();
 
 class PromptListHintWidget extends WidgetType {
@@ -128,62 +132,54 @@ class PromptListHintWidget extends WidgetType {
 
 function buildPromptListDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
+  let activePromptKind: 'question' | 'answer' | null = null;
+  let activePromptIndent = '';
 
-  for (const { from, to } of view.visibleRanges) {
-    let lineNumber = view.state.doc.lineAt(from).number;
-    const lastLineNumber = view.state.doc.lineAt(to).number;
-    let activePromptKind: 'question' | 'answer' | null = null;
-    let activePromptIndent = '';
-
-    for (; lineNumber <= lastLineNumber; lineNumber += 1) {
-      const line = view.state.doc.line(lineNumber);
-      const match = matchPromptListLine(line.text);
-      if (!match) {
-        if (activePromptKind === 'answer' && /^\s*$/.test(line.text)) continue;
-        if (
-          activePromptKind === 'answer' &&
-          (line.text.startsWith(`${activePromptIndent}  `) || line.text.startsWith(`${activePromptIndent}\t`))
-        ) {
-          builder.add(
-            line.from,
-            line.from,
-            Decoration.line({
-              attributes: {
-                class: 'cm-prompt-answer-continuation',
-              },
-            }),
-          );
-          continue;
-        }
-
-        activePromptKind = null;
-        activePromptIndent = '';
+  for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber += 1) {
+    const line = view.state.doc.line(lineNumber);
+    const match = matchPromptListLine(line.text);
+    if (!match) {
+      if (activePromptKind === 'answer' && /^\s*$/.test(line.text)) continue;
+      if (activePromptKind === 'answer' && isPromptListAnswerContinuationLine(line.text, activePromptIndent)) {
+        builder.add(
+          line.from,
+          line.from,
+          Decoration.line({
+            attributes: {
+              class: 'cm-prompt-answer-continuation',
+            },
+          }),
+        );
         continue;
       }
 
-      activePromptKind = match.kind;
-      activePromptIndent = match.indent;
-
-      const classes = ['cm-prompt-list-item', match.kind === 'question' ? 'cm-prompt-question' : 'cm-prompt-answer'];
-
-      builder.add(
-        line.from,
-        line.from,
-        Decoration.line({
-          attributes: {
-            class: classes.join(' '),
-          },
-        }),
-      );
-
-      builder.add(
-        line.from + match.indent.length,
-        line.from + match.markerEnd,
-        Decoration.mark({
-          class: 'cm-prompt-list-mark',
-        }),
-      );
+      activePromptKind = null;
+      activePromptIndent = '';
+      continue;
     }
+
+    activePromptKind = match.kind;
+    activePromptIndent = match.indent;
+
+    const classes = ['cm-prompt-list-item', match.kind === 'question' ? 'cm-prompt-question' : 'cm-prompt-answer'];
+
+    builder.add(
+      line.from,
+      line.from,
+      Decoration.line({
+        attributes: {
+          class: classes.join(' '),
+        },
+      }),
+    );
+
+    builder.add(
+      line.from + match.indent.length,
+      line.from + match.markerEnd,
+      Decoration.mark({
+        class: 'cm-prompt-list-mark',
+      }),
+    );
   }
 
   return builder.finish();
@@ -198,7 +194,7 @@ const promptListLineClassExtension = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged || update.geometryChanged || update.heightChanged) {
+      if (update.docChanged) {
         this.decorations = buildPromptListDecorations(update.view);
       }
     }
