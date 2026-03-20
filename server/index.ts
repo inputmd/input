@@ -1,6 +1,7 @@
 import './env';
 import crypto from 'node:crypto';
 import http from 'node:http';
+import { initDictionary } from '../shared/stream_boundary_dictionary.ts';
 import { GITHUB_TOKEN, PORT } from './config';
 import { applyCors } from './cors';
 import { ClientError } from './errors';
@@ -13,6 +14,9 @@ import { applySecurityHeaders } from './security_headers';
 import { startSessionCleanup } from './session';
 import { serveIndexHtml, serveStatic } from './static_files';
 import { extractSubdomain } from './subdomain';
+
+// Eagerly load the stream boundary dictionary (non-blocking).
+initDictionary().catch((err) => console.warn('[dictionary] Failed to load bloom filter:', err));
 
 function normalizeReturnTo(raw: string | null): string {
   if (!raw) return '/workspaces';

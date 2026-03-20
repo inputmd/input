@@ -1,3 +1,8 @@
+import {
+  appendStreamText,
+  initDictionary,
+  shouldInsertStreamBoundarySpace,
+} from '../shared/stream_boundary_dictionary';
 import { responseToApiError } from './api_error';
 
 export interface ReaderAiModel {
@@ -62,67 +67,6 @@ interface ReaderAiStreamOptions {
   mode?: 'default' | 'prompt_list';
   signal?: AbortSignal;
 }
-
-const STREAM_BOUNDARY_JOINER_WORDS = new Set([
-  'a',
-  'am',
-  'an',
-  'and',
-  'are',
-  'as',
-  'at',
-  'be',
-  'but',
-  'by',
-  'can',
-  'could',
-  'did',
-  'do',
-  'does',
-  'for',
-  'from',
-  'had',
-  'has',
-  'have',
-  'he',
-  'her',
-  'him',
-  'how',
-  'i',
-  'if',
-  'in',
-  'is',
-  'it',
-  'its',
-  'me',
-  'my',
-  'of',
-  'on',
-  'or',
-  'our',
-  'she',
-  'that',
-  'the',
-  'their',
-  'them',
-  'they',
-  'this',
-  'to',
-  'us',
-  'was',
-  'we',
-  'were',
-  'what',
-  'when',
-  'where',
-  'who',
-  'why',
-  'will',
-  'with',
-  'would',
-  'you',
-  'your',
-]);
 
 const LOCAL_CODEX_MODEL_PREFIX = 'codex_local::';
 const LOCAL_CODEX_BRIDGE_DEFAULT_URL = 'http://127.0.0.1:8788';
@@ -223,23 +167,11 @@ export async function listReaderAiModels(): Promise<ReaderAiModel[]> {
   throw cloud.status === 'rejected' ? cloud.reason : new Error('No Reader AI models available');
 }
 
-function shouldInsertStreamBoundarySpace(previous: string, next: string): boolean {
-  const previousChar = previous.at(-1);
-  const nextChar = next[0];
-  if (!previousChar || !nextChar) return false;
-  if (/[.!?]/.test(previousChar) && /[A-Z]/.test(nextChar)) return true;
-  if (!/[A-Za-z]/.test(previousChar) || !/[A-Za-z]/.test(nextChar)) return false;
-  const previousWord = previous.match(/([A-Za-z]+)$/)?.[1];
-  const nextWord = next.match(/^([A-Za-z]+)/)?.[1];
-  if (!previousWord || !nextWord) return false;
-  if (previousWord.length === 1) return false;
-  return STREAM_BOUNDARY_JOINER_WORDS.has(nextWord.toLowerCase());
-}
-
-function appendStreamText(previous: string, next: string): string {
-  if (!next) return previous;
-  if (previous && shouldInsertStreamBoundarySpace(previous, next)) return `${previous} ${next}`;
-  return previous + next;
+function shouldRepairConversationalBoundary(
+  mode: ReaderAiStreamOptions['mode'],
+  editModeCurrentDocOnly?: boolean,
+): boolean {
+  return editModeCurrentDocOnly !== true && mode !== undefined;
 }
 
 function joinStructuredContentSegments(segments: string[]): string {
@@ -414,6 +346,9 @@ export async function askReaderAiStream(
   currentDocPath?: string | null,
   editModeCurrentDocOnly?: boolean,
 ): Promise<void> {
+  // Start loading the dictionary in the background; the heuristic can still
+  // run safely until the bloom filter becomes available.
+  void initDictionary().catch(() => {});
   // Resolve current_doc_path: projectContext takes precedence when present
   const resolvedDocPath = projectContext?.currentDocPath ?? currentDocPath ?? null;
   const baseUrl = modelRequestBaseUrl(model);
@@ -443,6 +378,7 @@ export async function askReaderAiStream(
   let buffer = '';
   let streamedText = '';
   const repairStreamBoundaries = shouldRepairStreamBoundaries(model);
+  let pendingVisibleDelta = '';
 
   while (true) {
     const { value, done } = await reader.read();
@@ -587,15 +523,29 @@ export async function askReaderAiStream(
           const parsed = JSON.parse(data) as unknown;
           const delta = extractStreamDelta(parsed);
           if (typeof delta === 'string') {
-            const nextText =
-              editModeCurrentDocOnly === true
-                ? streamedText + delta
-                : repairStreamBoundaries
-                  ? appendStreamText(streamedText, delta)
-                  : streamedText + delta;
-            const emittedDelta = nextText.slice(streamedText.length);
-            streamedText = nextText;
-            if (emittedDelta) options.onDelta(emittedDelta);
+            const repairBoundary = shouldRepairConversationalBoundary(options.mode, editModeCurrentDocOnly);
+            if (repairBoundary) {
+              if (!pendingVisibleDelta) {
+                pendingVisibleDelta = delta;
+              } else {
+                const emittedDelta = shouldInsertStreamBoundarySpace(pendingVisibleDelta, delta)
+                  ? `${pendingVisibleDelta} `
+                  : pendingVisibleDelta;
+                streamedText += emittedDelta;
+                if (emittedDelta) options.onDelta(emittedDelta);
+                pendingVisibleDelta = delta;
+              }
+            } else {
+              const nextText =
+                editModeCurrentDocOnly === true
+                  ? streamedText + delta
+                  : repairStreamBoundaries
+                    ? appendStreamText(streamedText, delta)
+                    : streamedText + delta;
+              const emittedDelta = nextText.slice(streamedText.length);
+              streamedText = nextText;
+              if (emittedDelta) options.onDelta(emittedDelta);
+            }
           }
         } catch {
           // Ignore malformed stream chunks and continue.
@@ -604,6 +554,11 @@ export async function askReaderAiStream(
 
       boundary = buffer.indexOf('\n\n');
     }
+  }
+
+  if (pendingVisibleDelta) {
+    streamedText += pendingVisibleDelta;
+    options.onDelta(pendingVisibleDelta);
   }
 }
 

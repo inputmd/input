@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'ava';
+import { initDictionaryFromBuffer } from '../../shared/stream_boundary_dictionary.ts';
 import { stripCriticMarkupComments } from '../../src/criticmarkup.ts';
 import {
   buildReaderAiProjectSystemPrompt,
@@ -30,6 +34,14 @@ import {
   StagedChanges,
   simpleGlobMatch,
 } from '../reader_ai_tools.ts';
+
+// Load the bloom filter for dictionary-backed boundary detection in tests.
+const bloomPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'shared', 'dictionary.bloom');
+try {
+  initDictionaryFromBuffer(new Uint8Array(readFileSync(bloomPath)));
+} catch {
+  // If the bloom file is missing, tests still run — dictionary guard is a no-op.
+}
 
 // ── Helper ──
 
@@ -627,7 +639,7 @@ test('stream parser inserts a boundary space between plain text deltas when the 
   ]);
 
   const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
-  t.deepEqual(deltas, ['model', ' am a large language model.']);
+  t.deepEqual(deltas, ['model ', 'am a large language model.']);
   t.is(result.content, 'model am a large language model.');
 });
 
@@ -656,7 +668,7 @@ test('stream parser inserts a boundary space after sentence punctuation before a
   ]);
 
   const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
-  t.deepEqual(deltas, ['Sure!', ' Here are the opening lines.']);
+  t.deepEqual(deltas, ['Sure! ', 'Here are the opening lines.']);
   t.is(result.content, 'Sure! Here are the opening lines.');
 });
 
@@ -671,6 +683,149 @@ test('stream parser does not split inside a word after a single-letter chunk', a
   const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
   t.deepEqual(deltas, ['I', 'shmael']);
   t.is(result.content, 'Ishmael');
+});
+
+test('stream parser buffers one chunk and repairs a missing space before a lowercase word', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'I’m not sure' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'which vendor or version you mean.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['I’m not sure ', 'which vendor or version you mean.']);
+  t.is(result.content, 'I’m not sure which vendor or version you mean.');
+});
+
+test('stream parser buffers one chunk and repairs a missing space before a capitalized word', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'molecules in' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'Earth’s atmosphere scatter light.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['molecules in ', 'Earth’s atmosphere scatter light.']);
+  t.is(result.content, 'molecules in Earth’s atmosphere scatter light.');
+});
+
+test('stream parser keeps in-word continuations joined while buffering', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'short‑w' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'avelength light scatters.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['short‑w', 'avelength light scatters.']);
+  t.is(result.content, 'short‑wavelength light scatters.');
+});
+
+test('stream parser repairs a missing space between ordinary lowercase words while buffering', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'The sky looks blue because' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'molecules in the atmosphere scatter light.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['The sky looks blue because ', 'molecules in the atmosphere scatter light.']);
+  t.is(result.content, 'The sky looks blue because molecules in the atmosphere scatter light.');
+});
+
+test('stream parser repairs a missing space after a short capitalized word while buffering', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'The' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'sky looks blue.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['The ', 'sky looks blue.']);
+  t.is(result.content, 'The sky looks blue.');
+});
+
+test('stream parser does not split plural suffix continuations while buffering', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'red' } }] }),
+    sseChunk({ choices: [{ delta: { content: 's and oranges.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['red', 's and oranges.']);
+  t.is(result.content, 'reds and oranges.');
+});
+
+test('stream parser dictionary guard keeps mid-word splits joined (photosynthesis)', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'Photos' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'ynthesis converts light.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['Photos', 'ynthesis converts light.']);
+  t.is(result.content, 'Photosynthesis converts light.');
+});
+
+test('stream parser dictionary guard keeps mid-word splits joined (conversational)', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'convers' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'ational tone.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['convers', 'ational tone.']);
+  t.is(result.content, 'conversational tone.');
+});
+
+test('stream parser dictionary guard keeps mid-word splits joined (refraction)', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'the first ref' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'raction of light.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['the first ref', 'raction of light.']);
+  t.is(result.content, 'the first refraction of light.');
+});
+
+test('stream parser dictionary guard keeps NVIDIA joined (prev>=4, next>=2)', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'developed by NVID' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'IA for research.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['developed by NVID', 'IA for research.']);
+  t.is(result.content, 'developed by NVIDIA for research.');
+});
+
+test('stream parser dictionary guard does not block real word boundaries', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'The internet' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'began in the 1960s.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['The internet ', 'began in the 1960s.']);
+  t.is(result.content, 'The internet began in the 1960s.');
 });
 
 test('stream parser accepts nested structured content parts', async (t) => {

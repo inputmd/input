@@ -12,8 +12,9 @@
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": false,
     "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["server"],
+  "include": ["server", "shared"],
   "exclude": ["server/__tests__"]
 }

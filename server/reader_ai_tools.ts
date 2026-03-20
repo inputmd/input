@@ -1,6 +1,10 @@
 // ── Reader AI Tool Definitions, Execution, and Subagent Support ──
 
 import { createTwoFilesPatch } from 'diff';
+import {
+  appendStreamText,
+  shouldInsertStreamBoundarySpace,
+} from '../shared/stream_boundary_dictionary.ts';
 import { stripCriticMarkupComments } from './criticmarkup.js';
 
 export const READER_AI_TOOL_RESULT_MAX_CHARS = 30_000;
@@ -15,67 +19,6 @@ export const READER_AI_READ_FILE_MAX_CHARS = 20_000;
 export const READER_AI_SEARCH_FILES_MAX_CHARS = 20_000;
 export const READER_AI_LIST_FILES_MAX_CHARS = 10_000;
 export const READER_AI_SEARCH_FILES_MAX_MATCHES = 50;
-
-const STREAM_BOUNDARY_JOINER_WORDS = new Set([
-  'a',
-  'am',
-  'an',
-  'and',
-  'are',
-  'as',
-  'at',
-  'be',
-  'but',
-  'by',
-  'can',
-  'could',
-  'did',
-  'do',
-  'does',
-  'for',
-  'from',
-  'had',
-  'has',
-  'have',
-  'he',
-  'her',
-  'him',
-  'how',
-  'i',
-  'if',
-  'in',
-  'is',
-  'it',
-  'its',
-  'me',
-  'my',
-  'of',
-  'on',
-  'or',
-  'our',
-  'she',
-  'that',
-  'the',
-  'their',
-  'them',
-  'they',
-  'this',
-  'to',
-  'us',
-  'was',
-  'we',
-  'were',
-  'what',
-  'when',
-  'where',
-  'who',
-  'why',
-  'will',
-  'with',
-  'would',
-  'you',
-  'your',
-]);
 
 /** A file entry from a loaded repo or gist. */
 export interface ReaderAiFileEntry {
@@ -169,25 +112,6 @@ export interface ReaderAiStreamParseResult {
 
 interface ReaderAiStreamParseOptions {
   repairBoundaries?: boolean;
-}
-
-function shouldInsertStreamBoundarySpace(previous: string, next: string): boolean {
-  const previousChar = previous.at(-1);
-  const nextChar = next[0];
-  if (!previousChar || !nextChar) return false;
-  if (/[.!?]/.test(previousChar) && /[A-Z]/.test(nextChar)) return true;
-  if (!/[A-Za-z]/.test(previousChar) || !/[A-Za-z]/.test(nextChar)) return false;
-  const previousWord = previous.match(/([A-Za-z]+)$/)?.[1];
-  const nextWord = next.match(/^([A-Za-z]+)/)?.[1];
-  if (!previousWord || !nextWord) return false;
-  if (previousWord.length === 1) return false;
-  return STREAM_BOUNDARY_JOINER_WORDS.has(nextWord.toLowerCase());
-}
-
-function appendStreamText(previous: string, next: string): string {
-  if (!next) return previous;
-  if (previous && shouldInsertStreamBoundarySpace(previous, next)) return `${previous} ${next}`;
-  return previous + next;
 }
 
 function joinStructuredContentSegments(segments: string[]): string {
@@ -1288,6 +1212,7 @@ export async function parseReaderAiUpstreamStream(
   let buffer = '';
   let content = '';
   let finishReason = '';
+  let pendingVisibleDelta = '';
   const accumulators = new Map<number, { id: string; name: string; arguments: string }>();
   const repairBoundaries = options.repairBoundaries ?? true;
 
@@ -1333,10 +1258,19 @@ export async function parseReaderAiUpstreamStream(
           const delta = choice.delta;
           const textDelta = extractOpenRouterContentText(delta?.content);
           if (textDelta) {
-            const nextContent = repairBoundaries ? appendStreamText(content, textDelta) : content + textDelta;
-            const emittedDelta = nextContent.slice(content.length);
-            content = nextContent;
-            if (emittedDelta) onTextDelta(emittedDelta);
+            if (!repairBoundaries) {
+              content += textDelta;
+              onTextDelta(textDelta);
+            } else if (!pendingVisibleDelta) {
+              pendingVisibleDelta = textDelta;
+            } else {
+              const emittedDelta = shouldInsertStreamBoundarySpace(pendingVisibleDelta, textDelta)
+                ? `${pendingVisibleDelta} `
+                : pendingVisibleDelta;
+              content += emittedDelta;
+              if (emittedDelta) onTextDelta(emittedDelta);
+              pendingVisibleDelta = textDelta;
+            }
           }
           if (Array.isArray(delta?.tool_calls)) {
             for (const tc of delta.tool_calls) {
@@ -1356,6 +1290,11 @@ export async function parseReaderAiUpstreamStream(
     }
   } finally {
     reader.releaseLock();
+  }
+
+  if (pendingVisibleDelta) {
+    content += pendingVisibleDelta;
+    onTextDelta(pendingVisibleDelta);
   }
 
   const toolCalls: ReaderAiToolCall[] = [];
