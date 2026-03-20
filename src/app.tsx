@@ -4303,6 +4303,7 @@ export function App() {
       setInlinePromptStreaming(true);
 
       let streamed = '';
+      let completed = false;
 
       editViewControllerRef.current?.startStreamingCursorTracking(from);
       editViewControllerRef.current?.applyExternalChange({
@@ -4346,6 +4347,7 @@ export function App() {
           currentEditingDocPath,
           true,
         );
+        completed = true;
       } catch (err) {
         if (!(err instanceof DOMException && err.name === 'AbortError')) {
           showFailureToast(err instanceof Error ? err.message : 'Inline AI prompt failed');
@@ -4353,6 +4355,19 @@ export function App() {
       } finally {
         if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
         editViewControllerRef.current?.stopStreamingCursorTracking();
+        if (completed) {
+          const end = from + streamed.length;
+          editViewControllerRef.current?.applyExternalChange({
+            from: end,
+            to: end,
+            insert: '',
+            selection: { anchor: end, head: end },
+          });
+          setNextEditContent((previousContent) => previousContent, {
+            origin: 'streaming',
+            selection: { anchor: end, head: end },
+          });
+        }
         setInlinePromptStreaming(false);
       }
     },
@@ -4393,6 +4408,7 @@ export function App() {
       let streamedRaw = '';
       let bufferedRaw = '';
       let streamedAnswer = '';
+      let completed = false;
 
       const applyPromptListAnswer = (nextRaw: string) => {
         const nextAnswer = formatPromptListAnswer(nextRaw, answerIndent);
@@ -4459,6 +4475,7 @@ export function App() {
           bufferedRaw = '';
           applyPromptListAnswer(streamedRaw);
         }
+        completed = true;
       } catch (err) {
         if (streamedAnswer.length === 0) {
           setNextEditContent(documentContent, {
@@ -4471,6 +4488,19 @@ export function App() {
       } finally {
         if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
         editViewControllerRef.current?.stopStreamingCursorTracking();
+        if (completed) {
+          const end = answerFrom + streamedAnswer.length;
+          editViewControllerRef.current?.applyExternalChange({
+            from: end,
+            to: end,
+            insert: '',
+            selection: { anchor: end, head: end },
+          });
+          setNextEditContent((previousContent) => previousContent, {
+            origin: 'streaming',
+            selection: { anchor: end, head: end },
+          });
+        }
         setInlinePromptStreaming(false);
       }
     },
