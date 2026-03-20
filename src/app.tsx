@@ -89,6 +89,7 @@ import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
 import { formatPromptListAnswer } from './prompt_list_format';
+import { splitPromptListStableText } from './prompt_list_streaming';
 import {
   applyReaderAiChanges,
   askReaderAiStream,
@@ -4390,7 +4391,29 @@ export function App() {
       setInlinePromptStreaming(true);
 
       let streamedRaw = '';
+      let bufferedRaw = '';
       let streamedAnswer = '';
+
+      const applyPromptListAnswer = (nextRaw: string) => {
+        const nextAnswer = formatPromptListAnswer(nextRaw, answerIndent);
+        if (nextAnswer === streamedAnswer) return;
+        const prefix = commonPrefixLength(streamedAnswer, nextAnswer);
+        const suffix = commonSuffixLength(streamedAnswer, nextAnswer, prefix);
+        const replaceFrom = answerFrom + prefix;
+        const replaceTo = answerFrom + streamedAnswer.length - suffix;
+        const insertText = nextAnswer.slice(prefix, nextAnswer.length - suffix);
+        editViewControllerRef.current?.applyExternalChange({
+          from: replaceFrom,
+          to: replaceTo,
+          insert: insertText,
+        });
+        streamedAnswer = nextAnswer;
+        editViewControllerRef.current?.updateStreamingCursorTracking(answerFrom + streamedAnswer.length);
+        setNextEditContent(
+          (previousContent) => previousContent.slice(0, replaceFrom) + insertText + previousContent.slice(replaceTo),
+          { origin: 'streaming' },
+        );
+      };
 
       editViewControllerRef.current?.startStreamingCursorTracking(answerFrom);
       editViewControllerRef.current?.applyExternalChange({
@@ -4418,26 +4441,12 @@ export function App() {
             signal: controller.signal,
             mode: 'prompt_list',
             onDelta: (delta) => {
-              streamedRaw += delta;
-              const nextAnswer = formatPromptListAnswer(streamedRaw, answerIndent);
-              if (nextAnswer === streamedAnswer) return;
-              const prefix = commonPrefixLength(streamedAnswer, nextAnswer);
-              const suffix = commonSuffixLength(streamedAnswer, nextAnswer, prefix);
-              const replaceFrom = answerFrom + prefix;
-              const replaceTo = answerFrom + streamedAnswer.length - suffix;
-              const insertText = nextAnswer.slice(prefix, nextAnswer.length - suffix);
-              editViewControllerRef.current?.applyExternalChange({
-                from: replaceFrom,
-                to: replaceTo,
-                insert: insertText,
-              });
-              streamedAnswer = nextAnswer;
-              editViewControllerRef.current?.updateStreamingCursorTracking(answerFrom + streamedAnswer.length);
-              setNextEditContent(
-                (previousContent) =>
-                  previousContent.slice(0, replaceFrom) + insertText + previousContent.slice(replaceTo),
-                { origin: 'streaming' },
-              );
+              bufferedRaw += delta;
+              const { stable, remainder } = splitPromptListStableText(bufferedRaw);
+              bufferedRaw = remainder;
+              if (!stable) return;
+              streamedRaw += stable;
+              applyPromptListAnswer(streamedRaw);
             },
           },
           undefined,
@@ -4445,6 +4454,11 @@ export function App() {
           currentEditingDocPath,
           true,
         );
+        if (bufferedRaw) {
+          streamedRaw += bufferedRaw;
+          bufferedRaw = '';
+          applyPromptListAnswer(streamedRaw);
+        }
       } catch (err) {
         if (streamedAnswer.length === 0) {
           setNextEditContent(documentContent, {

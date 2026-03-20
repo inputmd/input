@@ -57,6 +57,67 @@ interface ReaderAiStreamOptions {
   signal?: AbortSignal;
 }
 
+const STREAM_BOUNDARY_JOINER_WORDS = new Set([
+  'a',
+  'am',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'but',
+  'by',
+  'can',
+  'could',
+  'did',
+  'do',
+  'does',
+  'for',
+  'from',
+  'had',
+  'has',
+  'have',
+  'he',
+  'her',
+  'him',
+  'how',
+  'i',
+  'if',
+  'in',
+  'is',
+  'it',
+  'its',
+  'me',
+  'my',
+  'of',
+  'on',
+  'or',
+  'our',
+  'she',
+  'that',
+  'the',
+  'their',
+  'them',
+  'they',
+  'this',
+  'to',
+  'us',
+  'was',
+  'we',
+  'were',
+  'what',
+  'when',
+  'where',
+  'who',
+  'why',
+  'will',
+  'with',
+  'would',
+  'you',
+  'your',
+]);
+
 const LOCAL_CODEX_MODEL_PREFIX = 'codex_local::';
 const LOCAL_CODEX_BRIDGE_DEFAULT_URL = 'http://127.0.0.1:8788';
 const LOCAL_CODEX_BRIDGE_STORAGE_KEY = 'input.localCodexBridgeUrl';
@@ -152,10 +213,38 @@ export async function listReaderAiModels(): Promise<ReaderAiModel[]> {
   throw cloud.status === 'rejected' ? cloud.reason : new Error('No Reader AI models available');
 }
 
+function shouldInsertStreamBoundarySpace(previous: string, next: string): boolean {
+  const previousChar = previous.at(-1);
+  const nextChar = next[0];
+  if (!previousChar || !nextChar) return false;
+  if (/[.!?]/.test(previousChar) && /[A-Z]/.test(nextChar)) return true;
+  if (!/[A-Za-z]/.test(previousChar) || !/[A-Za-z]/.test(nextChar)) return false;
+  const previousWord = previous.match(/([A-Za-z]+)$/)?.[1];
+  const nextWord = next.match(/^([A-Za-z]+)/)?.[1];
+  if (!previousWord || !nextWord) return false;
+  if (previousWord.length === 1) return false;
+  return STREAM_BOUNDARY_JOINER_WORDS.has(nextWord.toLowerCase());
+}
+
+function appendStreamText(previous: string, next: string): string {
+  if (!next) return previous;
+  if (previous && shouldInsertStreamBoundarySpace(previous, next)) return `${previous} ${next}`;
+  return previous + next;
+}
+
+function joinStructuredContentSegments(segments: string[]): string {
+  let result = '';
+  for (const segment of segments) {
+    if (!segment) continue;
+    result = appendStreamText(result, segment);
+  }
+  return result;
+}
+
 function extractStreamDelta(payload: unknown): string {
   const extractContentText = (content: unknown): string => {
     if (typeof content === 'string') return content;
-    if (Array.isArray(content)) return content.map((part) => extractContentText(part)).join('');
+    if (Array.isArray(content)) return joinStructuredContentSegments(content.map((part) => extractContentText(part)));
     if (!content || typeof content !== 'object') return '';
 
     const value = content as { text?: unknown; value?: unknown };
@@ -342,6 +431,7 @@ export async function askReaderAiStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let streamedText = '';
 
   while (true) {
     const { value, done } = await reader.read();
@@ -485,7 +575,13 @@ export async function askReaderAiStream(
         try {
           const parsed = JSON.parse(data) as unknown;
           const delta = extractStreamDelta(parsed);
-          if (typeof delta === 'string') options.onDelta(delta);
+          if (typeof delta === 'string') {
+            const nextText =
+              editModeCurrentDocOnly === true ? streamedText + delta : appendStreamText(streamedText, delta);
+            const emittedDelta = nextText.slice(streamedText.length);
+            streamedText = nextText;
+            if (emittedDelta) options.onDelta(emittedDelta);
+          }
         } catch {
           // Ignore malformed stream chunks and continue.
         }

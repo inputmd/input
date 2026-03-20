@@ -588,6 +588,68 @@ test('stream parser accepts structured content parts', async (t) => {
   t.is(result.content, '**Essay: The Sweet World of Strawberries**');
 });
 
+test('stream parser inserts a boundary space between adjacent structured word parts', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({
+      choices: [
+        {
+          delta: {
+            content: [
+              { type: 'text', text: 'How can I assist' },
+              { type: 'text', text: 'you today?' },
+            ],
+          },
+        },
+      ],
+    }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['How can I assist you today?']);
+  t.is(result.content, 'How can I assist you today?');
+});
+
+test('stream parser inserts a boundary space between plain text deltas when the next chunk starts with a joiner word', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'model' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'am a large language model.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['model', ' am a large language model.']);
+  t.is(result.content, 'model am a large language model.');
+});
+
+test('stream parser inserts a boundary space after sentence punctuation before a capitalized chunk', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'Sure!' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'Here are the opening lines.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['Sure!', ' Here are the opening lines.']);
+  t.is(result.content, 'Sure! Here are the opening lines.');
+});
+
+test('stream parser does not split inside a word after a single-letter chunk', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'I' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'shmael' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['I', 'shmael']);
+  t.is(result.content, 'Ishmael');
+});
+
 test('stream parser accepts nested structured content parts', async (t) => {
   const deltas: string[] = [];
   const stream = makeStream([
