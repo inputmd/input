@@ -28,25 +28,32 @@ with input.md, e.g. https://input.md/:username/:repo.
 You can view any public GitHub repo inside Input by replacing `github.com`
 with `input.md`, for example `https://input.md/:username/:repo`.
 
-## Prompt dialogue markdown
+Also, `[username].input.md` automatically renders the public GitHub repo
+`[username]/homepage` as a read-only workspace.
 
-Reader AI prompt threads can be written directly in markdown using a custom
-list syntax:
+## Inline Prompting
 
-```md
--* What does this function do?
--- It normalizes the input and returns a stable cache key.
-```
+You can prompt the currently selected AI directly inside the Markdown editor
+using a custom list syntax:
 
 - `-* ` starts a prompt question.
 - `-- ` starts a prompt answer.
-- Indented continuation lines stay inside the same prompt item, so answers can
-  include multiple paragraphs or nested lists.
 
-These prompt dialogue lists render with a dedicated `prompt-list` class in the
-viewer and keep prompt answers visually distinct from normal prose.
+You can also create branches by indenting. Indented continuations will not be 
+included in further lines below the current one.
 
-## Custom CSS
+```md
+-* How many r's are in strawberry.
+-- There are three r's in strawberry - one in "straw", two in "berry".
+  -* Let me start a quick sidebar about that...
+-* Okay, how about blueberry?
+```
+
+You can change the AI used to respond to prompts by selecting it from the
+sidebar. By default, we have selected a few of the best free models on
+OpenRouter (e.g. NVIDIA Nemotron Super 120B, a Haiku-level model).
+
+## Custom CSS and Fonts
 
 Markdown documents can include a `css` block in front matter. When present,
 Input applies the sanitized CSS in both the document viewer and the editor
@@ -54,9 +61,8 @@ preview.
 
 Selectors are scoped to the rendered markdown container, and class selectors
 inside that container are allowed. ID selectors, attribute selectors,
-pseudo-elements, and non-Google Fonts imports are still rejected.
-Allowed properties cover common typography, spacing, sizing, wrapping, simple
-layout, and list styling.
+pseudo-elements are still rejected. Allowed properties cover common typography,
+spacing, sizing, wrapping, simple layout, and list styling.
 
 ```yaml
 ---
@@ -95,25 +101,6 @@ fonts:
   headings: Montserrat
 ---
 ```
-
-When `fonts` is a list or comma-separated string, it is treated as `load`.
-When `body` or `headings` is set, Input automatically loads those families
-from Google Fonts and generates matching markdown font rules.
-
-The CSS support is intentionally limited:
-
-- Selectors are scoped to the rendered markdown root.
-- Only a safe subset of typography, spacing, border, color, list, and text
-  decoration properties is allowed.
-- `@import` is allowed only for `https://fonts.googleapis.com/...`.
-- All custom CSS is rejected if any rule uses an unsupported selector,
-  property, or at-rule.
-
-## Wildcard subdomains
-
-`[username].input.md` automatically renders the public GitHub repo
-`[username]/homepage` as a read-only workspace. This requires wildcard
-DNS and TLS.
 
 ## Getting started
 
