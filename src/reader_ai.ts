@@ -8,6 +8,15 @@ export interface ReaderAiModel {
   provider?: 'cloud' | 'codex_local';
 }
 
+export function formatReaderAiModelDisplayName(model: Pick<ReaderAiModel, 'name' | 'id' | 'provider'>): string {
+  const baseName = model.name.replace(/\s+\((free|local codex|paid)\)\s*$/i, '');
+  if (model.provider === 'codex_local') return baseName.toLowerCase();
+  if (!model.id.trim().toLowerCase().endsWith(':free')) {
+    return baseName.replace(/^[^:]+:\s*/, '');
+  }
+  return baseName;
+}
+
 type ReaderAiModelsResponse = {
   models?: ReaderAiModel[];
 };

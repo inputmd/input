@@ -95,6 +95,7 @@ import {
   askReaderAiStream,
   createReaderAiProjectSession,
   deleteReaderAiProjectSession,
+  formatReaderAiModelDisplayName,
   listReaderAiModels,
   type ReaderAiModel,
   readerAiModelPriorityRank,
@@ -157,10 +158,6 @@ function commonSuffixLength(a: string, b: string, prefixLength: number): number 
   let i = 0;
   while (i < max && a.charCodeAt(a.length - 1 - i) === b.charCodeAt(b.length - 1 - i)) i += 1;
   return i;
-}
-
-function displayReaderAiModelName(name: string): string {
-  return name.replace(/\s+\((free|paid)\)\s*$/i, '');
 }
 
 function formatBytes(bytes: number): string {
@@ -1538,7 +1535,7 @@ export function App() {
     activeView === 'edit' && (readerAiSending || readerAiApplyingChanges || inlinePromptStreaming);
   const editorLockLabel = useMemo(() => {
     const selectedModel = readerAiModels.find((model) => model.id === readerAiSelectedModel);
-    return displayReaderAiModelName(selectedModel?.name ?? '') || 'Reader AI';
+    return selectedModel ? formatReaderAiModelDisplayName(selectedModel) : 'Reader AI';
   }, [readerAiModels, readerAiSelectedModel]);
   const readerAiHistoryDocumentKey = useMemo(
     () =>

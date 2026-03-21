@@ -2,7 +2,12 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ArrowRight, ChevronDown, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseMarkdownToHtml } from '../markdown';
-import { type ReaderAiModel, type ReaderAiStagedChange, readerAiModelPriorityRank } from '../reader_ai';
+import {
+  formatReaderAiModelDisplayName,
+  type ReaderAiModel,
+  type ReaderAiStagedChange,
+  readerAiModelPriorityRank,
+} from '../reader_ai';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
 
@@ -97,22 +102,8 @@ function ReaderAiAssistantMessage({ content, streaming }: { content: string; str
   return <div ref={contentRef} class="reader-ai-message-content rendered-markdown" />;
 }
 
-function isLocalCodexModel(model: ReaderAiModel): boolean {
-  return model.provider === 'codex_local';
-}
-
-function isPaidModel(model: ReaderAiModel): boolean {
-  if (isLocalCodexModel(model)) return false;
-  return !model.id.trim().toLowerCase().endsWith(':free');
-}
-
 function displayModelName(model: ReaderAiModel): string {
-  const baseName = model.name.replace(/\s+\((free|local codex|paid)\)\s*$/i, '');
-  if (isLocalCodexModel(model)) return baseName.toLowerCase();
-  if (!isLocalCodexModel(model) && isPaidModel(model)) {
-    return baseName.replace(/^[^:]+:\s*/, '');
-  }
-  return baseName;
+  return formatReaderAiModelDisplayName(model);
 }
 
 export function ReaderAiPanel({
@@ -169,9 +160,13 @@ export function ReaderAiPanel({
     return model ? displayModelName(model) : '';
   })();
   const modelTriggerLabel = selectedModelName || (modelsLoading ? 'Loading models...' : 'No models');
-  const localModels = models.filter((model) => isLocalCodexModel(model));
-  const paidModels = models.filter((model) => !isLocalCodexModel(model) && isPaidModel(model));
-  const freeModels = models.filter((model) => !isLocalCodexModel(model) && !isPaidModel(model));
+  const localModels = models.filter((model) => model.provider === 'codex_local');
+  const paidModels = models.filter(
+    (model) => model.provider !== 'codex_local' && !model.id.trim().toLowerCase().endsWith(':free'),
+  );
+  const freeModels = models.filter(
+    (model) => model.provider !== 'codex_local' && model.id.trim().toLowerCase().endsWith(':free'),
+  );
   const featuredModels = freeModels.filter((model) => readerAiModelPriorityRank(model) !== -1);
   const nonFeaturedModels = freeModels.filter((model) => readerAiModelPriorityRank(model) === -1);
   const unverifiedModels = nonFeaturedModels;
