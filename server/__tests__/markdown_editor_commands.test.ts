@@ -15,6 +15,7 @@ import { continuedIndentExtension } from '../../src/components/codemirror_contin
 import { fencedCodeLineClassExtension } from '../../src/components/codemirror_fenced_code_lines.ts';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from '../../src/components/codemirror_markdown.ts';
 import {
+  backspacePromptQuestionMarker,
   buildExternalContentSyncTransaction,
   buildExternalEditorChangeTransaction,
   externalSyncAnnotation,
@@ -365,6 +366,36 @@ test('insertNewlineExitPromptQuestion clears empty prompt questions without requ
   t.true(insertNewlineExitPromptQuestion(nonTrailingView));
   t.is(nonTrailingView.state.doc.toString(), '-* Question\n\n\n-⏺ Answer');
   t.is(nonTrailingView.state.selection.main.head, '-* Question\n\n'.length);
+});
+
+test('backspacePromptQuestionMarker removes the -* marker and preserves trailing spacing', (t) => {
+  const view = makeMockView('-* ', EditorSelection.cursor('-* '.length), [markdown({ base: markdownLanguage })]);
+
+  const handled = backspacePromptQuestionMarker(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), ' ');
+  t.is(view.state.selection.main.head, 1);
+});
+
+test('backspacePromptQuestionMarker preserves indentation when removing a nested prompt marker', (t) => {
+  const view = makeMockView('  -*   ', EditorSelection.cursor('  -*   '.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  const handled = backspacePromptQuestionMarker(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '     ');
+  t.is(view.state.selection.main.head, 5);
+});
+
+test('backspacePromptQuestionMarker ignores non-empty prompt questions and other cursor positions', (t) => {
+  const nonEmptyView = makeMockView('-* question', EditorSelection.cursor(3), [markdown({ base: markdownLanguage })]);
+  const midSpacingView = makeMockView('-*  ', EditorSelection.cursor(2), [markdown({ base: markdownLanguage })]);
+
+  t.false(backspacePromptQuestionMarker(nonEmptyView));
+  t.false(backspacePromptQuestionMarker(midSpacingView));
 });
 
 test('getPromptListRequest returns an insert request for question lines at line end', (t) => {

@@ -605,3 +605,30 @@ export function insertNewlineContinuePromptAnswer(view: EditorView): boolean {
   );
   return true;
 }
+
+export function backspacePromptQuestionMarker(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty) return false;
+  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
+    return false;
+
+  const line = state.doc.lineAt(range.from);
+  const match = matchPromptListLine(line.text);
+  if (!match || match.kind !== 'question' || match.content.length > 0) return false;
+
+  const markerEnd = line.from + match.markerEnd;
+  if (range.from !== markerEnd) return false;
+
+  const markerFrom = line.from + match.indent.length;
+  const markerTo = markerFrom + 2;
+  view.dispatch(
+    state.update({
+      changes: { from: markerFrom, to: markerTo, insert: '' },
+      selection: EditorSelection.cursor(range.from - (markerTo - markerFrom)),
+      scrollIntoView: true,
+      userEvent: 'delete.backward',
+    }),
+  );
+  return true;
+}

@@ -21,6 +21,7 @@ import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codem
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController } from './editor_controller';
 import {
+  backspacePromptQuestionMarker,
   buildExternalContentSyncTransaction,
   buildExternalEditorChangeTransaction,
   getPromptListRequest,
@@ -241,6 +242,7 @@ export function MarkdownEditor({
             },
             { key: 'Enter', run: insertNewlineExitBlockquote },
             { key: 'Enter', run: insertNewlineContinueLooseListItem },
+            { key: 'Backspace', run: backspacePromptQuestionMarker },
             { key: 'Tab', run: indentMore, shift: indentLess },
             ...historyKeymap,
           ]),
