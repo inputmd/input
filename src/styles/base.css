@@ -196,6 +196,12 @@ button:hover {
   background: var(--btn-hover);
 }
 
+@media (max-width: 768px) {
+  button {
+    padding: 6px 12px;
+  }
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: default;

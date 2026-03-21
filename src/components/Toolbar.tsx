@@ -217,6 +217,7 @@ export function Toolbar({
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
   const showPreviewAndAiGroup = showPreviewToggle && showAiToggle;
+  const canOpenSaveMenu = !saving && (canSave || showCancel);
   const resolvedLocalRateLimit = localRateLimit ?? readStoredGitHubRateLimitSnapshot('serverLocal');
   const resolvedServerRateLimit = serverRateLimit ?? readStoredGitHubRateLimitSnapshot('server');
   const localRateLimitAnimated = useMemo(
@@ -563,17 +564,12 @@ export function Toolbar({
               Edit <ExternalLink size={14} aria-hidden="true" />
             </a>
           )}
-          {showCancel && (
-            <button type="button" onClick={onCancel}>
-              Close
-            </button>
-          )}
           {showSave && (
             <div class="toolbar-split-button-group" role="group" aria-label="Save options">
               <button type="button" class="toolbar-split-button-main" onClick={onSave} disabled={saving || !canSave}>
                 {saving ? 'Saving...' : 'Save'}
               </button>
-              {saving || !canSave ? (
+              {!canOpenSaveMenu ? (
                 <button
                   type="button"
                   class="toolbar-split-button-toggle"
@@ -601,14 +597,24 @@ export function Toolbar({
                       sideOffset={6}
                       align="end"
                     >
-                      <DropdownMenu.Item class="user-menu-item" onSelect={onSaveAndExit}>
+                      <DropdownMenu.Item class="user-menu-item" onSelect={onSaveAndExit} disabled={!canSave}>
                         Save and close
                       </DropdownMenu.Item>
+                      {showCancel ? (
+                        <DropdownMenu.Item class="user-menu-item toolbar-mobile-save-menu-item" onSelect={onCancel}>
+                          Close
+                        </DropdownMenu.Item>
+                      ) : null}
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu.Root>
               )}
             </div>
+          )}
+          {showCancel && (
+            <button type="button" class="toolbar-close-btn" onClick={onCancel}>
+              Close
+            </button>
           )}
           {showActionsMenu && view === 'edit' && authorMenu}
           {showSignInToSave && signInButton}

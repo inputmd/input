@@ -379,6 +379,10 @@
   pointer-events: none;
 }
 
+.toolbar-split-button-main:disabled {
+  pointer-events: none;
+}
+
 .toolbar-split-button-toggle svg {
   transform: translateY(2px);
 }
@@ -569,11 +573,31 @@
   width: 100%;
 }
 
+.toolbar-mobile-save-menu-item {
+  display: none;
+}
+
 .user-avatar {
   border-radius: 50%;
 }
 
 @media (max-width: 768px) {
+  .toolbar {
+    padding: 8px 9px;
+  }
+
+  .toolbar button:not(.github-signin-btn-toggle):not(.toolbar-split-button-toggle) {
+    min-width: 38px;
+  }
+
+  .toolbar-close-btn {
+    display: none;
+  }
+
+  .toolbar-mobile-save-menu-item {
+    display: flex;
+  }
+
   .repo-menu-current-name {
     display: none;
   }
