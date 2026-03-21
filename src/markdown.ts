@@ -1634,7 +1634,7 @@ function sanitizeHtml(dirty: string, config?: object): string {
 export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptions): ParsedMarkdownDocument {
   const extracted = extractMarkdownDocument(text);
   const extractedFootnotes = extractFootnotes(extracted.markdown);
-  const raw = marked.parse(extractedFootnotes.markdown, { gfm: true, breaks: options?.breaks ?? true }) as string;
+  const raw = marked.parse(extractedFootnotes.markdown, { gfm: true, breaks: options?.breaks ?? false }) as string;
   const sanitized = sanitizeHtml(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
   const template = document.createElement('template');
   template.innerHTML = sanitized;

@@ -210,10 +210,11 @@ test('parseMarkdownToHtml preserves leading indentation in paragraphs', (t) => {
   t.false(html.includes('leading-indent">    </span>one'));
 });
 
-test('parseMarkdownToHtml preserves leading indentation after soft breaks in list items', (t) => {
+test('parseMarkdownToHtml preserves leading indentation after wrapped lines in list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('- item\n    continuation'));
 
-  t.true(html.includes('item<br><span class="leading-indent">  </span>continuation'));
+  t.true(html.includes('item\n<span class="leading-indent">  </span>continuation'));
+  t.false(html.includes('<br>'));
 });
 
 test('parseMarkdownToHtml does not preserve repeated inline spaces as indentation', (t) => {
