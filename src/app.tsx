@@ -5714,12 +5714,21 @@ export function App() {
           setRepoSidebarFiles((prev) => upsertRepoFile(prev, createdSeedFile));
           setHasUnsavedChanges(false);
         }
+        setSidebarFileFilter('all');
+        navigateToSidebarFile(seedFilePath);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
         void showAlert(err instanceof Error ? err.message : 'Failed to create directory');
       }
     },
-    [getActiveDocumentStore, showAlert, showRateLimitToastIfNeeded, installationId, selectedRepo],
+    [
+      getActiveDocumentStore,
+      showAlert,
+      showRateLimitToastIfNeeded,
+      installationId,
+      selectedRepo,
+      navigateToSidebarFile,
+    ],
   );
 
   const handleUploadFileToSidebar = useCallback(
