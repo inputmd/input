@@ -624,6 +624,22 @@ test('stream parser inserts a boundary space between plain text deltas when the 
   t.is(result.content, 'model am a large language model.');
 });
 
+test('stream parser can disable boundary repair', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'model' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'am a large language model.' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta), {
+    repairBoundaries: false,
+  });
+
+  t.deepEqual(deltas, ['model', 'am a large language model.']);
+  t.is(result.content, 'modelam a large language model.');
+});
+
 test('stream parser inserts a boundary space after sentence punctuation before a capitalized chunk', async (t) => {
   const deltas: string[] = [];
   const stream = makeStream([

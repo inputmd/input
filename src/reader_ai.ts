@@ -154,6 +154,10 @@ function modelRequestBaseUrl(modelId: string): string {
   return isLocalCodexModel(modelId) ? getLocalCodexBridgeBaseUrl() : '';
 }
 
+function shouldRepairStreamBoundaries(modelId: string): boolean {
+  return !isLocalCodexModel(modelId) && modelId.trim().toLowerCase().endsWith(':free');
+}
+
 function withBaseUrl(baseUrl: string, path: string): string {
   return baseUrl ? `${baseUrl}${path}` : path;
 }
@@ -441,6 +445,7 @@ export async function askReaderAiStream(
   const decoder = new TextDecoder();
   let buffer = '';
   let streamedText = '';
+  const repairStreamBoundaries = shouldRepairStreamBoundaries(model);
 
   while (true) {
     const { value, done } = await reader.read();
@@ -586,7 +591,11 @@ export async function askReaderAiStream(
           const delta = extractStreamDelta(parsed);
           if (typeof delta === 'string') {
             const nextText =
-              editModeCurrentDocOnly === true ? streamedText + delta : appendStreamText(streamedText, delta);
+              editModeCurrentDocOnly === true
+                ? streamedText + delta
+                : repairStreamBoundaries
+                  ? appendStreamText(streamedText, delta)
+                  : streamedText + delta;
             const emittedDelta = nextText.slice(streamedText.length);
             streamedText = nextText;
             if (emittedDelta) options.onDelta(emittedDelta);

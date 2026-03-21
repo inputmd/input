@@ -2682,7 +2682,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       writeSseEvent('turn_start', { iteration });
       let result: ReaderAiStreamParseResult;
       try {
-        result = await parseReaderAiUpstreamStream(currentBody, writeSseDelta);
+        result = await parseReaderAiUpstreamStream(currentBody, writeSseDelta, {
+          repairBoundaries: getReaderAiModelSource(model, paidReaderAiModelIds) === 'free',
+        });
       } catch (streamErr) {
         await currentBody.cancel().catch(() => {});
         currentBody = null;

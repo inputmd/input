@@ -166,6 +166,10 @@ export interface ReaderAiStreamParseResult {
   finishReason: string;
 }
 
+interface ReaderAiStreamParseOptions {
+  repairBoundaries?: boolean;
+}
+
 function shouldInsertStreamBoundarySpace(previous: string, next: string): boolean {
   const previousChar = previous.at(-1);
   const nextChar = next[0];
@@ -1265,6 +1269,7 @@ export function parseSseFieldValue(line: string, prefix: 'data:'): string {
 export async function parseReaderAiUpstreamStream(
   body: ReadableStream<Uint8Array>,
   onTextDelta: (delta: string) => void,
+  options: ReaderAiStreamParseOptions = {},
 ): Promise<ReaderAiStreamParseResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -1272,6 +1277,7 @@ export async function parseReaderAiUpstreamStream(
   let content = '';
   let finishReason = '';
   const accumulators = new Map<number, { id: string; name: string; arguments: string }>();
+  const repairBoundaries = options.repairBoundaries ?? true;
 
   try {
     while (true) {
@@ -1315,7 +1321,7 @@ export async function parseReaderAiUpstreamStream(
           const delta = choice.delta;
           const textDelta = extractOpenRouterContentText(delta?.content);
           if (textDelta) {
-            const nextContent = appendStreamText(content, textDelta);
+            const nextContent = repairBoundaries ? appendStreamText(content, textDelta) : content + textDelta;
             const emittedDelta = nextContent.slice(content.length);
             content = nextContent;
             if (emittedDelta) onTextDelta(emittedDelta);
@@ -1664,9 +1670,13 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
       return output ? `${output}\n\n[Subagent error: no response body]` : '[Subagent error: no response body]';
     }
 
-    const result = await parseReaderAiUpstreamStream(upstream.body, (delta) => {
-      output += delta;
-    });
+    const result = await parseReaderAiUpstreamStream(
+      upstream.body,
+      (delta) => {
+        output += delta;
+      },
+      { repairBoundaries: model.trim().toLowerCase().endsWith(':free') },
+    );
 
     if (result.toolCalls.length === 0) break;
 
