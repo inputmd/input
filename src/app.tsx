@@ -290,6 +290,17 @@ function isLikelyBinaryBytes(bytes: Uint8Array): boolean {
   return suspicious / length > 0.2;
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 4000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+    return await fetch(input, { ...init, signal });
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
 async function fetchFullGistFileText(
   file: Pick<GistFile, 'filename' | 'raw_url'>,
 ): Promise<{ ok: true; content: string } | { ok: false; error: string } | { ok: false; binary: true }> {
@@ -307,7 +318,15 @@ async function fetchFullGistFileText(
     return { ok: false, error: 'Unsupported raw_url host.' };
   }
 
-  const res = await fetch(rawUrl, { redirect: 'error' });
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(rawUrl, { redirect: 'error' }, 4000);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, error: 'Timed out loading full content.' };
+    }
+    throw err;
+  }
   if (!res.ok) return { ok: false, error: `Failed to load full content (${res.status}).` };
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (isSafeImageFileName(file.filename) || isLikelyBinaryBytes(bytes)) return { ok: false, binary: true };
@@ -2333,7 +2352,16 @@ export function App() {
       }
       try {
         if (anonymous) {
-          let res = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
+          let res: Response;
+          try {
+            res = await fetchWithTimeout(`https://api.github.com/gists/${encodeURIComponent(id)}`, {}, 4000);
+          } catch (err) {
+            if (!(err instanceof DOMException && err.name === 'AbortError')) throw err;
+            console.warn('GitHub API request timed out, falling back to gist proxy');
+            res = await fetch(`/api/gists/${encodeURIComponent(id)}`);
+            recordServerLocalRateLimitFromResponse(res);
+            recordGitHubRateLimitFromResponse(res);
+          }
           if (!res.ok) {
             console.warn(`GitHub API failed (${res.status}), falling back to gist proxy`);
             res = await fetch(`/api/gists/${encodeURIComponent(id)}`);
