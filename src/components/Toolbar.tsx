@@ -333,7 +333,7 @@ export function Toolbar({
                     });
                   }}
                 >
-                  Reset Changes
+                  Reset changes
                 </DropdownMenu.Item>
               ) : null}
             </>
@@ -565,7 +565,7 @@ export function Toolbar({
           )}
           {showCancel && (
             <button type="button" onClick={onCancel}>
-              Cancel
+              Close
             </button>
           )}
           {showSave && (
@@ -602,7 +602,7 @@ export function Toolbar({
                       align="end"
                     >
                       <DropdownMenu.Item class="user-menu-item" onSelect={onSaveAndExit}>
-                        Save and exit
+                        Save and close
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
@@ -687,7 +687,7 @@ export function Toolbar({
                   </DropdownMenu.Item>
                 ) : null}
                 <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
-                  Toggle Theme
+                  Toggle theme
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator class="user-menu-separator" />
                 <DropdownMenu.Sub>

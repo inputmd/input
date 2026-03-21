@@ -4589,7 +4589,7 @@ export function App() {
       return;
     }
     if (activeView === 'edit' && (hasUnsavedChanges || isScratchDocument) && editContent.trim().length > 0) {
-      const leave = await showConfirm('Leave the editor? Your changes will be saved.', {
+      const leave = await showConfirm('Leave the editor? You have unsaved changes.', {
         title: 'Unsaved changes',
         defaultFocus: 'cancel',
       });
@@ -5174,7 +5174,7 @@ export function App() {
         },
       ],
       {
-        title: 'Reset Changes',
+        title: 'Reset changes',
         secondaryActionLabel: 'Reset without commit',
         primaryActionLabel: 'Reset and commit',
         cancelLabel: 'Cancel',
