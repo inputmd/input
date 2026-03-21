@@ -1,3 +1,4 @@
+import { history, undo, undoDepth } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   EditorSelection,
@@ -194,6 +195,42 @@ test('buildExternalEditorChangeTransaction can update selection without changing
   t.is(transaction.state.doc.toString(), 'same');
   t.is(transaction.state.selection.main.anchor, 2);
   t.is(transaction.state.selection.main.head, 2);
+});
+
+test('buildExternalEditorChangeTransaction can opt AI edits into isolated undo history', (t) => {
+  let state = EditorState.create({
+    doc: 'hello world',
+    selection: EditorSelection.cursor(11),
+    extensions: [history()],
+  });
+
+  const replaceSpec = buildExternalEditorChangeTransaction(state, {
+    from: 6,
+    to: 11,
+    insert: 'reader',
+    selection: { anchor: 12, head: 12 },
+    addToHistory: true,
+    isolateHistory: 'before',
+  });
+  t.truthy(replaceSpec);
+  state = state.update(replaceSpec!).state;
+
+  const finalizeSpec = buildExternalEditorChangeTransaction(state, {
+    from: 12,
+    to: 12,
+    insert: '',
+    selection: { anchor: 12, head: 12 },
+    addToHistory: true,
+    isolateHistory: 'after',
+  });
+  t.truthy(finalizeSpec);
+  state = state.update(finalizeSpec!).state;
+
+  t.is(undoDepth(state), 1);
+  t.true(undo({ state, dispatch: (tr) => (state = tr.state) } as EditorView));
+  t.is(state.doc.toString(), 'hello world');
+  t.is(state.selection.main.anchor, 11);
+  t.is(state.selection.main.head, 11);
 });
 
 test('isExternalSyncTransaction detects only external user events', (t) => {

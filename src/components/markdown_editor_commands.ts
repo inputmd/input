@@ -1,3 +1,4 @@
+import { isolateHistory } from '@codemirror/commands';
 import { markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, type EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
@@ -123,10 +124,15 @@ export function buildExternalEditorChangeTransaction(
 
   if (!hasDocChange && nextSelection === undefined) return null;
 
+  const annotations = [externalSyncAnnotation, Transaction.addToHistory.of(change.addToHistory ?? false)];
+  if (change.isolateHistory) {
+    annotations.push(isolateHistory.of(change.isolateHistory));
+  }
+
   return {
     changes: hasDocChange ? { from, to, insert } : undefined,
     selection: nextSelection,
-    annotations: [externalSyncAnnotation, Transaction.addToHistory.of(false)],
+    annotations,
   };
 }
 

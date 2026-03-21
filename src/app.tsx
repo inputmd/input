@@ -85,8 +85,8 @@ import {
   recordServerLocalRateLimitFromResponse,
   subscribeGitHubRateLimitUpdates,
 } from './github_rate_limit';
-import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
 import { removeDocumentDraft, useDocumentPersistence } from './hooks/useDocumentPersistence';
+import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
@@ -4129,6 +4129,8 @@ export function App() {
         to,
         insert: '',
         selection: { anchor: from, head: from },
+        addToHistory: true,
+        isolateHistory: 'before',
       });
       setNextEditContent((previousContent) => previousContent.slice(0, from) + previousContent.slice(to), {
         origin: 'streaming',
@@ -4151,6 +4153,7 @@ export function App() {
                 from: insertAt,
                 to: insertAt,
                 insert: delta,
+                addToHistory: true,
               });
               streamed += delta;
               editViewControllerRef.current?.updateStreamingCursorTracking(insertAt + delta.length);
@@ -4180,6 +4183,8 @@ export function App() {
             to: end,
             insert: '',
             selection: { anchor: end, head: end },
+            addToHistory: true,
+            isolateHistory: 'after',
           });
           setNextEditContent((previousContent) => previousContent, {
             origin: 'streaming',
@@ -4240,6 +4245,7 @@ export function App() {
           from: replaceFrom,
           to: replaceTo,
           insert: insertText,
+          addToHistory: true,
         });
         streamedAnswer = nextAnswer;
         editViewControllerRef.current?.updateStreamingCursorTracking(answerFrom + streamedAnswer.length);
@@ -4255,6 +4261,8 @@ export function App() {
         to: insertTo,
         insert: insertedPrefix,
         selection: { anchor: answerFrom, head: answerFrom },
+        addToHistory: true,
+        isolateHistory: 'before',
       });
       setNextEditContent(
         (previousContent) => previousContent.slice(0, insertFrom) + insertedPrefix + previousContent.slice(insertTo),
@@ -4313,6 +4321,8 @@ export function App() {
             to: end,
             insert: '',
             selection: { anchor: end, head: end },
+            addToHistory: true,
+            isolateHistory: 'after',
           });
           setNextEditContent((previousContent) => previousContent, {
             origin: 'streaming',
