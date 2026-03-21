@@ -199,7 +199,6 @@ You can also view any public GitHub repo, by replacing github.com with input.md.
 [View on GitHub](https://github.com/inputmd/input)
 
 Try it on an example:
-- [sindresorhus/awesome](https://input.md/sindresorhus/awesome)
 - [awesome-markdown](https://input.md/mundimark/awesome-markdown)
 - [awesome-ai-tools](https://input.md/mahseema/awesome-ai-tools)
 - [awesome-mac](https://input.md/jaywcjlove/awesome-mac)
