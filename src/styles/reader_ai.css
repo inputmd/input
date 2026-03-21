@@ -230,9 +230,8 @@
 }
 
 .reader-ai-message--assistant {
-  background: transparent;
-  border: 0;
-  padding: 0 2px 4px;
+  background: var(--code-block-bg);
+  border-color: color-mix(in srgb, var(--ansi-cyan) 18%, var(--border));
 }
 
 .reader-ai-message-role {
