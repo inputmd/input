@@ -21,6 +21,16 @@ test('matchPromptListLine parses prompt answer markers', (t) => {
   });
 });
 
+test('matchPromptListLine parses nested answer markers', (t) => {
+  t.deepEqual(matchPromptListLine('    -⏺ Nested answer'), {
+    indent: '    ',
+    marker: '⏺',
+    kind: 'answer',
+    content: 'Nested answer',
+    markerEnd: 7,
+  });
+});
+
 test('matchPromptListLine ignores ordinary markdown bullets', (t) => {
   t.is(matchPromptListLine('- regular bullet'), null);
 });

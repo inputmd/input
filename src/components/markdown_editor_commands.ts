@@ -25,6 +25,7 @@ export interface PromptListRequest {
 interface PromptListItem {
   kind: 'question' | 'answer';
   indent: string;
+  indentWidth: number;
   lineNumber: number;
   lastLineNumber: number;
   from: number;
@@ -32,8 +33,16 @@ interface PromptListItem {
   content: string;
 }
 
+interface PromptListTurn {
+  questionItemIndex: number;
+  answerItemIndex: number | null;
+  parentTurnIndex: number | null;
+}
+
 interface PromptListBlock {
   items: PromptListItem[];
+  turns: PromptListTurn[];
+  itemToTurnIndex: number[];
 }
 
 export function wrapWithMarker(view: EditorView, marker: string): boolean {
@@ -251,6 +260,57 @@ function stripPromptListContinuationIndent(text: string, indent: string): string
   return text;
 }
 
+function promptListIndentWidth(indent: string): number {
+  let width = 0;
+  for (const ch of indent) width += ch === '\t' ? 2 : 1;
+  return width;
+}
+
+function buildPromptListTurns(items: PromptListItem[]): { turns: PromptListTurn[]; itemToTurnIndex: number[] } {
+  const turns: PromptListTurn[] = [];
+  const itemToTurnIndex = Array.from({ length: items.length }, () => -1);
+  const openTurnStack: number[] = [];
+
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+    const item = items[itemIndex];
+
+    if (item.kind === 'question') {
+      while (
+        openTurnStack.length > 0 &&
+        items[turns[openTurnStack[openTurnStack.length - 1]].questionItemIndex].indentWidth >= item.indentWidth
+      ) {
+        openTurnStack.pop();
+      }
+
+      const parentTurnIndex = openTurnStack.length > 0 ? openTurnStack[openTurnStack.length - 1] : null;
+      const turnIndex = turns.push({ questionItemIndex: itemIndex, answerItemIndex: null, parentTurnIndex }) - 1;
+      itemToTurnIndex[itemIndex] = turnIndex;
+      openTurnStack.push(turnIndex);
+      continue;
+    }
+
+    while (
+      openTurnStack.length > 0 &&
+      items[turns[openTurnStack[openTurnStack.length - 1]].questionItemIndex].indentWidth > item.indentWidth
+    ) {
+      openTurnStack.pop();
+    }
+
+    for (let stackIndex = openTurnStack.length - 1; stackIndex >= 0; stackIndex -= 1) {
+      const turnIndex = openTurnStack[stackIndex];
+      const turn = turns[turnIndex];
+      const question = items[turn.questionItemIndex];
+      if (question.indentWidth !== item.indentWidth) continue;
+      if (turn.answerItemIndex !== null) continue;
+      turn.answerItemIndex = itemIndex;
+      itemToTurnIndex[itemIndex] = turnIndex;
+      break;
+    }
+  }
+
+  return { turns, itemToTurnIndex };
+}
+
 function parsePromptListBlocks(state: EditorState): PromptListBlock[] {
   const blocks: PromptListBlock[] = [];
   let lineNumber = 1;
@@ -284,6 +344,7 @@ function parsePromptListBlocks(state: EditorState): PromptListBlock[] {
       items.push({
         kind: currentMatch.kind,
         indent: currentMatch.indent,
+        indentWidth: promptListIndentWidth(currentMatch.indent),
         lineNumber: cursor,
         lastLineNumber,
         from: currentLine.from,
@@ -296,11 +357,55 @@ function parsePromptListBlocks(state: EditorState): PromptListBlock[] {
       if (!matchPromptListLine(state.doc.line(cursor).text)) break;
     }
 
-    blocks.push({ items });
+    const { turns, itemToTurnIndex } = buildPromptListTurns(items);
+    blocks.push({ items, turns, itemToTurnIndex });
     lineNumber = items[items.length - 1].lastLineNumber + 1;
   }
 
   return blocks;
+}
+
+function previousSiblingTurnIndices(block: PromptListBlock, turnIndex: number): number[] {
+  const parentTurnIndex = block.turns[turnIndex].parentTurnIndex;
+  const siblings: number[] = [];
+  for (let index = turnIndex - 1; index >= 0; index -= 1) {
+    if (block.turns[index].parentTurnIndex === parentTurnIndex) siblings.push(index);
+  }
+  siblings.reverse();
+  return siblings;
+}
+
+function promptListTurnMessages(block: PromptListBlock, turnIndex: number): PromptListThreadMessage[] {
+  const turn = block.turns[turnIndex];
+  const messages: PromptListThreadMessage[] = [];
+  const question = block.items[turn.questionItemIndex];
+  if (question.content.length > 0) messages.push({ role: 'user', content: question.content });
+  if (turn.answerItemIndex !== null) {
+    const answer = block.items[turn.answerItemIndex];
+    if (answer.content.length > 0) messages.push({ role: 'assistant', content: answer.content });
+  }
+  return messages;
+}
+
+function contextMessagesThroughTurn(block: PromptListBlock, turnIndex: number): PromptListThreadMessage[] {
+  const turn = block.turns[turnIndex];
+  if (turn.parentTurnIndex === null) {
+    const messages: PromptListThreadMessage[] = [];
+    for (let index = 0; index < turnIndex; index += 1) {
+      if (block.turns[index].parentTurnIndex !== null) continue;
+      messages.push(...promptListTurnMessages(block, index));
+    }
+    messages.push(...promptListTurnMessages(block, turnIndex));
+    return messages;
+  }
+
+  const messages = contextMessagesThroughTurn(block, turn.parentTurnIndex);
+  const siblingTurnIndices = previousSiblingTurnIndices(block, turnIndex);
+  for (const siblingTurnIndex of siblingTurnIndices) {
+    messages.push(...promptListTurnMessages(block, siblingTurnIndex));
+  }
+  messages.push(...promptListTurnMessages(block, turnIndex));
+  return messages;
 }
 
 function findPromptListBlockAt(
@@ -423,17 +528,27 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
   if (!thread) return null;
 
   const currentItem = thread.block.items[thread.itemIndex];
-  const priorMessages = thread.block.items
-    .slice(0, thread.itemIndex)
-    .filter((item) => item.content.length > 0)
-    .map((item) => ({
-      role: item.kind === 'question' ? ('user' as const) : ('assistant' as const),
-      content: item.content,
-    }));
-  const messages = [...priorMessages, { role: 'user' as const, content: currentItem.content }];
+  const currentTurnIndex = thread.block.itemToTurnIndex[thread.itemIndex];
+  if (currentTurnIndex < 0) return null;
 
-  const nextItem = thread.block.items[thread.itemIndex + 1];
-  if (nextItem?.kind === 'answer') {
+  const currentTurn = thread.block.turns[currentTurnIndex];
+  const messages: PromptListThreadMessage[] = [];
+  if (currentTurn.parentTurnIndex === null) {
+    for (let index = 0; index < currentTurnIndex; index += 1) {
+      if (thread.block.turns[index].parentTurnIndex !== null) continue;
+      messages.push(...promptListTurnMessages(thread.block, index));
+    }
+  } else {
+    messages.push(...contextMessagesThroughTurn(thread.block, currentTurn.parentTurnIndex));
+    const siblingTurnIndices = previousSiblingTurnIndices(thread.block, currentTurnIndex);
+    for (const siblingTurnIndex of siblingTurnIndices) {
+      messages.push(...promptListTurnMessages(thread.block, siblingTurnIndex));
+    }
+  }
+  messages.push({ role: 'user' as const, content: currentItem.content });
+
+  if (currentTurn.answerItemIndex !== null) {
+    const nextItem = thread.block.items[currentTurn.answerItemIndex];
     const insertedPrefix = `${nextItem.indent}-⏺ `;
     return {
       prompt,
@@ -447,7 +562,7 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
     };
   }
 
-  const insertedPrefix = `${state.lineBreak}-⏺ `;
+  const insertedPrefix = `${state.lineBreak}${match.indent}-⏺ `;
   return {
     prompt,
     documentContent: state.doc.toString(),

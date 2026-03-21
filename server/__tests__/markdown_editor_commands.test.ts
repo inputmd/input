@@ -413,6 +413,155 @@ test('getPromptListRequest includes prior prompt-list history and local multilin
   });
 });
 
+test('getPromptListRequest keeps all prior sibling branches under the same parent in context', (t) => {
+  const doc = [
+    '-* user1',
+    '-⏺ asst1',
+    '  -* ignored',
+    '  -⏺ ignored',
+    '    -* ignored',
+    '    -⏺ ignored',
+    '-* user2',
+    '-⏺ asst2',
+    '  -* user2a',
+    '  -⏺ asst2a',
+    '  -* user3',
+    '  -⏺ asst3',
+    '    -* ignored',
+    '    -⏺ ignored',
+    '  -* user4',
+    '  -⏺ asst4',
+    '  -* hello',
+  ].join('\n');
+  const target = doc.length;
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(target),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'hello',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'user1' },
+      { role: 'assistant', content: 'asst1' },
+      { role: 'user', content: 'user2' },
+      { role: 'assistant', content: 'asst2' },
+      { role: 'user', content: 'user2a' },
+      { role: 'assistant', content: 'asst2a' },
+      { role: 'user', content: 'user3' },
+      { role: 'assistant', content: 'asst3' },
+      { role: 'user', content: 'user4' },
+      { role: 'assistant', content: 'asst4' },
+      { role: 'user', content: 'hello' },
+    ],
+    answerIndent: '  ',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n  -⏺ ',
+    answerFrom: `${doc}\n  -⏺ `.length,
+  });
+});
+
+test('getPromptListRequest replaces an existing nested answer and keeps branch ancestry in context', (t) => {
+  const doc = [
+    '-* root',
+    '-⏺ root answer',
+    '  -* child one',
+    '  -⏺ child one answer',
+    '  -* child two',
+    '  -⏺ old child two answer',
+    '    continuation',
+  ].join('\n');
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(
+      '-* root\n-⏺ root answer\n  -* child one\n  -⏺ child one answer\n  -* child two'.length,
+    ),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'child two',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'root' },
+      { role: 'assistant', content: 'root answer' },
+      { role: 'user', content: 'child one' },
+      { role: 'assistant', content: 'child one answer' },
+      { role: 'user', content: 'child two' },
+    ],
+    answerIndent: '  ',
+    insertFrom: '-* root\n-⏺ root answer\n  -* child one\n  -⏺ child one answer\n  -* child two\n'.length,
+    insertTo: doc.length,
+    insertedPrefix: '  -⏺ ',
+    answerFrom: '-* root\n-⏺ root answer\n  -* child one\n  -⏺ child one answer\n  -* child two\n  -⏺ '.length,
+  });
+});
+
+test('getPromptListRequest ignores nested descendants when continuing at root level', (t) => {
+  const doc = ['-* root one', '-⏺ root one answer', '  -* nested child', '  -⏺ nested answer', '-* root two'].join(
+    '\n',
+  );
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(doc.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'root two',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'root one' },
+      { role: 'assistant', content: 'root one answer' },
+      { role: 'user', content: 'root two' },
+    ],
+    answerIndent: '',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n-⏺ ',
+    answerFrom: `${doc}\n-⏺ `.length,
+  });
+});
+
+test('getPromptListRequest supports tab-indented sibling branches', (t) => {
+  const doc = [
+    '-* root',
+    '-⏺ root answer',
+    '-* parent',
+    '-⏺ parent answer',
+    '\t-* tab one',
+    '\t-⏺ tab one answer',
+    '\t-* tab two',
+  ].join('\n');
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(doc.length),
+    extensions: [EditorState.tabSize.of(2), markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'tab two',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'root' },
+      { role: 'assistant', content: 'root answer' },
+      { role: 'user', content: 'parent' },
+      { role: 'assistant', content: 'parent answer' },
+      { role: 'user', content: 'tab one' },
+      { role: 'assistant', content: 'tab one answer' },
+      { role: 'user', content: 'tab two' },
+    ],
+    answerIndent: '\t',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n\t-⏺ ',
+    answerFrom: `${doc}\n\t-⏺ `.length,
+  });
+});
+
 test('getPromptListRequest ignores non-question prompt list lines and non-terminal cursors', (t) => {
   const nonTerminal = EditorState.create({
     doc: '-* What is Solomonoff induction?',
