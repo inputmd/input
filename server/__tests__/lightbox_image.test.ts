@@ -34,6 +34,10 @@ test('reusableImageSrc falls back to currentSrc and src attribute', (t) => {
   t.is(reusableImageSrc(attributeOnly), './.assets/cat.png');
 });
 
-test('content security policy allows lightbox data urls for images', (t) => {
-  t.true(CONTENT_SECURITY_POLICY.includes("img-src 'self' data: https://avatars.githubusercontent.com"));
+test('content security policy allows external https images and lightbox data urls', (t) => {
+  t.true(CONTENT_SECURITY_POLICY.includes("img-src 'self' data: https:"));
+});
+
+test('content security policy allows external https fonts', (t) => {
+  t.true(CONTENT_SECURITY_POLICY.includes("font-src 'self' https:"));
 });
