@@ -298,6 +298,17 @@ test('parseMarkdownToHtml does not parse CriticMarkup inside fenced code blocks'
   t.false(html.includes('critic-addition'));
 });
 
+test('parseMarkdownToHtml does not preserve extra leading indentation on standalone CriticMarkup comments in list paragraphs', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml(
+      ['- item', '  first paragraph', '  ', '    {>>critic<<}', '  ', '  second paragraph'].join('\n'),
+    ),
+  );
+
+  t.true(html.includes('<p><span class="critic-comment">critic</span></p>'));
+  t.false(html.includes('leading-indent'));
+});
+
 test('parseMarkdownDocument extracts and scopes allowed custom css from front matter', (t) => {
   const document = withDom(() =>
     parseMarkdownDocument(

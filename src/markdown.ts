@@ -1358,6 +1358,23 @@ function createLeadingIndentSpan(text: string): HTMLSpanElement {
   return span;
 }
 
+function isStandaloneCriticCommentBlock(element: Element): boolean {
+  if (element.tagName !== 'P') return false;
+
+  const meaningfulChildren = Array.from(element.childNodes).filter((child) => {
+    if (child instanceof Text) {
+      return /\S/.test(child.textContent ?? '');
+    }
+    return child.nodeType === Node.ELEMENT_NODE;
+  });
+
+  return (
+    meaningfulChildren.length === 1 &&
+    meaningfulChildren[0]?.nodeType === Node.ELEMENT_NODE &&
+    (meaningfulChildren[0] as Element).classList.contains('critic-comment')
+  );
+}
+
 function applyBlockLeadingIndent(element: Element): void {
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
 
@@ -1393,6 +1410,16 @@ function preserveLeadingIndentationInNode(node: Node, atLineStart: { value: bool
   if (node instanceof Text) {
     const text = node.textContent ?? '';
     if (!text) return;
+    const parent = node.parentNode;
+    if (
+      parent &&
+      parent.nodeType === Node.ELEMENT_NODE &&
+      isStandaloneCriticCommentBlock(parent as Element) &&
+      !/\S/.test(text)
+    ) {
+      node.remove();
+      return;
+    }
 
     const fragment = document.createDocumentFragment();
     let index = 0;
@@ -1457,6 +1484,7 @@ function preserveLeadingIndentation(root: ParentNode): void {
   root.querySelectorAll('p, li, blockquote').forEach((element) => {
     if (!isLeadingIndentPreservedBlock(element)) return;
     if (element.parentElement?.closest('p, li, blockquote')) return;
+    if (isStandaloneCriticCommentBlock(element)) return;
     applyBlockLeadingIndent(element);
     preserveLeadingIndentationInNode(element, { value: false });
   });
