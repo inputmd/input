@@ -412,3 +412,33 @@ test('subagent requests streaming', async (t) => {
   const parsed = JSON.parse(capturedBody) as { stream: boolean };
   t.true(parsed.stream);
 });
+
+test('subagent enables prompt caching for paid claude models', async (t) => {
+  let capturedBody = '';
+  const fetchFn = async (_url: string | URL | Request, init?: RequestInit) => {
+    capturedBody = typeof init?.body === 'string' ? init.body : '';
+    return textStreamResponse('ok');
+  };
+  await executeReaderAiSubagent({
+    ...defaultOpts,
+    model: 'anthropic/claude-sonnet-4.6',
+    fetchFn,
+  });
+  const parsed = JSON.parse(capturedBody) as { cache_control?: { type?: string } };
+  t.deepEqual(parsed.cache_control, { type: 'ephemeral' });
+});
+
+test('subagent does not enable prompt caching for paid gemini models', async (t) => {
+  let capturedBody = '';
+  const fetchFn = async (_url: string | URL | Request, init?: RequestInit) => {
+    capturedBody = typeof init?.body === 'string' ? init.body : '';
+    return textStreamResponse('ok');
+  };
+  await executeReaderAiSubagent({
+    ...defaultOpts,
+    model: 'google/gemini-3-pro-preview',
+    fetchFn,
+  });
+  const parsed = JSON.parse(capturedBody) as { cache_control?: unknown };
+  t.false('cache_control' in parsed);
+});

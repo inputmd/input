@@ -28,6 +28,7 @@ import {
   getReaderAiModelSource,
   type ReaderAiModelAccessScope,
   readerAiModelAccessScopeForAuthenticated,
+  shouldUseOpenRouterPromptCaching,
 } from './reader_ai_access';
 import {
   buildReaderAiProjectSystemPrompt,
@@ -472,6 +473,10 @@ function openRouterHeaders(req: http.IncomingMessage, apiKey: string): Record<st
   };
 }
 
+function openRouterPromptCacheControl(model: string): { type: 'ephemeral' } | undefined {
+  return shouldUseOpenRouterPromptCaching(model, paidReaderAiModelIds) ? { type: 'ephemeral' } : undefined;
+}
+
 function normalizeReaderAiMessages(raw: unknown): ReaderAiChatMessage[] {
   if (!Array.isArray(raw)) throw new ClientError('messages must be an array', 400);
   if (raw.length === 0) throw new ClientError('messages cannot be empty', 400);
@@ -535,6 +540,7 @@ async function summarizeReaderAiConversation(
         },
         { role: 'user', content: toSummarize },
       ],
+      ...(openRouterPromptCacheControl(model) ? { cache_control: openRouterPromptCacheControl(model) } : {}),
     }),
     signal: AbortSignal.timeout(READER_AI_SUMMARIZE_TIMEOUT_MS),
   });
@@ -2522,7 +2528,13 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: upstreamHeaders,
-      body: JSON.stringify({ model, stream: true, messages: openRouterMessages, tools }),
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: openRouterMessages,
+        tools,
+        ...(openRouterPromptCacheControl(model) ? { cache_control: openRouterPromptCacheControl(model) } : {}),
+      }),
       signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), abortController.signal]),
     });
 

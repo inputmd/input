@@ -8,6 +8,11 @@ export function getReaderAiModelSource(model: string, paidModelIds: ReadonlySet<
   return paidModelIds.has(model) ? 'paid' : 'free';
 }
 
+export function shouldUseOpenRouterPromptCaching(model: string, paidModelIds: ReadonlySet<string>): boolean {
+  if (getReaderAiModelSource(model, paidModelIds) !== 'paid') return false;
+  return model.trim().toLowerCase().startsWith('anthropic/');
+}
+
 export function canAccessReaderAiModel(
   model: string,
   authenticated: boolean,

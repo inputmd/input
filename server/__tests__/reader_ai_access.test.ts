@@ -3,6 +3,7 @@ import {
   canAccessReaderAiModel,
   getReaderAiModelSource,
   readerAiModelAccessScopeForAuthenticated,
+  shouldUseOpenRouterPromptCaching,
 } from '../reader_ai_access.ts';
 
 const paidModelIds = new Set(['anthropic/claude-opus-4.6', 'google/gemini-3-pro-preview']);
@@ -22,4 +23,10 @@ test('reader ai model source and cache scope split free-only vs authenticated ac
   t.is(getReaderAiModelSource('meta-llama/llama-3.3-70b-instruct:free', paidModelIds), 'free');
   t.is(readerAiModelAccessScopeForAuthenticated(false), 'free_only');
   t.is(readerAiModelAccessScopeForAuthenticated(true), 'with_paid');
+});
+
+test('prompt caching is enabled only for paid Anthropic models', (t) => {
+  t.true(shouldUseOpenRouterPromptCaching('anthropic/claude-opus-4.6', paidModelIds));
+  t.false(shouldUseOpenRouterPromptCaching('google/gemini-3-pro-preview', paidModelIds));
+  t.false(shouldUseOpenRouterPromptCaching('meta-llama/llama-3.3-70b-instruct:free', paidModelIds));
 });
