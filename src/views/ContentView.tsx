@@ -4,6 +4,7 @@ import { ContentAlert } from '../components/ContentAlert';
 import { TextCodeView } from '../components/TextCodeView';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
+import { syncPromptPaneBleedVars } from './prompt_pane_vars';
 
 interface MarkdownLinkPreview {
   title: string;
@@ -202,6 +203,26 @@ export function ContentView({
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [markdown, scrollToHash]);
+
+  useEffect(() => {
+    const contentView = contentViewRef.current;
+    const pane = contentView?.closest('main') ?? contentView;
+    const markdownRoot = renderedMarkdownRef.current;
+    if (!markdown || !pane || !markdownRoot) return;
+
+    const sync = () => syncPromptPaneBleedVars(markdownRoot, pane);
+    sync();
+
+    const observer = new ResizeObserver(sync);
+    observer.observe(pane);
+    observer.observe(markdownRoot);
+    window.addEventListener('resize', sync);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', sync);
+    };
+  }, [markdown]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;

@@ -128,6 +128,8 @@
 }
 
 .rendered-markdown {
+  --prompt-pane-bleed-left: 0px;
+  --prompt-pane-bleed-right: 0px;
   font-family: var(--font-sans);
   font-size: var(--reader-markdown-font-size);
   line-height: var(--reader-editor-line-height);
@@ -231,12 +233,12 @@
 
 .rendered-markdown li.prompt-question {
   display: block;
-  width: 100vw;
+  width: auto;
   max-width: none;
   box-sizing: border-box;
   /* biome-ignore lint/complexity/noImportantStyles: Prompt question bubble spacing must override generic markdown list margins. */
-  margin: 1em calc(50% - 50vw) 0 !important;
-  padding: calc(0.7em + 2px) calc(50vw - 50%);
+  margin: 1em calc(-1 * var(--prompt-pane-bleed-right)) 0 calc(-1 * var(--prompt-pane-bleed-left)) !important;
+  padding: calc(0.7em + 2px) var(--prompt-pane-bleed-right) calc(0.7em + 2px) var(--prompt-pane-bleed-left);
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-inline: 0;
   border-radius: 0;
@@ -263,12 +265,12 @@
 
 .rendered-markdown li.prompt-answer {
   display: block;
-  width: 100vw;
+  width: auto;
   max-width: none;
   box-sizing: border-box;
   /* biome-ignore lint/complexity/noImportantStyles: Prompt answer row spacing must override generic markdown list margins. */
-  margin: 0 calc(50% - 50vw) 0 !important;
-  padding: 0.7em calc(50vw - 50%);
+  margin: 0 calc(-1 * var(--prompt-pane-bleed-right)) 0 calc(-1 * var(--prompt-pane-bleed-left)) !important;
+  padding: calc(0.7em + 2px) var(--prompt-pane-bleed-right) calc(0.7em + 2px) var(--prompt-pane-bleed-left);
   border-inline: 0;
   border-radius: 0;
   background: color-mix(in srgb, var(--bg-elevated) 38%, transparent);

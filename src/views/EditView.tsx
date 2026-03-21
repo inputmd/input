@@ -8,6 +8,7 @@ import { MarkdownEditor } from '../components/MarkdownEditor';
 import type { PromptListRequest } from '../components/markdown_editor_commands';
 import { TextEditor } from '../components/TextEditor';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
+import { syncPromptPaneBleedVars } from './prompt_pane_vars';
 
 interface MarkdownLinkPreview {
   title: string;
@@ -125,6 +126,8 @@ export function EditView({
   imageUploadIssue,
 }: EditViewProps) {
   const splitRef = useRef<HTMLDivElement>(null);
+  const previewPaneRef = useRef<HTMLDivElement | null>(null);
+  const mobilePreviewPaneRef = useRef<HTMLDivElement | null>(null);
   const renderedMarkdownRef = useRef<HTMLDivElement | null>(null);
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
@@ -172,6 +175,25 @@ export function EditView({
       clearHoverDelay();
     };
   }, [clearHoverDelay]);
+
+  useEffect(() => {
+    const markdownRoot = renderedMarkdownRef.current;
+    const pane = canRenderPreview ? previewPaneRef.current : mobilePreviewPaneRef.current;
+    if (!markdown || !previewVisible || !markdownRoot || !pane) return;
+
+    const sync = () => syncPromptPaneBleedVars(markdownRoot, pane);
+    sync();
+
+    const observer = new ResizeObserver(sync);
+    observer.observe(pane);
+    observer.observe(markdownRoot);
+    window.addEventListener('resize', sync);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', sync);
+    };
+  }, [canRenderPreview, markdown, previewVisible]);
 
   const onSplitPointerDown = (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
     if (!previewVisible || !canRenderPreview) return;
@@ -482,7 +504,7 @@ export function EditView({
               aria-orientation="vertical"
               onPointerDown={onSplitPointerDown}
             />
-            <div class="editor-preview-pane">
+            <div class="editor-preview-pane" ref={previewPaneRef}>
               {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
               {!previewFrontMatterError && previewCssWarning ? (
                 <div class="editor-preview-alert">{previewCssWarning}</div>
@@ -508,7 +530,7 @@ export function EditView({
       {markdown && previewVisible && !canRenderPreview && (
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
-          <div class="mobile-preview-pane">
+          <div class="mobile-preview-pane" ref={mobilePreviewPaneRef}>
             {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
             {!previewFrontMatterError && previewCssWarning ? (
               <div class="editor-preview-alert">{previewCssWarning}</div>
