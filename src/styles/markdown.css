@@ -87,13 +87,13 @@
 }
 
 .content-empty-placeholder {
-  color: var(--text-secondary);
   min-height: calc(100vh - 220px);
   display: flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
+  color: var(--text-secondary);
   font-style: italic;
+  text-align: center;
 }
 
 .content-loading-shell {
@@ -208,12 +208,20 @@
   list-style: none;
 }
 
+.rendered-markdown .prompt-list-caption {
+  margin: 1.4em 0 0.55em;
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+  font-size: 0.78em;
+  line-height: 1.3;
+  text-align: center;
+}
+
 .rendered-markdown li + li {
   margin-top: 0.2em;
 }
 
 .rendered-markdown ul.prompt-list > li + li {
-  margin-top: 0.6em;
+  margin-top: 0;
 }
 
 .rendered-markdown li.prompt-question,
@@ -222,13 +230,16 @@
 }
 
 .rendered-markdown li.prompt-question {
-  display: inline-block;
-  max-width: min(36rem, 100%);
+  display: block;
+  width: 100vw;
+  max-width: none;
+  box-sizing: border-box;
   /* biome-ignore lint/complexity/noImportantStyles: Prompt question bubble spacing must override generic markdown list margins. */
-  margin: 1em 0 0.325em !important;
-  padding: 0.7em 0.95em;
+  margin: 1em calc(50% - 50vw) 0 !important;
+  padding: calc(0.7em + 2px) calc(50vw - 50%);
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 16px 16px 16px 6px;
+  border-inline: 0;
+  border-radius: 0;
   background: color-mix(in srgb, var(--bg-elevated) 68%, transparent);
 }
 
@@ -245,9 +256,35 @@
   margin-top: 0 !important;
 }
 
+.rendered-markdown ul.prompt-list > li.prompt-answer + li.prompt-question {
+  /* biome-ignore lint/complexity/noImportantStyles: Prompt question rows should sit flush against the preceding answer row. */
+  margin-top: 0 !important;
+}
+
 .rendered-markdown li.prompt-answer {
-  padding: 0;
+  display: block;
+  width: 100vw;
+  max-width: none;
+  box-sizing: border-box;
+  /* biome-ignore lint/complexity/noImportantStyles: Prompt answer row spacing must override generic markdown list margins. */
+  margin: 0 calc(50% - 50vw) 0 !important;
+  padding: 0.7em calc(50vw - 50%);
+  border-inline: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--bg-elevated) 38%, transparent);
   color: inherit;
+}
+
+.rendered-markdown ul.prompt-list > li.prompt-answer:not(:has(+ li.prompt-question)) {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+[data-theme="light"] .rendered-markdown li.prompt-answer {
+  background: color-mix(in srgb, var(--input-bg) 55%, transparent);
+}
+
+[data-theme="dark"] .rendered-markdown li.prompt-answer {
+  background: color-mix(in srgb, var(--btn-bg) 58%, transparent);
 }
 
 .rendered-markdown li.prompt-answer > * + * {

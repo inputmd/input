@@ -262,7 +262,9 @@ marked.use({
             return `<li class="${item.className}">${contentHtml}</li>`;
           })
           .join('');
-        return `<ul class="prompt-list">${itemsHtml}</ul>`;
+        const itemCount = promptListToken.items.length;
+        const caption = `Conversation with ${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
+        return `<div class="prompt-list-caption">${caption}</div><ul class="prompt-list">${itemsHtml}</ul>`;
       },
     },
     {
