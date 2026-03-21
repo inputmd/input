@@ -338,6 +338,10 @@ function fileNameFromPath(path: string): string {
   return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
 }
 
+function pathDepth(path: string): number {
+  return path.split('/').filter(Boolean).length;
+}
+
 function parentFolderPath(path: string): string {
   const lastSlash = path.lastIndexOf('/');
   return lastSlash >= 0 ? path.slice(0, lastSlash) : '';
@@ -854,12 +858,20 @@ function findMarkdownDirectoryIndexPath(contents: RepoContents, requestedPath: s
 
 function pickPreferredRepoMarkdownFile(files: RepoDocFile[]): RepoDocFile | undefined {
   if (files.length === 0) return undefined;
-  const preferredByName = ['index.md', 'readme.md'];
-  for (const preferredName of preferredByName) {
-    const preferred = files.find((file) => fileNameFromPath(file.path).toLowerCase() === preferredName);
-    if (preferred) return preferred;
-  }
-  return files[0];
+  const preferredByName = new Map<string, number>([
+    ['index.md', 0],
+    ['readme.md', 1],
+  ]);
+  return [...files].sort((a, b) => {
+    const aPriority = preferredByName.get(fileNameFromPath(a.path).toLowerCase()) ?? Number.POSITIVE_INFINITY;
+    const bPriority = preferredByName.get(fileNameFromPath(b.path).toLowerCase()) ?? Number.POSITIVE_INFINITY;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+
+    const depthDifference = pathDepth(a.path) - pathDepth(b.path);
+    if (depthDifference !== 0) return depthDifference;
+
+    return a.path.localeCompare(b.path);
+  })[0];
 }
 
 interface PublicRepoRef {
