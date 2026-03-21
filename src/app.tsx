@@ -85,6 +85,7 @@ import {
   subscribeGitHubRateLimitUpdates,
 } from './github_rate_limit';
 import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
+import { removeDocumentDraft, useDocumentPersistence } from './hooks/useDocumentPersistence';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
@@ -203,9 +204,6 @@ Try it on an example:
 - [awesome-ai-tools](https://input.md/mahseema/awesome-ai-tools)
 - [awesome-mac](https://input.md/jaywcjlove/awesome-mac)
 - [papers-we-love](https://input.md/papers-we-love/papers-we-love)`;
-const DOCUMENT_DRAFTS_STORAGE_KEY = 'document_drafts_v1';
-const MAX_DOCUMENT_DRAFTS = 10;
-const MAX_DOCUMENT_DRAFT_CONTENT_BYTES = 512 * 1024;
 
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
@@ -935,32 +933,6 @@ interface PendingImageUpload {
   finalMarkdown: string;
 }
 
-interface PersistedDocumentDraft {
-  kind: 'gist' | 'repo';
-  content: string;
-  updatedAtMs: number;
-  baseRevision: string | null;
-  gistId?: string;
-  filename?: string;
-  installationId?: string;
-  repoFullName?: string;
-  path?: string;
-}
-
-type DocumentDraftStore = Record<string, PersistedDocumentDraft>;
-
-interface PostSaveVerificationState {
-  routeKey: string;
-  status: 'verifying' | 'delayed';
-  kind: 'gist' | 'repo';
-  gistId?: string;
-  filename?: string;
-  expectedUpdatedAt?: string;
-  installationId?: string;
-  repoFullName?: string;
-  path?: string;
-  expectedSha?: string;
-}
 
 function extensionFromMimeType(mimeType: string): string {
   const mimeExt: Record<string, string> = {
@@ -980,14 +952,6 @@ function routeKeyForGist(gistId: string, filename?: string | null): string {
 
 function routeKeyForRepo(owner: string, repo: string, path: string): string {
   return `repo:${owner.toLowerCase()}/${repo.toLowerCase()}:${path}`;
-}
-
-function documentDraftKeyForGist(gistId: string, filename: string): string {
-  return `gist:${gistId}:${filename}`;
-}
-
-function documentDraftKeyForRepo(installationId: string, repoFullName: string, path: string): string {
-  return `repo:${installationId}:${repoFullName.toLowerCase()}:${path}`;
 }
 
 function routeKeyFromRoute(route: Route): string | null {
@@ -1014,81 +978,6 @@ function routeKeyFromRoute(route: Route): string | null {
     );
   }
   return null;
-}
-
-function loadDocumentDraftStore(): DocumentDraftStore {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = localStorage.getItem(DOCUMENT_DRAFTS_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') return {};
-    const store: DocumentDraftStore = {};
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!value || typeof value !== 'object') continue;
-      const entry = value as Record<string, unknown>;
-      if (typeof entry.content !== 'string') continue;
-      const kind = entry.kind === 'repo' ? 'repo' : entry.kind === 'gist' ? 'gist' : null;
-      if (!kind) continue;
-      store[key] = {
-        kind,
-        content: entry.content,
-        updatedAtMs: typeof entry.updatedAtMs === 'number' ? entry.updatedAtMs : 0,
-        baseRevision: typeof entry.baseRevision === 'string' ? entry.baseRevision : null,
-        gistId: typeof entry.gistId === 'string' ? entry.gistId : undefined,
-        filename: typeof entry.filename === 'string' ? entry.filename : undefined,
-        installationId: typeof entry.installationId === 'string' ? entry.installationId : undefined,
-        repoFullName: typeof entry.repoFullName === 'string' ? entry.repoFullName : undefined,
-        path: typeof entry.path === 'string' ? entry.path : undefined,
-      };
-    }
-    return store;
-  } catch {
-    return {};
-  }
-}
-
-function persistDocumentDraftStore(store: DocumentDraftStore): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (Object.keys(store).length === 0) {
-      localStorage.removeItem(DOCUMENT_DRAFTS_STORAGE_KEY);
-      return;
-    }
-    localStorage.setItem(DOCUMENT_DRAFTS_STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    return;
-  }
-}
-
-function loadDocumentDraft(key: string): PersistedDocumentDraft | null {
-  const store = loadDocumentDraftStore();
-  return store[key] ?? null;
-}
-
-function saveDocumentDraft(key: string, draft: PersistedDocumentDraft): void {
-  if (new Blob([draft.content]).size > MAX_DOCUMENT_DRAFT_CONTENT_BYTES) return;
-  const store = loadDocumentDraftStore();
-  store[key] = draft;
-  const entries = Object.entries(store);
-  if (entries.length > MAX_DOCUMENT_DRAFTS) {
-    entries.sort((a, b) => a[1].updatedAtMs - b[1].updatedAtMs);
-    for (const [k] of entries.slice(0, entries.length - MAX_DOCUMENT_DRAFTS)) {
-      delete store[k];
-    }
-  }
-  persistDocumentDraftStore(store);
-}
-
-function removeDocumentDraft(key: string): void {
-  const store = loadDocumentDraftStore();
-  if (!(key in store)) return;
-  delete store[key];
-  persistDocumentDraftStore(store);
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function isResizableImageType(mimeType: string): boolean {
@@ -1379,20 +1268,14 @@ export function App() {
   const [editContent, setEditContent] = useState('');
   const [editContentOrigin, setEditContentOrigin] = useState<'local' | 'external' | 'streaming'>('external');
   const [editContentRevision, setEditContentRevision] = useState(0);
-  const [currentDocumentSavedContent, setCurrentDocumentSavedContent] = useState<string | null>(null);
-  const [currentDocumentDraft, setCurrentDocumentDraft] = useState<PersistedDocumentDraft | null>(null);
-  const [saving, setSaving] = useState(false);
   const [draftMode, setDraftMode] = useState(false);
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [gistFiles, setGistFiles] = useState<Record<string, GistFile> | null>(null);
   const [repoFiles, setRepoFiles] = useState<RepoDocFile[]>([]);
   const [repoSidebarFiles, setRepoSidebarFiles] = useState<RepoDocFile[]>([]);
   const [editContentSelection, setEditContentSelection] = useState<{ anchor: number; head: number } | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [hasUserTypedUnsavedChanges, setHasUserTypedUnsavedChanges] = useState(false);
   const [failedImageUpload, setFailedImageUpload] = useState<PendingImageUpload | null>(null);
   const [pendingImageUploads, setPendingImageUploads] = useState<Set<string>>(() => new Set());
-  const [postSaveVerification, setPostSaveVerification] = useState<PostSaveVerificationState | null>(null);
   const [sidebarVisibilityOverride, setSidebarVisibilityOverride] = useState<boolean | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -1449,8 +1332,6 @@ export function App() {
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const editViewControllerRef = useRef<EditorController | null>(null);
-  const saveInFlightRef = useRef(false);
-  const postSaveVerificationRef = useRef<PostSaveVerificationState | null>(postSaveVerification);
   const currentFileNameRef = useRef<string | null>(currentFileName);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
@@ -1459,26 +1340,6 @@ export function App() {
   const editContentRef = useRef(editContent);
   editContentRef.current = editContent;
   currentFileNameRef.current = currentFileName;
-  const updatePostSaveVerification = useCallback(
-    (
-      next:
-        | PostSaveVerificationState
-        | null
-        | ((previous: PostSaveVerificationState | null) => PostSaveVerificationState | null),
-    ) => {
-      if (typeof next === 'function') {
-        setPostSaveVerification((previous) => {
-          const resolved = next(previous);
-          postSaveVerificationRef.current = resolved;
-          return resolved;
-        });
-        return;
-      }
-      postSaveVerificationRef.current = next;
-      setPostSaveVerification(next);
-    },
-    [],
-  );
   const setNextEditContent = useCallback(
     (
       nextContent: string | ((previousContent: string) => string),
@@ -1498,17 +1359,52 @@ export function App() {
   const routeView = viewFromRoute(route);
   const activeView = viewPhase ?? routeView;
   const currentRouteKey = routeKeyFromRoute(route);
+  const persistence = useDocumentPersistence({
+    repoAccessMode,
+    installationId,
+    selectedRepo,
+    currentRepoDocPath,
+    currentRepoDocSha,
+    currentGistId,
+    currentGistUpdatedAt,
+    currentFileName,
+    user,
+    editContent,
+    editingBackend,
+    activeView,
+    draftMode,
+    currentRouteKey,
+    routeName: route.name,
+    showFailureToast,
+  });
+  const {
+    currentDocumentSavedContent,
+    setCurrentDocumentSavedContent,
+    currentDocumentDraft,
+    setCurrentDocumentDraft,
+    hasUnsavedChanges,
+    setHasUnsavedChanges,
+    hasUserTypedUnsavedChanges,
+    setHasUserTypedUnsavedChanges,
+    saving,
+    setSaving,
+    postSaveVerification,
+    updatePostSaveVerification,
+    saveInFlightRef,
+    postSaveVerificationRef,
+    currentDocumentDraftKey,
+    shouldPreserveVerifiedContent,
+    hasDivergedDocumentDraft,
+    currentDocumentContent,
+    hasRestorableDocumentDraft,
+    saveStatusTone,
+  } = persistence;
   const targetRepoEditPath =
     route.name === 'repoedit' ? safeDecodeURIComponent(route.params.path).replace(/^\/+/, '') : null;
   const repoEditLoading =
     route.name === 'repoedit' &&
     (currentRepoDocPath !== null || currentFileName !== null) &&
     (editingBackend !== 'repo' || currentRepoDocPath !== targetRepoEditPath || currentFileName !== targetRepoEditPath);
-  const shouldPreserveVerifiedContent =
-    currentRouteKey !== null &&
-    postSaveVerificationRef.current !== null &&
-    postSaveVerificationRef.current.routeKey === currentRouteKey &&
-    (postSaveVerificationRef.current.status === 'verifying' || postSaveVerificationRef.current.status === 'delayed');
   const currentEditingDocPath = useMemo(
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
@@ -1520,29 +1416,6 @@ export function App() {
         (editingBackend === 'gist' && currentFileName === null)),
     [activeView, editingBackend, currentRepoDocPath, currentFileName],
   );
-  const currentDocumentDraftKey = useMemo(() => {
-    if (repoAccessMode === 'installed' && installationId && selectedRepo && currentRepoDocPath) {
-      return documentDraftKeyForRepo(installationId, selectedRepo, currentRepoDocPath);
-    }
-    if (user && currentGistId && currentFileName) {
-      return documentDraftKeyForGist(currentGistId, currentFileName);
-    }
-    return null;
-  }, [repoAccessMode, installationId, selectedRepo, currentRepoDocPath, user, currentGistId, currentFileName]);
-  const currentDocumentBaseRevision = useMemo(() => {
-    if (repoAccessMode === 'installed') return currentRepoDocSha;
-    if (currentGistId) return currentGistUpdatedAt;
-    return null;
-  }, [repoAccessMode, currentRepoDocSha, currentGistId, currentGistUpdatedAt]);
-  const hasDivergedDocumentDraft =
-    currentDocumentDraft !== null &&
-    currentDocumentSavedContent !== null &&
-    currentDocumentDraft.content !== currentDocumentSavedContent;
-  const currentDocumentContent = activeView === 'edit' ? editContent : currentDocumentSavedContent;
-  const hasRestorableDocumentDraft =
-    currentDocumentDraft !== null &&
-    currentDocumentContent !== null &&
-    currentDocumentDraft.content !== currentDocumentContent;
   const currentDocumentLabel =
     currentFileName ?? currentRepoDocPath ?? (isScratchDocument ? UNSAVED_FILE_LABEL : 'this document');
   const readerAiEditEligible =
@@ -1622,8 +1495,6 @@ export function App() {
   useEffect(() => {
     setNavigationPrompt(activeView === 'edit' && hasUnsavedChanges ? 'You have unsaved changes. Discard?' : null);
   }, [activeView, hasUnsavedChanges, setNavigationPrompt]);
-
-  const saveStatusTone = postSaveVerification?.status === 'delayed' ? 'warning' : 'pending';
 
   const clearOAuthRedirectGuard = useCallback(() => {
     try {
@@ -3232,69 +3103,6 @@ export function App() {
     setPreserveHeaderLeftControlsWhileLoading(false);
   }, [viewPhase]);
 
-  useEffect(() => {
-    if (!postSaveVerification) return;
-    if (postSaveVerification.routeKey === currentRouteKey) return;
-    if (currentRouteKey === null && (route.name === 'edit' || route.name === 'repoedit')) return;
-    updatePostSaveVerification(null);
-  }, [currentRouteKey, postSaveVerification, route.name, updatePostSaveVerification]);
-
-  useEffect(() => {
-    if (!postSaveVerification || postSaveVerification.status !== 'verifying') return;
-
-    let cancelled = false;
-    const verify = async () => {
-      const delaysMs = [0, 250, 750, 1500, 3000];
-
-      for (const delayMs of delaysMs) {
-        if (delayMs > 0) await wait(delayMs);
-        if (cancelled) return;
-
-        try {
-          if (postSaveVerification.kind === 'repo') {
-            const installationId = postSaveVerification.installationId;
-            const repoFullName = postSaveVerification.repoFullName;
-            const path = postSaveVerification.path;
-            const expectedSha = postSaveVerification.expectedSha;
-            if (!installationId || !repoFullName || !path || !expectedSha) break;
-            const verified = await getRepoContents(installationId, repoFullName, path, undefined, {
-              forceRefresh: true,
-            });
-            if (cancelled) return;
-            if (isRepoFile(verified) && verified.sha === expectedSha) {
-              updatePostSaveVerification((prev) => (prev?.routeKey === postSaveVerification.routeKey ? null : prev));
-              return;
-            }
-          } else {
-            const gistId = postSaveVerification.gistId;
-            const filename = postSaveVerification.filename;
-            const expectedUpdatedAt = postSaveVerification.expectedUpdatedAt;
-            if (!gistId || !filename || !expectedUpdatedAt) break;
-            const verified = await getGist(gistId, { forceRefresh: true });
-            if (cancelled) return;
-            if (verified.updated_at === expectedUpdatedAt && verified.files[filename]) {
-              updatePostSaveVerification((prev) => (prev?.routeKey === postSaveVerification.routeKey ? null : prev));
-              return;
-            }
-          }
-        } catch (err) {
-          if (err instanceof SessionExpiredError) return;
-        }
-      }
-
-      if (cancelled) return;
-      updatePostSaveVerification((prev) =>
-        prev?.routeKey === postSaveVerification.routeKey ? { ...prev, status: 'delayed' } : prev,
-      );
-      showFailureToast('Saved, but GitHub has not returned the new version yet. Keeping your local content on screen.');
-    };
-
-    void verify();
-    return () => {
-      cancelled = true;
-    };
-  }, [postSaveVerification, showFailureToast, updatePostSaveVerification]);
-
   // --- Draft persistence ---
   useEffect(() => {
     if (!draftMode) return;
@@ -3311,66 +3119,6 @@ export function App() {
       filename: persisted?.filename || DEFAULT_SCRATCH_FILENAME,
     });
   }, [activeView, editingBackend, currentGistId, currentFileName, editTitle, editContent]);
-
-  useEffect(() => {
-    if (!currentDocumentDraftKey) {
-      setCurrentDocumentDraft(null);
-      return;
-    }
-    const stored = loadDocumentDraft(currentDocumentDraftKey);
-    if (stored && currentDocumentSavedContent !== null && stored.content === currentDocumentSavedContent) {
-      removeDocumentDraft(currentDocumentDraftKey);
-      setCurrentDocumentDraft(null);
-      return;
-    }
-    setCurrentDocumentDraft(stored);
-  }, [currentDocumentDraftKey, currentDocumentSavedContent]);
-
-  useEffect(() => {
-    if (!currentDocumentDraftKey || draftMode || activeView !== 'edit' || !hasUnsavedChanges) return;
-    const nextDraft: PersistedDocumentDraft | null =
-      editingBackend === 'repo' && installationId && selectedRepo && currentRepoDocPath
-        ? {
-            kind: 'repo',
-            content: editContent,
-            updatedAtMs: Date.now(),
-            baseRevision: currentDocumentBaseRevision,
-            installationId,
-            repoFullName: selectedRepo,
-            path: currentRepoDocPath,
-          }
-        : currentGistId && currentFileName
-          ? {
-              kind: 'gist',
-              content: editContent,
-              updatedAtMs: Date.now(),
-              baseRevision: currentDocumentBaseRevision,
-              gistId: currentGistId,
-              filename: currentFileName,
-            }
-          : null;
-    if (!nextDraft) return;
-    saveDocumentDraft(currentDocumentDraftKey, nextDraft);
-    setCurrentDocumentDraft(nextDraft);
-  }, [
-    activeView,
-    currentDocumentBaseRevision,
-    currentDocumentDraftKey,
-    currentFileName,
-    currentGistId,
-    currentRepoDocPath,
-    draftMode,
-    editContent,
-    editingBackend,
-    hasUnsavedChanges,
-    installationId,
-    selectedRepo,
-  ]);
-
-  useEffect(() => {
-    if (hasUnsavedChanges) return;
-    setHasUserTypedUnsavedChanges(false);
-  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     if (route.name !== 'reponew') return;
