@@ -415,31 +415,6 @@ export function ContentView({
     [getPreviewPositionForAnchor, hidePreview, onRequestMarkdownLinkPreview, resolveInternalRoute],
   );
 
-  const showUrlOnlyPreviewForAnchor = useCallback(
-    (anchor: HTMLAnchorElement) => {
-      const href = (anchor.getAttribute('href') || '').trim();
-      if (!href || href.startsWith('#') || href.startsWith('?')) {
-        hidePreview();
-        return;
-      }
-      const position = getPreviewPositionForAnchor(anchor);
-      const resolvedHref = anchor.href || href;
-      const requestId = hoverRequestIdRef.current + 1;
-      hoverRequestIdRef.current = requestId;
-      hoverAnchorRef.current = anchor;
-      setPreview({
-        visible: true,
-        loading: false,
-        top: position.top,
-        left: position.left,
-        title: 'Link',
-        html: '',
-        url: resolvedHref,
-      });
-    },
-    [getPreviewPositionForAnchor, hidePreview],
-  );
-
   const showCitationPreviewForAnchor = useCallback(
     (anchor: HTMLAnchorElement) => {
       const targetId = footnoteTargetIdFromAnchor(anchor);
@@ -523,7 +498,7 @@ export function ContentView({
           showPreviewForAnchor(anchor);
           return;
         }
-        showUrlOnlyPreviewForAnchor(anchor);
+        hidePreview();
       }, 120);
     },
     [
@@ -535,7 +510,6 @@ export function ContentView({
       resolveInternalRoute,
       showCitationPreviewForAnchor,
       showPreviewForAnchor,
-      showUrlOnlyPreviewForAnchor,
     ],
   );
 
