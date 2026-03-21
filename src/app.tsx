@@ -184,7 +184,7 @@ const MARKDOWN_LINK_PREVIEW_MAX_CHARS = 1800;
 const MARKDOWN_LINK_PREVIEW_MAX_LINES = 18;
 const READER_AI_SOURCE_MAX_CHARS = 140_000;
 const READER_AI_HISTORY_MAX_ENTRIES = 12;
-const READER_AI_HISTORY_MAX_MESSAGES = 80;
+const READER_AI_HISTORY_MAX_MESSAGES = 100;
 const READER_AI_HISTORY_MAX_APPLIED_CHANGES = 100;
 const INPUT_GITHUB_REPO_FULL_NAME = 'inputmd/input';
 const INPUT_GITHUB_SOURCE_PATH = 'README.md';
@@ -542,6 +542,51 @@ function removeImagesFromHtml(html: string): string {
 function trimReaderAiSource(source: string): string {
   if (source.length <= READER_AI_SOURCE_MAX_CHARS) return source;
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
+}
+
+function estimateApproxReaderAiTokens(text: string): number {
+  if (!text) return 0;
+  return Math.ceil(new TextEncoder().encode(text).length / 4);
+}
+
+function buildReaderAiContextLogPayload(options: {
+  model: ReaderAiModel | null;
+  source: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  summary?: string;
+  mode: 'default' | 'prompt_list';
+  projectMode: boolean;
+  currentDocPath?: string | null;
+}) {
+  const summary = options.summary?.trim() ?? '';
+  const sourceTokens = estimateApproxReaderAiTokens(options.source);
+  const messageTokens =
+    options.messages.reduce((sum, message) => sum + estimateApproxReaderAiTokens(message.content) + 8, 0) +
+    options.messages.length * 4;
+  const summaryTokens = estimateApproxReaderAiTokens(summary);
+  const approxInputTokens = sourceTokens + messageTokens + summaryTokens;
+  const contextLength = options.model?.context_length ?? 0;
+  const approxRemainingTokens = contextLength > 0 ? Math.max(0, contextLength - approxInputTokens) : null;
+
+  return {
+    model: options.model?.id ?? 'unknown',
+    mode: options.mode,
+    projectMode: options.projectMode,
+    currentDocPath: options.currentDocPath ?? null,
+    messageCount: options.messages.length,
+    sourceChars: options.source.length,
+    summaryChars: summary.length,
+    approxInputTokens,
+    approxRemainingTokens,
+    approxContextUsedPercent: contextLength > 0 ? Number(((approxInputTokens / contextLength) * 100).toFixed(2)) : null,
+    contextLength: contextLength > 0 ? contextLength : null,
+    note:
+      contextLength > 0
+        ? options.projectMode
+          ? 'Approximate client-side estimate; excludes server-added system prompt and project context.'
+          : 'Approximate client-side estimate; excludes server-added system prompt and tool overhead.'
+        : 'Model context length unavailable.',
+  };
 }
 
 interface ReaderAiHistoryEntry {
@@ -1432,6 +1477,10 @@ export function App() {
     const selectedModel = readerAiModels.find((model) => model.id === readerAiSelectedModel);
     return selectedModel ? formatReaderAiModelDisplayName(selectedModel) : 'Reader AI';
   }, [readerAiModels, readerAiSelectedModel]);
+  const selectedReaderAiModel = useMemo(
+    () => readerAiModels.find((model) => model.id === readerAiSelectedModel) ?? null,
+    [readerAiModels, readerAiSelectedModel],
+  );
   const readerAiHistoryDocumentKey = useMemo(
     () =>
       buildReaderAiHistoryDocumentKey({
@@ -3655,10 +3704,31 @@ export function App() {
       let receivedStagedChanges = false;
       let separateNextTurnOutput = false;
       let streamErrorMessage: string | null = null;
+      let streamedResponseChars = 0;
 
       let effectiveProjectId = readerAiProjectId;
       const projectCurrentDocPath =
         activeView === 'edit' ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
+      const sanitizedMessages = baseMessages.map((message) => ({
+        role: message.role,
+        content: stripCriticMarkupComments(message.content),
+      }));
+      const streamContextLog = buildReaderAiContextLogPayload({
+        model: selectedReaderAiModel,
+        source,
+        messages: sanitizedMessages,
+        summary: readerAiSummary || undefined,
+        mode: 'default',
+        projectMode: readerAiRepoMode,
+        currentDocPath: projectCurrentDocPath,
+      });
+      let loggedReceiveStart = false;
+      const logReceiveStart = (trigger: string) => {
+        if (loggedReceiveStart) return;
+        loggedReceiveStart = true;
+        console.log('[reader-ai-context] stream started', { ...streamContextLog, trigger });
+      };
+      console.log('[reader-ai-context] sending request', streamContextLog);
 
       try {
         // In edit mode, update the current file in the existing project session
@@ -3714,14 +3784,12 @@ export function App() {
         await askReaderAiStream(
           model,
           source,
-          baseMessages.map((message) => ({
-            role: message.role,
-            content: stripCriticMarkupComments(message.content),
-          })),
+          sanitizedMessages,
           {
             signal: controller.signal,
             onSummary: (summary) => setReaderAiSummary(summary),
             onToolCall: (event) => {
+              logReceiveStart('tool_call');
               const labels: Record<string, string> = {
                 read_document: 'Reading document…',
                 search_document: 'Searching document…',
@@ -3746,10 +3814,12 @@ export function App() {
               ]);
             },
             onToolResult: (event) => {
+              logReceiveStart('tool_result');
               setReaderAiToolStatus(null);
               setReaderAiToolLog((log) => [...log, { type: 'result', name: event.name, detail: event.preview }]);
             },
             onTaskProgress: (event) => {
+              logReceiveStart('task_progress');
               const phaseLabel =
                 event.phase === 'started'
                   ? 'Started'
@@ -3767,6 +3837,7 @@ export function App() {
               setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail }]);
             },
             onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
+              logReceiveStart('staged_changes');
               receivedStagedChanges = changes.length > 0;
               setReaderAiStagedChanges(changes);
               setReaderAiStagedChangesInvalid(false);
@@ -3784,6 +3855,7 @@ export function App() {
               if (suggestedCommitMessage) setReaderAiSuggestedCommitMessage(suggestedCommitMessage);
             },
             onTurnStart: (iteration) => {
+              logReceiveStart('turn_start');
               if (iteration <= 0 || !separateNextTurnOutput) return;
               setReaderAiMessages((current) => {
                 if (current.length === 0) return current;
@@ -3801,12 +3873,15 @@ export function App() {
               if (reason === 'tool_calls') separateNextTurnOutput = true;
             },
             onStreamError: (message) => {
+              logReceiveStart('stream_error');
               streamErrorMessage = message;
               setReaderAiError(message);
             },
             onDelta: (delta) => {
               if (!delta) return;
+              logReceiveStart('delta');
               received = true;
+              streamedResponseChars += delta.length;
               setReaderAiMessages((current) => {
                 if (current.length === 0) {
                   return assistantEdited
@@ -3834,6 +3909,12 @@ export function App() {
           projectCurrentDocPath,
           activeView === 'edit',
         );
+        console.log('[reader-ai-context] stream finished', {
+          ...streamContextLog,
+          status: 'completed',
+          receivedResponseChars: streamedResponseChars,
+          hadStagedChanges: receivedStagedChanges,
+        });
         if (!received) {
           const fallback = streamErrorMessage
             ? streamErrorMessage
@@ -3879,6 +3960,12 @@ export function App() {
 
         return true;
       } catch (err) {
+        console.log('[reader-ai-context] stream finished', {
+          ...streamContextLog,
+          status: err instanceof DOMException && err.name === 'AbortError' ? 'aborted' : 'errored',
+          error: err instanceof Error ? err.message : String(err),
+          receivedResponseChars: streamedResponseChars,
+        });
         setReaderAiMessages((current) => {
           if (current.length === 0) return current;
           const last = current[current.length - 1];
@@ -3911,6 +3998,7 @@ export function App() {
       activeView,
       currentEditingDocPath,
       readerAiRepoFiles,
+      selectedReaderAiModel,
     ],
   );
 
@@ -4140,6 +4228,23 @@ export function App() {
 
       let streamed = '';
       let completed = false;
+      const sanitizedDocumentContent = trimReaderAiSource(stripCriticMarkupComments(documentContent));
+      const sanitizedPromptMessage = stripCriticMarkupComments(trimmedPrompt);
+      const inlineContextLog = buildReaderAiContextLogPayload({
+        model: selectedReaderAiModel,
+        source: sanitizedDocumentContent,
+        messages: [{ role: 'user', content: sanitizedPromptMessage }],
+        mode: 'default',
+        projectMode: false,
+        currentDocPath: currentEditingDocPath,
+      });
+      let loggedReceiveStart = false;
+      const logReceiveStart = (trigger: string) => {
+        if (loggedReceiveStart) return;
+        loggedReceiveStart = true;
+        console.log('[reader-ai-context] stream started', { ...inlineContextLog, trigger });
+      };
+      console.log('[reader-ai-context] sending request', inlineContextLog);
 
       editViewControllerRef.current?.startStreamingCursorTracking(from);
       editViewControllerRef.current?.applyExternalChange({
@@ -4160,12 +4265,15 @@ export function App() {
       try {
         await askReaderAiStream(
           readerAiSelectedModel,
-          trimReaderAiSource(stripCriticMarkupComments(documentContent)),
-          [{ role: 'user', content: stripCriticMarkupComments(trimmedPrompt) }],
+          sanitizedDocumentContent,
+          [{ role: 'user', content: sanitizedPromptMessage }],
           {
             signal: controller.signal,
+            onTurnStart: () => logReceiveStart('turn_start'),
+            onStreamError: () => logReceiveStart('stream_error'),
             onDelta: (delta) => {
               if (!delta) return;
+              logReceiveStart('delta');
               const insertAt = from + streamed.length;
               editViewControllerRef.current?.applyExternalChange({
                 from: insertAt,
@@ -4186,8 +4294,19 @@ export function App() {
           currentEditingDocPath,
           true,
         );
+        console.log('[reader-ai-context] stream finished', {
+          ...inlineContextLog,
+          status: 'completed',
+          receivedResponseChars: streamed.length,
+        });
         completed = true;
       } catch (err) {
+        console.log('[reader-ai-context] stream finished', {
+          ...inlineContextLog,
+          status: err instanceof DOMException && err.name === 'AbortError' ? 'aborted' : 'errored',
+          error: err instanceof Error ? err.message : String(err),
+          receivedResponseChars: streamed.length,
+        });
         if (!(err instanceof DOMException && err.name === 'AbortError')) {
           showFailureToast(err instanceof Error ? err.message : 'Inline AI prompt failed');
         }
@@ -4217,6 +4336,7 @@ export function App() {
       inlinePromptStreaming,
       readerAiApplyingChanges,
       readerAiSelectedModel,
+      selectedReaderAiModel,
       readerAiSending,
       setNextEditContent,
       showFailureToast,
@@ -4252,6 +4372,25 @@ export function App() {
       let bufferedRaw = '';
       let streamedAnswer = '';
       let completed = false;
+      const sanitizedMessages = messages.map((message) => ({
+        role: message.role,
+        content: stripCriticMarkupComments(message.content),
+      }));
+      const promptListContextLog = buildReaderAiContextLogPayload({
+        model: selectedReaderAiModel,
+        source: '',
+        messages: sanitizedMessages,
+        mode: 'prompt_list',
+        projectMode: false,
+        currentDocPath: currentEditingDocPath,
+      });
+      let loggedReceiveStart = false;
+      const logReceiveStart = (trigger: string) => {
+        if (loggedReceiveStart) return;
+        loggedReceiveStart = true;
+        console.log('[reader-ai-context] stream started', { ...promptListContextLog, trigger });
+      };
+      console.log('[reader-ai-context] sending request', promptListContextLog);
 
       const applyPromptListAnswer = (nextRaw: string) => {
         const nextAnswer = formatPromptListAnswer(nextRaw, answerIndent);
@@ -4298,14 +4437,14 @@ export function App() {
         await askReaderAiStream(
           readerAiSelectedModel,
           '',
-          messages.map((message) => ({
-            role: message.role,
-            content: stripCriticMarkupComments(message.content),
-          })),
+          sanitizedMessages,
           {
             signal: controller.signal,
             mode: 'prompt_list',
+            onTurnStart: () => logReceiveStart('turn_start'),
+            onStreamError: () => logReceiveStart('stream_error'),
             onDelta: (delta) => {
+              if (delta) logReceiveStart('delta');
               bufferedRaw += delta;
               const { stable, remainder } = splitPromptListStableText(bufferedRaw);
               bufferedRaw = remainder;
@@ -4319,6 +4458,11 @@ export function App() {
           currentEditingDocPath,
           true,
         );
+        console.log('[reader-ai-context] stream finished', {
+          ...promptListContextLog,
+          status: 'completed',
+          receivedResponseChars: streamedRaw.length + bufferedRaw.length,
+        });
         if (bufferedRaw) {
           streamedRaw += bufferedRaw;
           bufferedRaw = '';
@@ -4326,6 +4470,12 @@ export function App() {
         }
         completed = true;
       } catch (err) {
+        console.log('[reader-ai-context] stream finished', {
+          ...promptListContextLog,
+          status: err instanceof DOMException && err.name === 'AbortError' ? 'aborted' : 'errored',
+          error: err instanceof Error ? err.message : String(err),
+          receivedResponseChars: streamedRaw.length + bufferedRaw.length,
+        });
         if (streamedAnswer.length === 0) {
           setNextEditContent(documentContent, {
             selection: { anchor: insertFrom, head: insertFrom },
@@ -4360,6 +4510,7 @@ export function App() {
       inlinePromptStreaming,
       readerAiApplyingChanges,
       readerAiSelectedModel,
+      selectedReaderAiModel,
       readerAiSending,
       setNextEditContent,
       showFailureToast,

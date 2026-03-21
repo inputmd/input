@@ -388,7 +388,7 @@ function isRootContentsRequest(path: string): boolean {
 }
 
 const READER_AI_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
-const READER_AI_MAX_MESSAGES = 24;
+const READER_AI_MAX_MESSAGES = 100;
 const READER_AI_MAX_MESSAGE_CHARS = 16_000;
 const READER_AI_CONTEXT_WINDOW_MESSAGES = 8;
 const READER_AI_MAX_SUMMARY_CHARS = 2000;
