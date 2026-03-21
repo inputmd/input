@@ -2960,6 +2960,10 @@ export function App() {
           if (activeView === 'edit') focusEditorSoon();
           return;
         case 'edit': {
+          if (routeKeyFromRoute(r) === postSaveVerificationRef.current?.routeKey) {
+            setViewPhase(null);
+            return;
+          }
           if (!isAuthenticated) {
             const started = startGitHubSignIn(`/${routePath.gistEdit(r.params.id, r.params.filename)}`, {
               guardKey: `oauth_edit:${r.params.id}:${r.params.filename ?? ''}`,
