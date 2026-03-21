@@ -384,7 +384,7 @@
 .rendered-markdown pre {
   font-family: var(--font-mono);
   font-size: var(--reader-preformatted-font-size);
-  color: var(--code-content-color);
+  color: var(--cyan-mix);
   white-space: pre-wrap;
   line-height: var(--reader-editor-line-height);
   padding: 12px 16px;
@@ -618,7 +618,7 @@
 .markdown-link-preview-body pre {
   font-family: var(--font-mono);
   font-size: var(--reader-preformatted-font-size);
-  color: var(--code-content-color);
+  color: var(--cyan-mix);
   line-height: var(--reader-editor-line-height);
   padding: 10px;
   border-radius: 6px;

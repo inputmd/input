@@ -87,18 +87,18 @@
 }
 
 .doc-editor .cm-line.cm-prompt-list-item.cm-prompt-answer {
-  color: var(--code-content-color);
+  color: var(--cyan-mix);
 }
 
 .doc-editor .cm-line.cm-prompt-answer-continuation {
-  color: var(--code-content-color);
+  color: var(--cyan-mix);
 }
 
 .doc-editor .cm-line.cm-prompt-list-item.cm-prompt-answer .tok-content,
 .doc-editor .cm-line.cm-prompt-list-item.cm-prompt-answer .tok-variableName,
 .doc-editor .cm-line.cm-prompt-answer-continuation .tok-content,
 .doc-editor .cm-line.cm-prompt-answer-continuation .tok-variableName {
-  color: var(--code-content-color);
+  color: var(--cyan-mix);
 }
 
 .doc-editor .cm-line .cm-prompt-list-mark {
