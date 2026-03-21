@@ -291,6 +291,7 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
           }
         } catch (err) {
           if (err instanceof SessionExpiredError) return;
+          if (err instanceof Error && err.message === 'Unauthorized') return;
         }
       }
 
