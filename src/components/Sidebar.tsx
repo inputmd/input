@@ -43,6 +43,7 @@ interface SidebarProps {
   onViewFolderOnGitHub: (path: string) => void;
   canViewOnGitHub: boolean;
   onCreateFile: (path: string) => void | Promise<void>;
+  onConfirmImplicitMarkdownExtension?: (fileName: string) => boolean | Promise<boolean>;
   onCreateScratchFile: (parentPath: string) => void | Promise<void>;
   onCreateDirectory: (path: string) => void | Promise<void>;
   onDeleteFile: (path: string) => void;
@@ -315,6 +316,10 @@ function normalizeCreateFileName(name: string, fileFilter: SidebarFileFilter): s
   return hasSidebarTextExtension(sanitized) ? sanitized : `${sanitized}.md`;
 }
 
+function hasExplicitFileExtension(name: string): boolean {
+  return /\.[^./\s]+$/.test(name);
+}
+
 function flattenVisibleTree(
   nodes: SidebarTreeNode[],
   collapsedFolders: Record<string, true>,
@@ -378,6 +383,7 @@ export function Sidebar({
   onViewFolderOnGitHub,
   canViewOnGitHub,
   onCreateFile,
+  onConfirmImplicitMarkdownExtension,
   onCreateScratchFile,
   onCreateDirectory,
   onDeleteFile,
@@ -498,7 +504,20 @@ export function Sidebar({
 
   const handleCreateSubmit = async () => {
     if (createInFlightRef.current) return;
-    const createName = createKind === 'directory' ? newFileName : normalizeCreateFileName(newFileName, fileFilter);
+    const sanitizedCreateName = sanitizeCreateNameInput(newFileName);
+    let createName = createKind === 'directory' ? newFileName : normalizeCreateFileName(newFileName, fileFilter);
+    if (
+      createKind === 'file' &&
+      fileFilter !== 'all' &&
+      sanitizedCreateName &&
+      !hasExplicitFileExtension(sanitizedCreateName)
+    ) {
+      const shouldAddMarkdownExtension = onConfirmImplicitMarkdownExtension
+        ? await onConfirmImplicitMarkdownExtension(sanitizedCreateName)
+        : true;
+      if (!shouldAddMarkdownExtension) return;
+      createName = `${sanitizedCreateName}.md`;
+    }
     const path = resolveCreatePath(createParentPath, createName);
     if (!path) return;
 

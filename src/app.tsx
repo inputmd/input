@@ -5599,6 +5599,15 @@ export function App() {
     [getActiveDocumentStore, currentGistId, navigate, showAlert, showRateLimitToastIfNeeded, selectedRepoRef],
   );
 
+  const handleConfirmImplicitMarkdownExtension = useCallback(
+    async (fileName: string) =>
+      showConfirm(`Create "${fileName}.md" instead of "${fileName}"?`, {
+        confirmLabel: 'Add .md',
+        cancelLabel: 'Cancel',
+      }),
+    [showConfirm],
+  );
+
   const handleCreateScratchFile = useCallback(
     async (parentPath: string) => {
       const normalizedParentPath = parentPath.replace(/^\/+|\/+$/g, '');
@@ -7154,6 +7163,7 @@ export function App() {
               disabled={sidebarDisabled}
               readOnly={repoAccessMode === 'public' || isAnonymousGistWorkspace || route.name === 'sharefile'}
               onCreateFile={handleCreateFile}
+              onConfirmImplicitMarkdownExtension={handleConfirmImplicitMarkdownExtension}
               onCreateScratchFile={handleCreateScratchFile}
               onCreateDirectory={handleCreateDirectory}
               onDeleteFile={handleDeleteFile}
