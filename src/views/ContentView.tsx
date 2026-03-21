@@ -13,6 +13,7 @@ interface MarkdownLinkPreview {
 interface ContentViewProps {
   html: string;
   markdown: boolean;
+  fileSelected?: boolean;
   markdownCustomCss?: string | null;
   markdownCustomCssScope?: string | null;
   scrollStorageKey?: string | null;
@@ -81,6 +82,7 @@ function safeCssEscape(value: string): string {
 export function ContentView({
   html,
   markdown,
+  fileSelected = true,
   markdownCustomCss = null,
   markdownCustomCssScope = null,
   scrollStorageKey = null,
@@ -548,7 +550,7 @@ export function ContentView({
           <span class="content-spinner" aria-hidden="true" />
         </div>
       ) : isEmpty ? (
-        <p class="content-empty-placeholder">This file is empty.</p>
+        <p class="content-empty-placeholder">{fileSelected ? 'This file is empty' : 'No file selected'}</p>
       ) : imagePreview ? (
         <div class="content-image-preview">
           <img

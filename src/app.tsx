@@ -6564,6 +6564,7 @@ export function App() {
             <ContentView
               html={renderedHtml}
               markdown={renderMode === 'markdown' || renderMode === 'image'}
+              fileSelected={currentFileName !== null}
               markdownCustomCss={renderedCustomCss}
               markdownCustomCssScope={renderedCustomCssScope}
               scrollStorageKey={currentDocumentScrollKey}

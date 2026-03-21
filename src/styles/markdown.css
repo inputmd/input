@@ -88,6 +88,11 @@
 
 .content-empty-placeholder {
   color: var(--text-secondary);
+  min-height: calc(100vh - 220px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   font-style: italic;
 }
 
