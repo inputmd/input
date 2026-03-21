@@ -1,4 +1,5 @@
 import { ApiError, responseToApiError } from './api_error';
+import { emitCacheEvent } from './cache_events';
 import { recordGitHubRateLimitFromResponse, recordServerLocalRateLimitFromResponse } from './github_rate_limit';
 import { SyncedCache } from './synced_cache';
 import { type CacheEntry, readCacheTtlMs } from './util';
@@ -312,6 +313,7 @@ function clearRepoContentsCacheForRepo(installationId: string, repoFullName: str
   for (const key of repoTreeCache.keys()) {
     if (key.startsWith(treeKeyPrefix)) repoTreeCache.delete(key);
   }
+  emitCacheEvent({ type: 'repo:mutated', installationId, repoFullName });
 }
 
 export function setRepoContentsCacheTtlMs(ttlMs: number): void {
@@ -321,6 +323,7 @@ export function setRepoContentsCacheTtlMs(ttlMs: number): void {
 export function clearGitHubAppCaches(): void {
   repoContentsCache.clearAll();
   repoTreeCache.clear();
+  emitCacheEvent({ type: 'all:cleared' });
 }
 
 // --- Authenticated API functions ---

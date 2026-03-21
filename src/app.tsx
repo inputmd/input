@@ -3,6 +3,7 @@ import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
+import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
 import type { InlinePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
@@ -1483,6 +1484,12 @@ export function App() {
     markdownLinkPreviewCacheRef.current.clear();
     markdownLinkPreviewPendingRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    return onCacheEvent(() => {
+      clearMarkdownLinkPreviewCache();
+    });
+  }, [clearMarkdownLinkPreviewCache]);
 
   const saveStatusText = useMemo(() => {
     if (isScratchDocument) return UNSAVED_FILE_LABEL;
@@ -4890,7 +4897,6 @@ export function App() {
             routeKey,
           };
         }
-        clearMarkdownLinkPreviewCache();
         showSuccessToast('Saved');
         saved = true;
       } catch (err) {
@@ -4916,7 +4922,6 @@ export function App() {
       return commitResult;
     },
     [
-      clearMarkdownLinkPreviewCache,
       currentDocumentDraftKey,
       currentFileName,
       currentGistId,
@@ -5196,7 +5201,6 @@ export function App() {
     if (!confirmed) return;
     clearGitHubCaches();
     clearGitHubAppCaches();
-    clearMarkdownLinkPreviewCache();
     setMenuGists([]);
     setMenuGistsLoaded(false);
     setMenuGistsPage(1);
@@ -5210,7 +5214,7 @@ export function App() {
     setAutoLoadAttemptedReposInstallationId(null);
     setReposLoadError(null);
     showSuccessToast('Caches cleared');
-  }, [clearMarkdownLinkPreviewCache, showConfirm, showSuccessToast]);
+  }, [showConfirm, showSuccessToast]);
 
   // --- Sidebar actions ---
   const navigateToSidebarFile = useCallback(

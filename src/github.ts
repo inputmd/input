@@ -1,4 +1,5 @@
 import { responseToApiError } from './api_error';
+import { emitCacheEvent } from './cache_events';
 import { recordGitHubRateLimitFromResponse, recordServerLocalRateLimitFromResponse } from './github_rate_limit';
 import { SyncedCache } from './synced_cache';
 import { readCacheTtlMs } from './util';
@@ -51,6 +52,7 @@ export function setGistDetailCacheTtlMs(ttlMs: number): void {
 export function clearGitHubCaches(): void {
   gistListCache.clearAll();
   gistDetailCache.clearAll();
+  emitCacheEvent({ type: 'all:cleared' });
 }
 
 export interface GistFile {
@@ -157,6 +159,7 @@ export async function createGist(content: string, filename = 'untitled.md', desc
   const data = (await res.json()) as GistDetail;
   gistListCache.clearAll();
   gistDetailCache.set(data.id, data);
+  emitCacheEvent({ type: 'gist:mutated', gistId: data.id });
   return data;
 }
 
@@ -178,6 +181,7 @@ export async function updateGist(
   const data = (await res.json()) as GistDetail;
   gistListCache.clearAll();
   gistDetailCache.set(id, data);
+  emitCacheEvent({ type: 'gist:mutated', gistId: id });
   return data;
 }
 
@@ -190,6 +194,7 @@ export async function updateGistDescription(id: string, description: string): Pr
   const data = (await res.json()) as GistDetail;
   gistListCache.clearAll();
   gistDetailCache.set(id, data);
+  emitCacheEvent({ type: 'gist:mutated', gistId: id });
   return data;
 }
 
@@ -210,6 +215,7 @@ export async function updateGistFiles(
   const data = (await res.json()) as GistDetail;
   gistListCache.clearAll();
   gistDetailCache.set(id, data);
+  emitCacheEvent({ type: 'gist:mutated', gistId: id });
   return data;
 }
 
@@ -229,4 +235,5 @@ export async function deleteGist(id: string): Promise<void> {
   await apiFetch(`/gists/${encodeURIComponent(id)}`, { method: 'DELETE' });
   gistListCache.clearAll();
   gistDetailCache.delete(id);
+  emitCacheEvent({ type: 'gist:mutated', gistId: id });
 }
