@@ -94,3 +94,28 @@ export function parseCriticMarkupAt(source: string, from: number): CriticMarkupM
   if (second === '~') return buildSubstitutionMatch(source, from);
   return null;
 }
+
+export function stripCriticMarkupComments(source: string): string {
+  let result = '';
+  let cursor = 0;
+
+  while (cursor < source.length) {
+    const braceIndex = source.indexOf('{', cursor);
+    if (braceIndex === -1) {
+      result += source.slice(cursor);
+      break;
+    }
+
+    result += source.slice(cursor, braceIndex);
+    const match = parseCriticMarkupAt(source, braceIndex);
+    if (match?.kind === 'comment') {
+      cursor = match.to;
+      continue;
+    }
+
+    result += source[braceIndex];
+    cursor = braceIndex + 1;
+  }
+
+  return result;
+}

@@ -1,4 +1,5 @@
 import test from 'ava';
+import { stripCriticMarkupComments } from '../../src/criticmarkup.ts';
 import {
   buildReaderAiProjectSystemPrompt,
   buildReaderAiPromptListSystemPrompt,
@@ -127,6 +128,12 @@ test('read_document single line', (t) => {
   const lines = makeLines(5);
   const result = executeReaderAiReadDocument(lines, { start_line: 3, end_line: 3 });
   t.is(result, '3: Line 3');
+});
+
+test('stripCriticMarkupComments removes CriticMarkup comments while keeping other markup', (t) => {
+  const result = stripCriticMarkupComments('A {>>omit<<} {++keep++} {~~old~>new~~} B');
+
+  t.is(result, 'A  {++keep++} {~~old~>new~~} B');
 });
 
 // ── executeReaderAiEditDocumentTool ──
@@ -779,6 +786,14 @@ test('project sync tool dispatches read_file', (t) => {
   t.true(result.includes('# Hello'));
 });
 
+test('project sync tool omits CriticMarkup comments from read_file output', (t) => {
+  const files = [{ path: 'README.md', content: 'start {>>hide<<} end', size: 20 }];
+  const result = executeReaderAiProjectSyncTool('read_file', '{"path":"README.md"}', files);
+
+  t.true(result.includes('1: start  end'));
+  t.false(result.includes('hide'));
+});
+
 test('project sync tool dispatches search_files', (t) => {
   const result = executeReaderAiProjectSyncTool('search_files', '{"query":"foo"}', sampleFiles);
   t.true(result.includes('match'));
@@ -820,6 +835,14 @@ test('project system prompt includes file tree and tools', (t) => {
   t.true(prompt.includes('src/index.ts'));
   t.true(prompt.includes('currently viewing'));
   t.true(prompt.includes('4 files'));
+});
+
+test('project system prompt omits CriticMarkup comments from current file preview', (t) => {
+  const files = [{ path: 'README.md', content: 'alpha {>>hide<<} beta', size: 21 }];
+  const prompt = buildReaderAiProjectSystemPrompt(files, 'README.md');
+
+  t.true(prompt.includes('1: alpha  beta'));
+  t.false(prompt.includes('hide'));
 });
 
 test('project system prompt works without current doc', (t) => {

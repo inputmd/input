@@ -1,6 +1,7 @@
 // ── Reader AI Tool Definitions, Execution, and Subagent Support ──
 
 import { createTwoFilesPatch } from 'diff';
+import { stripCriticMarkupComments } from './criticmarkup.js';
 
 export const READER_AI_TOOL_RESULT_MAX_CHARS = 30_000;
 export const READER_AI_DOC_PREVIEW_CHARS = 12_000;
@@ -1228,16 +1229,23 @@ export function executeReaderAiProjectSyncTool(
   }
   // For read/search/list, use the working file set if staging is active
   const workingFiles = stagedChanges ? stagedChanges.getWorkingFiles() : files;
+  const sanitizedWorkingFiles = workingFiles.map((file) => ({
+    ...file,
+    content: stripCriticMarkupComments(file.content),
+  }));
   switch (toolName) {
     case 'read_file':
-      return executeReaderAiReadFile(workingFiles, args as { path: string; start_line?: number; end_line?: number });
+      return executeReaderAiReadFile(
+        sanitizedWorkingFiles,
+        args as { path: string; start_line?: number; end_line?: number },
+      );
     case 'search_files':
       return executeReaderAiSearchFiles(
-        workingFiles,
+        sanitizedWorkingFiles,
         args as { query: string; is_regex?: boolean; glob?: string; context_lines?: number },
       );
     case 'list_files':
-      return executeReaderAiListFiles(workingFiles, args as { path?: string });
+      return executeReaderAiListFiles(sanitizedWorkingFiles, args as { path?: string });
     case 'propose_edit_file': {
       if (!stagedChanges) return '(propose_edit_file is not available in read-only mode)';
       const a = args as { path?: string; old_text?: string; new_text?: string };
@@ -1462,7 +1470,7 @@ export function buildReaderAiProjectSystemPrompt(
   if (currentDocPath) {
     const currentFile = files.find((f) => f.path === currentDocPath);
     if (currentFile) {
-      const lines = currentFile.content.split('\n');
+      const lines = stripCriticMarkupComments(currentFile.content).split('\n');
       const maxPreviewLines = 200;
       if (lines.length <= maxPreviewLines) {
         const numbered = lines.map((line, i) => `${i + 1}: ${line}`).join('\n');

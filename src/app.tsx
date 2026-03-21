@@ -16,6 +16,7 @@ import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel'
 import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
+import { stripCriticMarkupComments } from './criticmarkup.ts';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
 import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import {
@@ -3631,7 +3632,9 @@ export function App() {
       const model = readerAiSelectedModel;
       // Read editContent from a ref to avoid recreating this callback on every keystroke.
       const currentEditContent = editContentRef.current;
-      const source = trimReaderAiSource(activeView === 'edit' ? currentEditContent : readerAiSource);
+      const source = trimReaderAiSource(
+        stripCriticMarkupComments(activeView === 'edit' ? currentEditContent : readerAiSource),
+      );
       if (!model) return false;
       const assistantEdited = options?.edited === true;
       readerAiAbortRef.current?.abort();
@@ -3711,7 +3714,10 @@ export function App() {
         await askReaderAiStream(
           model,
           source,
-          baseMessages.map((message) => ({ role: message.role, content: message.content })),
+          baseMessages.map((message) => ({
+            role: message.role,
+            content: stripCriticMarkupComments(message.content),
+          })),
           {
             signal: controller.signal,
             onSummary: (summary) => setReaderAiSummary(summary),
@@ -4154,8 +4160,8 @@ export function App() {
       try {
         await askReaderAiStream(
           readerAiSelectedModel,
-          trimReaderAiSource(documentContent),
-          [{ role: 'user', content: trimmedPrompt }],
+          trimReaderAiSource(stripCriticMarkupComments(documentContent)),
+          [{ role: 'user', content: stripCriticMarkupComments(trimmedPrompt) }],
           {
             signal: controller.signal,
             onDelta: (delta) => {
@@ -4292,7 +4298,10 @@ export function App() {
         await askReaderAiStream(
           readerAiSelectedModel,
           '',
-          messages,
+          messages.map((message) => ({
+            role: message.role,
+            content: stripCriticMarkupComments(message.content),
+          })),
           {
             signal: controller.signal,
             mode: 'prompt_list',

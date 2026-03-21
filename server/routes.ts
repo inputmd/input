@@ -18,6 +18,7 @@ import {
   SHARE_TOKEN_SECRET,
   SHARE_TOKEN_TTL_SECONDS,
 } from './config';
+import { stripCriticMarkupComments } from './criticmarkup.js';
 import { ClientError } from './errors';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
 import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
@@ -489,7 +490,7 @@ function normalizeReaderAiMessages(raw: unknown): ReaderAiChatMessage[] {
     if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') {
       throw new ClientError('Invalid message payload', 400);
     }
-    const trimmed = content.trim();
+    const trimmed = stripCriticMarkupComments(content).trim();
     if (!trimmed) throw new ClientError('Message content cannot be empty', 400);
     messages.push({
       role,
@@ -2403,7 +2404,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const body = (await readJson(ctx.req)) as ReaderAiChatBody | null;
   const model = typeof body?.model === 'string' ? body.model.trim() : '';
   const mode = body?.mode === 'prompt_list' ? 'prompt_list' : 'default';
-  const source = typeof body?.source === 'string' ? body.source.trim() : '';
+  const rawSource = typeof body?.source === 'string' ? body.source : '';
+  const source = stripCriticMarkupComments(rawSource).trim();
   if (!model) throw new ClientError('model is required', 400);
   if (!source && mode !== 'prompt_list') throw new ClientError('source is required', 400);
   if (!canAccessReaderAiModel(model, session !== null, paidReaderAiModelIds)) {
@@ -2434,6 +2436,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const isProjectMode = resolvedProjectFiles !== undefined;
   const currentDocPath = typeof body?.current_doc_path === 'string' ? body.current_doc_path : null;
   const editModeCurrentDocOnly = body?.edit_mode_current_doc_only === true;
+  const aiLines = source.split('\n');
 
   let chatMessages: ReaderAiChatMessage[];
   let newSummary: string | null = null;
@@ -2472,10 +2475,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   }
 
   // Prepare document for tool access
-  const lines = source.split('\n');
   const documentEditState = {
-    source,
-    lines,
+    source: rawSource,
+    lines: rawSource.split('\n'),
     currentDocPath,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
@@ -2502,7 +2504,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       contextTokens > 0
         ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
         : READER_AI_DOC_PREVIEW_CHARS;
-    systemPrompt = buildReaderAiSystemPrompt(source, lines, maxPreviewChars, currentDocPath);
+    systemPrompt = buildReaderAiSystemPrompt(source, aiLines, maxPreviewChars, currentDocPath);
     tools = editModeCurrentDocOnly
       ? READER_AI_TOOLS.filter((tool) => {
           const name = tool.function.name;
@@ -2577,7 +2579,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       return executeReaderAiProjectSyncTool(tc.name, tc.arguments, resolvedProjectFiles, stagedChanges);
     }
     if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(tc.arguments, documentEditState);
-    return executeReaderAiSyncTool(tc.name, tc.arguments, documentEditState.lines);
+    return executeReaderAiSyncTool(tc.name, tc.arguments, aiLines);
   };
 
   let stagedChangesEmitted = false;
@@ -2782,7 +2784,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                 model,
                 prompt: taskPrompt,
                 systemPrompt: taskSystemPrompt,
-                lines,
+                lines: aiLines,
                 source,
                 projectFiles: isProjectMode ? resolvedProjectFiles : undefined,
                 stagedChanges: isProjectMode ? stagedChanges : undefined,
