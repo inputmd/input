@@ -87,7 +87,7 @@ test('promptListHintLabelForText returns question hint labels', (t) => {
 });
 
 test('promptListHintLabelForText returns answering hint for blank answers while streaming', (t) => {
-  t.is(promptListHintLabelForText('-⏺ ', true), 'Answering...');
+  t.is(promptListHintLabelForText('-⏺ ', true), 'Answering... (Esc to cancel)');
   t.is(promptListHintLabelForText('-⏺ Existing answer', true), null);
   t.is(promptListHintLabelForText('-⏺ ', false), null);
 });

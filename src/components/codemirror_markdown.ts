@@ -209,7 +209,7 @@ export function promptListHintLabelForText(text: string, answering = false): str
   const match = matchPromptListLine(text);
   if (!match) return null;
   if (match.kind === 'question') return match.content.trim() ? null : 'Type to ask AI';
-  if (match.kind === 'answer' && answering && !match.content.trim()) return 'Answering...';
+  if (match.kind === 'answer' && answering && !match.content.trim()) return 'Answering... (Esc to cancel)';
   return null;
 }
 
