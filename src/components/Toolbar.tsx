@@ -84,12 +84,16 @@ interface ToolbarProps {
   gistsLoadError: string | null;
   draftMode: boolean;
   sidebarVisible: boolean;
+  showActionsMenu: boolean;
   showShare: boolean;
+  showViewSource: boolean;
+  viewSourceLabel?: string;
   shareMetadata: string | null;
   showDraftBadge?: boolean;
   showDraftActions?: boolean;
   showRestoreDraft?: boolean;
   onShare: () => void;
+  onViewSource: () => void;
   onResetDraftChanges?: () => void;
   onRestoreDraft?: () => void;
   onViewInGitHub: () => void;
@@ -148,12 +152,16 @@ export function Toolbar({
   gistsLoadError,
   draftMode,
   sidebarVisible,
+  showActionsMenu,
   showShare,
+  showViewSource,
+  viewSourceLabel = 'View Source',
   shareMetadata,
   showDraftBadge = false,
   showDraftActions = false,
   showRestoreDraft = false,
   onShare,
+  onViewSource,
   onResetDraftChanges,
   onRestoreDraft,
   onViewInGitHub,
@@ -201,6 +209,7 @@ export function Toolbar({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
+  const showHomeOnlyActions = isHomeDraft && !user;
   const showGitHubApp = !!user;
   const showSidebarToggle = view === 'content' || view === 'edit';
   const disableLeftControls = showLeftLoading && preserveLeftControlsWhileLoading;
@@ -226,6 +235,7 @@ export function Toolbar({
   const runAuthorMenuAction = (event: Event, action: () => void, options?: { preventDefault?: boolean }): void => {
     if (options?.preventDefault) event.preventDefault();
     event.stopPropagation();
+    setAuthorMenuOpen(false);
     action();
   };
   const authorMenu = (
@@ -244,15 +254,26 @@ export function Toolbar({
               <DropdownMenu.Separator class="user-menu-separator" />
             </>
           ) : null}
-          <DropdownMenu.Item
-            class="author-menu-item"
-            onSelect={(event: Event) => {
-              setAuthorMenuOpen(false);
-              runAuthorMenuAction(event, onShare, { preventDefault: true });
-            }}
-          >
-            Share
-          </DropdownMenu.Item>
+          {showShare ? (
+            <DropdownMenu.Item
+              class="author-menu-item"
+              onSelect={(event: Event) => {
+                runAuthorMenuAction(event, onShare, { preventDefault: true });
+              }}
+            >
+              Share
+            </DropdownMenu.Item>
+          ) : null}
+          {showViewSource ? (
+            <DropdownMenu.Item
+              class="author-menu-item"
+              onSelect={(event: Event) => {
+                runAuthorMenuAction(event, onViewSource);
+              }}
+            >
+              {viewSourceLabel}
+            </DropdownMenu.Item>
+          ) : null}
           <DropdownMenu.Item
             class="author-menu-item"
             onSelect={(event: Event) => {
@@ -273,7 +294,7 @@ export function Toolbar({
               Compact recent commits
             </DropdownMenu.Item>
           ) : null}
-          {openInInputMdUrl ? (
+          {openInInputMdUrl && !showHomeOnlyActions ? (
             <>
               <DropdownMenu.Separator class="user-menu-separator" />
               <DropdownMenu.Item
@@ -536,7 +557,7 @@ export function Toolbar({
               )}
             </button>
           )}
-          {showShare && view !== 'edit' && authorMenu}
+          {showActionsMenu && view !== 'edit' && authorMenu}
           {editUrl && (
             <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
               Edit <ExternalLink size={14} aria-hidden="true" />
@@ -589,7 +610,7 @@ export function Toolbar({
               )}
             </div>
           )}
-          {showShare && view === 'edit' && authorMenu}
+          {showActionsMenu && view === 'edit' && authorMenu}
           {showSignInToSave && signInButton}
         </div>
         {showPreviewToggle || showAiToggle ? (

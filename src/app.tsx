@@ -186,6 +186,8 @@ const READER_AI_SOURCE_MAX_CHARS = 140_000;
 const READER_AI_HISTORY_MAX_ENTRIES = 12;
 const READER_AI_HISTORY_MAX_MESSAGES = 80;
 const READER_AI_HISTORY_MAX_APPLIED_CHANGES = 100;
+const INPUT_GITHUB_REPO_FULL_NAME = 'inputmd/input';
+const INPUT_GITHUB_SOURCE_PATH = 'README.md';
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
@@ -5840,13 +5842,25 @@ export function App() {
   );
 
   const onHeaderViewInGitHub = useCallback(() => {
+    if (route.name === 'new' && !user) {
+      window.open(`https://github.com/${INPUT_GITHUB_REPO_FULL_NAME}`, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (currentGistId) {
       handleViewOnGitHub(currentFileName ?? '');
       return;
     }
     if (!currentRepoDocPath) return;
     handleViewOnGitHub(currentRepoDocPath);
-  }, [currentGistId, currentFileName, currentRepoDocPath, handleViewOnGitHub]);
+  }, [route.name, user, currentGistId, currentFileName, currentRepoDocPath, handleViewOnGitHub]);
+
+  const onHeaderViewSource = useCallback(() => {
+    if (route.name === 'new' && !user) {
+      navigate(routePath.publicRepoFile('inputmd', 'input', INPUT_GITHUB_SOURCE_PATH));
+      return;
+    }
+    onToggleContentSourceView();
+  }, [route.name, user, navigate, onToggleContentSourceView]);
 
   const handleDeleteFile = useCallback(
     async (filePath: string) => {
@@ -6909,8 +6923,9 @@ export function App() {
     currentDocumentSavedContent !== null &&
     Boolean(currentFileName) &&
     !contentLoadPending;
-  const showHeaderPrimaryAction = showHeaderEdit || showHeaderSourceToggle;
-  const headerPrimaryActionLabel = showHeaderEdit ? 'Edit' : contentSourceViewVisible ? 'View Rendered' : 'View Source';
+  const showHomeHeaderSourceAction = route.name === 'new' && !user;
+  const showHeaderSourceAction = showHeaderSourceToggle || showHomeHeaderSourceAction;
+  const headerSourceActionLabel = contentSourceViewVisible ? 'View Rendered' : 'View Source';
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
@@ -6920,6 +6935,8 @@ export function App() {
     currentRepoDocPath !== null &&
     (route.name === 'repoedit' || (route.name === 'repofile' && Boolean(user)));
   const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
+  const showHeaderViewInGitHub = showHomeHeaderSourceAction || currentGistId !== null || currentRepoDocPath !== null;
+  const showHeaderActionsMenu = showHeaderShare || showHeaderSourceAction || showHeaderViewInGitHub;
   const showDraftMenuActions = showHeaderShare && currentDocumentDraft !== null;
   const shareMenuMetadata = useMemo(() => {
     if (!showHeaderShare) return null;
@@ -6997,7 +7014,10 @@ export function App() {
         gistsLoadError={gistsLoadError}
         draftMode={draftMode}
         sidebarVisible={showSidebar}
+        showActionsMenu={showHeaderActionsMenu}
         showShare={showHeaderShare}
+        showViewSource={showHeaderSourceAction}
+        viewSourceLabel={headerSourceActionLabel}
         shareMetadata={shareMenuMetadata}
         showDraftBadge={hasDivergedDocumentDraft}
         showDraftActions={showDraftMenuActions}
@@ -7011,12 +7031,13 @@ export function App() {
         onRestoreDraft={() => {
           void onRestoreDraft();
         }}
+        onViewSource={onHeaderViewSource}
         onViewInGitHub={onHeaderViewInGitHub}
         showCompactCommits={repoAccessMode === 'installed' && currentRepoDocPath !== null && Boolean(selectedRepo)}
         onCompactCommits={openCompactCommitsDialog}
-        showEdit={showHeaderPrimaryAction}
-        editLabel={headerPrimaryActionLabel}
-        mobileEditIcon={showHeaderSourceToggle ? 'source-toggle' : null}
+        showEdit={showHeaderEdit}
+        editLabel="Edit"
+        mobileEditIcon={null}
         editUrl={null}
         navigate={navigate}
         onOpenRepoMenu={onOpenRepoMenu}
@@ -7027,7 +7048,7 @@ export function App() {
         onClearCache={onClearCaches}
         onToggleTheme={toggleTheme}
         onToggleSidebar={onToggleSidebar}
-        onEdit={showHeaderEdit ? onEdit : onToggleContentSourceView}
+        onEdit={onEdit}
         showLeftLoading={showHeaderLeftLoading}
         preserveLeftControlsWhileLoading={preserveHeaderLeftControlsWhileLoading}
         localRateLimit={localRateLimit}
