@@ -197,7 +197,14 @@ It supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\].
 
 You can also view any public GitHub repo, by replacing github.com with input.md.
 
-[View on GitHub](https://github.com/inputmd/input)`;
+[View on GitHub](https://github.com/inputmd/input)
+
+Try it on an example:
+- [sindresorhus/awesome](https://input.md/sindresorhus/awesome)
+- [awesome-markdown](https://input.md/mundimark/awesome-markdown)
+- [awesome-ai-tools](https://input.md/mahseema/awesome-ai-tools)
+- [awesome-mac](https://input.md/jaywcjlove/awesome-mac)
+- [papers-we-love](https://input.md/papers-we-love/papers-we-love)`;
 const DOCUMENT_DRAFTS_STORAGE_KEY = 'document_drafts_v1';
 const MAX_DOCUMENT_DRAFTS = 10;
 const MAX_DOCUMENT_DRAFT_CONTENT_BYTES = 512 * 1024;
