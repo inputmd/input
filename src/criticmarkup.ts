@@ -37,8 +37,9 @@ function buildSimpleMatch(
   const contentEnd = source.indexOf(closer, contentStart);
   if (contentEnd === -1) return null;
 
-  const text = source.slice(contentStart, contentEnd);
-  if (containsLineBreak(text)) return null;
+  const rawText = source.slice(contentStart, contentEnd);
+  const text = kind === 'comment' ? rawText.trim() : rawText;
+  if (containsLineBreak(rawText)) return null;
 
   return {
     kind,

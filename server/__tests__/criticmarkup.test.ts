@@ -13,6 +13,10 @@ test('parseCriticMarkupAt parses the supported CriticMarkup forms', (t) => {
   });
 });
 
+test('parseCriticMarkupAt trims comment padding inside delimiters', (t) => {
+  t.like(parseCriticMarkupAt('{>> remark <<}', 0), { kind: 'comment', text: 'remark' });
+});
+
 test('parseCriticMarkupAt returns null for malformed CriticMarkup', (t) => {
   t.is(parseCriticMarkupAt('{++new}', 0), null);
   t.is(parseCriticMarkupAt('{~~before~~}', 0), null);

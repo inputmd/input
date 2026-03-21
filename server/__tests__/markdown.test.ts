@@ -309,6 +309,28 @@ test('parseMarkdownToHtml does not preserve extra leading indentation on standal
   t.false(html.includes('leading-indent'));
 });
 
+test('parseMarkdownToHtml trims padding inside standalone CriticMarkup comments in prompt answers', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml(
+      [
+        '-* Question',
+        '-⏺ Here is a short reply.',
+        '',
+        '   More detail here.',
+        '',
+        '   {>> note <<}',
+        '',
+        '   {>> this should be revised later <<}',
+      ].join('\n'),
+    ),
+  );
+
+  t.true(html.includes('<p><span class="critic-comment">note</span></p>'));
+  t.true(html.includes('<p><span class="critic-comment">this should be revised later</span></p>'));
+  t.false(html.includes('<span class="leading-indent"> </span>note'));
+  t.false(html.includes('later </span>'));
+});
+
 test('parseMarkdownDocument extracts and scopes allowed custom css from front matter', (t) => {
   const document = withDom(() =>
     parseMarkdownDocument(
