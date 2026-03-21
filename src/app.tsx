@@ -4027,8 +4027,13 @@ export function App() {
           activeView === 'edit',
         );
         if (!received) {
-          const fallback =
-            streamErrorMessage ?? (receivedStagedChanges ? 'Done — see the proposed changes above.' : 'No response.');
+          const fallback = streamErrorMessage
+            ? streamErrorMessage
+            : receivedStagedChanges
+              ? 'Done — see the proposed changes above.'
+              : model.trim().toLowerCase().endsWith(':free')
+                ? 'No response. Using a free endpoint, consider trying a different model.'
+                : 'No response.';
           setReaderAiMessages((current) => {
             if (current.length === 0) {
               return assistantEdited

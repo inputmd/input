@@ -390,7 +390,7 @@ export function ReaderAiPanel({
                     <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
                   ) : null}
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    Recommended free models
+                    Recommended free providers
                   </DropdownMenu.Item>
                   {featuredModels.map((model) => (
                     <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
