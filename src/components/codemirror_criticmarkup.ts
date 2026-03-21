@@ -31,13 +31,13 @@ function addSimpleDecorations(builder: RangeSetBuilder<Decoration>, match: Criti
 
 function addSubstitutionDecorations(builder: RangeSetBuilder<Decoration>, match: CriticMarkupMatch): void {
   builder.add(match.openerFrom, match.openerTo, Decoration.mark({ class: 'cm-critic-delimiter' }));
-  if (match.oldText && match.separatorFrom && match.contentFrom < match.separatorFrom) {
+  if (match.oldText != null && match.separatorFrom != null && match.contentFrom < match.separatorFrom) {
     builder.add(match.contentFrom, match.separatorFrom, Decoration.mark({ class: 'cm-critic-deletion' }));
   }
   if (match.separatorFrom != null && match.separatorTo != null) {
     builder.add(match.separatorFrom, match.separatorTo, Decoration.mark({ class: 'cm-critic-delimiter' }));
   }
-  if (match.newText && match.separatorTo != null && match.separatorTo < match.closerFrom) {
+  if (match.newText != null && match.separatorTo != null && match.separatorTo < match.closerFrom) {
     builder.add(match.separatorTo, match.closerFrom, Decoration.mark({ class: 'cm-critic-addition' }));
   }
   builder.add(match.closerFrom, match.closerTo, Decoration.mark({ class: 'cm-critic-delimiter' }));
@@ -71,8 +71,8 @@ function buildCriticMarkupDecorations(view: EditorView): DecorationSet {
         closerTo: from + match.closerTo,
         contentFrom: from + match.contentFrom,
         contentTo: from + match.contentTo,
-        separatorFrom: match.separatorFrom == null ? undefined : from + match.separatorFrom,
-        separatorTo: match.separatorTo == null ? undefined : from + match.separatorTo,
+        separatorFrom: match.separatorFrom != null ? from + match.separatorFrom : undefined,
+        separatorTo: match.separatorTo != null ? from + match.separatorTo : undefined,
       };
 
       if (absoluteMatch.kind === 'substitution') {

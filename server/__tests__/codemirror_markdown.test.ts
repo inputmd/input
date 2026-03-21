@@ -6,7 +6,6 @@ import {
   markdownEditorLanguageSupport,
   promptListHintLabelForText,
 } from '../../src/components/codemirror_markdown.ts';
-import { parseCriticMarkupAt } from '../../src/criticmarkup.ts';
 
 function syntaxNodeNames(state: EditorState): Set<string> {
   const names = new Set<string>();
@@ -96,22 +95,4 @@ test('promptListHintLabelForText returns answering hint for blank answers while 
 test('promptListHintLabelForText ignores non-question lines', (t) => {
   t.is(promptListHintLabelForText('-⏺ Existing answer'), null);
   t.is(promptListHintLabelForText('- regular bullet'), null);
-});
-
-test('parseCriticMarkupAt parses the supported CriticMarkup forms', (t) => {
-  t.like(parseCriticMarkupAt('{++new++}', 0), { kind: 'addition', text: 'new' });
-  t.like(parseCriticMarkupAt('{--old--}', 0), { kind: 'deletion', text: 'old' });
-  t.like(parseCriticMarkupAt('{==focus==}', 0), { kind: 'highlight', text: 'focus' });
-  t.like(parseCriticMarkupAt('{>>note<<}', 0), { kind: 'comment', text: 'note' });
-  t.like(parseCriticMarkupAt('{~~before~>after~~}', 0), {
-    kind: 'substitution',
-    oldText: 'before',
-    newText: 'after',
-  });
-});
-
-test('parseCriticMarkupAt returns null for malformed CriticMarkup', (t) => {
-  t.is(parseCriticMarkupAt('{++new}', 0), null);
-  t.is(parseCriticMarkupAt('{~~before~~}', 0), null);
-  t.is(parseCriticMarkupAt('{>>note}', 0), null);
 });

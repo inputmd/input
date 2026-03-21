@@ -18,6 +18,9 @@ export interface CriticMarkupMatch {
   separatorTo?: number;
 }
 
+// Reject multiline content to keep CriticMarkup inline-only. The CriticMarkup spec allows
+// multiline spans, but supporting them would complicate both the CodeMirror decoration
+// plugin (which scans visible ranges line-independently) and the marked inline tokenizer.
 function containsLineBreak(text: string): boolean {
   return /[\r\n]/.test(text);
 }
