@@ -934,7 +934,6 @@ interface PendingImageUpload {
   finalMarkdown: string;
 }
 
-
 function extensionFromMimeType(mimeType: string): string {
   const mimeExt: Record<string, string> = {
     'image/png': 'png',
@@ -1584,7 +1583,7 @@ export function App() {
     setCurrentDocumentDraft(null);
     setErrorMessage('Session expired. Sign in with GitHub from the header to continue.');
     setViewPhase('error');
-  }, []);
+  }, [setCurrentDocumentDraft, setCurrentDocumentSavedContent]);
 
   const focusEditorSoon = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1952,7 +1951,7 @@ export function App() {
         });
       }
     },
-    [dismissToast, setNextEditContent, showFailureToast, showLoadingToast, showSuccessToast],
+    [dismissToast, setNextEditContent, showFailureToast, showLoadingToast, showSuccessToast, setHasUnsavedChanges],
   );
 
   const onRetryFailedImageUpload = useCallback(() => {
@@ -1976,7 +1975,7 @@ export function App() {
     setNextEditContent((prev) => replaceFirst(prev, failedImageUpload.failedToken, ''));
     setFailedImageUpload(null);
     setHasUnsavedChanges(true);
-  }, [failedImageUpload, setNextEditContent]);
+  }, [failedImageUpload, setNextEditContent, setHasUnsavedChanges]);
 
   const replaceEditorSelectionContent = useCallback(
     (view: import('@codemirror/view').EditorView, insertedText: string) => {
@@ -2077,6 +2076,8 @@ export function App() {
       selectedRepo,
       setNextEditContent,
       showFailureToast,
+      setHasUnsavedChanges,
+      setHasUserTypedUnsavedChanges,
     ],
   );
 
@@ -2368,6 +2369,8 @@ export function App() {
       currentFileName,
       showRateLimitToastIfNeeded,
       clearRenderedContent,
+      setCurrentDocumentSavedContent,
+      setHasUnsavedChanges,
     ],
   );
 
@@ -2501,6 +2504,8 @@ export function App() {
       currentFileName,
       setNextEditContent,
       showRateLimitToastIfNeeded,
+      setCurrentDocumentSavedContent,
+      setHasUnsavedChanges,
     ],
   );
 
@@ -2570,6 +2575,7 @@ export function App() {
       renderBinaryFileContent,
       showError,
       showRateLimitToastIfNeeded,
+      setCurrentDocumentSavedContent,
     ],
   );
 
@@ -2635,6 +2641,7 @@ export function App() {
       renderDocumentContent,
       showError,
       showRateLimitToastIfNeeded,
+      setCurrentDocumentSavedContent,
     ],
   );
 
@@ -3066,6 +3073,9 @@ export function App() {
       loadedReposInstallationId,
       setNextEditContent,
       routeState,
+      postSaveVerificationRef.current?.routeKey,
+      setCurrentDocumentSavedContent,
+      setHasUnsavedChanges,
     ],
   );
 
@@ -4082,6 +4092,8 @@ export function App() {
       setNextEditContent,
       showRateLimitToastIfNeeded,
       readerAiSelectedModel,
+      setHasUnsavedChanges,
+      setHasUserTypedUnsavedChanges,
     ],
   );
 
@@ -4202,6 +4214,8 @@ export function App() {
       readerAiSending,
       setNextEditContent,
       showFailureToast,
+      setHasUnsavedChanges,
+      setHasUserTypedUnsavedChanges,
     ],
   );
 
@@ -4340,6 +4354,8 @@ export function App() {
       readerAiSending,
       setNextEditContent,
       showFailureToast,
+      setHasUnsavedChanges,
+      setHasUserTypedUnsavedChanges,
     ],
   );
 
@@ -4640,7 +4656,7 @@ export function App() {
       setHasUserTypedUnsavedChanges(false);
       setHasUnsavedChanges(content !== currentDocumentSavedContent);
     },
-    [activeView, currentDocumentSavedContent, setNextEditContent],
+    [activeView, currentDocumentSavedContent, setNextEditContent, setHasUnsavedChanges, setHasUserTypedUnsavedChanges],
   );
 
   const discardCurrentDocumentChanges = useCallback(() => {
@@ -4653,7 +4669,15 @@ export function App() {
     }
     setHasUserTypedUnsavedChanges(false);
     setHasUnsavedChanges(false);
-  }, [currentDocumentDraftKey, editingBackend, currentGistId, currentFileName]);
+  }, [
+    currentDocumentDraftKey,
+    editingBackend,
+    currentGistId,
+    currentFileName,
+    setCurrentDocumentDraft,
+    setHasUnsavedChanges,
+    setHasUserTypedUnsavedChanges,
+  ]);
 
   const requestScratchFileName = useCallback(
     async (defaultValue: string, existingPaths?: Set<string>, folderPath = ''): Promise<string | null> => {
@@ -4956,6 +4980,11 @@ export function App() {
       updatePostSaveVerification,
       user,
       gistFiles,
+      saveInFlightRef,
+      setCurrentDocumentDraft,
+      setCurrentDocumentSavedContent,
+      setHasUnsavedChanges,
+      setSaving,
     ],
   );
 
@@ -5003,6 +5032,7 @@ export function App() {
     currentRepoDocPath,
     commitDocumentContent,
     showDiffChoice,
+    setCurrentDocumentDraft,
   ]);
 
   const stayOnEditRouteAfterCommit = useCallback(
@@ -5153,6 +5183,7 @@ export function App() {
     commitAndStayInEdit,
     selectedRepoRef,
     showDiffChoice,
+    setCurrentDocumentDraft,
   ]);
 
   const onSave = useCallback(async () => {
@@ -5186,6 +5217,8 @@ export function App() {
     navigate,
     routeState,
     setNextEditContent,
+    setHasUnsavedChanges,
+    setHasUserTypedUnsavedChanges,
   ]);
 
   const getActiveDocumentStore = useCallback(() => {
@@ -5323,6 +5356,7 @@ export function App() {
     currentGistId,
     setNextEditContent,
     showFailureToast,
+    setHasUnsavedChanges,
   ]);
 
   const handleCreateFile = useCallback(
@@ -5365,7 +5399,15 @@ export function App() {
         void showAlert(err instanceof Error ? err.message : 'Failed to create file');
       }
     },
-    [getActiveDocumentStore, currentGistId, navigate, showAlert, showRateLimitToastIfNeeded, selectedRepoRef],
+    [
+      getActiveDocumentStore,
+      currentGistId,
+      navigate,
+      showAlert,
+      showRateLimitToastIfNeeded,
+      selectedRepoRef,
+      setHasUnsavedChanges,
+    ],
   );
 
   const handleConfirmImplicitMarkdownExtension = useCallback(
@@ -5506,6 +5548,7 @@ export function App() {
       installationId,
       selectedRepo,
       navigateToSidebarFile,
+      setHasUnsavedChanges,
     ],
   );
 
@@ -6716,7 +6759,13 @@ export function App() {
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
     },
-    [persistPendingGistDraft, readerAiEditLocked, setNextEditContent],
+    [
+      persistPendingGistDraft,
+      readerAiEditLocked,
+      setNextEditContent,
+      setHasUnsavedChanges,
+      setHasUserTypedUnsavedChanges,
+    ],
   );
   const handleSignInWithGitHub = useCallback(
     (options?: { includeGists?: boolean }) => {

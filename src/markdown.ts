@@ -3,7 +3,7 @@ import { nameToEmoji } from 'gemoji';
 import type { RendererThis, Token, TokenizerThis, Tokens } from 'marked';
 import { marked } from 'marked';
 import { parseImageDimensionTitle } from './image_markdown.ts';
-import { matchPromptListLine } from './prompt_list_syntax.ts';
+import { parsePromptListBlock } from './prompt_list_syntax.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
 
 marked.setOptions({
@@ -25,30 +25,6 @@ interface PromptListToken extends Tokens.Generic {
     renderAsBlock: boolean;
     tokens: Token[];
   }>;
-}
-
-function isPromptListContinuationLine(text: string, indent: string): boolean {
-  return text.startsWith(`${indent}  `) || text.startsWith(`${indent}\t`);
-}
-
-function stripPromptListContinuationIndent(text: string, indent: string): string {
-  if (text.startsWith(`${indent}  `)) return text.slice(`${indent}  `.length);
-  if (text.startsWith(`${indent}\t`)) return text.slice(`${indent}\t`.length);
-  return text;
-}
-
-function isPromptListBlockConstruct(text: string): boolean {
-  return /^(?:[-+*][ \t]|\d+\.[ \t]|>[ \t]?|#{1,6}[ \t]|```|~~~)/u.test(text);
-}
-
-function stripPromptListResumedContinuationIndent(text: string, indent: string): string {
-  const threeSpaceIndent = `${indent}   `;
-  const fourSpaceIndent = `${indent}    `;
-  if (text.startsWith(threeSpaceIndent) && !text.startsWith(fourSpaceIndent)) {
-    const candidate = text.slice(threeSpaceIndent.length);
-    if (!isPromptListBlockConstruct(candidate)) return candidate;
-  }
-  return stripPromptListContinuationIndent(text, indent);
 }
 
 function wikiSlug(raw: string): string {
@@ -173,74 +149,27 @@ marked.use({
       },
       tokenizer(this: TokenizerThis, src: string) {
         const sourceLines = src.split('\n');
-        let lineIndex = 0;
+        const normalizedLines = sourceLines.map((line) => line.replace(/\r$/, ''));
+        const block = parsePromptListBlock(normalizedLines, 0);
+        if (!block) return undefined;
+
         const items: PromptListToken['items'] = [];
-        const rawLines: string[] = [];
-
-        while (lineIndex < sourceLines.length) {
-          const rawLine = sourceLines[lineIndex];
-          const line = rawLine.replace(/\r$/, '');
-          const match = matchPromptListLine(line);
-          if (!match) break;
-
-          const contentLines = [match.content];
-          rawLines.push(rawLine);
-
-          let nextIndex = lineIndex + 1;
-          while (nextIndex < sourceLines.length) {
-            const continuationRawLine = sourceLines[nextIndex];
-            const continuationLine = continuationRawLine.replace(/\r$/, '');
-            if (matchPromptListLine(continuationLine)) break;
-
-            if (/^\s*$/.test(continuationLine)) {
-              const blankLines: string[] = [];
-              let scanIndex = nextIndex;
-              while (scanIndex < sourceLines.length) {
-                const scanLine = sourceLines[scanIndex].replace(/\r$/, '');
-                if (!/^\s*$/.test(scanLine)) break;
-                blankLines.push('');
-                scanIndex += 1;
-              }
-
-              if (scanIndex >= sourceLines.length) break;
-
-              const resumedLine = sourceLines[scanIndex].replace(/\r$/, '');
-              if (matchPromptListLine(resumedLine)) break;
-              if (!isPromptListContinuationLine(resumedLine, match.indent)) break;
-
-              contentLines.push(...blankLines);
-              contentLines.push(stripPromptListResumedContinuationIndent(resumedLine, match.indent));
-              rawLines.push(...sourceLines.slice(nextIndex, scanIndex + 1));
-              nextIndex = scanIndex + 1;
-              continue;
-            }
-
-            if (!isPromptListContinuationLine(continuationLine, match.indent)) break;
-
-            contentLines.push(stripPromptListContinuationIndent(continuationLine, match.indent));
-            rawLines.push(continuationRawLine);
-            nextIndex += 1;
-          }
-
-          const content = contentLines.join('\n').trimEnd();
+        for (const item of block.items) {
+          const content = item.content;
           const renderAsBlock = content.includes('\n') || /^\s*$/.test(content);
           const tokens = renderAsBlock ? this.lexer.blockTokens(content) : this.lexer.inlineTokens(content);
 
           items.push({
-            kind: match.kind,
-            className: match.kind === 'question' ? 'prompt-question' : 'prompt-answer',
+            kind: item.match.kind,
+            className: item.match.kind === 'question' ? 'prompt-question' : 'prompt-answer',
             renderAsBlock,
             tokens,
           });
-
-          lineIndex = nextIndex;
         }
-
-        if (items.length === 0) return undefined;
 
         return {
           type: 'promptList',
-          raw: rawLines.join('\n'),
+          raw: sourceLines.slice(0, block.endLineIndexExclusive).join('\n'),
           items,
         };
       },

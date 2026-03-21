@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { ActiveView } from '../components/Toolbar';
 import type { GitHubUser } from '../github';
 import { getGist } from '../github';
 import { getRepoContents, isRepoFile, SessionExpiredError } from '../github_app';
-import type { ActiveView } from '../components/Toolbar';
 
 // --- Types ---
 

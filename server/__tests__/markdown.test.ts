@@ -184,6 +184,23 @@ test('parseMarkdownToHtml keeps multiline prompt answer content inside the promp
   t.true(html.includes('</ul> </li></ul>'));
 });
 
+test('parseMarkdownToHtml keeps a prompt list unified across a single blank line between items', (t) => {
+  const html = withDom(() => parseMarkdownToHtml(['-* one', '-⏺ answer', '  ', '-* two', '-⏺ next'].join('\n')));
+
+  t.is((html.match(/<ul class="prompt-list">/g) ?? []).length, 1);
+  t.true(
+    html.includes(
+      '<ul class="prompt-list"><li class="prompt-question">one</li><li class="prompt-answer">answer</li><li class="prompt-question">two</li><li class="prompt-answer">next</li></ul>',
+    ),
+  );
+});
+
+test('parseMarkdownToHtml splits prompt lists across two blank lines between items', (t) => {
+  const html = withDom(() => parseMarkdownToHtml(['-* one', '-⏺ answer', '  ', '  ', '-* two', '-⏺ next'].join('\n')));
+
+  t.is((html.match(/<ul class="prompt-list">/g) ?? []).length, 2);
+});
+
 test('parseMarkdownToHtml does not preserve an extra leading space on resumed prompt-answer paragraphs', (t) => {
   const html = withDom(() =>
     parseMarkdownToHtml(

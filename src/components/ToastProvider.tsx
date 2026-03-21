@@ -1,7 +1,7 @@
 import * as ToastPrimitive from '@radix-ui/react-toast';
 import type { ComponentChildren } from 'preact';
 import { createContext } from 'preact';
-import { useCallback, useContext, useState } from 'preact/hooks';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 interface ToastContextValue {
   showToast: (message: string) => void;
@@ -30,30 +30,74 @@ interface ToastEntry {
 let nextId = 0;
 const TOAST_DEDUPE_WINDOW_MS = 4_000;
 
-export function ToastProvider({ children }: { children: ComponentChildren }) {
+function ToastHost({
+  subscribe,
+  removeToast,
+}: {
+  subscribe: (listener: (toasts: ToastEntry[]) => void) => () => void;
+  removeToast: (id: number) => void;
+}) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
+
+  useEffect(() => subscribe(setToasts), [subscribe]);
+
+  return (
+    <ToastPrimitive.Provider duration={3000}>
+      {toasts.map((t) => (
+        <ToastPrimitive.Root
+          key={t.id}
+          class={`toast-root${t.variant === 'success' ? ' toast-root--success' : ''}${t.variant === 'failure' ? ' toast-root--failure' : ''}${t.variant === 'loading' ? ' toast-root--loading' : ''}`}
+          duration={t.duration}
+          onOpenChange={(open: boolean) => {
+            if (!open) removeToast(t.id);
+          }}
+        >
+          <ToastPrimitive.Description>{t.message}</ToastPrimitive.Description>
+        </ToastPrimitive.Root>
+      ))}
+      <ToastPrimitive.Viewport class="toast-viewport" />
+    </ToastPrimitive.Provider>
+  );
+}
+
+export function ToastProvider({ children }: { children: ComponentChildren }) {
+  const listenersRef = useRef(new Set<(toasts: ToastEntry[]) => void>());
+  const toastsRef = useRef<ToastEntry[]>([]);
+
+  const publish = useCallback((toasts: ToastEntry[]) => {
+    toastsRef.current = toasts;
+    listenersRef.current.forEach((listener) => {
+      listener(toasts);
+    });
+  }, []);
+
+  const subscribe = useCallback((listener: (toasts: ToastEntry[]) => void) => {
+    listenersRef.current.add(listener);
+    listener(toastsRef.current);
+    return () => {
+      listenersRef.current.delete(listener);
+    };
+  }, []);
 
   const enqueueToast = useCallback(
     (message: string, variant: ToastEntry['variant'], duration?: number): number | null => {
       const now = Date.now();
       let createdId: number | null = null;
-      setToasts((prev) => {
-        const duplicate =
-          variant === 'loading'
-            ? false
-            : prev.some((toast) => {
-                if (toast.variant !== variant) return false;
-                if (toast.message !== message) return false;
-                return now - toast.createdAt <= TOAST_DEDUPE_WINDOW_MS;
-              });
-        if (duplicate) return prev;
-        const id = nextId++;
-        createdId = id;
-        return [...prev, { id, message, variant, duration, createdAt: now }];
-      });
+      const duplicate =
+        variant === 'loading'
+          ? false
+          : toastsRef.current.some((toast) => {
+              if (toast.variant !== variant) return false;
+              if (toast.message !== message) return false;
+              return now - toast.createdAt <= TOAST_DEDUPE_WINDOW_MS;
+            });
+      if (duplicate) return createdId;
+      const id = nextId++;
+      createdId = id;
+      publish([...toastsRef.current, { id, message, variant, duration, createdAt: now }]);
       return createdId;
     },
-    [],
+    [publish],
   );
 
   const showToast = useCallback(
@@ -85,9 +129,12 @@ export function ToastProvider({ children }: { children: ComponentChildren }) {
     [enqueueToast],
   );
 
-  const removeToast = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  const removeToast = useCallback(
+    (id: number) => {
+      publish(toastsRef.current.filter((t) => t.id !== id));
+    },
+    [publish],
+  );
 
   const dismissToast = useCallback(
     (id: number) => {
@@ -96,24 +143,15 @@ export function ToastProvider({ children }: { children: ComponentChildren }) {
     [removeToast],
   );
 
+  const contextValue = useMemo(
+    () => ({ showToast, showSuccessToast, showFailureToast, showLoadingToast, dismissToast }),
+    [dismissToast, showFailureToast, showLoadingToast, showSuccessToast, showToast],
+  );
+
   return (
-    <ToastContext.Provider value={{ showToast, showSuccessToast, showFailureToast, showLoadingToast, dismissToast }}>
-      <ToastPrimitive.Provider duration={3000}>
-        {children}
-        {toasts.map((t) => (
-          <ToastPrimitive.Root
-            key={t.id}
-            class={`toast-root${t.variant === 'success' ? ' toast-root--success' : ''}${t.variant === 'failure' ? ' toast-root--failure' : ''}${t.variant === 'loading' ? ' toast-root--loading' : ''}`}
-            duration={t.duration}
-            onOpenChange={(open: boolean) => {
-              if (!open) removeToast(t.id);
-            }}
-          >
-            <ToastPrimitive.Description>{t.message}</ToastPrimitive.Description>
-          </ToastPrimitive.Root>
-        ))}
-        <ToastPrimitive.Viewport class="toast-viewport" />
-      </ToastPrimitive.Provider>
+    <ToastContext.Provider value={contextValue}>
+      {children}
+      <ToastHost subscribe={subscribe} removeToast={removeToast} />
     </ToastContext.Provider>
   );
 }

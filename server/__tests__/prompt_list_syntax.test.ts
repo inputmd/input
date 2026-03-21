@@ -1,5 +1,5 @@
 import test from 'ava';
-import { matchPromptListLine } from '../../src/prompt_list_syntax.ts';
+import { matchPromptListLine, parsePromptListBlock } from '../../src/prompt_list_syntax.ts';
 
 test('matchPromptListLine parses prompt question markers', (t) => {
   t.deepEqual(matchPromptListLine('-* Can you explain Solomonoff induction?'), {
@@ -33,4 +33,29 @@ test('matchPromptListLine parses nested answer markers', (t) => {
 
 test('matchPromptListLine ignores ordinary markdown bullets', (t) => {
   t.is(matchPromptListLine('- regular bullet'), null);
+});
+
+test('parsePromptListBlock keeps a single blank line between prompt-list items in one block', (t) => {
+  const block = parsePromptListBlock(['-* one', '-⏺ answer', '  ', '-* two', '-⏺ next'], 0);
+
+  t.truthy(block);
+  t.is(block?.items.length, 4);
+  t.is(block?.endLineIndexExclusive, 5);
+  t.deepEqual(
+    block?.items.map((item) => ({ kind: item.match.kind, content: item.content })),
+    [
+      { kind: 'question', content: 'one' },
+      { kind: 'answer', content: 'answer' },
+      { kind: 'question', content: 'two' },
+      { kind: 'answer', content: 'next' },
+    ],
+  );
+});
+
+test('parsePromptListBlock treats two blank lines before the next prompt item as a separator', (t) => {
+  const block = parsePromptListBlock(['-* one', '-⏺ answer', '  ', '  ', '-* two', '-⏺ next'], 0);
+
+  t.truthy(block);
+  t.is(block?.items.length, 2);
+  t.is(block?.endLineIndexExclusive, 2);
 });

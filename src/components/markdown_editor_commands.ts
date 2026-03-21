@@ -4,7 +4,7 @@ import { syntaxTree } from '@codemirror/language';
 import { EditorSelection, type EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
-import { matchPromptListLine } from '../prompt_list_syntax.ts';
+import { matchPromptListLine, parsePromptListBlock } from '../prompt_list_syntax.ts';
 import type { ExternalEditorChange } from './editor_controller';
 
 interface PromptListThreadMessage {
@@ -256,16 +256,6 @@ function isNonTightList(
   return line1.number + (empty ? 0 : 1) < line2.number;
 }
 
-function isPromptListContinuationLine(text: string, indent: string): boolean {
-  return text.startsWith(`${indent}  `) || text.startsWith(`${indent}\t`);
-}
-
-function stripPromptListContinuationIndent(text: string, indent: string): string {
-  if (text.startsWith(`${indent}  `)) return text.slice(`${indent}  `.length);
-  if (text.startsWith(`${indent}\t`)) return text.slice(`${indent}\t`.length);
-  return text;
-}
-
 function promptListIndentWidth(indent: string): number {
   let width = 0;
   for (const ch of indent) width += ch === '\t' ? 2 : 1;
@@ -319,48 +309,31 @@ function buildPromptListTurns(items: PromptListItem[]): { turns: PromptListTurn[
 
 function parsePromptListBlocks(state: EditorState): PromptListBlock[] {
   const blocks: PromptListBlock[] = [];
+  const lines = Array.from({ length: state.doc.lines }, (_, index) => state.doc.line(index + 1).text);
   let lineNumber = 1;
 
   while (lineNumber <= state.doc.lines) {
-    const line = state.doc.line(lineNumber);
-    const match = matchPromptListLine(line.text);
-    if (!match) {
+    const block = parsePromptListBlock(lines, lineNumber - 1);
+    if (!block) {
       lineNumber += 1;
       continue;
     }
 
     const items: PromptListItem[] = [];
-    let cursor = lineNumber;
-
-    while (cursor <= state.doc.lines) {
-      const currentLine = state.doc.line(cursor);
-      const currentMatch = matchPromptListLine(currentLine.text);
-      if (!currentMatch) break;
-
-      const contentLines = [currentMatch.content];
-      let lastLineNumber = cursor;
-      while (lastLineNumber < state.doc.lines) {
-        const nextLine = state.doc.line(lastLineNumber + 1);
-        if (matchPromptListLine(nextLine.text)) break;
-        if (!isPromptListContinuationLine(nextLine.text, currentMatch.indent)) break;
-        contentLines.push(stripPromptListContinuationIndent(nextLine.text, currentMatch.indent));
-        lastLineNumber += 1;
-      }
-
+    for (const parsedItem of block.items) {
+      const currentLineNumber = parsedItem.startLineIndex + 1;
+      const lastLineNumber = parsedItem.endLineIndex + 1;
+      const currentLine = state.doc.line(currentLineNumber);
       items.push({
-        kind: currentMatch.kind,
-        indent: currentMatch.indent,
-        indentWidth: promptListIndentWidth(currentMatch.indent),
-        lineNumber: cursor,
+        kind: parsedItem.match.kind,
+        indent: parsedItem.match.indent,
+        indentWidth: promptListIndentWidth(parsedItem.match.indent),
+        lineNumber: currentLineNumber,
         lastLineNumber,
         from: currentLine.from,
         to: state.doc.line(lastLineNumber).to,
-        content: contentLines.join('\n').trim(),
+        content: parsedItem.content.trim(),
       });
-
-      cursor = lastLineNumber + 1;
-      if (cursor > state.doc.lines) break;
-      if (!matchPromptListLine(state.doc.line(cursor).text)) break;
     }
 
     const { turns, itemToTurnIndex } = buildPromptListTurns(items);

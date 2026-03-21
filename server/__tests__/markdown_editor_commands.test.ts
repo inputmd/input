@@ -450,6 +450,50 @@ test('getPromptListRequest includes prior prompt-list history and local multilin
   });
 });
 
+test('getPromptListRequest keeps prompt-list history across a single blank line between turns', (t) => {
+  const doc = ['-* First question', '-⏺ First answer', '  ', '-* Follow-up question'].join('\n');
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(doc.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'Follow-up question',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'First question' },
+      { role: 'assistant', content: 'First answer' },
+      { role: 'user', content: 'Follow-up question' },
+    ],
+    answerIndent: '',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n-⏺ ',
+    answerFrom: `${doc}\n-⏺ `.length,
+  });
+});
+
+test('getPromptListRequest treats two blank lines between turns as a new prompt list', (t) => {
+  const doc = ['-* First question', '-⏺ First answer', '  ', '  ', '-* Follow-up question'].join('\n');
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(doc.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'Follow-up question',
+    documentContent: doc,
+    messages: [{ role: 'user', content: 'Follow-up question' }],
+    answerIndent: '',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n-⏺ ',
+    answerFrom: `${doc}\n-⏺ `.length,
+  });
+});
+
 test('getPromptListRequest keeps all prior sibling branches under the same parent in context', (t) => {
   const doc = [
     '-* user1',
