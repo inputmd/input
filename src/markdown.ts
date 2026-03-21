@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import { nameToEmoji } from 'gemoji';
 import type { RendererThis, Token, TokenizerThis, Tokens } from 'marked';
 import { marked } from 'marked';
+import { parseCriticMarkupAt } from './criticmarkup.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
 import { parsePromptListBlock } from './prompt_list_syntax.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
@@ -25,6 +26,15 @@ interface PromptListToken extends Tokens.Generic {
     renderAsBlock: boolean;
     tokens: Token[];
   }>;
+}
+
+interface CriticMarkupToken extends Tokens.Generic {
+  type: 'criticMarkup';
+  criticKind: 'addition' | 'deletion' | 'highlight' | 'comment' | 'substitution';
+  tokens?: Token[];
+  oldTokens?: Token[];
+  newTokens?: Token[];
+  text?: string;
 }
 
 function wikiSlug(raw: string): string {
@@ -194,6 +204,59 @@ marked.use({
         const itemCount = promptListToken.items.length;
         const caption = `Conversation with ${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
         return `<div class="prompt-list-caption">${caption}</div><ul class="prompt-list">${itemsHtml}</ul>`;
+      },
+    },
+    {
+      name: 'criticMarkup',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf('{');
+      },
+      tokenizer(src: string) {
+        const match = parseCriticMarkupAt(src, 0);
+        if (!match) return undefined;
+
+        if (match.kind === 'substitution') {
+          return {
+            type: 'criticMarkup',
+            raw: match.raw,
+            criticKind: match.kind,
+            oldTokens: this.lexer.inlineTokens(match.oldText ?? ''),
+            newTokens: this.lexer.inlineTokens(match.newText ?? ''),
+          } satisfies CriticMarkupToken;
+        }
+
+        if (match.kind === 'comment') {
+          return {
+            type: 'criticMarkup',
+            raw: match.raw,
+            criticKind: match.kind,
+            text: match.text,
+          } satisfies CriticMarkupToken;
+        }
+
+        return {
+          type: 'criticMarkup',
+          raw: match.raw,
+          criticKind: match.kind,
+          tokens: this.lexer.inlineTokens(match.text),
+        } satisfies CriticMarkupToken;
+      },
+      renderer(token) {
+        const criticToken = token as CriticMarkupToken;
+        if (criticToken.criticKind === 'addition') {
+          return `<ins class="critic-addition">${this.parser.parseInline(criticToken.tokens ?? [])}</ins>`;
+        }
+        if (criticToken.criticKind === 'deletion') {
+          return `<del class="critic-deletion">${this.parser.parseInline(criticToken.tokens ?? [])}</del>`;
+        }
+        if (criticToken.criticKind === 'highlight') {
+          return `<mark class="critic-highlight">${this.parser.parseInline(criticToken.tokens ?? [])}</mark>`;
+        }
+        if (criticToken.criticKind === 'comment') {
+          return `<span class="critic-comment">${escapeHtmlAttr(criticToken.text ?? '')}</span>`;
+        }
+        return `<span class="critic-substitution"><del class="critic-deletion">${this.parser.parseInline(criticToken.oldTokens ?? [])}</del><ins class="critic-addition">${this.parser.parseInline(criticToken.newTokens ?? [])}</ins></span>`;
       },
     },
     {
@@ -1413,7 +1476,12 @@ function applySmartPunctuation(root: ParentNode): void {
 
   for (const node of textNodes) {
     // Only convert either " -- " or tight "word--word", leaving mixed spacing untouched.
-    node.textContent = (node.textContent ?? '').replace(/(?<= )--(?= )|(?<=\S)--(?=\S)/g, '—');
+    node.textContent = (node.textContent ?? '').replace(/(?<= )--(?= )|(?<=\S)--(?=\S)/g, (match, offset, text) => {
+      const previous = offset > 0 ? text[offset - 1] : '';
+      const next = offset + match.length < text.length ? text[offset + match.length] : '';
+      if (previous === '{' || next === '}') return match;
+      return '—';
+    });
   }
 }
 

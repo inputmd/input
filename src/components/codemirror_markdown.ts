@@ -11,6 +11,7 @@ import {
 import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
 import { matchPromptListLine } from '../prompt_list_syntax.ts';
+import { criticMarkupDecorationExtension } from './codemirror_criticmarkup.ts';
 
 const wikiLinkInlineParser: InlineParser = {
   name: 'WikiLink',
@@ -308,6 +309,7 @@ export function markdownEditorLanguageSupport() {
       completeHTMLTags: false,
       extensions: markdownParserExtensions,
     }),
+    criticMarkupDecorationExtension,
     promptListLineClassExtension,
     promptListHintExtension,
   ];
@@ -327,6 +329,7 @@ export function markdownCodeLanguageSupport() {
         htmlCommentMarkdownExtension,
       ],
     }),
+    criticMarkupDecorationExtension,
     promptListLineClassExtension,
   ];
 }

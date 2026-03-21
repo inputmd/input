@@ -133,6 +133,28 @@ test('marked leaves regular footnote references unchanged', (t) => {
   t.true(html.includes('[^note]'));
 });
 
+test('marked renders CriticMarkup additions, deletions, highlights, comments, and substitutions', (t) => {
+  const html = marked.parse('A {++new++} {--old--} {==focus==} {>>note<<} {~~before~>after~~} change.');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<ins class="critic-addition">new</ins>'));
+  t.true(html.includes('<del class="critic-deletion">old</del>'));
+  t.true(html.includes('<mark class="critic-highlight">focus</mark>'));
+  t.true(html.includes('<span class="critic-comment">note</span>'));
+  t.true(
+    html.includes(
+      '<span class="critic-substitution"><del class="critic-deletion">before</del><ins class="critic-addition">after</ins></span>',
+    ),
+  );
+});
+
+test('marked leaves malformed CriticMarkup literal', (t) => {
+  const html = marked.parse('Keep {--this literal.');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('Keep {--this literal.'));
+});
+
 test('marked renders bare bracketed text without brackets', (t) => {
   const html = marked.parse('Use [draft] status.');
 
@@ -253,6 +275,27 @@ test('parseMarkdownToHtml keeps fenced code blocks unchanged while preserving pr
 
   t.true(html.includes('<pre><code>    code\n</code></pre>'));
   t.false(html.includes('leading-indent'));
+});
+
+test('parseMarkdownToHtml renders CriticMarkup inside prompt list items', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('-* Review {++this++}\n-⏺ Keep {--that--}'));
+
+  t.true(html.includes('<li class="prompt-question">Review <ins class="critic-addition">this</ins></li>'));
+  t.true(html.includes('<li class="prompt-answer">Keep <del class="critic-deletion">that</del></li>'));
+});
+
+test('parseMarkdownToHtml renders CriticMarkup inside footnote definitions', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('See [^edit].\n\n[^edit]: add {++this++}'));
+
+  t.true(html.includes('<section class="footnotes"'));
+  t.true(html.includes('<ins class="critic-addition">this</ins>'));
+});
+
+test('parseMarkdownToHtml does not parse CriticMarkup inside fenced code blocks', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('```md\n{++literal++}\n```'));
+
+  t.regex(html, /<pre><code(?: class="language-md")?>\{\+\+literal\+\+\}\n<\/code><\/pre>/);
+  t.false(html.includes('critic-addition'));
 });
 
 test('parseMarkdownDocument extracts and scopes allowed custom css from front matter', (t) => {

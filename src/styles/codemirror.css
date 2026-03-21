@@ -343,6 +343,33 @@
   text-decoration: underline wavy color-mix(in srgb, var(--error-color) 70%, transparent);
 }
 
+.cm-editor .cm-critic-delimiter {
+  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+}
+
+.cm-editor .cm-critic-addition {
+  color: color-mix(in srgb, var(--text) 70%, var(--ansi-green));
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ansi-green) 72%, transparent);
+  text-decoration-thickness: 1px;
+}
+
+.cm-editor .cm-critic-deletion {
+  color: color-mix(in srgb, var(--text-secondary) 84%, var(--error-color));
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--error-color) 62%, transparent);
+}
+
+.cm-editor .cm-critic-highlight {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--warning-color) 20%, transparent);
+}
+
+.cm-editor .cm-critic-comment {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 [data-theme="light"] .cm-editor .tok-string,
 [data-theme="light"] .cm-editor .tok-attributeValue {
   color: color-mix(in srgb, var(--text) 55%, var(--ansi-green));
