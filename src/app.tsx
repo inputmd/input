@@ -2891,6 +2891,10 @@ export function App() {
           return;
         }
         case 'repoedit': {
+          if (routeKeyFromRoute(r) === postSaveVerificationRef.current?.routeKey) {
+            setViewPhase(null);
+            return;
+          }
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
           const path = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
