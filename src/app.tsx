@@ -2388,6 +2388,7 @@ export function App() {
             setCurrentFileName(null);
             setCurrentDocumentSavedContent(null);
             clearRenderedContent();
+            setContentLoadPending(false);
             setViewPhase(null);
             return;
           }
@@ -2448,6 +2449,7 @@ export function App() {
           setCurrentFileName(null);
           setCurrentDocumentSavedContent(null);
           clearRenderedContent();
+          setContentLoadPending(false);
           setViewPhase(null);
           return;
         }
