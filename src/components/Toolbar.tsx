@@ -564,6 +564,11 @@ export function Toolbar({
               Edit <ExternalLink size={14} aria-hidden="true" />
             </a>
           )}
+          {showCancel && (
+            <button type="button" class="toolbar-close-btn" onClick={onCancel}>
+              Cancel
+            </button>
+          )}
           {showSave && (
             <div class="toolbar-split-button-group" role="group" aria-label="Save options">
               <button type="button" class="toolbar-split-button-main" onClick={onSave} disabled={saving || !canSave}>
@@ -602,7 +607,7 @@ export function Toolbar({
                       </DropdownMenu.Item>
                       {showCancel ? (
                         <DropdownMenu.Item class="user-menu-item toolbar-mobile-save-menu-item" onSelect={onCancel}>
-                          Close
+                          Cancel
                         </DropdownMenu.Item>
                       ) : null}
                     </DropdownMenu.Content>
@@ -610,11 +615,6 @@ export function Toolbar({
                 </DropdownMenu.Root>
               )}
             </div>
-          )}
-          {showCancel && (
-            <button type="button" class="toolbar-close-btn" onClick={onCancel}>
-              Close
-            </button>
           )}
           {showActionsMenu && view === 'edit' && authorMenu}
           {showSignInToSave && signInButton}
