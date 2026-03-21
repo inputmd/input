@@ -1,7 +1,6 @@
 // ── Reader AI Tool Definitions, Execution, and Subagent Support ──
 
 import { createTwoFilesPatch } from 'diff';
-import { shouldUseOpenRouterPromptCaching } from './reader_ai_access.ts';
 
 export const READER_AI_TOOL_RESULT_MAX_CHARS = 30_000;
 export const READER_AI_DOC_PREVIEW_CHARS = 12_000;
@@ -211,6 +210,10 @@ function extractOpenRouterContentText(content: unknown): string {
   if (typeof value.value === 'string') return value.value;
   if (value.text && typeof value.text === 'object') return extractOpenRouterContentText(value.text);
   return '';
+}
+
+function shouldUseOpenRouterPromptCachingForSubagent(model: string): boolean {
+  return model.trim().toLowerCase().startsWith('anthropic/');
 }
 
 export type OpenRouterMessage =
@@ -1634,7 +1637,7 @@ export async function executeReaderAiSubagent(options: ReaderAiSubagentOptions):
 
   const systemPrompt = options.systemPrompt || defaultSystemPrompt;
   const tools = isProjectMode ? READER_AI_PROJECT_SUBAGENT_TOOLS : READER_AI_SUBAGENT_TOOLS;
-  const promptCacheControl = shouldUseOpenRouterPromptCaching(model, new Set([model]))
+  const promptCacheControl = shouldUseOpenRouterPromptCachingForSubagent(model)
     ? { type: 'ephemeral' as const }
     : undefined;
 
