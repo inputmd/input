@@ -181,7 +181,7 @@ test('parseMarkdownToHtml keeps multiline prompt answer content inside the promp
   t.true(html.includes('<p>Second paragraph</p>'));
   t.true(html.includes('<ul>'));
   t.true(html.includes('<li>Nested item</li>'));
-  t.true(html.includes('</ul>\n</li></ul>'));
+  t.true(html.includes('</ul> </li></ul>'));
 });
 
 test('parseMarkdownToHtml does not preserve an extra leading space on resumed prompt-answer paragraphs', (t) => {
@@ -213,7 +213,7 @@ test('parseMarkdownToHtml preserves leading indentation in paragraphs', (t) => {
 test('parseMarkdownToHtml preserves leading indentation after wrapped lines in list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('- item\n    continuation'));
 
-  t.true(html.includes('item\n<span class="leading-indent">  </span>continuation'));
+  t.true(html.includes('item<span class="leading-indent">  </span>continuation'));
   t.false(html.includes('<br>'));
 });
 
@@ -222,6 +222,13 @@ test('parseMarkdownToHtml does not preserve repeated inline spaces as indentatio
 
   t.false(html.includes('leading-indent'));
   t.true(html.includes('keep  inline spaces'));
+});
+
+test('parseMarkdownToHtml collapses soft line breaks inside paragraphs', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('foo\nbar'));
+
+  t.true(html.includes('<p>foo bar</p>'));
+  t.false(html.includes('<br>'));
 });
 
 test('parseMarkdownToHtml keeps fenced code blocks unchanged while preserving prose indentation', (t) => {

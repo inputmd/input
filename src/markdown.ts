@@ -1431,13 +1431,13 @@ function preserveLeadingIndentationInNode(node: Node, atLineStart: { value: bool
         fragment.appendChild(document.createTextNode(text.slice(index, end)));
       }
 
-      if (text[end] === '\r' && text[end + 1] === '\n') {
-        fragment.appendChild(document.createTextNode('\r\n'));
-        index = end + 2;
-      } else {
-        fragment.appendChild(document.createTextNode(text[end]));
-        index = end + 1;
+      const newlineLength = text[end] === '\r' && text[end + 1] === '\n' ? 2 : 1;
+      const nextIndex = end + newlineLength;
+      const nextLineIndent = /^[ \t]+/.exec(text.slice(nextIndex));
+      if (!nextLineIndent) {
+        fragment.appendChild(document.createTextNode(' '));
       }
+      index = nextIndex;
       atLineStart.value = true;
     }
 
