@@ -17,6 +17,7 @@ import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
+import { parseDocumentEditorsFromMarkdown } from './document_permissions.ts';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
 import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import {
@@ -7237,6 +7238,34 @@ export function App() {
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') && repoAccessMode === 'installed' && selectedRepo !== null;
   const showHeaderLeftLoading = activeView === 'loading' && Boolean(user);
+  const headerDocumentCollaborators = useMemo(() => {
+    if (repoAccessMode !== 'installed') return [];
+    if (!currentRepoDocPath || !currentDocumentContent || !user?.login) return [];
+    if (!isMarkdownFileName(currentRepoDocPath)) return [];
+
+    const parsed = parseDocumentEditorsFromMarkdown(currentDocumentContent);
+    if (parsed.error || parsed.editors.length === 0) return [];
+
+    const seen = new Set<string>();
+    const collaborators: Array<{ login: string; avatarUrl: string; isAuthor: boolean }> = [];
+    const normalizedAuthor = user.login.trim().toLowerCase();
+
+    collaborators.push({ login: user.login, avatarUrl: user.avatar_url, isAuthor: true });
+    seen.add(normalizedAuthor);
+
+    for (const editor of parsed.editors) {
+      const normalizedEditor = editor.toLowerCase();
+      if (seen.has(normalizedEditor)) continue;
+      seen.add(normalizedEditor);
+      collaborators.push({
+        login: editor,
+        avatarUrl: `https://github.com/${editor}.png?size=64`,
+        isAuthor: false,
+      });
+    }
+
+    return collaborators;
+  }, [currentDocumentContent, currentRepoDocPath, repoAccessMode, user]);
   const goToWorkspaceTarget = useMemo<GoToWorkspaceTarget | null>(() => {
     if (route.name !== 'repofile' || !user || !installationId) return null;
     const owner = safeDecodeURIComponent(route.params.owner);
@@ -7292,6 +7321,7 @@ export function App() {
         selectedRepo={selectedRepo}
         selectedRepoPrivate={selectedRepoPrivate}
         inRepoContext={inRepoContext}
+        documentCollaborators={headerDocumentCollaborators}
         availableRepos={installationRepos}
         repoListLoading={installationReposLoading}
         reposLoadError={reposLoadError}
