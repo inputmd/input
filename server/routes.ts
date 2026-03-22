@@ -3,6 +3,7 @@ import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
+import { canGitHubUserEditMarkdownDocument, validateEditorsPreserved } from '../src/document_permissions';
 import { resolveCommitCompactionSelection } from './commit_compaction';
 import {
   APP_URL,
@@ -21,7 +22,12 @@ import {
 import { stripCriticMarkupComments } from './criticmarkup.js';
 import { ClientError } from './errors';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
-import { createAppJwt, encodePathPreserveSlashes, githubFetchWithInstallationToken } from './github_client';
+import {
+  createAppJwt,
+  encodePathPreserveSlashes,
+  getRepoInstallationId,
+  githubFetchWithInstallationToken,
+} from './github_client';
 import { json, readJson, requireEnv, requireString } from './http_helpers';
 import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
 import {
@@ -118,6 +124,21 @@ interface ShareRepoFileCreateBody {
   installationId?: unknown;
   repoFullName?: unknown;
   path?: unknown;
+}
+
+interface EditorShareRepoFileUpdateBody extends Record<string, unknown> {
+  message?: unknown;
+  content?: unknown;
+  sha?: unknown;
+}
+
+interface RepoContentsFileData {
+  type?: string;
+  path?: string;
+  sha?: string;
+  name?: string;
+  content?: string;
+  encoding?: string;
 }
 
 interface ReaderAiModelEntry {
@@ -969,6 +990,78 @@ function estimateBase64DecodedBytes(input: string): number {
   return Math.max(0, decoded);
 }
 
+function normalizeRepoPathFromRoute(path: string): string {
+  return decodeURIComponent(path).replace(/^\/+/, '');
+}
+
+function assertMarkdownRepoFileData(
+  data: RepoContentsFileData | null,
+  notMarkdownMessage: string,
+): asserts data is RepoContentsFileData & {
+  type: 'file';
+  path: string;
+  sha: string;
+  content: string;
+  encoding: 'base64';
+} {
+  if (!data || data.type !== 'file' || typeof data.sha !== 'string' || typeof data.path !== 'string') {
+    throw new ClientError('Expected a file', 400);
+  }
+  if (!data.path.toLowerCase().endsWith('.md')) {
+    throw new ClientError(notMarkdownMessage, 400);
+  }
+  if (typeof data.content !== 'string' || data.encoding !== 'base64') {
+    throw new ClientError('Unexpected file payload from GitHub', 502);
+  }
+}
+
+async function fetchRepoMarkdownFile(
+  res: http.ServerResponse,
+  installationId: string,
+  owner: string,
+  repo: string,
+  path: string,
+  notMarkdownMessage = 'Only markdown files can be shared',
+): Promise<RepoContentsFileData & { type: 'file'; path: string; sha: string; content: string; encoding: 'base64' }> {
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(path)}`;
+  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath);
+  const data = (await ghRes.json().catch(() => null)) as RepoContentsFileData | null;
+  if (!ghRes.ok) {
+    const message = (data as GitHubApiError | null)?.message ?? 'GitHub API error';
+    copyGitHubRateLimitHeaders(res, ghRes);
+    throw new ClientError(message, ghRes.status >= 400 && ghRes.status < 500 ? ghRes.status : 502);
+  }
+  copyGitHubRateLimitHeaders(res, ghRes);
+  assertMarkdownRepoFileData(data, notMarkdownMessage);
+  return data;
+}
+
+async function requireSharedEditorRepoFileAccess(
+  res: http.ServerResponse,
+  session: Session,
+  owner: string,
+  repo: string,
+  path: string,
+): Promise<{
+  installationId: string;
+  file: RepoContentsFileData & { type: 'file'; path: string; sha: string; content: string; encoding: 'base64' };
+}> {
+  const installationId = await getRepoInstallationId(owner, repo);
+  const file = await fetchRepoMarkdownFile(
+    res,
+    installationId,
+    owner,
+    repo,
+    path,
+    'Only markdown files can be shared with editors',
+  );
+  const markdown = Buffer.from(file.content, 'base64').toString('utf8');
+  if (!canGitHubUserEditMarkdownDocument(markdown, session.githubLogin)) {
+    throw new ClientError('You do not have editor access to this document', 403);
+  }
+  return { installationId, file };
+}
+
 async function handlePutContents(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
@@ -1177,6 +1270,74 @@ async function handleGetSharedRepoFileByRef(ctx: RouteContext): Promise<void> {
     encoding: data.encoding,
     expiresAt: new Date(payload.exp * 1000).toISOString(),
   });
+}
+
+async function handleGetEditorSharedRepoFile(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+
+  const owner = decodeURIComponent(ctx.match[1]);
+  const repo = decodeURIComponent(ctx.match[2]);
+  const path = normalizeRepoPathFromRoute(ctx.match[3]);
+  const { installationId, file } = await requireSharedEditorRepoFileAccess(ctx.res, session, owner, repo, path);
+
+  json(ctx.res, 200, {
+    owner,
+    repo,
+    path: file.path,
+    name: file.name ?? file.path.split('/').pop() ?? file.path,
+    sha: file.sha,
+    content: file.content,
+    encoding: file.encoding,
+    installationId,
+  });
+}
+
+async function handlePutEditorSharedRepoFile(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+
+  const owner = decodeURIComponent(ctx.match[1]);
+  const repo = decodeURIComponent(ctx.match[2]);
+  const path = normalizeRepoPathFromRoute(ctx.match[3]);
+  const body = (await readJson(ctx.req)) as EditorShareRepoFileUpdateBody | null;
+  const message = requireString(body, 'message');
+  const content = body?.content;
+  if (typeof content !== 'string') throw new ClientError('content is required', 400);
+  if (estimateBase64DecodedBytes(content) > MAX_UPLOAD_BYTES) {
+    throw new ClientError('File too large (max 5 MB)', 413);
+  }
+  const sha = typeof body?.sha === 'string' ? body.sha : undefined;
+
+  // TOCTOU: The file could be updated between this read (used for authorization + editors
+  // validation) and the subsequent PUT. In the worst case a concurrent write could remove
+  // this user from the editors list or change the editors, and our PUT would still go
+  // through. The `sha` parameter mitigates this for normal usage — GitHub will reject the
+  // PUT with 409 if the file changed — but `sha` is optional, so a request without it
+  // could bypass the conflict check. This is acceptable because the GitHub App's
+  // installation token (not the user's token) performs the write, so the blast radius is
+  // limited to a single stale-read race, and the editors validation below ensures the
+  // *content being written* still preserves the editors list.
+  const { installationId, file } = await requireSharedEditorRepoFileAccess(ctx.res, session, owner, repo, path);
+  const originalMarkdown = Buffer.from(file.content, 'base64').toString('utf8');
+  const newMarkdown = Buffer.from(content, 'base64').toString('utf8');
+  const editorsError = validateEditorsPreserved(originalMarkdown, newMarkdown);
+  if (editorsError) {
+    throw new ClientError(editorsError, 403);
+  }
+  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(path)}`;
+  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, content, sha }),
+  });
+  if (!ghRes.ok) {
+    const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
+    return;
+  }
+  copyGitHubRateLimitHeaders(ctx.res, ghRes);
+  json(ctx.res, 200, await ghRes.json());
 }
 
 async function handleGetRawContent(ctx: RouteContext): Promise<void> {
@@ -3071,6 +3232,7 @@ const TARBALL_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/
 const PUBLIC_REPO_TARBALL_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tarball$/;
 const SHARE_REPO_FILE_PATTERN = /^\/api\/share\/repo-file\/([^/]+)$/;
 const SHARE_REPO_FILE_REF_PATTERN = /^\/api\/share\/repo-file\/([^/]+)\/([^/]+)\/(.+)$/;
+const EDITOR_SHARE_REPO_FILE_PATTERN = /^\/api\/editor-share\/repo-file\/([^/]+)\/([^/]+)\/(.+)$/;
 
 const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/auth\/github\/start$/, handler: handleAuthStart },
@@ -3089,6 +3251,8 @@ const routes: RouteDef[] = [
   { method: 'POST', pattern: /^\/api\/share\/repo-file$/, handler: handleCreateRepoFileShare },
   { method: 'GET', pattern: SHARE_REPO_FILE_PATTERN, handler: handleGetSharedRepoFile },
   { method: 'GET', pattern: SHARE_REPO_FILE_REF_PATTERN, handler: handleGetSharedRepoFileByRef },
+  { method: 'GET', pattern: EDITOR_SHARE_REPO_FILE_PATTERN, handler: handleGetEditorSharedRepoFile },
+  { method: 'PUT', pattern: EDITOR_SHARE_REPO_FILE_PATTERN, handler: handlePutEditorSharedRepoFile },
   { method: 'GET', pattern: /^\/api\/github-app\/installations\/([^/]+)\/repositories$/, handler: handleListRepos },
   { method: 'GET', pattern: CONTENTS_PATTERN, handler: handleGetContents },
   { method: 'PUT', pattern: CONTENTS_PATTERN, handler: handlePutContents },

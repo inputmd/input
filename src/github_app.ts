@@ -273,6 +273,17 @@ export interface SharedRepoFile {
   expiresAt: string;
 }
 
+export interface EditorSharedRepoFile {
+  owner: string;
+  repo: string;
+  path: string;
+  name: string;
+  sha: string;
+  content: string;
+  encoding: 'base64';
+  installationId: string;
+}
+
 function cloneRepoContents(contents: RepoContents): RepoContents {
   if (Array.isArray(contents)) {
     return contents.map((item) => ({ ...item }));
@@ -723,4 +734,34 @@ export async function getSharedRepoFileByRef(
     `/api/share/repo-file/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}?${qs.toString()}`,
   );
   return (await res.json()) as SharedRepoFile;
+}
+
+export async function getEditorSharedRepoFile(
+  owner: string,
+  repo: string,
+  path: string,
+): Promise<EditorSharedRepoFile> {
+  const res = await authFetch(
+    `/api/editor-share/repo-file/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+  );
+  return (await res.json()) as EditorSharedRepoFile;
+}
+
+export async function putEditorSharedRepoFile(
+  owner: string,
+  repo: string,
+  path: string,
+  message: string,
+  contentBase64: string,
+  sha?: string,
+): Promise<PutFileResult> {
+  const res = await authFetch(
+    `/api/editor-share/repo-file/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, content: contentBase64, sha }),
+    },
+  );
+  return (await res.json()) as PutFileResult;
 }

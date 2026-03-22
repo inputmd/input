@@ -9,6 +9,9 @@ organizations.
 You can view any public GitHub repo inside Input by replacing github.com
 with input.md, e.g. https://input.md/:username/:repo.
 
+Also, `[username].input.md` automatically renders the public GitHub repo
+`[username]/homepage` as a read-only workspace.
+
 ## Features
 
 - **Multi-file**: Each gist or repo directory is a collection of `.md` files.
@@ -17,19 +20,14 @@ with input.md, e.g. https://input.md/:username/:repo.
   all your files. Or persist to Gists if you don't want to connect a repo.
 - **Share links**: Generate server-signed links for sharing individual private
   files from a private repo.
+- **Share editors**: Add an `editors` field in Markdown front matter to let
+  specific GitHub users open and update a private repo document, without
+  repo-wide write access.
 - **Reader AI**: Comes with an experimental AI interface similar to Cursor, that
   uses OpenRouter free models. Great for proofreading or quick edits.
 - **Interoperable**: Except for share links, all data is stored in your Git repos.
   The server is just a caching proxy on top of the GitHub API.
 - **Open source**: AGPL licensed, MIT licensed version coming soon.
-
-## Quick use
-
-You can view any public GitHub repo inside Input by replacing `github.com`
-with `input.md`, for example `https://input.md/:username/:repo`.
-
-Also, `[username].input.md` automatically renders the public GitHub repo
-`[username]/homepage` as a read-only workspace.
 
 ## Inline Prompting
 
@@ -39,7 +37,7 @@ using a custom list syntax:
 - `-* ` starts a prompt question.
 - `-- ` starts a prompt answer.
 
-You can also create branches by indenting. Indented continuations will not be 
+You can also create branches by indenting. Indented continuations will not be
 included in further lines below the current one.
 
 ```md
@@ -101,6 +99,22 @@ fonts:
   headings: Montserrat
 ---
 ```
+
+## Shared Editors
+
+You can share individual fiiles by editing the front matter:
+
+```yaml
+---
+editors:
+  - alice
+  - @bob
+---
+```
+
+GitHub usernames listed in `editors` can open that document through Input
+and save changes back to the repo. Editors are blocked from changing or
+removing the `editors` field.
 
 ## Getting started
 

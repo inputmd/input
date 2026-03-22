@@ -127,9 +127,11 @@ function wait(ms: number): Promise<void> {
 // --- Hook input/output ---
 
 export interface UseDocumentPersistenceInput {
-  repoAccessMode: 'installed' | 'public' | null;
+  repoAccessMode: 'installed' | 'shared' | 'public' | null;
   installationId: string | null;
   selectedRepo: string | null;
+  sharedRepoInstallationId: string | null;
+  sharedRepoFullName: string | null;
   currentRepoDocPath: string | null;
   currentRepoDocSha: string | null;
   currentGistId: string | null;
@@ -154,6 +156,8 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
     repoAccessMode,
     installationId,
     selectedRepo,
+    sharedRepoInstallationId,
+    sharedRepoFullName,
     currentRepoDocPath,
     currentRepoDocSha,
     currentGistId,
@@ -208,14 +212,27 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
     if (repoAccessMode === 'installed' && installationId && selectedRepo && currentRepoDocPath) {
       return documentDraftKeyForRepo(installationId, selectedRepo, currentRepoDocPath);
     }
+    if (repoAccessMode === 'shared' && sharedRepoInstallationId && sharedRepoFullName && currentRepoDocPath) {
+      return documentDraftKeyForRepo(sharedRepoInstallationId, sharedRepoFullName, currentRepoDocPath);
+    }
     if (user && currentGistId && currentFileName) {
       return documentDraftKeyForGist(currentGistId, currentFileName);
     }
     return null;
-  }, [repoAccessMode, installationId, selectedRepo, currentRepoDocPath, user, currentGistId, currentFileName]);
+  }, [
+    repoAccessMode,
+    installationId,
+    selectedRepo,
+    sharedRepoInstallationId,
+    sharedRepoFullName,
+    currentRepoDocPath,
+    user,
+    currentGistId,
+    currentFileName,
+  ]);
 
   const currentDocumentBaseRevision = useMemo(() => {
-    if (repoAccessMode === 'installed') return currentRepoDocSha;
+    if (repoAccessMode === 'installed' || repoAccessMode === 'shared') return currentRepoDocSha;
     if (currentGistId) return currentGistUpdatedAt;
     return null;
   }, [repoAccessMode, currentRepoDocSha, currentGistId, currentGistUpdatedAt]);
@@ -327,14 +344,19 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
   useEffect(() => {
     if (!currentDocumentDraftKey || draftMode || activeView !== 'edit' || !hasUnsavedChanges) return;
     const nextDraft: PersistedDocumentDraft | null =
-      editingBackend === 'repo' && installationId && selectedRepo && currentRepoDocPath
+      editingBackend === 'repo' &&
+      currentRepoDocPath &&
+      ((repoAccessMode === 'installed' && installationId && selectedRepo) ||
+        (repoAccessMode === 'shared' && sharedRepoInstallationId && sharedRepoFullName))
         ? {
             kind: 'repo',
             content: editContent,
             updatedAtMs: Date.now(),
             baseRevision: currentDocumentBaseRevision,
-            installationId,
-            repoFullName: selectedRepo,
+            installationId:
+              repoAccessMode === 'installed' ? (installationId ?? undefined) : (sharedRepoInstallationId ?? undefined),
+            repoFullName:
+              repoAccessMode === 'installed' ? (selectedRepo ?? undefined) : (sharedRepoFullName ?? undefined),
             path: currentRepoDocPath,
           }
         : currentGistId && currentFileName
@@ -362,7 +384,10 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
     editingBackend,
     hasUnsavedChanges,
     installationId,
+    repoAccessMode,
     selectedRepo,
+    sharedRepoInstallationId,
+    sharedRepoFullName,
   ]);
 
   // Clear typed changes flag when unsaved changes are cleared

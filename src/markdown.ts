@@ -3,6 +3,7 @@ import { nameToEmoji } from 'gemoji';
 import type { RendererThis, Token, TokenizerThis, Tokens } from 'marked';
 import { marked } from 'marked';
 import { parseCriticMarkupAt } from './criticmarkup.ts';
+import { normalizeGitHubHandle, parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
 import { hashPromptListIdentifierText, normalizePromptListIdentifierText } from './prompt_list_state.ts';
 import { parsePromptListBlock } from './prompt_list_syntax.ts';
@@ -102,15 +103,6 @@ function parseEmojiShortcode(raw: string): string | null {
   const normalized = raw.trim().toLowerCase();
   if (!/^[a-z0-9_+-]+$/.test(normalized)) return null;
   return nameToEmoji[normalized] ?? null;
-}
-
-function parseGitHubHandle(raw: string): string | null {
-  const trimmed = raw.trim();
-  const normalized = trimmed.startsWith('@') ? trimmed.slice(1) : trimmed;
-  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(normalized) && !/^[A-Za-z0-9]$/.test(normalized)) {
-    return null;
-  }
-  return normalized;
 }
 
 function deriveSuperscriptLinkLabel(text: string, href: string): string {
@@ -343,7 +335,7 @@ marked.use({
       tokenizer(src: string) {
         const match = /^\{github:([^}\n]+)\}/.exec(src);
         if (!match) return undefined;
-        const username = parseGitHubHandle(match[1]);
+        const username = normalizeGitHubHandle(match[1]);
         if (!username) return undefined;
         return {
           type: 'githubAvatar',
@@ -647,28 +639,6 @@ function renderPromptListTree(nodes: PromptListRenderNode[]): string {
     .join('');
 }
 
-function parseMarkdownFrontMatterBlock(source: string): { body: string; content: string; error: string | null } | null {
-  const lines = source.split(/\r?\n/);
-  if (lines.length < 3) return null;
-  if (lines[0].trim() !== '---') return null;
-
-  for (let index = 1; index < lines.length; index += 1) {
-    const line = lines[index].trim();
-    if (line !== '---' && line !== '...') continue;
-    return {
-      body: lines.slice(1, index).join('\n'),
-      content: lines.slice(index + 1).join('\n'),
-      error: null,
-    };
-  }
-
-  return {
-    body: '',
-    content: source,
-    error: 'Could not parse front matter',
-  };
-}
-
 interface MarkdownFontConfig {
   load: string[];
   body: string | null;
@@ -928,7 +898,7 @@ function extractCustomCssFromFrontMatterBody(body: string): { css: string | null
     const line = lines[index];
     if (!line.trim()) continue;
 
-    const match = /^([ \t]*)(css|fonts)\s*:\s*(.*)$/.exec(line);
+    const match = /^([ \t]*)([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line);
     if (!match) {
       return { css: null, error: 'Could not parse front matter' };
     }
@@ -938,6 +908,19 @@ function extractCustomCssFromFrontMatterBody(body: string): { css: string | null
 
     const key = match[2];
     const value = match[3].trim();
+
+    // Skip unknown front matter keys and any indented children beneath them
+    if (key !== 'css' && key !== 'fonts') {
+      const parentIndent = countIndent(match[1]);
+      for (let lookahead = index + 1; lookahead < lines.length; lookahead += 1) {
+        const next = lines[lookahead];
+        if (!next.trim()) continue;
+        if (countIndent(next) <= parentIndent) break;
+        index = lookahead;
+      }
+      continue;
+    }
+
     if (key === 'css') {
       if (css !== null) {
         return { css: null, error: 'Could not parse front matter' };

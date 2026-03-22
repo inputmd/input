@@ -108,6 +108,36 @@ export async function createAppJwt(): Promise<string> {
   return `${signingInput}.${base64url(signature)}`;
 }
 
+export async function getRepoInstallationId(owner: string, repo: string): Promise<string> {
+  const jwt = await createAppJwt();
+  const res = await fetch(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/installation`,
+    {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${jwt}`,
+        'User-Agent': 'input-github-app-auth-server',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    },
+  );
+
+  if (!res.ok) {
+    const details = await parseGitHubErrorDetails(res);
+    console.error(
+      `Failed to resolve installation for ${owner}/${repo}: ${res.status} ${details.message} request_id=${details.requestId ?? '-'} rate_limited=${details.isRateLimited} remaining=${details.remaining ?? '-'} reset=${details.resetAt ?? '-'}`,
+    );
+    throw new ClientError(details.message, res.status >= 400 && res.status < 500 ? res.status : 502);
+  }
+
+  const data = (await res.json()) as { id?: unknown };
+  if (typeof data.id !== 'number' && typeof data.id !== 'string') {
+    throw new ClientError('Failed to resolve repository installation', 502);
+  }
+  return String(data.id);
+}
+
 async function getInstallationToken(installationId: string, repositoryIds?: number[]): Promise<TokenCacheRecord> {
   const key = cacheKey(installationId, repositoryIds);
   const cached = installationTokenCache.get(key);

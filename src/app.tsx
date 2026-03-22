@@ -47,6 +47,7 @@ import {
   createSession,
   deleteRepoPathsAtomic,
   disconnectInstallation,
+  getEditorSharedRepoFile,
   getInstallationId,
   getInstallUrl,
   getPendingInstallationId,
@@ -65,6 +66,7 @@ import {
   listInstallationRepos,
   listRepoRecentCommits,
   publicRepoRawFileUrl,
+  putEditorSharedRepoFile,
   putRepoFile,
   type RepoContents,
   type RepoFileEntry,
@@ -608,7 +610,7 @@ function buildReaderAiHistoryDocumentKey(options: {
   currentRepoDocPath: string | null;
   currentGistId: string | null;
   currentFileName: string | null;
-  repoAccessMode: 'installed' | 'public' | null;
+  repoAccessMode: 'installed' | 'shared' | 'public' | null;
   selectedRepo: string | null;
   publicRepoRef: PublicRepoRef | null;
   route: Route;
@@ -624,6 +626,9 @@ function buildReaderAiHistoryDocumentKey(options: {
   }
   if (currentRepoDocPath && repoAccessMode === 'public' && publicRepoRef) {
     return `public:${publicRepoRef.owner.toLowerCase()}/${publicRepoRef.repo.toLowerCase()}:${currentRepoDocPath}`;
+  }
+  if (currentRepoDocPath && repoAccessMode === 'shared' && (route.name === 'repofile' || route.name === 'repoedit')) {
+    return `shared:${route.params.owner.toLowerCase()}/${route.params.repo.toLowerCase()}:${currentRepoDocPath}`;
   }
   if (route.name === 'sharefile' && currentRepoDocPath) {
     return `share:${route.params.owner}/${route.params.repo}:${currentRepoDocPath}`;
@@ -1203,8 +1208,9 @@ export function App() {
   const [installationId, setInstId] = useState<string | null>(getInstallationId());
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
   const [selectedRepoPrivate, setSelectedRepoPrivate] = useState<boolean | null>(getSelectedRepo()?.private ?? null);
+  const [sharedRepoInstallationId, setSharedRepoInstallationId] = useState<string | null>(null);
   const [publicRepoRef, setPublicRepoRef] = useState<PublicRepoRef | null>(null);
-  const [repoAccessMode, setRepoAccessMode] = useState<'installed' | 'public' | null>(null);
+  const [repoAccessMode, setRepoAccessMode] = useState<'installed' | 'shared' | 'public' | null>(null);
   const [installationRepos, setInstallationRepos] = useState<InstallationRepo[]>([]);
   const [installationReposLoading, setInstallationReposLoading] = useState(false);
   const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
@@ -1405,10 +1411,16 @@ export function App() {
   const routeView = viewFromRoute(route);
   const activeView = viewPhase ?? routeView;
   const currentRouteKey = routeKeyFromRoute(route);
+  const sharedRepoFullNameForPersistence =
+    route.name === 'repofile' || route.name === 'repoedit'
+      ? `${safeDecodeURIComponent(route.params.owner)}/${safeDecodeURIComponent(route.params.repo)}`
+      : null;
   const persistence = useDocumentPersistence({
     repoAccessMode,
     installationId,
     selectedRepo,
+    sharedRepoInstallationId,
+    sharedRepoFullName: sharedRepoFullNameForPersistence,
     currentRepoDocPath,
     currentRepoDocSha,
     currentGistId,
@@ -1625,6 +1637,7 @@ export function App() {
     setInstId(null);
     setSelectedRepo(null);
     setSelectedRepoPrivate(null);
+    setSharedRepoInstallationId(null);
     setRepoAccessMode(null);
     setPublicRepoRef(null);
     setRepoFiles([]);
@@ -2424,6 +2437,70 @@ export function App() {
     ],
   );
 
+  const presentLoadedFileContent = useCallback(
+    (opts: {
+      name: string;
+      path: string;
+      binary: boolean;
+      decoded: string;
+      forEdit: boolean;
+      suppressBinaryEditAlert?: boolean;
+      binaryUrl: string;
+      onBinaryEditRedirect: () => void;
+      repoSource?: MarkdownRepoSourceContext;
+      knownMarkdownPaths: string[];
+    }): boolean => {
+      if (opts.forEdit) {
+        if (opts.binary) {
+          if (!opts.suppressBinaryEditAlert) {
+            void showAlert(
+              isSafeImageFileName(opts.name)
+                ? 'Images cannot be edited in the editor.'
+                : 'Binary files cannot be edited in the editor.',
+            );
+          }
+          opts.onBinaryEditRedirect();
+          return true;
+        }
+        setEditingBackend('repo');
+        setEditTitle(opts.name.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
+        setNextEditContent(opts.decoded);
+        setCurrentDocumentSavedContent(opts.decoded);
+        setHasUnsavedChanges(false);
+        return false;
+      }
+      if (opts.binary && isSafeImageFileName(opts.name)) {
+        setEditingBackend(null);
+        setHasUnsavedChanges(false);
+        setCurrentDocumentSavedContent(null);
+        renderImageFileContent(opts.name, opts.binaryUrl);
+      } else if (opts.binary) {
+        setEditingBackend(null);
+        setHasUnsavedChanges(false);
+        setCurrentDocumentSavedContent(null);
+        renderBinaryFileContent(opts.name, opts.binaryUrl);
+      } else {
+        setEditingBackend(null);
+        setHasUnsavedChanges(false);
+        setCurrentDocumentSavedContent(opts.decoded);
+        renderDocumentContent(opts.decoded, opts.name, opts.path, opts.repoSource, {
+          currentDocPath: opts.path,
+          knownMarkdownPaths: opts.knownMarkdownPaths,
+        });
+      }
+      return false;
+    },
+    [
+      showAlert,
+      setNextEditContent,
+      setCurrentDocumentSavedContent,
+      setHasUnsavedChanges,
+      renderDocumentContent,
+      renderImageFileContent,
+      renderBinaryFileContent,
+    ],
+  );
+
   const loadRepoFile = useCallback(
     async (
       owner: string,
@@ -2435,7 +2512,6 @@ export function App() {
       const instId = getInstallationId();
       const repoName = buildRepoFullName(owner, repo);
       if (!instId) {
-        navigate(routePath.workspaces());
         return false;
       }
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
@@ -2461,6 +2537,7 @@ export function App() {
         setPublicRepoRef(null);
         setCurrentRepoDocPath(contents.path);
         setCurrentRepoDocSha(contents.sha);
+        setSharedRepoInstallationId(null);
         setCurrentGistId(null);
         setGistFiles(null);
         setCurrentFileName(contents.path);
@@ -2474,57 +2551,30 @@ export function App() {
             /* sidebar index is best-effort */
           }
         }
-        if (forEdit) {
-          if (binary) {
-            void showAlert(
-              isSafeImageFileName(contents.name)
-                ? 'Images cannot be edited in the editor.'
-                : 'Binary files cannot be edited in the editor.',
-            );
+        const wikiPaths = knownMarkdownPaths.includes(contents.path)
+          ? knownMarkdownPaths
+          : [...knownMarkdownPaths, contents.path];
+        const redirected = presentLoadedFileContent({
+          name: contents.name,
+          path: contents.path,
+          binary,
+          decoded,
+          forEdit,
+          suppressBinaryEditAlert: options?.suppressError,
+          binaryUrl: repoRawFileUrl(instId, repoName, contents.path),
+          onBinaryEditRedirect: () => {
             if (owner && repo && contents.path) {
               navigate(routePath.repoFile(owner, repo, contents.path));
             } else {
               navigate(routePath.workspaces());
             }
-            setViewPhase(null);
-            return true;
-          }
-          setEditingBackend('repo');
-          setEditTitle(contents.name.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-          setNextEditContent(decoded);
-          setCurrentDocumentSavedContent(decoded);
-          setHasUnsavedChanges(false);
-        } else if (binary && isSafeImageFileName(contents.name)) {
-          setEditingBackend(null);
-          setHasUnsavedChanges(false);
-          setCurrentDocumentSavedContent(null);
-          renderImageFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
-        } else if (binary) {
-          setEditingBackend(null);
-          setHasUnsavedChanges(false);
-          setCurrentDocumentSavedContent(null);
-          renderBinaryFileContent(contents.name, repoRawFileUrl(instId, repoName, contents.path));
-        } else {
-          setEditingBackend(null);
-          setHasUnsavedChanges(false);
-          setCurrentDocumentSavedContent(decoded);
-          const wikiPaths = knownMarkdownPaths.includes(contents.path)
-            ? knownMarkdownPaths
-            : [...knownMarkdownPaths, contents.path];
-          renderDocumentContent(
-            decoded,
-            contents.name,
-            contents.path,
-            {
-              mode: 'installed',
-              installationId: instId,
-              selectedRepo: repoName,
-            },
-            {
-              currentDocPath: contents.path,
-              knownMarkdownPaths: wikiPaths,
-            },
-          );
+          },
+          repoSource: { mode: 'installed', installationId: instId, selectedRepo: repoName },
+          knownMarkdownPaths: wikiPaths,
+        });
+        if (redirected) {
+          setViewPhase(null);
+          return true;
         }
         setViewPhase(null);
         return true;
@@ -2544,18 +2594,12 @@ export function App() {
       navigate,
       handleSessionExpired,
       showError,
-      showAlert,
       repoFiles,
       loadRepoMarkdownFiles,
-      renderDocumentContent,
-      renderImageFileContent,
-      renderBinaryFileContent,
+      presentLoadedFileContent,
       activeView,
       currentFileName,
-      setNextEditContent,
       showRateLimitToastIfNeeded,
-      setCurrentDocumentSavedContent,
-      setHasUnsavedChanges,
     ],
   );
 
@@ -2629,6 +2673,79 @@ export function App() {
     ],
   );
 
+  const loadEditorSharedRepoFile = useCallback(
+    async (owner: string, repo: string, path: string, forEdit: boolean, options?: { suppressError?: boolean }) => {
+      const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
+      if (shouldShowLoading) {
+        setViewPhase('loading');
+      }
+      try {
+        const shared = await getEditorSharedRepoFile(owner, repo, path);
+        const contentBytes = decodeBase64ToBytes(shared.content);
+        const binary = isLikelyBinaryBytes(contentBytes);
+        const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
+        const sharedFile = {
+          name: shared.name,
+          path: shared.path,
+          sha: shared.sha,
+        };
+        setRepoAccessMode('shared');
+        setPublicRepoRef(null);
+        setSharedRepoInstallationId(shared.installationId);
+        setRepoFiles([sharedFile]);
+        setRepoSidebarFiles([sharedFile]);
+        setCurrentRepoDocPath(shared.path);
+        setCurrentRepoDocSha(shared.sha);
+        setCurrentGistId(null);
+        setGistFiles(null);
+        setCurrentFileName(shared.path);
+        const blobUrl = binary
+          ? URL.createObjectURL(new Blob([new Uint8Array(contentBytes)], { type: 'application/octet-stream' }))
+          : '';
+        const redirected = presentLoadedFileContent({
+          name: shared.name,
+          path: shared.path,
+          binary,
+          decoded,
+          forEdit,
+          suppressBinaryEditAlert: options?.suppressError,
+          binaryUrl: blobUrl,
+          onBinaryEditRedirect: () => {
+            if (owner && repo && shared.path) {
+              navigate(routePath.repoFile(owner, repo, shared.path));
+            }
+          },
+          knownMarkdownPaths: [shared.path],
+        });
+        if (redirected) {
+          setViewPhase(null);
+          return true;
+        }
+        setViewPhase(null);
+        return true;
+      } catch (err) {
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+          return false;
+        }
+        showRateLimitToastIfNeeded(err);
+        if (!options?.suppressError) {
+          showError(err instanceof Error ? err.message : 'Failed to load shared editor file');
+        }
+        return false;
+      }
+    },
+    [
+      activeView,
+      currentFileName,
+      handleSessionExpired,
+      navigate,
+      presentLoadedFileContent,
+      showError,
+      showRateLimitToastIfNeeded,
+    ],
+  );
+
   const loadSharedRepoFile = useCallback(
     async (params: { token: string } | { owner: string; repo: string; path: string; token: string }) => {
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
@@ -2650,6 +2767,7 @@ export function App() {
         };
         setRepoAccessMode(null);
         setPublicRepoRef(null);
+        setSharedRepoInstallationId(null);
         setRepoFiles([sharedFile]);
         setRepoSidebarFiles([sharedFile]);
         setCurrentRepoDocPath(shared.path);
@@ -2800,6 +2918,12 @@ export function App() {
             const loadedInstalled = await loadRepoFile(owner, repo, decodedPath, false, { suppressError: true });
             if (loadedInstalled) return;
           }
+          if (isAuthenticated) {
+            const loadedShared = await loadEditorSharedRepoFile(owner, repo, decodedPath, false, {
+              suppressError: true,
+            });
+            if (loadedShared) return;
+          }
           await loadPublicRepoFile(owner, repo, decodedPath);
           return;
         }
@@ -2867,7 +2991,13 @@ export function App() {
           const repo = safeDecodeURIComponent(r.params.repo);
           const path = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
           setDraftMode(false);
-          await loadRepoFile(owner, repo, path, true);
+          const loadedInstalled = await loadRepoFile(owner, repo, path, true, { suppressError: true });
+          if (loadedInstalled) return;
+          if (!isAuthenticated) {
+            showError('Sign in with GitHub to edit this document.');
+            return;
+          }
+          await loadEditorSharedRepoFile(owner, repo, path, true);
           return;
         }
         case 'new':
@@ -3102,6 +3232,7 @@ export function App() {
     [
       navigate,
       loadRepoFile,
+      loadEditorSharedRepoFile,
       loadPublicRepoFile,
       loadSharedRepoFile,
       loadRepoMarkdownFiles,
@@ -4543,13 +4674,32 @@ export function App() {
   }, [navigate]);
 
   const selectedRepoRef = useMemo(() => parseRepoFullName(selectedRepo), [selectedRepo]);
+  const currentRouteRepoRef = useMemo(() => {
+    if (route.name === 'repofile' || route.name === 'repoedit') {
+      return {
+        owner: safeDecodeURIComponent(route.params.owner),
+        repo: safeDecodeURIComponent(route.params.repo),
+      };
+    }
+    return null;
+  }, [route]);
 
   const onEdit = useCallback(() => {
-    if (repoAccessMode === 'installed' && currentRepoDocPath && selectedRepoRef) {
-      navigate(routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath));
+    const repoRef =
+      repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
+    if ((repoAccessMode === 'installed' || repoAccessMode === 'shared') && currentRepoDocPath && repoRef) {
+      navigate(routePath.repoEdit(repoRef.owner, repoRef.repo, currentRepoDocPath));
     } else if (currentGistId && currentFileName) navigate(routePath.gistEdit(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistEdit(currentGistId));
-  }, [repoAccessMode, currentRepoDocPath, currentGistId, currentFileName, navigate, selectedRepoRef]);
+  }, [
+    repoAccessMode,
+    currentRepoDocPath,
+    currentGistId,
+    currentFileName,
+    navigate,
+    selectedRepoRef,
+    currentRouteRepoRef,
+  ]);
 
   const onToggleContentSourceView = useCallback(() => {
     setContentSourceViewVisible((current) => !current);
@@ -4911,8 +5061,79 @@ export function App() {
       try {
         const instId = getInstallationId();
         const repoName = getSelectedRepo()?.full_name ?? null;
+        const currentRepoRef =
+          repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
+        const currentRepoFullName =
+          repoAccessMode === 'installed'
+            ? repoName
+            : repoAccessMode === 'shared' && currentRouteRepoRef
+              ? `${currentRouteRepoRef.owner}/${currentRouteRepoRef.repo}`
+              : null;
 
-        if (editingBackend === 'repo' && currentRepoDocPath && instId && repoName) {
+        if (editingBackend === 'repo' && currentRepoDocPath && repoAccessMode === 'shared' && currentRepoRef) {
+          const contentB64 = encodeUtf8ToBase64(content);
+          const result = await putEditorSharedRepoFile(
+            currentRepoRef.owner,
+            currentRepoRef.repo,
+            currentRepoDocPath,
+            `Update ${currentRepoDocPath}`,
+            contentB64,
+            currentRepoDocSha ?? undefined,
+          );
+          const contentSize = new TextEncoder().encode(content).length;
+          setCurrentRepoDocSha(result.content.sha);
+          setRepoSidebarFiles((prev) =>
+            prev.map((file) =>
+              file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
+            ),
+          );
+          if (isMarkdownFileName(currentRepoDocPath)) {
+            setRepoFiles((prev) =>
+              prev.map((file) =>
+                file.path === currentRepoDocPath ? { ...file, sha: result.content.sha, size: contentSize } : file,
+              ),
+            );
+          }
+          setCurrentDocumentSavedContent(content);
+          if (currentDocumentDraftKey) {
+            removeDocumentDraft(currentDocumentDraftKey);
+            setCurrentDocumentDraft(null);
+          }
+
+          renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath, undefined, {
+            currentDocPath: currentRepoDocPath,
+            knownMarkdownPaths: [currentRepoDocPath],
+          });
+          if (sharedRepoInstallationId && currentRepoFullName) {
+            const routeKey = routeKeyForRepo(currentRepoRef.owner, currentRepoRef.repo, currentRepoDocPath);
+            updatePostSaveVerification({
+              routeKey,
+              status: 'verifying',
+              kind: 'repo',
+              installationId: sharedRepoInstallationId,
+              repoFullName: currentRepoFullName,
+              path: currentRepoDocPath,
+              expectedSha: result.content.sha,
+            });
+            commitResult = {
+              kind: 'repo',
+              created: false,
+              owner: currentRepoRef.owner,
+              repo: currentRepoRef.repo,
+              path: currentRepoDocPath,
+              routeKey,
+            };
+          } else {
+            commitResult = {
+              kind: 'repo',
+              created: false,
+              owner: currentRepoRef.owner,
+              repo: currentRepoRef.repo,
+              path: currentRepoDocPath,
+              routeKey: null,
+            };
+          }
+        } else if (editingBackend === 'repo' && currentRepoDocPath && instId && repoName) {
           const contentB64 = encodeUtf8ToBase64(content);
           const result = await putRepoFile(
             instId,
@@ -4949,8 +5170,8 @@ export function App() {
               ? knownMarkdownPaths
               : [...knownMarkdownPaths, currentRepoDocPath],
           });
-          if (selectedRepoRef) {
-            const routeKey = routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath);
+          if (currentRepoRef) {
+            const routeKey = routeKeyForRepo(currentRepoRef.owner, currentRepoRef.repo, currentRepoDocPath);
             updatePostSaveVerification({
               routeKey,
               status: 'verifying',
@@ -4963,8 +5184,8 @@ export function App() {
             commitResult = {
               kind: 'repo',
               created: false,
-              owner: selectedRepoRef.owner,
-              repo: selectedRepoRef.repo,
+              owner: currentRepoRef.owner,
+              repo: currentRepoRef.repo,
               path: currentRepoDocPath,
               routeKey,
             };
@@ -5121,6 +5342,7 @@ export function App() {
       currentGistId,
       currentRepoDocPath,
       currentRepoDocSha,
+      currentRouteRepoRef,
       draftMode,
       editContent,
       editTitle,
@@ -5129,6 +5351,7 @@ export function App() {
       pendingImageUploads,
       readerAiEditLocked,
       renderDocumentContent,
+      repoAccessMode,
       repoSidebarFiles,
       repoFiles,
       route,
@@ -5145,6 +5368,7 @@ export function App() {
       setCurrentDocumentSavedContent,
       setHasUnsavedChanges,
       setSaving,
+      sharedRepoInstallationId,
     ],
   );
 
@@ -5434,6 +5658,12 @@ export function App() {
             ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, filePath)
             : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, filePath),
         );
+      } else if (repoAccessMode === 'shared' && currentRouteRepoRef) {
+        navigate(
+          shouldEditFile
+            ? routePath.repoEdit(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath)
+            : routePath.repoFile(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath),
+        );
       } else if (repoAccessMode === 'public' && publicRepoRef) {
         navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath));
       }
@@ -5444,6 +5674,7 @@ export function App() {
       discardCurrentDocumentChanges,
       repoAccessMode,
       selectedRepoRef,
+      currentRouteRepoRef,
       publicRepoRef,
       navigate,
     ],
@@ -5790,7 +6021,9 @@ export function App() {
         ? routePath.gistEdit(currentGistId, filePath)
         : repoAccessMode === 'installed' && selectedRepoRef
           ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, filePath)
-          : null;
+          : repoAccessMode === 'shared' && currentRouteRepoRef
+            ? routePath.repoEdit(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath)
+            : null;
       if (!target) return;
 
       if (activeView === 'edit' && hasUnsavedChanges) {
@@ -5810,6 +6043,7 @@ export function App() {
       currentGistId,
       repoAccessMode,
       selectedRepoRef,
+      currentRouteRepoRef,
       activeView,
       readerAiEditLocked,
       currentFileName,
@@ -5831,9 +6065,11 @@ export function App() {
       const repoFullName =
         repoAccessMode === 'installed'
           ? selectedRepo
-          : repoAccessMode === 'public' && publicRepoRef
-            ? `${publicRepoRef.owner}/${publicRepoRef.repo}`
-            : null;
+          : repoAccessMode === 'shared' && currentRouteRepoRef
+            ? `${currentRouteRepoRef.owner}/${currentRouteRepoRef.repo}`
+            : repoAccessMode === 'public' && publicRepoRef
+              ? `${publicRepoRef.owner}/${publicRepoRef.repo}`
+              : null;
       if (!repoFullName) return;
       const repoPath = filePath
         .split('/')
@@ -5841,7 +6077,7 @@ export function App() {
         .join('/');
       window.open(`https://github.com/${repoFullName}/blob/HEAD/${repoPath}`, '_blank', 'noopener,noreferrer');
     },
-    [currentGistId, repoAccessMode, selectedRepo, publicRepoRef],
+    [currentGistId, repoAccessMode, selectedRepo, currentRouteRepoRef, publicRepoRef],
   );
 
   const handleViewFolderOnGitHub = useCallback(
@@ -5853,9 +6089,11 @@ export function App() {
       const repoFullName =
         repoAccessMode === 'installed'
           ? selectedRepo
-          : repoAccessMode === 'public' && publicRepoRef
-            ? `${publicRepoRef.owner}/${publicRepoRef.repo}`
-            : null;
+          : repoAccessMode === 'shared' && currentRouteRepoRef
+            ? `${currentRouteRepoRef.owner}/${currentRouteRepoRef.repo}`
+            : repoAccessMode === 'public' && publicRepoRef
+              ? `${publicRepoRef.owner}/${publicRepoRef.repo}`
+              : null;
       if (!repoFullName) return;
       const repoPath = folderPath
         .split('/')
@@ -5863,7 +6101,7 @@ export function App() {
         .join('/');
       window.open(`https://github.com/${repoFullName}/tree/HEAD/${repoPath}`, '_blank', 'noopener,noreferrer');
     },
-    [currentGistId, repoAccessMode, selectedRepo, publicRepoRef],
+    [currentGistId, repoAccessMode, selectedRepo, currentRouteRepoRef, publicRepoRef],
   );
 
   const onHeaderViewInGitHub = useCallback(() => {
@@ -6702,11 +6940,13 @@ export function App() {
   const sidebarWorkspaceKey = useMemo(() => {
     if (currentGistId) return `gist:${currentGistId}`;
     if (repoAccessMode === 'installed' && selectedRepo) return `repo:${selectedRepo}`;
+    if (repoAccessMode === 'shared' && currentRouteRepoRef)
+      return `shared:${currentRouteRepoRef.owner}/${currentRouteRepoRef.repo}`;
     if (repoAccessMode === 'public' && publicRepoRef) return `public:${publicRepoRef.owner}/${publicRepoRef.repo}`;
     if (route.name === 'sharefile') return `share:${route.params.owner}/${route.params.repo}/${route.params.path}`;
     if (route.name === 'sharetoken') return `share:${route.params.token}`;
     return 'none';
-  }, [currentGistId, publicRepoRef, repoAccessMode, route, selectedRepo]);
+  }, [currentGistId, currentRouteRepoRef, publicRepoRef, repoAccessMode, route, selectedRepo]);
 
   // Keep the sidebar visible during intra-view loading. `activeView` can become "loading"
   // while fetching file contents, which would otherwise unmount the sidebar briefly.
@@ -6948,7 +7188,7 @@ export function App() {
   const showHeaderEdit =
     activeView === 'content' &&
     isEditableTextFilePath(currentFileName) &&
-    (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
+    (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode !== 'public' && repoAccessMode !== null));
   const showHeaderSourceToggle =
     activeView === 'content' &&
     repoAccessMode === 'public' &&
@@ -7137,9 +7377,19 @@ export function App() {
               onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}
               onViewFolderOnGitHub={handleViewFolderOnGitHub}
-              canViewOnGitHub={currentGistId !== null || selectedRepo !== null || publicRepoRef !== null}
+              canViewOnGitHub={
+                currentGistId !== null ||
+                selectedRepo !== null ||
+                publicRepoRef !== null ||
+                currentRouteRepoRef !== null
+              }
               disabled={sidebarDisabled}
-              readOnly={repoAccessMode === 'public' || isAnonymousGistWorkspace || route.name === 'sharefile'}
+              readOnly={
+                repoAccessMode === 'public' ||
+                repoAccessMode === 'shared' ||
+                isAnonymousGistWorkspace ||
+                route.name === 'sharefile'
+              }
               onCreateFile={handleCreateFile}
               onConfirmImplicitMarkdownExtension={handleConfirmImplicitMarkdownExtension}
               onCreateScratchFile={handleCreateScratchFile}
