@@ -3,7 +3,7 @@ import { nameToEmoji } from 'gemoji';
 import type { RendererThis, Token, TokenizerThis, Tokens } from 'marked';
 import { marked } from 'marked';
 import { parseCriticMarkupAt } from './criticmarkup.ts';
-import { normalizeGitHubHandle, parseMarkdownFrontMatterBlock } from './document_permissions.ts';
+import { parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
 import { hashPromptListIdentifierText, normalizePromptListIdentifierText } from './prompt_list_state.ts';
 import { parsePromptListBlock } from './prompt_list_syntax.ts';
@@ -324,30 +324,6 @@ marked.use({
       },
       renderer(token) {
         return `<sup>${this.parser.parseInline(token.tokens ?? [])}</sup>`;
-      },
-    },
-    {
-      name: 'githubAvatar',
-      level: 'inline',
-      start(src: string) {
-        return src.indexOf('{github:');
-      },
-      tokenizer(src: string) {
-        const match = /^\{github:([^}\n]+)\}/.exec(src);
-        if (!match) return undefined;
-        const username = normalizeGitHubHandle(match[1]);
-        if (!username) return undefined;
-        return {
-          type: 'githubAvatar',
-          raw: match[0],
-          username,
-          href: `https://github.com/${username}`,
-          src: `https://github.com/${username}.png?size=32`,
-        };
-      },
-      renderer(token) {
-        const username = escapeHtmlAttr(token.username);
-        return `<a class="github-inline-avatar" href="${escapeHtmlAttr(token.href)}" aria-label="@${username} on GitHub"><img src="${escapeHtmlAttr(token.src)}" alt="@${username}" loading="lazy" decoding="async"></a>`;
       },
     },
     {
