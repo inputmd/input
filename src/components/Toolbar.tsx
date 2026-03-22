@@ -76,6 +76,7 @@ interface ToolbarProps {
   selectedRepo: string | null;
   selectedRepoPrivate: boolean | null;
   inRepoContext: boolean;
+  documentCollaborators: Array<{ login: string; avatarUrl: string; isAuthor: boolean }>;
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
   reposLoadError: string | null;
@@ -144,6 +145,7 @@ export function Toolbar({
   selectedRepo,
   selectedRepoPrivate,
   inRepoContext,
+  documentCollaborators,
   availableRepos,
   repoListLoading,
   reposLoadError,
@@ -401,123 +403,142 @@ export function Toolbar({
               </button>
             ) : null}
             {showGitHubApp && (
-              <DropdownMenu.Root
-                onOpenChange={(open: boolean) => {
-                  if (disableLeftControls) return;
-                  if (open) onOpenRepoMenu();
-                }}
-              >
-                <DropdownMenu.Trigger asChild>
-                  <button
-                    type="button"
-                    class="repo-menu-trigger"
-                    aria-label="Navigation menu"
-                    disabled={disableLeftControls}
-                  >
-                    {inRepoContext && selectedRepo ? (
-                      <>
-                        <RepoPrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
-                        <span class="repo-menu-current-name">{selectedRepo}</span>
-                      </>
-                    ) : (
-                      'My Workspaces'
-                    )}
-                    <ChevronDown size={14} class="repo-menu-icon" aria-hidden="true" />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content class="repo-menu-content" sideOffset={6} align="start">
-                    <div class="repo-menu-section-label">Repos</div>
-                    {repoListLoading ? (
-                      <DropdownMenu.Item class="repo-menu-item" disabled>
-                        Loading repos...
-                      </DropdownMenu.Item>
-                    ) : reposLoadError ? (
-                      <>
+              <div class="toolbar-repo-group">
+                <DropdownMenu.Root
+                  onOpenChange={(open: boolean) => {
+                    if (disableLeftControls) return;
+                    if (open) onOpenRepoMenu();
+                  }}
+                >
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      class="repo-menu-trigger"
+                      aria-label="Navigation menu"
+                      disabled={disableLeftControls}
+                    >
+                      {inRepoContext && selectedRepo ? (
+                        <>
+                          <RepoPrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
+                          <span class="repo-menu-current-name">{selectedRepo}</span>
+                        </>
+                      ) : (
+                        'My Workspaces'
+                      )}
+                      <ChevronDown size={14} class="repo-menu-icon" aria-hidden="true" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content class="repo-menu-content" sideOffset={6} align="start">
+                      <div class="repo-menu-section-label">Repos</div>
+                      {repoListLoading ? (
                         <DropdownMenu.Item class="repo-menu-item" disabled>
-                          Failed to load repos
+                          Loading repos...
                         </DropdownMenu.Item>
-                        <DropdownMenu.Item class="repo-menu-item" onSelect={() => onRetryRepos()}>
-                          Retry Repos
+                      ) : reposLoadError ? (
+                        <>
+                          <DropdownMenu.Item class="repo-menu-item" disabled>
+                            Failed to load repos
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item class="repo-menu-item" onSelect={() => onRetryRepos()}>
+                            Retry Repos
+                          </DropdownMenu.Item>
+                        </>
+                      ) : availableRepos.length === 0 ? (
+                        <DropdownMenu.Item class="repo-menu-item" disabled>
+                          No connected repos
                         </DropdownMenu.Item>
-                      </>
-                    ) : availableRepos.length === 0 ? (
-                      <DropdownMenu.Item class="repo-menu-item" disabled>
-                        No connected repos
-                      </DropdownMenu.Item>
-                    ) : (
-                      availableRepos.map((repo) => {
-                        const PrivacyIcon = repo.private ? Lock : Globe;
-                        const isSelected = selectedRepo === repo.full_name;
-                        return (
+                      ) : (
+                        availableRepos.map((repo) => {
+                          const PrivacyIcon = repo.private ? Lock : Globe;
+                          const isSelected = selectedRepo === repo.full_name;
+                          return (
+                            <DropdownMenu.Item
+                              key={repo.id}
+                              class="repo-menu-item"
+                              onSelect={() => {
+                                onSelectRepo(repo.full_name, repo.id, repo.private);
+                                const [owner, name] = repo.full_name.split('/');
+                                if (!owner || !name) {
+                                  navigate(routePath.workspaces());
+                                  return;
+                                }
+                                navigate(routePath.repoDocuments(owner, name));
+                              }}
+                            >
+                              <span class="repo-menu-item-main">
+                                <PrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
+                                <span>{repo.full_name}</span>
+                              </span>
+                              {isSelected && inRepoContext ? (
+                                <Check size={14} class="repo-menu-icon" aria-hidden="true" />
+                              ) : null}
+                            </DropdownMenu.Item>
+                          );
+                        })
+                      )}
+                      <DropdownMenu.Separator class="user-menu-separator" />
+                      <div class="repo-menu-section-label">Gists</div>
+                      {menuGistsLoading ? (
+                        <DropdownMenu.Item class="repo-menu-item" disabled>
+                          Loading gists...
+                        </DropdownMenu.Item>
+                      ) : gistsLoadError ? (
+                        <>
+                          <DropdownMenu.Item class="repo-menu-item" disabled>
+                            Failed to load gists
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item class="repo-menu-item" onSelect={() => onRetryGists()}>
+                            Retry Gists
+                          </DropdownMenu.Item>
+                        </>
+                      ) : menuGists.length === 0 ? (
+                        <DropdownMenu.Item class="repo-menu-item" disabled>
+                          No gists
+                        </DropdownMenu.Item>
+                      ) : (
+                        menuGists.map((gist) => (
                           <DropdownMenu.Item
-                            key={repo.id}
+                            key={gist.id}
                             class="repo-menu-item"
-                            onSelect={() => {
-                              onSelectRepo(repo.full_name, repo.id, repo.private);
-                              const [owner, name] = repo.full_name.split('/');
-                              if (!owner || !name) {
-                                navigate(routePath.workspaces());
-                                return;
-                              }
-                              navigate(routePath.repoDocuments(owner, name));
-                            }}
+                            onSelect={() => navigate(routePath.gistView(gist.id))}
                           >
                             <span class="repo-menu-item-main">
-                              <PrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
-                              <span>{repo.full_name}</span>
+                              {gist.public ? (
+                                <Globe size={14} class="repo-menu-icon" aria-hidden="true" />
+                              ) : (
+                                <Link2 size={14} class="repo-menu-icon" aria-hidden="true" />
+                              )}
+                              <span>{gist.description || 'Untitled'}</span>
                             </span>
-                            {isSelected && inRepoContext ? (
-                              <Check size={14} class="repo-menu-icon" aria-hidden="true" />
-                            ) : null}
                           </DropdownMenu.Item>
-                        );
-                      })
-                    )}
-                    <DropdownMenu.Separator class="user-menu-separator" />
-                    <div class="repo-menu-section-label">Gists</div>
-                    {menuGistsLoading ? (
-                      <DropdownMenu.Item class="repo-menu-item" disabled>
-                        Loading gists...
+                        ))
+                      )}
+                      <DropdownMenu.Separator class="user-menu-separator" />
+                      <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.workspaces())}>
+                        {noReposOrGists ? 'Get started...' : 'Manage Workspaces'}
                       </DropdownMenu.Item>
-                    ) : gistsLoadError ? (
-                      <>
-                        <DropdownMenu.Item class="repo-menu-item" disabled>
-                          Failed to load gists
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item class="repo-menu-item" onSelect={() => onRetryGists()}>
-                          Retry Gists
-                        </DropdownMenu.Item>
-                      </>
-                    ) : menuGists.length === 0 ? (
-                      <DropdownMenu.Item class="repo-menu-item" disabled>
-                        No gists
-                      </DropdownMenu.Item>
-                    ) : (
-                      menuGists.map((gist) => (
-                        <DropdownMenu.Item
-                          key={gist.id}
-                          class="repo-menu-item"
-                          onSelect={() => navigate(routePath.gistView(gist.id))}
-                        >
-                          <span class="repo-menu-item-main">
-                            {gist.public ? (
-                              <Globe size={14} class="repo-menu-icon" aria-hidden="true" />
-                            ) : (
-                              <Link2 size={14} class="repo-menu-icon" aria-hidden="true" />
-                            )}
-                            <span>{gist.description || 'Untitled'}</span>
-                          </span>
-                        </DropdownMenu.Item>
-                      ))
-                    )}
-                    <DropdownMenu.Separator class="user-menu-separator" />
-                    <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.workspaces())}>
-                      {noReposOrGists ? 'Get started...' : 'Manage Workspaces'}
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+                {documentCollaborators.length > 0 ? (
+                  <div class="toolbar-collaborator-stack" role="group" aria-label="Document collaborators">
+                    {documentCollaborators.map((collaborator) => (
+                      <img
+                        key={collaborator.login}
+                        class="toolbar-collaborator-avatar"
+                        src={collaborator.avatarUrl}
+                        alt={`@${collaborator.login}`}
+                        title={
+                          collaborator.isAuthor ? `Author: @${collaborator.login}` : `Editor: @${collaborator.login}`
+                        }
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             )}
           </>
         )}
