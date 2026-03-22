@@ -1635,10 +1635,7 @@ export function App() {
     setInstId(id);
     setWorkspaceNotice('GitHub App installation setup complete. Review your installation details below.');
 
-    const cleanUrl = window.location.pathname;
-    window.history.replaceState({}, '', cleanUrl);
-
-    navigate(routePath.workspaces());
+    navigate(routePath.workspaces(), { replace: true, state: null });
     return true;
   }, [navigate, showError, showRateLimitToastIfNeeded, startGitHubSignIn]);
 
