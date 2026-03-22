@@ -942,6 +942,11 @@ async function handleListRepos(ctx: RouteContext): Promise<void> {
       `/installation/repositories?per_page=100&page=${page}`,
     );
     copyGitHubRateLimitHeaders(ctx.res, ghRes);
+    if (!ghRes.ok) {
+      const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+      respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', `/installation/repositories?page=${page}`);
+      return;
+    }
     const data = (await ghRes.json()) as { total_count: number; repositories?: unknown[] };
     allRepos.push(...(data.repositories ?? []));
     if (allRepos.length >= data.total_count || (data.repositories ?? []).length < 100) break;
