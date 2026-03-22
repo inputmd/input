@@ -2,7 +2,7 @@ import type { EditorView } from '@codemirror/view';
 import { ExternalLink } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import type { InlinePromptRequest } from '../components/codemirror_inline_prompt';
+import type { BracePromptRequest, InlinePromptRequest } from '../components/codemirror_inline_prompt';
 import type { EditorController } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
 import type { PromptListRequest } from '../components/markdown_editor_commands';
@@ -66,6 +66,11 @@ interface EditViewProps {
   onTogglePreview: () => void;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
   onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
+  onBracePromptStream?: (
+    request: BracePromptRequest,
+    callbacks: { onDelta: (delta: string) => void },
+    signal: AbortSignal,
+  ) => Promise<void>;
   onPromptListSubmit?: (request: PromptListRequest) => void;
   onCancelInlinePrompt?: () => void;
   inlinePromptActive?: boolean;
@@ -78,6 +83,7 @@ interface EditViewProps {
   canSave: boolean;
   hasUserTypedUnsavedChanges?: boolean;
   onSave: () => void;
+  bracePromptModelLabel?: string | null;
   readOnly?: boolean;
   locked?: boolean;
   showLockIndicator?: boolean;
@@ -108,6 +114,7 @@ export function EditView({
   onTogglePreview,
   onContentChange,
   onInlinePromptSubmit,
+  onBracePromptStream,
   onPromptListSubmit,
   onCancelInlinePrompt,
   inlinePromptActive = false,
@@ -120,6 +127,7 @@ export function EditView({
   canSave,
   hasUserTypedUnsavedChanges = false,
   onSave,
+  bracePromptModelLabel = null,
   readOnly = false,
   locked = false,
   showLockIndicator = true,
@@ -488,9 +496,11 @@ export function EditView({
             onContentChange={onContentChange}
             onEditorReady={onEditorReady}
             onInlinePromptSubmit={onInlinePromptSubmit}
+            onBracePromptStream={onBracePromptStream}
             onPromptListSubmit={onPromptListSubmit}
             onCancelInlinePrompt={onCancelInlinePrompt}
             inlinePromptActive={inlinePromptActive}
+            bracePromptModelLabel={bracePromptModelLabel}
             onPaste={onEditorPaste}
             readOnly={readOnly || locked || loading}
           />

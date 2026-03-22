@@ -1,5 +1,6 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import type { EditorView } from '@codemirror/view';
+import { parseCriticMarkupAt } from '../criticmarkup.ts';
 
 export interface InlinePromptMatch {
   from: number;
@@ -12,6 +13,23 @@ export interface InlinePromptRequest {
   from: number;
   to: number;
   documentContent: string;
+}
+
+export interface BracePromptRequest {
+  prompt: string;
+  from: number;
+  to: number;
+  documentContent: string;
+}
+
+export interface BracePromptMatch {
+  from: number;
+  to: number;
+  prompt: string;
+}
+
+function startsWithCriticMarkupLikeMarker(text: string): boolean {
+  return /^[\t ]*[+\-=~>]/.test(text);
 }
 
 function isInlinePromptBoundary(char: string | undefined): boolean {
@@ -30,6 +48,27 @@ export function findInlinePromptMatch(text: string, position: number): InlinePro
 
   return {
     from: slashIndex,
+    to: position,
+    prompt,
+  };
+}
+
+export function findBracePromptMatch(text: string, position: number): BracePromptMatch | null {
+  if (position <= 1 || text[position - 1] !== '}') return null;
+
+  const openIndex = text.lastIndexOf('{', position - 1);
+  if (openIndex < 0) return null;
+  if (text[openIndex - 1] === '{' || text[position] === '}') return null;
+  if (parseCriticMarkupAt(text, openIndex)?.to === position) return null;
+  if (text.indexOf('}', openIndex + 1) !== position - 1) return null;
+
+  const prompt = text.slice(openIndex + 1, position - 1);
+  if (prompt.includes('{') || prompt.includes('}')) return null;
+  if (startsWithCriticMarkupLikeMarker(prompt)) return null;
+  if (prompt.trim().length === 0) return null;
+
+  return {
+    from: openIndex,
     to: position,
     prompt,
   };

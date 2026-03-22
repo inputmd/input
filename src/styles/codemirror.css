@@ -1,5 +1,16 @@
 /* CodeMirror editor theming — inherits from app CSS custom properties */
 
+.doc-editor-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.doc-editor-shell__editor {
+  width: 100%;
+  height: 100%;
+}
+
 .doc-editor .cm-editor {
   height: 100%;
   font-family: var(--font-mono);
@@ -112,6 +123,29 @@
   user-select: none;
 }
 
+.doc-editor .cm-prompt-list-hint.cm-brace-prompt-hint {
+  display: inline-block;
+  font-size: 1.34em;
+  font-style: normal;
+  line-height: 1;
+  width: 0;
+  overflow: visible;
+  vertical-align: baseline;
+}
+
+.doc-editor .cm-brace-prompt {
+  color: var(--text-secondary);
+}
+
+.doc-editor .cm-brace-prompt .tok-content,
+.doc-editor .cm-brace-prompt .tok-variableName {
+  color: var(--text-secondary);
+}
+
+.doc-editor .cm-brace-prompt-preview {
+  color: var(--text-secondary);
+}
+
 .doc-editor .cm-selectionBackground {
   /* biome-ignore lint/complexity/noImportantStyles: CodeMirror injects selection styles that require !important to override reliably. */
   background: color-mix(in srgb, var(--selection-bg) 40%, transparent) !important;
@@ -131,6 +165,110 @@
   font-style: normal;
 }
 
+.brace-prompt-panel {
+  position: absolute;
+  z-index: 9;
+  width: min(420px, calc(100% - 24px));
+  min-width: min(240px, calc(100% - 24px));
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 18%, var(--toolbar-bg));
+  color: var(--text);
+  box-shadow:
+    0 14px 36px color-mix(in srgb, var(--bg) 68%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--border) 32%, transparent);
+  backdrop-filter: blur(8px);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.brace-prompt-panel__options {
+  display: flex;
+  flex-direction: column;
+  padding: 2px;
+  font-size: 14px;
+}
+
+.brace-prompt-panel__option {
+  display: block;
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.brace-prompt-panel__option.is-selected {
+  background: color-mix(in srgb, var(--focus-border) 8%, var(--toolbar-bg));
+}
+
+.brace-prompt-panel__option--draft {
+  color: color-mix(in srgb, var(--text-secondary) 82%, var(--text));
+}
+
+.brace-prompt-panel__option--action {
+  color: var(--text-secondary);
+}
+
+.brace-prompt-panel__option--action:hover,
+.brace-prompt-panel__option--action.is-selected {
+  color: var(--text);
+}
+
+.brace-prompt-panel__option--close {
+  padding-right: 132px;
+}
+
+.brace-prompt-panel__option-caption {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  max-width: calc(100% - 100px);
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.brace-prompt-panel__option--action:hover .brace-prompt-panel__option-caption,
+.brace-prompt-panel__option--action.is-selected .brace-prompt-panel__option-caption {
+  color: color-mix(in srgb, var(--text) 82%, var(--text-secondary));
+}
+
+.brace-prompt-panel__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.brace-prompt-panel__status--error {
+  color: #b45309;
+}
+
+[data-theme="dark"] .brace-prompt-panel__status--error {
+  color: #f59e0b;
+}
+
+.brace-prompt-panel__spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
 .doc-editor .cm-tooltip.cm-tooltip-autocomplete {
   border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: 10px;
@@ -143,21 +281,22 @@
 }
 
 .doc-editor .cm-tooltip-autocomplete > ul {
-  max-width: min(420px, calc(100vw - 32px));
-  max-height: min(320px, 45vh);
+  max-width: min(720px, calc(100vw - 32px));
+  max-height: min(960px, 85vh);
   padding: 6px;
 }
 
 .doc-editor .cm-tooltip-autocomplete ul li {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 4px;
   margin: 0;
   padding: 8px 10px;
   border-radius: 7px;
   color: var(--text);
   font-size: 0.92em;
+  line-height: 1.35;
 }
 
 .doc-editor .cm-tooltip-autocomplete ul li[aria-selected] {
@@ -171,6 +310,9 @@
 
 .doc-editor .cm-tooltip-autocomplete ul li .cm-completionLabel {
   color: inherit;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .doc-editor .cm-tooltip-autocomplete ul li .cm-completionMatchedText {
@@ -184,6 +326,8 @@
   font-family: var(--font-mono);
   font-size: 0.92em;
   font-style: normal;
+  align-self: start;
+  white-space: nowrap;
 }
 
 .doc-editor .cm-tooltip.cm-completionInfo {
@@ -347,6 +491,11 @@
   color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
 }
 
+.cm-editor .cm-critic-delimiter .tok-content,
+.cm-editor .cm-critic-delimiter .tok-variableName {
+  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+}
+
 .cm-editor .cm-critic-addition {
   color: color-mix(in srgb, var(--text) 70%, var(--ansi-green));
   text-decoration: underline;
@@ -354,10 +503,20 @@
   text-decoration-thickness: 1px;
 }
 
+.cm-editor .cm-critic-addition .tok-content,
+.cm-editor .cm-critic-addition .tok-variableName {
+  color: color-mix(in srgb, var(--text) 70%, var(--ansi-green));
+}
+
 .cm-editor .cm-critic-deletion {
   color: color-mix(in srgb, var(--text-secondary) 84%, var(--error-color));
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--error-color) 62%, transparent);
+}
+
+.cm-editor .cm-critic-deletion .tok-content,
+.cm-editor .cm-critic-deletion .tok-variableName {
+  color: color-mix(in srgb, var(--text-secondary) 84%, var(--error-color));
 }
 
 .cm-editor .cm-critic-highlight {
@@ -367,7 +526,11 @@
 
 .cm-editor .cm-critic-comment {
   color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
-  font-style: italic;
+}
+
+.cm-editor .cm-critic-comment .tok-content,
+.cm-editor .cm-critic-comment .tok-variableName {
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
 }
 
 [data-theme="light"] .cm-editor .tok-string,

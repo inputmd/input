@@ -33,6 +33,12 @@ import {
   type PromptListRequest,
   wrapWithMarker,
 } from './markdown_editor_commands';
+import {
+  type BracePromptStreamFn,
+  bracePromptPreviewExtension,
+  canBracePromptGenerateMore,
+  useBracePromptPanel,
+} from './use_brace_prompt_panel';
 
 interface MarkdownEditorProps {
   content: string;
@@ -41,6 +47,7 @@ interface MarkdownEditorProps {
   contentSelection?: { anchor: number; head: number } | null;
   onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
   onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
+  onBracePromptStream?: BracePromptStreamFn;
   onPromptListSubmit?: (request: PromptListRequest) => void;
   onCancelInlinePrompt?: () => void;
   inlinePromptActive?: boolean;
@@ -50,6 +57,7 @@ interface MarkdownEditorProps {
   scrollStorageKey?: string | null;
   onEditorReady?: (controller: EditorController | null) => void;
   class?: string;
+  bracePromptModelLabel?: string | null;
 }
 
 export function MarkdownEditor({
@@ -59,6 +67,7 @@ export function MarkdownEditor({
   contentSelection = null,
   onContentChange,
   onInlinePromptSubmit,
+  onBracePromptStream,
   onPromptListSubmit,
   onCancelInlinePrompt,
   inlinePromptActive = false,
@@ -68,14 +77,17 @@ export function MarkdownEditor({
   scrollStorageKey = null,
   onEditorReady,
   class: className,
+  bracePromptModelLabel = null,
 }: MarkdownEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
+  const rootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const editorControllerRef = useRef<EditorController | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
   const promptListAnsweringCompartment = useRef(new Compartment());
+  const bracePromptPreviewCompartment = useRef(new Compartment());
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
@@ -83,11 +95,12 @@ export function MarkdownEditor({
   const streamingCursorFollowingRef = useRef(false);
   const ignoreNextStreamingScrollEventRef = useRef(false);
 
-  // Stable refs for callbacks
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
   const onInlinePromptSubmitRef = useRef(onInlinePromptSubmit);
   onInlinePromptSubmitRef.current = onInlinePromptSubmit;
+  const onBracePromptStreamRef = useRef(onBracePromptStream);
+  onBracePromptStreamRef.current = onBracePromptStream;
   const onPromptListSubmitRef = useRef(onPromptListSubmit);
   onPromptListSubmitRef.current = onPromptListSubmit;
   const onCancelInlinePromptRef = useRef(onCancelInlinePrompt);
@@ -100,6 +113,11 @@ export function MarkdownEditor({
   onEditorReadyRef.current = onEditorReady;
 
   const latestLocalRevisionRef = useRef(0);
+
+  const bracePrompt = useBracePromptPanel({
+    rootRef,
+    onBracePromptStreamRef,
+  });
 
   const readScrollPosition = (view: EditorView): number => {
     return editorUsesOwnScroll(view) ? view.scrollDOM.scrollTop : window.scrollY;
@@ -170,14 +188,21 @@ export function MarkdownEditor({
     });
   };
 
-  // Create editor on mount — intentionally empty deps
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect; content/readOnly/placeholder synced via separate effects
   useEffect(() => {
     if (!containerRef.current) return;
 
     const onUpdate = (update: ViewUpdate) => {
+      if (
+        update.docChanged ||
+        update.selectionSet ||
+        update.viewportChanged ||
+        update.geometryChanged ||
+        update.heightChanged
+      ) {
+        bracePrompt.syncValidity(update.view);
+      }
       if (!update.docChanged) return;
-      // Skip if this was our own external sync
       for (const tr of update.transactions) {
         if (isExternalSyncTransaction(tr)) return;
       }
@@ -205,6 +230,7 @@ export function MarkdownEditor({
         }),
         markdownEditorLanguageSupport(),
         promptListAnsweringCompartment.current.of(promptListAnsweringFacet.of(inlinePromptActive)),
+        bracePromptPreviewCompartment.current.of([]),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
@@ -216,11 +242,43 @@ export function MarkdownEditor({
           paste: (event, view) => {
             onPasteRef.current?.(event, view);
           },
+          keydown: (event) => {
+            if (!bracePrompt.isActive()) return false;
+            if (event.key === 'ArrowDown') {
+              bracePrompt.moveSelection(1);
+              event.preventDefault();
+              return true;
+            }
+            if (event.key === 'ArrowUp') {
+              bracePrompt.moveSelection(-1);
+              event.preventDefault();
+              return true;
+            }
+            if (event.key === 'Escape') {
+              bracePrompt.close();
+              event.preventDefault();
+              return true;
+            }
+            return false;
+          },
         }),
         Prec.highest(
           keymap.of([
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },
+            {
+              key: 'Tab',
+              run: (view) => {
+                if (bracePrompt.isActive()) {
+                  if (bracePrompt.panel?.options.length === 0) return true;
+                  return bracePrompt.acceptSelection(view);
+                }
+                return bracePrompt.start(view);
+              },
+              shift: indentLess,
+            },
+            { key: 'ArrowDown', run: () => bracePrompt.moveSelection(1) },
+            { key: 'ArrowUp', run: () => bracePrompt.moveSelection(-1) },
             {
               key: 'Enter',
               run: (view) => {
@@ -235,6 +293,10 @@ export function MarkdownEditor({
             {
               key: 'Escape',
               run: () => {
+                if (bracePrompt.isActive()) {
+                  bracePrompt.close();
+                  return true;
+                }
                 if (!inlinePromptActiveRef.current) return false;
                 onCancelInlinePromptRef.current?.();
                 return true;
@@ -285,17 +347,12 @@ export function MarkdownEditor({
     onEditorReadyRef.current?.(editorControllerRef.current);
 
     restoreScrollPositionRef.current = () => {
-      if (streamingCursorPositionRef.current != null) {
-        return;
-      }
+      if (streamingCursorPositionRef.current != null) return;
       const key = currentScrollStorageKeyRef.current;
       const nextScrollTop = key ? (getStoredScrollPosition(key) ?? 0) : 0;
       const useEditorScroll = editorUsesOwnScroll(view);
       window.requestAnimationFrame(() => {
-        if (viewRef.current !== view) return;
-        if (streamingCursorPositionRef.current != null) {
-          return;
-        }
+        if (viewRef.current !== view || streamingCursorPositionRef.current != null) return;
         if (useEditorScroll) {
           view.scrollDOM.scrollTop = nextScrollTop;
         } else {
@@ -305,6 +362,7 @@ export function MarkdownEditor({
     };
 
     const syncScrollPosition = () => {
+      bracePrompt.syncLayout(view);
       if (streamingCursorPositionRef.current != null && !ignoreNextStreamingScrollEventRef.current) {
         streamingCursorFollowingRef.current = isPositionNearViewport(view, streamingCursorPositionRef.current);
       }
@@ -331,6 +389,7 @@ export function MarkdownEditor({
       window.removeEventListener('beforeunload', persistOnPageHide);
       restoreScrollPositionRef.current = null;
       editorControllerRef.current = null;
+      bracePrompt.destroy();
       streamingCursorPositionRef.current = null;
       streamingCursorFollowingRef.current = false;
       ignoreNextStreamingScrollEventRef.current = false;
@@ -338,34 +397,24 @@ export function MarkdownEditor({
       view.destroy();
       viewRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     onEditorReady?.(editorControllerRef.current);
   }, [onEditorReady]);
 
-  // Sync external content changes (Reader AI applying edits, file switch, etc.)
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    if (bracePrompt.isActive()) bracePrompt.close();
     const currentDoc = view.state.doc.toString();
     if (content === currentDoc) {
       if (pendingScrollRestoreKeyRef.current === scrollStorageKey) pendingScrollRestoreKeyRef.current = null;
       return;
     }
-
-    if (contentOrigin === 'local' && contentRevision <= latestLocalRevisionRef.current) {
-      return;
-    }
-
-    if (contentOrigin === 'streaming') {
-      return;
-    }
-
-    if (streamingCursorPositionRef.current != null && contentOrigin === 'external') {
-      return;
-    }
+    if (contentOrigin === 'local' && contentRevision <= latestLocalRevisionRef.current) return;
+    if (contentOrigin === 'streaming') return;
+    if (streamingCursorPositionRef.current != null && contentOrigin === 'external') return;
 
     const transaction = buildExternalContentSyncTransaction(view.state, content, contentSelection);
     if (!transaction) return;
@@ -375,7 +424,7 @@ export function MarkdownEditor({
       pendingScrollRestoreKeyRef.current = null;
     }
     restoreScrollPositionRef.current?.();
-  }, [content, contentOrigin, contentRevision, contentSelection, scrollStorageKey]);
+  }, [bracePrompt.close, content, contentOrigin, contentRevision, contentSelection, scrollStorageKey]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -393,18 +442,17 @@ export function MarkdownEditor({
 
     currentScrollStorageKeyRef.current = scrollStorageKey;
     pendingScrollRestoreKeyRef.current = scrollStorageKey;
-
     restoreScrollPositionRef.current?.();
   }, [scrollStorageKey]);
 
-  // Sync readOnly
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    if (readOnly) bracePrompt.close();
     view.dispatch({
       effects: readOnlyCompartment.current.reconfigure(EditorState.readOnly.of(readOnly)),
     });
-  }, [readOnly]);
+  }, [bracePrompt.close, readOnly]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -414,7 +462,6 @@ export function MarkdownEditor({
     });
   }, [inlinePromptActive]);
 
-  // Sync placeholder
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
@@ -423,5 +470,124 @@ export function MarkdownEditor({
     });
   }, [placeholder]);
 
-  return <div ref={containerRef} class={className} />;
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const preview = bracePrompt.getPreview();
+    view.dispatch({
+      effects: bracePromptPreviewCompartment.current.reconfigure(bracePromptPreviewExtension(preview)),
+    });
+  }, [bracePrompt.hoverIndex, bracePrompt.panel]);
+
+  useEffect(() => {
+    if (!bracePrompt.panel) return;
+    const sync = () => {
+      const view = viewRef.current;
+      if (!view) return;
+      bracePrompt.syncValidity(view);
+    };
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
+  }, [bracePrompt.panel, bracePrompt.syncValidity]);
+
+  const showGenerateMore = bracePrompt.panel ? canBracePromptGenerateMore(bracePrompt.panel) : false;
+
+  return (
+    <div ref={rootRef} class={`doc-editor-shell${className ? ` ${className}` : ''}`}>
+      <div ref={containerRef} class="doc-editor-shell__editor" />
+      {bracePrompt.panel ? (
+        <div
+          class="brace-prompt-panel"
+          style={{
+            top: `${bracePrompt.panel.top}px`,
+            left: `${bracePrompt.panel.left}px`,
+            maxWidth: `${bracePrompt.panel.maxWidth}px`,
+          }}
+          role="listbox"
+          aria-label="AI completions"
+        >
+          <div
+            class="brace-prompt-panel__options"
+            onMouseLeave={() => {
+              bracePrompt.scheduleHoverPreview(null);
+            }}
+          >
+            {bracePrompt.panel.options.map((option, index) => (
+              <button
+                key={`${bracePrompt.panel!.request.from}:${index}:${option}`}
+                type="button"
+                class={`brace-prompt-panel__option${index === bracePrompt.panel!.selectedIndex ? ' is-selected' : ''}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => {
+                  bracePrompt.scheduleHoverPreview(index);
+                }}
+                onClick={() => {
+                  const view = viewRef.current;
+                  if (!view) return;
+                  bracePrompt.acceptSelection(view, index);
+                  view.focus();
+                }}
+              >
+                {option}
+              </button>
+            ))}
+            {bracePrompt.panel.draftOption ? (
+              <div class="brace-prompt-panel__option brace-prompt-panel__option--draft">
+                {bracePrompt.panel.draftOption}
+              </div>
+            ) : null}
+            {bracePrompt.panel.loading ? (
+              <div class="brace-prompt-panel__status">
+                <span class="editor-loading-spinner brace-prompt-panel__spinner" aria-hidden="true" />
+              </div>
+            ) : null}
+            {showGenerateMore ? (
+              <button
+                key={`${bracePrompt.panel.request.from}:more`}
+                type="button"
+                class={`brace-prompt-panel__option brace-prompt-panel__option--action${bracePrompt.panel.selectedIndex === bracePrompt.panel.options.length ? ' is-selected' : ''}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => {
+                  bracePrompt.scheduleHoverPreview(null);
+                }}
+                onClick={() => {
+                  const view = viewRef.current;
+                  if (!view) return;
+                  bracePrompt.launch(view, bracePrompt.panel!.request);
+                  view.focus();
+                }}
+              >
+                Generate more
+              </button>
+            ) : null}
+            <button
+              key={`${bracePrompt.panel.request.from}:close`}
+              type="button"
+              class={`brace-prompt-panel__option brace-prompt-panel__option--action brace-prompt-panel__option--close${bracePrompt.panel.selectedIndex === bracePrompt.panel.options.length + (showGenerateMore ? 1 : 0) ? ' is-selected' : ''}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => {
+                bracePrompt.scheduleHoverPreview(null);
+              }}
+              onClick={() => {
+                const view = viewRef.current;
+                bracePrompt.close();
+                view?.focus();
+              }}
+            >
+              <span>Esc to close</span>
+              {bracePromptModelLabel ? (
+                <span class="brace-prompt-panel__option-caption" aria-hidden="true">
+                  {bracePromptModelLabel}
+                </span>
+              ) : null}
+            </button>
+          </div>
+          {!bracePrompt.panel.loading && bracePrompt.panel.error ? (
+            <div class="brace-prompt-panel__status brace-prompt-panel__status--error">{bracePrompt.panel.error}</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }

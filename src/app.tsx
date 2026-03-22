@@ -5,7 +5,7 @@ import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
-import type { InlinePromptRequest } from './components/codemirror_inline_prompt';
+import type { BracePromptRequest, InlinePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import type { EditorController } from './components/editor_controller';
@@ -17,7 +17,7 @@ import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
-import { parseDocumentEditorsFromMarkdown } from './document_permissions.ts';
+import { parseDocumentEditorsFromMarkdown, parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
 import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import {
@@ -366,6 +366,13 @@ function removeImagesFromHtml(html: string): string {
 function trimReaderAiSource(source: string): string {
   if (source.length <= READER_AI_SOURCE_MAX_CHARS) return source;
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
+}
+
+function stripLeadingFrontMatter(source: string): string {
+  const normalized = source.replace(/^\uFEFF/, '').replace(/^(?:[ \t]*\r?\n)+/, '');
+  const frontMatter = parseMarkdownFrontMatterBlock(normalized);
+  if (!frontMatter || frontMatter.error) return source;
+  return frontMatter.content;
 }
 
 function estimateApproxReaderAiTokens(text: string): number {
@@ -3937,6 +3944,61 @@ export function App() {
     ],
   );
 
+  const onBracePromptStream = useCallback(
+    async (
+      { prompt, documentContent }: BracePromptRequest,
+      callbacks: { onDelta: (delta: string) => void },
+      signal: AbortSignal,
+    ) => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt) return;
+      if (!readerAiSelectedModel) {
+        throw new Error('Select a Reader AI model before requesting suggestions.');
+      }
+
+      const sanitizedDocumentContent = trimReaderAiSource(
+        stripLeadingFrontMatter(stripCriticMarkupComments(documentContent)),
+      );
+      const requestPrompt = stripCriticMarkupComments(trimmedPrompt);
+
+      await askReaderAiStream(
+        readerAiSelectedModel,
+        sanitizedDocumentContent,
+        [
+          {
+            role: 'user',
+            content: [
+              'The source contains a document ending with an inline brace query.',
+              `Brace query: ${requestPrompt}`,
+              'Return exactly 3 candidate replacement fragments for the text inside the braces.',
+              'Rules:',
+              '- Output plain text only.',
+              '- One option per line.',
+              '- No numbering, bullets, quotes, or commentary.',
+              '- Keep each option brief.',
+              '- Each option must contain only the replacement fragment, not the full sentence or paragraph.',
+              '- Do not repeat any surrounding document text.',
+              '- Each option should be ready to insert directly in place of the brace contents.',
+              '- Unless the user explicitly asks, complete at maximum a single sentence, without adding new clauses through semicolons or em dashes.',
+            ].join('\n'),
+          },
+        ],
+        {
+          signal,
+          onDelta: (delta) => {
+            if (!delta) return;
+            callbacks.onDelta(delta);
+          },
+        },
+        undefined,
+        undefined,
+        currentEditingDocPath,
+        true,
+      );
+    },
+    [currentEditingDocPath, readerAiSelectedModel],
+  );
+
   const onPromptListSubmit = useCallback(
     async ({
       prompt,
@@ -6372,9 +6434,11 @@ export function App() {
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
             onInlinePromptSubmit={onInlinePromptSubmit}
+            onBracePromptStream={onBracePromptStream}
             onPromptListSubmit={onPromptListSubmit}
             onCancelInlinePrompt={cancelInlinePrompt}
             inlinePromptActive={inlinePromptStreaming}
+            bracePromptModelLabel={editorLockLabel}
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');
               navigate(routePathname);

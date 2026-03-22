@@ -509,14 +509,17 @@ export async function askReaderAiStream(
           }
         }
       } else if (eventType === 'error') {
-        if (options.onStreamError) {
-          try {
-            const parsed = JSON.parse(data) as { message?: string };
-            if (typeof parsed.message === 'string') options.onStreamError(parsed.message);
-          } catch {
-            // Ignore malformed error event.
+        let streamErrorMessage = 'Reader AI stream failed';
+        try {
+          const parsed = JSON.parse(data) as { message?: string };
+          if (typeof parsed.message === 'string' && parsed.message.trim()) {
+            streamErrorMessage = parsed.message;
           }
+        } catch {
+          // Ignore malformed error event payloads.
         }
+        options.onStreamError?.(streamErrorMessage);
+        throw new Error(streamErrorMessage);
       } else {
         try {
           const parsed = JSON.parse(data) as unknown;

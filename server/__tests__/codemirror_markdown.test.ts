@@ -2,6 +2,9 @@ import { syntaxTree } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
 import test from 'ava';
 import {
+  bracePromptHintForText,
+  bracePromptHintLabelForText,
+  bracePromptRangesForText,
   markdownCodeLanguageSupport,
   markdownEditorLanguageSupport,
   promptListHintLabelForText,
@@ -95,4 +98,36 @@ test('promptListHintLabelForText returns answering hint for blank answers while 
 test('promptListHintLabelForText ignores non-question lines', (t) => {
   t.is(promptListHintLabelForText('-⏺ Existing answer'), null);
   t.is(promptListHintLabelForText('- regular bullet'), null);
+});
+
+test('bracePromptHintLabelForText returns a hint at the end of a brace prompt', (t) => {
+  const text = 'today {come up with two more examples}';
+  t.is(bracePromptHintLabelForText(text, text.length), '⇥');
+  t.deepEqual(bracePromptHintForText(text, text.length), {
+    position: text.length,
+    label: '⇥',
+    className: 'cm-brace-prompt-hint',
+  });
+});
+
+test('bracePromptHintLabelForText ignores positions away from a completed brace prompt', (t) => {
+  const text = 'today {come up with two more examples} next';
+  t.is(bracePromptHintLabelForText(text, text.length), null);
+  t.is(bracePromptHintLabelForText(text, 'today {come'.length), null);
+  t.deepEqual(bracePromptHintForText(text, text.length), null);
+});
+
+test('bracePromptHintForText anchors the hint at the closing brace', (t) => {
+  const text = 'today {come up with two more examples} next';
+  t.deepEqual(bracePromptHintForText(text, 'today {come up with two more examples}'.length), {
+    position: 'today {come up with two more examples}'.length,
+    label: '⇥',
+    className: 'cm-brace-prompt-hint',
+  });
+});
+
+test('bracePromptRangesForText returns valid brace prompt spans only', (t) => {
+  t.deepEqual(bracePromptRangesForText('before {prompt} after'), [{ from: 7, to: 15 }]);
+  t.deepEqual(bracePromptRangesForText('before {{skip}} and {keep}'), [{ from: 20, to: 26 }]);
+  t.deepEqual(bracePromptRangesForText('before {++critic++} and {keep}'), [{ from: 24, to: 30 }]);
 });

@@ -12,6 +12,7 @@ import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
 import { matchPromptListLine } from '../prompt_list_syntax.ts';
 import { criticMarkupDecorationExtension } from './codemirror_criticmarkup.ts';
+import { findBracePromptMatch } from './codemirror_inline_prompt.ts';
 
 const wikiLinkInlineParser: InlineParser = {
   name: 'WikiLink',
@@ -107,22 +108,25 @@ function isPromptListAnswerContinuationLine(text: string, indent: string): boole
   return text.startsWith(`${indent}  `) || text.startsWith(`${indent}\t`);
 }
 
-const promptListHintLabels = new WeakMap<PromptListHintWidget, string>();
+const promptListHintMeta = new WeakMap<PromptListHintWidget, { label: string; className?: string }>();
 
 class PromptListHintWidget extends WidgetType {
-  constructor(label: string) {
+  constructor(label: string, className?: string) {
     super();
-    promptListHintLabels.set(this, label);
+    promptListHintMeta.set(this, { label, className });
   }
 
   eq(other: PromptListHintWidget): boolean {
-    return promptListHintLabels.get(this) === promptListHintLabels.get(other);
+    const current = promptListHintMeta.get(this);
+    const next = promptListHintMeta.get(other);
+    return current?.label === next?.label && current?.className === next?.className;
   }
 
   toDOM(): HTMLElement {
     const span = document.createElement('span');
-    span.className = 'cm-prompt-list-hint';
-    span.textContent = promptListHintLabels.get(this) ?? '';
+    const meta = promptListHintMeta.get(this);
+    span.className = meta?.className ? `cm-prompt-list-hint ${meta.className}` : 'cm-prompt-list-hint';
+    span.textContent = meta?.label ?? '';
     return span;
   }
 
@@ -213,19 +217,62 @@ export function promptListHintLabelForText(text: string, answering = false): str
   return null;
 }
 
-function promptListHintLabel(view: EditorView): { lineTo: number; label: string } | null {
+export function bracePromptHintLabelForText(text: string, position: number): string | null {
+  return findBracePromptMatch(text, position) ? '⇥' : null;
+}
+
+export function bracePromptHintForText(
+  text: string,
+  position: number,
+): { position: number; label: string; className: string } | null {
+  const match = findBracePromptMatch(text, position);
+  if (!match) return null;
+
+  return {
+    position: match.to,
+    label: '⇥',
+    className: 'cm-brace-prompt-hint',
+  };
+}
+
+export function bracePromptRangesForText(text: string): Array<{ from: number; to: number }> {
+  const ranges: Array<{ from: number; to: number }> = [];
+
+  let searchFrom = 0;
+  while (true) {
+    const closeIndex = text.indexOf('}', searchFrom);
+    if (closeIndex < 0) break;
+    searchFrom = closeIndex + 1;
+
+    const match = findBracePromptMatch(text, closeIndex + 1);
+    if (match) ranges.push({ from: match.from, to: match.to });
+  }
+
+  return ranges;
+}
+
+function promptListHintLabel(view: EditorView): { position: number; label: string; className?: string } | null {
   if (view.state.facet(EditorState.readOnly)) return null;
 
   const selection = view.state.selection.main;
   if (!selection.empty) return null;
 
   const line = view.state.doc.lineAt(selection.head);
-  const label = promptListHintLabelForText(line.text, view.state.facet(promptListAnsweringFacet));
-  if (!label) return null;
+  const promptListLabel = promptListHintLabelForText(line.text, view.state.facet(promptListAnsweringFacet));
+  if (promptListLabel) {
+    return {
+      position: line.to,
+      label: promptListLabel,
+    };
+  }
+
+  const braceHint = bracePromptHintForText(line.text, selection.head - line.from);
+  if (!braceHint) return null;
 
   return {
-    lineTo: line.to,
-    label,
+    position: line.from + braceHint.position,
+    label: braceHint.label,
+    className: braceHint.className,
   };
 }
 
@@ -261,13 +308,37 @@ function buildPromptListHintDecorations(view: EditorView): DecorationSet {
   if (!hint) return builder.finish();
 
   builder.add(
-    hint.lineTo,
-    hint.lineTo,
+    hint.position,
+    hint.position,
     Decoration.widget({
-      widget: new PromptListHintWidget(hint.label),
+      widget: new PromptListHintWidget(hint.label, hint.className),
       side: 1,
     }),
   );
+
+  return builder.finish();
+}
+
+function buildBracePromptDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+
+  for (const { from, to } of view.visibleRanges) {
+    let lineNumber = view.state.doc.lineAt(from).number;
+    const lastLineNumber = view.state.doc.lineAt(to).number;
+
+    for (; lineNumber <= lastLineNumber; lineNumber += 1) {
+      const line = view.state.doc.line(lineNumber);
+      for (const range of bracePromptRangesForText(line.text)) {
+        builder.add(
+          line.from + range.from,
+          line.from + range.to,
+          Decoration.mark({
+            class: 'cm-brace-prompt',
+          }),
+        );
+      }
+    }
+  }
 
   return builder.finish();
 }
@@ -302,6 +373,25 @@ const promptListHintExtension = ViewPlugin.fromClass(
   },
 );
 
+const bracePromptDecorationExtension = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildBracePromptDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = buildBracePromptDecorations(update.view);
+      }
+    }
+  },
+  {
+    decorations: (value) => value.decorations,
+  },
+);
+
 export function markdownEditorLanguageSupport() {
   return [
     markdown({
@@ -310,6 +400,7 @@ export function markdownEditorLanguageSupport() {
       extensions: markdownParserExtensions,
     }),
     criticMarkupDecorationExtension,
+    bracePromptDecorationExtension,
     promptListLineClassExtension,
     promptListHintExtension,
   ];
