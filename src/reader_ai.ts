@@ -346,9 +346,8 @@ export async function askReaderAiStream(
   currentDocPath?: string | null,
   editModeCurrentDocOnly?: boolean,
 ): Promise<void> {
-  // Start loading the dictionary in the background; the heuristic can still
-  // run safely until the bloom filter becomes available.
-  void initDictionary().catch(() => {});
+  // Ensure the stream boundary dictionary is loaded before processing chunks.
+  await initDictionary().catch(() => {});
   // Resolve current_doc_path: projectContext takes precedence when present
   const resolvedDocPath = projectContext?.currentDocPath ?? currentDocPath ?? null;
   const baseUrl = modelRequestBaseUrl(model);

@@ -36,12 +36,10 @@ import {
 } from '../reader_ai_tools.ts';
 
 // Load the bloom filter for dictionary-backed boundary detection in tests.
+// This must succeed — dictionary-dependent tests (photosynthesis, NVIDIA, etc.)
+// will silently produce wrong results without it.
 const bloomPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'shared', 'dictionary.bloom');
-try {
-  initDictionaryFromBuffer(new Uint8Array(readFileSync(bloomPath)));
-} catch {
-  // If the bloom file is missing, tests still run — dictionary guard is a no-op.
-}
+initDictionaryFromBuffer(new Uint8Array(readFileSync(bloomPath)));
 
 // ── Helper ──
 
