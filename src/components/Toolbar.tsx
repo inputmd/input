@@ -1,4 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   Check,
   ChevronDown,
@@ -13,7 +14,7 @@ import {
   PanelLeftOpen,
   Sparkles,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
@@ -208,7 +209,9 @@ export function Toolbar({
   serverRateLimit,
 }: ToolbarProps) {
   const [authorMenuOpen, setAuthorMenuOpen] = useState(false);
+  const [collaboratorsTooltipOpen, setCollaboratorsTooltipOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const collaboratorsTooltipCloseTimeoutRef = useRef<number | null>(null);
   const isHomeDraft = view === 'edit' && draftMode;
   const showSignInToSave = isHomeDraft && !user;
   const showHomeOnlyActions = isHomeDraft && !user;
@@ -220,6 +223,7 @@ export function Toolbar({
   const openInInputMdUrl = getOpenInInputMdUrl();
   const showPreviewAndAiGroup = showPreviewToggle && showAiToggle;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
+  const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const resolvedLocalRateLimit = localRateLimit ?? readStoredGitHubRateLimitSnapshot('serverLocal');
   const resolvedServerRateLimit = serverRateLimit ?? readStoredGitHubRateLimitSnapshot('server');
   const localRateLimitAnimated = useMemo(
@@ -234,6 +238,32 @@ export function Toolbar({
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (collaboratorsTooltipCloseTimeoutRef.current !== null) {
+        window.clearTimeout(collaboratorsTooltipCloseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const openCollaboratorsTooltip = (): void => {
+    if (collaboratorsTooltipCloseTimeoutRef.current !== null) {
+      window.clearTimeout(collaboratorsTooltipCloseTimeoutRef.current);
+      collaboratorsTooltipCloseTimeoutRef.current = null;
+    }
+    setCollaboratorsTooltipOpen(true);
+  };
+
+  const closeCollaboratorsTooltipSoon = (): void => {
+    if (collaboratorsTooltipCloseTimeoutRef.current !== null) {
+      window.clearTimeout(collaboratorsTooltipCloseTimeoutRef.current);
+    }
+    collaboratorsTooltipCloseTimeoutRef.current = window.setTimeout(() => {
+      collaboratorsTooltipCloseTimeoutRef.current = null;
+      setCollaboratorsTooltipOpen(false);
+    }, 120);
+  };
 
   const runAuthorMenuAction = (event: Event, action: () => void, options?: { preventDefault?: boolean }): void => {
     if (options?.preventDefault) event.preventDefault();
@@ -522,21 +552,70 @@ export function Toolbar({
                   </DropdownMenu.Portal>
                 </DropdownMenu.Root>
                 {documentCollaborators.length > 0 ? (
-                  <div class="toolbar-collaborator-stack" role="group" aria-label="Document collaborators">
-                    {documentCollaborators.map((collaborator) => (
-                      <img
-                        key={collaborator.login}
-                        class="toolbar-collaborator-avatar"
-                        src={collaborator.avatarUrl}
-                        alt={`@${collaborator.login}`}
-                        title={
-                          collaborator.isAuthor ? `Author: @${collaborator.login}` : `Editor: @${collaborator.login}`
-                        }
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ))}
-                  </div>
+                  <Tooltip.Provider delayDuration={150}>
+                    <Tooltip.Root open={collaboratorsTooltipOpen} onOpenChange={setCollaboratorsTooltipOpen}>
+                      <Tooltip.Trigger asChild>
+                        <span
+                          class="toolbar-collaborator-summary"
+                          onMouseEnter={openCollaboratorsTooltip}
+                          onMouseLeave={closeCollaboratorsTooltipSoon}
+                        >
+                          {collaboratorCountLabel}
+                        </span>
+                      </Tooltip.Trigger>
+                      <Tooltip.Portal>
+                        <Tooltip.Content
+                          class="toolbar-collaborator-tooltip"
+                          side="bottom"
+                          align="center"
+                          sideOffset={8}
+                          onMouseEnter={openCollaboratorsTooltip}
+                          onMouseLeave={closeCollaboratorsTooltipSoon}
+                        >
+                          <div
+                            class="toolbar-collaborator-tooltip-stack"
+                            role="group"
+                            aria-label="Document collaborators"
+                          >
+                            {documentCollaborators.map((collaborator) => (
+                              <img
+                                key={collaborator.login}
+                                class="toolbar-collaborator-avatar"
+                                src={collaborator.avatarUrl}
+                                alt={`@${collaborator.login}`}
+                                title={
+                                  collaborator.isAuthor
+                                    ? `Author: @${collaborator.login}`
+                                    : `Editor: @${collaborator.login}`
+                                }
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ))}
+                          </div>
+                          <div class="toolbar-collaborator-tooltip-list">
+                            <span class="toolbar-collaborator-tooltip-label">Invited editors: </span>
+                            <span>
+                              {documentCollaborators.map((collaborator, index) => (
+                                <>
+                                  {index > 0 ? ', ' : null}
+                                  <a
+                                    href={`https://github.com/${collaborator.login}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="toolbar-collaborator-link"
+                                  >
+                                    {collaborator.login}
+                                  </a>
+                                </>
+                              ))}
+                            </span>
+                          </div>
+                          <Tooltip.Arrow class="toolbar-collaborator-tooltip-arrow" />
+                        </Tooltip.Content>
+                      </Tooltip.Portal>
+                    </Tooltip.Root>
+                  </Tooltip.Provider>
                 ) : null}
               </div>
             )}
