@@ -1,4 +1,5 @@
 import { getSubdomainOwner } from './subdomain';
+import { encodePathForHref } from './util';
 
 export type Route =
   | { name: 'home'; params: Record<string, never> }
@@ -92,17 +93,17 @@ export const routePath = {
   workspaces: () => 'workspaces',
   publicRepoFile: (owner: string, repo: string, path: string) =>
     getSubdomainOwner()
-      ? encodeURIComponent(path)
-      : `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+      ? encodePathForHref(path)
+      : `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodePathForHref(path)}`,
   repoDocuments: (owner: string, repo: string) => `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
   repoFile: (owner: string, repo: string, path: string) =>
-    `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+    `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodePathForHref(path)}`,
   repoNew: (owner: string, repo: string, path = 'untitled.md') =>
-    `repo/new/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+    `repo/new/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodePathForHref(path)}`,
   repoEdit: (owner: string, repo: string, path: string) =>
-    `repo/edit/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}`,
+    `repo/edit/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodePathForHref(path)}`,
   shareFile: (owner: string, repo: string, path: string, token: string) =>
-    `s/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(path)}?t=${encodeURIComponent(token)}`,
+    `s/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodePathForHref(path)}?t=${encodeURIComponent(token)}`,
   freshDraft: () => 'gist/new',
   gistEdit: (id: string, filename?: string) => (filename ? `edit/${id}/${encodeURIComponent(filename)}` : `edit/${id}`),
   gistView: (id: string, filename?: string) => (filename ? `gist/${id}/${encodeURIComponent(filename)}` : `gist/${id}`),

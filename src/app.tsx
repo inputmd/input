@@ -4731,8 +4731,10 @@ export function App() {
       navigate(returnToPath, { replace: true, state: null });
       return;
     }
-    if (currentRepoDocPath && selectedRepoRef) {
-      navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath));
+    const currentDocRepoRef =
+      repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
+    if (currentRepoDocPath && currentDocRepoRef) {
+      navigate(routePath.repoFile(currentDocRepoRef.owner, currentDocRepoRef.repo, currentRepoDocPath));
     } else if (currentGistId && currentFileName) navigate(routePath.gistView(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistView(currentGistId));
     else if (selectedRepoRef) navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
@@ -4750,6 +4752,8 @@ export function App() {
     currentRepoDocPath,
     currentGistId,
     currentFileName,
+    currentRouteRepoRef,
+    repoAccessMode,
     selectedRepoRef,
     navigate,
     routeState,
@@ -5452,6 +5456,13 @@ export function App() {
       if (commitResult.kind === 'repo') {
         if (commitResult.owner && commitResult.repo) {
           navigate(routePath.repoFile(commitResult.owner, commitResult.repo, commitResult.path), { state: null });
+        } else if (currentRepoDocPath) {
+          const repoRef =
+            repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
+          if (repoRef) {
+            navigate(routePath.repoFile(repoRef.owner, repoRef.repo, currentRepoDocPath), { state: null });
+            return;
+          }
         } else {
           navigate(routePath.workspaces(), { state: null });
         }
@@ -5460,7 +5471,7 @@ export function App() {
 
       navigate(routePath.gistView(commitResult.gistId, commitResult.filename), { state: null });
     },
-    [navigate],
+    [currentRepoDocPath, currentRouteRepoRef, navigate, repoAccessMode, selectedRepoRef],
   );
 
   const commitAndStayInEdit = useCallback(
@@ -5528,8 +5539,10 @@ export function App() {
       }
       return;
     }
-    if (repoAccessMode === 'installed' && currentRepoDocPath && selectedRepoRef) {
-      navigate(routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, currentRepoDocPath), {
+    const restoreRepoRef =
+      repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
+    if ((repoAccessMode === 'installed' || repoAccessMode === 'shared') && currentRepoDocPath && restoreRepoRef) {
+      navigate(routePath.repoEdit(restoreRepoRef.owner, restoreRepoRef.repo, currentRepoDocPath), {
         state: {
           restoreDraft: {
             documentDraftKey: currentDocumentDraftKey,
@@ -5561,6 +5574,7 @@ export function App() {
     currentFileName,
     currentGistId,
     currentRepoDocPath,
+    currentRouteRepoRef,
     hasRestorableDocumentDraft,
     navigate,
     repoAccessMode,
@@ -7209,7 +7223,7 @@ export function App() {
   const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
   const showHeaderViewInGitHub = showHomeHeaderSourceAction || currentGistId !== null || currentRepoDocPath !== null;
   const showHeaderActionsMenu = showHeaderShare || showHeaderSourceAction || showHeaderViewInGitHub;
-  const showDraftMenuActions = showHeaderShare && currentDocumentDraft !== null;
+  const showDraftMenuActions = currentDocumentDraft !== null && (currentGistId !== null || currentRepoDocPath !== null);
   const shareMenuMetadata = useMemo(() => {
     if (!showHeaderShare) return null;
     const timestamp = currentGistCreatedAt ?? currentGistUpdatedAt;
