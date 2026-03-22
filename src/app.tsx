@@ -533,8 +533,8 @@ function removeImagesFromHtml(html: string): string {
   template.content.querySelectorAll('img').forEach((img) => {
     img.remove();
   });
-  template.content.querySelectorAll('.prompt-list-caption').forEach((caption) => {
-    caption.remove();
+  template.content.querySelectorAll('.prompt-list-header').forEach((header) => {
+    header.remove();
   });
   return template.innerHTML;
 }

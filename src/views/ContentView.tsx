@@ -80,6 +80,14 @@ function safeCssEscape(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
 }
 
+function setPromptListCollapsedState(container: HTMLElement, collapsed: boolean) {
+  container.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
+  const toggle = container.querySelector<HTMLButtonElement>('.prompt-list-toggle');
+  if (!toggle) return;
+  toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  toggle.textContent = collapsed ? 'Expand' : 'Collapse';
+}
+
 export function ContentView({
   html,
   markdown,
@@ -278,6 +286,17 @@ export function ContentView({
     pointerDraggedRef.current = false;
     pointerDownRef.current = false;
     pointerDownPositionRef.current = null;
+
+    const toggle = target?.closest('.prompt-list-toggle');
+    if (toggle instanceof HTMLButtonElement) {
+      event.preventDefault();
+      const container = toggle.closest('.prompt-list-conversation');
+      if (container instanceof HTMLElement) {
+        const collapsed = container.getAttribute('data-collapsed') === 'true';
+        setPromptListCollapsedState(container, !collapsed);
+      }
+      return;
+    }
 
     const image = target?.closest('img');
     if (image && onImageClick) {

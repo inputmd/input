@@ -222,7 +222,7 @@ marked.use({
         const itemsHtml = renderPromptListTree(promptListTree);
         const itemCount = promptListToken.items.length;
         const caption = `Conversation with ${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
-        return `<div class="prompt-list-caption">${caption}</div><ul class="prompt-list">${itemsHtml}</ul>`;
+        return `<div class="prompt-list-conversation"><div class="prompt-list-header"><div class="prompt-list-caption">${caption}</div><button type="button" class="prompt-list-toggle" aria-expanded="true">Collapse</button></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
       },
     },
     {

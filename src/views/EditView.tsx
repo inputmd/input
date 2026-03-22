@@ -46,6 +46,14 @@ function isMissingWikiLink(anchor: HTMLAnchorElement): boolean {
   return anchor.classList.contains('missing-wikilink');
 }
 
+function setPromptListCollapsedState(container: HTMLElement, collapsed: boolean) {
+  container.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
+  const toggle = container.querySelector<HTMLButtonElement>('.prompt-list-toggle');
+  if (!toggle) return;
+  toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  toggle.textContent = collapsed ? 'Expand' : 'Collapse';
+}
+
 interface EditViewProps {
   fileName?: string | null;
   markdown?: boolean;
@@ -394,6 +402,17 @@ export function EditView({
 
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
+    const toggle = target?.closest('.prompt-list-toggle');
+    if (toggle instanceof HTMLButtonElement) {
+      event.preventDefault();
+      const container = toggle.closest('.prompt-list-conversation');
+      if (container instanceof HTMLElement) {
+        const collapsed = container.getAttribute('data-collapsed') === 'true';
+        setPromptListCollapsedState(container, !collapsed);
+      }
+      return;
+    }
+
     const anchor = target?.closest('a') as HTMLAnchorElement | null;
     if (anchor && !pointerDraggedRef.current) {
       const route = resolveInternalRoute(anchor);
