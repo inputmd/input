@@ -793,6 +793,7 @@ export function App() {
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const prevRouteNameRef = useRef(route.name);
   const readerAiSkipPersistVisibleRef = useRef(false);
+  const pendingGistDraftDirtyRef = useRef(false);
   const editContentRef = useRef(editContent);
   editContentRef.current = editContent;
   currentFileNameRef.current = currentFileName;
@@ -998,18 +999,23 @@ export function App() {
     } catch {}
   }, []);
 
-  const persistPendingGistDraft = useCallback(
-    (draft?: { title?: string; content?: string }) => {
-      if (!draftMode || editingBackend !== 'gist' || currentGistId !== null) return;
-      try {
-        localStorage.setItem(DRAFT_TITLE_KEY, draft?.title ?? editTitle);
-        localStorage.setItem(DRAFT_CONTENT_KEY, draft?.content ?? editContent);
-      } catch {
-        // Best effort only; continue with OAuth redirect.
-      }
-    },
-    [currentGistId, draftMode, editContent, editTitle, editingBackend],
-  );
+  useEffect(() => {
+    void editTitle;
+    void editContent;
+    pendingGistDraftDirtyRef.current = draftMode && editingBackend === 'gist' && currentGistId === null;
+  }, [currentGistId, draftMode, editContent, editTitle, editingBackend]);
+
+  const persistPendingGistDraft = useCallback(() => {
+    if (!draftMode || editingBackend !== 'gist' || currentGistId !== null) return;
+    if (!pendingGistDraftDirtyRef.current) return;
+    try {
+      localStorage.setItem(DRAFT_TITLE_KEY, editTitle);
+      localStorage.setItem(DRAFT_CONTENT_KEY, editContent);
+      pendingGistDraftDirtyRef.current = false;
+    } catch {
+      // Best effort only; continue with OAuth redirect.
+    }
+  }, [currentGistId, draftMode, editContent, editTitle, editingBackend]);
 
   const persistNewGistFileDraft = useCallback(() => {
     if (activeView !== 'edit' || editingBackend !== 'gist' || !currentGistId || currentFileName !== null) return;
@@ -6564,7 +6570,7 @@ export function App() {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setDeferredEditContent(editContent);
-    }, 75);
+    }, 150);
     return () => window.clearTimeout(timeoutId);
   }, [editContent]);
   const editPreviewWikiLinkResolver = useMemo(() => {
