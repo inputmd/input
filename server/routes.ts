@@ -799,9 +799,29 @@ async function handleAuthSession(ctx: RouteContext): Promise<void> {
 
 async function handleAuthLogout(ctx: RouteContext): Promise<void> {
   if (!checkRateLimit(ctx.req, ctx.res)) return;
-  // We only destroy the server-side session; the GitHub access token is not
-  // revoked. It remains valid until GitHub's own expiry or the user revokes
-  // it manually at https://github.com/settings/applications.
+  const session = getSession(ctx.req);
+  if (session && GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET) {
+    // Revoke the OAuth token server-side so it cannot be reused. The gist scope
+    // grants write access, so we don't want stale tokens lingering after logout.
+    // Failures here are non-fatal — the session is destroyed regardless.
+    try {
+      const credentials = Buffer.from(`${GITHUB_CLIENT_ID}:${GITHUB_CLIENT_SECRET}`).toString('base64');
+      await fetch(`https://api.github.com/applications/${GITHUB_CLIENT_ID}/token`, {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Basic ${credentials}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'input-github-app-auth-server',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({ access_token: session.githubAccessToken }),
+        signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+      });
+    } catch (err) {
+      console.warn('[auth] Failed to revoke OAuth token on logout:', err);
+    }
+  }
   destroySession(ctx.req, ctx.res);
   json(ctx.res, 200, { ok: true });
 }
