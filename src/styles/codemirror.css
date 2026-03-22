@@ -366,7 +366,7 @@
 }
 
 .cm-editor .cm-critic-comment {
-  color: var(--text-secondary);
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
   font-style: italic;
 }
 
