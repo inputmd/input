@@ -2,6 +2,7 @@ import { ExternalLink } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { TextCodeView } from '../components/TextCodeView';
+import { syncPromptListCollapsedStateFromUrl, togglePromptListCollapsedStateInUrl } from '../prompt_list_state';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
@@ -78,14 +79,6 @@ function decodeHashTargetId(hash: string): string | null {
 function safeCssEscape(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
   return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
-}
-
-function setPromptListCollapsedState(container: HTMLElement, collapsed: boolean) {
-  container.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
-  const toggle = container.querySelector<HTMLButtonElement>('.prompt-list-toggle');
-  if (!toggle) return;
-  toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-  toggle.textContent = collapsed ? 'Expand' : 'Collapse';
 }
 
 export function ContentView({
@@ -236,6 +229,22 @@ export function ContentView({
     const root = renderedMarkdownRef.current;
     if (!markdown || !html || !root) return;
 
+    syncPromptListCollapsedStateFromUrl(root);
+  }, [html, markdown]);
+
+  useEffect(() => {
+    const root = renderedMarkdownRef.current;
+    if (!markdown || !root) return;
+
+    const sync = () => syncPromptListCollapsedStateFromUrl(root);
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, [markdown]);
+
+  useEffect(() => {
+    const root = renderedMarkdownRef.current;
+    if (!markdown || !html || !root) return;
+
     const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
     if (images.length === 0) return;
 
@@ -292,8 +301,7 @@ export function ContentView({
       event.preventDefault();
       const container = toggle.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
-        const collapsed = container.getAttribute('data-collapsed') === 'true';
-        setPromptListCollapsedState(container, !collapsed);
+        togglePromptListCollapsedStateInUrl(container);
       }
       return;
     }

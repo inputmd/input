@@ -4,6 +4,7 @@ import type { RendererThis, Token, TokenizerThis, Tokens } from 'marked';
 import { marked } from 'marked';
 import { parseCriticMarkupAt } from './criticmarkup.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
+import { hashPromptListIdentifierText, normalizePromptListIdentifierText } from './prompt_list_state.ts';
 import { parsePromptListBlock } from './prompt_list_syntax.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
 
@@ -17,12 +18,14 @@ const domPurify = DOMPurify as unknown as {
 };
 
 const WEB_TLDS = new Set(['com', 'org', 'net', 'app', 'dev', 'xyz']);
+let promptListConversationDuplicateCounts = new Map<string, number>();
 
 interface PromptListToken extends Tokens.Generic {
   type: 'promptList';
   items: Array<{
     kind: 'question' | 'answer';
     className: 'prompt-question' | 'prompt-answer';
+    sourceText: string;
     depth: number;
     renderAsBlock: boolean;
     tokens: Token[];
@@ -185,6 +188,7 @@ marked.use({
           items.push({
             kind: item.match.kind,
             className: item.match.kind === 'question' ? 'prompt-question' : 'prompt-answer',
+            sourceText: content,
             depth: depths[index] ?? 0,
             renderAsBlock,
             tokens,
@@ -222,7 +226,15 @@ marked.use({
         const itemsHtml = renderPromptListTree(promptListTree);
         const itemCount = promptListToken.items.length;
         const caption = `Conversation with ${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
-        return `<div class="prompt-list-conversation"><div class="prompt-list-header"><div class="prompt-list-caption">${caption}</div><button type="button" class="prompt-list-toggle" aria-expanded="true">Collapse</button></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
+        const firstQuestion =
+          promptListToken.items.find((item) => item.kind === 'question')?.sourceText ??
+          promptListToken.items[0]?.sourceText ??
+          '';
+        const promptHash = hashPromptListIdentifierText(normalizePromptListIdentifierText(firstQuestion));
+        const duplicateIndex = promptListConversationDuplicateCounts.get(promptHash) ?? 0;
+        promptListConversationDuplicateCounts.set(promptHash, duplicateIndex + 1);
+        const promptListId = `${promptHash}-${duplicateIndex}`;
+        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}"><div class="prompt-list-header"><div class="prompt-list-caption">${caption}</div><button type="button" class="prompt-list-toggle" aria-expanded="true">Collapse</button></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
       },
     },
     {
@@ -1679,9 +1691,9 @@ function appendFootnotesSection(
     li.id = `fn-${domId}`;
 
     const definitionMarkdown = definitions.get(id) ?? '';
-    const rendered = marked.parse(definitionMarkdown, { gfm: true, breaks: false }) as string;
+    const rendered = parseMarkedHtml(definitionMarkdown, { breaks: false });
     const sanitized = sanitizeHtml(rendered, {
-      ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'],
+      ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path', 'data-prompt-list-id'],
     });
     const wrapper = document.createElement('div');
     wrapper.innerHTML = sanitized;
@@ -1722,11 +1734,21 @@ function sanitizeHtml(dirty: string, config?: object): string {
   return dirty;
 }
 
+function parseMarkedHtml(markdown: string, options: { breaks: boolean; resetPromptListIds?: boolean }): string {
+  if (options.resetPromptListIds) promptListConversationDuplicateCounts = new Map<string, number>();
+  return marked.parse(markdown, { gfm: true, breaks: options.breaks }) as string;
+}
+
 export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptions): ParsedMarkdownDocument {
   const extracted = extractMarkdownDocument(text);
   const extractedFootnotes = extractFootnotes(extracted.markdown);
-  const raw = marked.parse(extractedFootnotes.markdown, { gfm: true, breaks: options?.breaks ?? false }) as string;
-  const sanitized = sanitizeHtml(raw, { ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path'] });
+  const raw = parseMarkedHtml(extractedFootnotes.markdown, {
+    breaks: options?.breaks ?? false,
+    resetPromptListIds: true,
+  });
+  const sanitized = sanitizeHtml(raw, {
+    ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path', 'data-prompt-list-id'],
+  });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
   assignHeadingIds(template.content);

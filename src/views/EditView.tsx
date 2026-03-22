@@ -7,6 +7,7 @@ import type { EditorController } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
 import type { PromptListRequest } from '../components/markdown_editor_commands';
 import { TextEditor } from '../components/TextEditor';
+import { syncPromptListCollapsedStateFromUrl, togglePromptListCollapsedStateInUrl } from '../prompt_list_state';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
 
@@ -44,14 +45,6 @@ function footnoteTargetIdFromAnchor(anchor: HTMLAnchorElement): string | null {
 
 function isMissingWikiLink(anchor: HTMLAnchorElement): boolean {
   return anchor.classList.contains('missing-wikilink');
-}
-
-function setPromptListCollapsedState(container: HTMLElement, collapsed: boolean) {
-  container.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
-  const toggle = container.querySelector<HTMLButtonElement>('.prompt-list-toggle');
-  if (!toggle) return;
-  toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-  toggle.textContent = collapsed ? 'Expand' : 'Collapse';
 }
 
 interface EditViewProps {
@@ -202,6 +195,22 @@ export function EditView({
       window.removeEventListener('resize', sync);
     };
   }, [canRenderPreview, markdown, previewVisible]);
+
+  useEffect(() => {
+    const root = renderedMarkdownRef.current;
+    if (!markdown || !previewVisible || !previewHtml || !root) return;
+
+    syncPromptListCollapsedStateFromUrl(root);
+  }, [markdown, previewHtml, previewVisible]);
+
+  useEffect(() => {
+    const root = renderedMarkdownRef.current;
+    if (!markdown || !previewVisible || !root) return;
+
+    const sync = () => syncPromptListCollapsedStateFromUrl(root);
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, [markdown, previewVisible]);
 
   const onSplitPointerDown = (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
     if (!previewVisible || !canRenderPreview) return;
@@ -407,8 +416,7 @@ export function EditView({
       event.preventDefault();
       const container = toggle.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
-        const collapsed = container.getAttribute('data-collapsed') === 'true';
-        setPromptListCollapsedState(container, !collapsed);
+        togglePromptListCollapsedStateInUrl(container);
       }
       return;
     }
