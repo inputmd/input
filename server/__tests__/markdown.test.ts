@@ -217,6 +217,20 @@ test('parseMarkdownToHtml keeps a prompt list unified across a single blank line
   );
 });
 
+test('parseMarkdownToHtml wraps nested prompt-list branches in nested lists', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml(['-* root', '-⏺ root answer', '  -* branch', '  -⏺ branch answer', '-* next root'].join('\n')),
+  );
+
+  t.true(html.includes('<li class="prompt-question">root</li><li class="prompt-answer">root answer</li>'));
+  t.true(
+    html.includes(
+      '<li class="prompt-list-branch"><ul><li class="prompt-question">branch</li><li class="prompt-answer">branch answer</li></ul></li>',
+    ),
+  );
+  t.true(html.includes('<li class="prompt-question">next root</li>'));
+});
+
 test('parseMarkdownToHtml splits prompt lists across two blank lines between items', (t) => {
   const html = withDom(() => parseMarkdownToHtml(['-* one', '-⏺ answer', '  ', '  ', '-* two', '-⏺ next'].join('\n')));
 

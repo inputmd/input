@@ -23,10 +23,22 @@ interface PromptListToken extends Tokens.Generic {
   items: Array<{
     kind: 'question' | 'answer';
     className: 'prompt-question' | 'prompt-answer';
+    depth: number;
     renderAsBlock: boolean;
     tokens: Token[];
   }>;
 }
+
+type PromptListRenderNode =
+  | {
+      type: 'item';
+      className: 'prompt-question' | 'prompt-answer';
+      contentHtml: string;
+    }
+  | {
+      type: 'branch';
+      children: PromptListRenderNode[];
+    };
 
 interface CriticMarkupToken extends Tokens.Generic {
   type: 'criticMarkup';
@@ -163,8 +175,9 @@ marked.use({
         const block = parsePromptListBlock(normalizedLines, 0);
         if (!block) return undefined;
 
+        const depths = promptListDepths(block.items.map((item) => item.match.indent));
         const items: PromptListToken['items'] = [];
-        for (const item of block.items) {
+        for (const [index, item] of block.items.entries()) {
           const content = item.content;
           const renderAsBlock = content.includes('\n') || /^\s*$/.test(content);
           const tokens = renderAsBlock ? this.lexer.blockTokens(content) : this.lexer.inlineTokens(content);
@@ -172,6 +185,7 @@ marked.use({
           items.push({
             kind: item.match.kind,
             className: item.match.kind === 'question' ? 'prompt-question' : 'prompt-answer',
+            depth: depths[index] ?? 0,
             renderAsBlock,
             tokens,
           });
@@ -186,8 +200,8 @@ marked.use({
       renderer(this: RendererThis<string, string>, token: Tokens.Generic) {
         const promptListToken = token as PromptListToken;
 
-        const itemsHtml = promptListToken.items
-          .map((item) => {
+        const promptListTree = buildPromptListTree(
+          promptListToken.items.map((item) => {
             const isSingleParagraphBlock =
               item.renderAsBlock &&
               item.tokens.length === 1 &&
@@ -198,9 +212,14 @@ marked.use({
               : isSingleParagraphBlock
                 ? this.parser.parseInline((item.tokens[0] as Tokens.Paragraph).tokens ?? [])
                 : this.parser.parse(item.tokens ?? []);
-            return `<li class="${item.className}">${contentHtml}</li>`;
-          })
-          .join('');
+            return {
+              className: item.className,
+              contentHtml,
+              depth: item.depth,
+            };
+          }),
+        );
+        const itemsHtml = renderPromptListTree(promptListTree);
         const itemCount = promptListToken.items.length;
         const caption = `Conversation with ${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
         return `<div class="prompt-list-caption">${caption}</div><ul class="prompt-list">${itemsHtml}</ul>`;
@@ -567,6 +586,53 @@ function countIndent(raw: string): number {
     break;
   }
   return indent;
+}
+
+function promptListDepths(indents: string[]): number[] {
+  const widths = indents.map((indent) => countIndent(indent));
+  const stack: number[] = [];
+  const depths: number[] = [];
+
+  for (const width of widths) {
+    while (stack.length > 0 && stack[stack.length - 1] > width) stack.pop();
+    if (stack.length === 0 || stack[stack.length - 1] < width) stack.push(width);
+    depths.push(Math.max(0, stack.length - 1));
+  }
+
+  return depths;
+}
+
+function buildPromptListTree(
+  items: Array<{ className: 'prompt-question' | 'prompt-answer'; contentHtml: string; depth: number }>,
+): PromptListRenderNode[] {
+  const root: PromptListRenderNode[] = [];
+  const stack: PromptListRenderNode[][] = [root];
+
+  for (const item of items) {
+    while (stack.length - 1 > item.depth) stack.pop();
+    while (stack.length - 1 < item.depth) {
+      const branch: PromptListRenderNode = { type: 'branch', children: [] };
+      stack[stack.length - 1].push(branch);
+      stack.push(branch.children);
+    }
+
+    stack[stack.length - 1].push({
+      type: 'item',
+      className: item.className,
+      contentHtml: item.contentHtml,
+    });
+  }
+
+  return root;
+}
+
+function renderPromptListTree(nodes: PromptListRenderNode[]): string {
+  return nodes
+    .map((node) => {
+      if (node.type === 'item') return `<li class="${node.className}">${node.contentHtml}</li>`;
+      return `<li class="prompt-list-branch"><ul>${renderPromptListTree(node.children)}</ul></li>`;
+    })
+    .join('');
 }
 
 function parseMarkdownFrontMatterBlock(source: string): { body: string; content: string; error: string | null } | null {

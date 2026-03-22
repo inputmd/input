@@ -206,6 +206,8 @@
 }
 
 .rendered-markdown ul.prompt-list {
+  --prompt-list-indent-step: 1.35rem;
+  --prompt-list-guide-color: color-mix(in srgb, var(--border) 76%, transparent);
   padding-left: 0;
   list-style: none;
 }
@@ -226,9 +228,33 @@
   margin-top: 0;
 }
 
+.rendered-markdown ul.prompt-list,
+.rendered-markdown ul.prompt-list ul {
+  padding-left: 0;
+  list-style: none;
+}
+
+.rendered-markdown li.prompt-list-branch {
+  margin: 0;
+  padding-left: calc(var(--prompt-list-indent-step) - 1px);
+  border-left: 1px solid var(--prompt-list-guide-color);
+}
+
+.rendered-markdown ul.prompt-list > li.prompt-list-branch:last-child {
+  border-bottom: 1px solid var(--prompt-list-guide-color);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  overflow: hidden;
+}
+
+.rendered-markdown li.prompt-list-branch > ul {
+  margin: 0;
+}
+
 .rendered-markdown li.prompt-question,
 .rendered-markdown li.prompt-answer {
   list-style: none;
+  margin-top: 0;
 }
 
 .rendered-markdown li.prompt-question {
@@ -236,11 +262,8 @@
   width: auto;
   max-width: none;
   box-sizing: border-box;
-  /* biome-ignore lint/complexity/noImportantStyles: Prompt question bubble spacing must override generic markdown list margins. */
-  margin: 1em calc(-1 * var(--prompt-pane-bleed-right)) 0 calc(-1 * var(--prompt-pane-bleed-left)) !important;
-  padding: calc(0.7em + 2px) var(--prompt-pane-bleed-right) calc(0.7em + 2px) var(--prompt-pane-bleed-left);
+  padding: calc(0.7em + 2px) 1.15em;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-inline: 0;
   border-radius: 0;
   background: color-mix(in srgb, var(--bg-elevated) 68%, transparent);
 }
@@ -253,14 +276,23 @@
   background: var(--btn-bg);
 }
 
-.rendered-markdown ul.prompt-list > li.prompt-question:first-child {
-  /* biome-ignore lint/complexity/noImportantStyles: The first prompt bubble should align flush with the start of the list. */
-  margin-top: 0 !important;
+.rendered-markdown ul.prompt-list > li + li.prompt-question,
+.rendered-markdown li.prompt-list-branch > ul > li + li.prompt-question {
+  border-top: 0;
 }
 
-.rendered-markdown ul.prompt-list > li.prompt-answer + li.prompt-question {
-  /* biome-ignore lint/complexity/noImportantStyles: Prompt question rows should sit flush against the preceding answer row. */
-  margin-top: 0 !important;
+.rendered-markdown li.prompt-list-branch > ul > li:first-child > .prompt-question,
+.rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-question,
+.rendered-markdown li.prompt-list-branch > ul > li:first-child > .prompt-answer,
+.rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-answer {
+  border-top: 0;
+}
+
+.rendered-markdown li.prompt-list-branch > ul > li:last-child > .prompt-question,
+.rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-question,
+.rendered-markdown li.prompt-list-branch > ul > li:last-child > .prompt-answer,
+.rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-answer {
+  border-bottom: 0;
 }
 
 .rendered-markdown li.prompt-answer {
@@ -268,17 +300,28 @@
   width: auto;
   max-width: none;
   box-sizing: border-box;
-  /* biome-ignore lint/complexity/noImportantStyles: Prompt answer row spacing must override generic markdown list margins. */
-  margin: 0 calc(-1 * var(--prompt-pane-bleed-right)) 0 calc(-1 * var(--prompt-pane-bleed-left)) !important;
-  padding: calc(0.7em + 2px) var(--prompt-pane-bleed-right) calc(0.7em + 2px) var(--prompt-pane-bleed-left);
-  border-inline: 0;
+  padding: calc(0.7em + 2px) 1.15em;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-top: 0;
   border-radius: 0;
   background: color-mix(in srgb, var(--bg-elevated) 38%, transparent);
   color: inherit;
 }
 
-.rendered-markdown ul.prompt-list > li.prompt-answer:not(:has(+ li.prompt-question)) {
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+.rendered-markdown ul.prompt-list > li:first-child > .prompt-question,
+.rendered-markdown ul.prompt-list > li:first-child.prompt-question,
+.rendered-markdown ul.prompt-list > li:first-child > .prompt-answer,
+.rendered-markdown ul.prompt-list > li:first-child.prompt-answer {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.rendered-markdown ul.prompt-list > li:last-child > .prompt-question,
+.rendered-markdown ul.prompt-list > li:last-child.prompt-question,
+.rendered-markdown ul.prompt-list > li:last-child > .prompt-answer,
+.rendered-markdown ul.prompt-list > li:last-child.prompt-answer {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 
 [data-theme="light"] .rendered-markdown li.prompt-answer {
