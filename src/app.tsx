@@ -3,6 +3,43 @@ import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
+import { extensionFromMimeType, fetchFullGistFileText, fetchWithTimeout, maybeResizePastedImage } from './image_processing';
+import {
+  commonPrefixLength,
+  commonSuffixLength,
+  dirName,
+  fileNameFromPath,
+  folderDeleteConfirmMessage,
+  formatBytes,
+  isEditableTextFilePath,
+  isLikelyBinaryBytes,
+  isPathInFolder,
+  isSafeImageFileName,
+  isSidebarTextFileName,
+  isSidebarTextListPath,
+  isVisibleSidebarFilePath,
+  parentFolderPath,
+  renamePathWithNewFolder,
+  resolveRepoAssetPath,
+  safeDecodeURIComponent,
+  sanitizeDroppedFileName,
+  sanitizeScratchFileNameInput,
+  sanitizeTitleToFileName,
+} from './path_utils';
+import {
+  buildReaderAiHistoryDocumentKey,
+  clearReaderAiMessagesFromHistory,
+  loadReaderAiEntryFromHistory,
+  persistReaderAiMessagesToHistory,
+} from './reader_ai_history';
+import {
+  buildRepoFullName,
+  createWikiLinkResolver,
+  findMarkdownDirectoryIndexPath,
+  parseRepoFullName,
+  pickPreferredRepoMarkdownFile,
+  type PublicRepoRef,
+} from './wiki_links';
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
 import type { InlinePromptRequest } from './components/codemirror_inline_prompt';
@@ -69,7 +106,6 @@ import {
   publicRepoRawFileUrl,
   putEditorSharedRepoFile,
   putRepoFile,
-  type RepoContents,
   type RepoFileEntry,
   type RepoRecentCommitsResult,
   type RepoTreeResult,
@@ -92,7 +128,7 @@ import {
 import { removeDocumentDraft, useDocumentPersistence } from './hooks/useDocumentPersistence';
 import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
 import { useRoute } from './hooks/useRoute';
-import { buildImageMarkdown, type ImageDimensions } from './image_markdown';
+import { buildImageMarkdown } from './image_markdown';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
 import { formatPromptListAnswer } from './prompt_list_format';
 import { splitPromptListStableText } from './prompt_list_streaming';
@@ -113,7 +149,6 @@ import { isSubdomainMode } from './subdomain';
 import {
   decodeBase64ToBytes,
   encodeBytesToBase64,
-  encodePathForHref,
   encodeUtf8ToBase64,
   isMarkdownFileName,
   reusableImageSrc,
@@ -129,7 +164,6 @@ const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const READER_AI_VISIBLE_KEY = 'reader_ai_visible';
 const READER_AI_MODEL_KEY = 'reader_ai_model';
 const READER_AI_WIDTH_KEY = 'reader_ai_width_px';
-const READER_AI_HISTORY_KEY = 'reader_ai_history_v1';
 const SIDEBAR_VISIBLE_KEY = 'sidebar_visible';
 const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
 const DESKTOP_MEDIA_QUERY = '(min-width: 1024px)';
@@ -147,48 +181,15 @@ const DEFAULT_READER_AI_WIDTH_PX = 360;
 const MIN_READER_AI_WIDTH_PX = 280;
 const MAX_READER_AI_WIDTH_PX = 640;
 const SIDEBAR_FILE_FILTER_KEY = 'sidebar_file_filter';
-const PASTED_IMAGE_RESIZE_THRESHOLD_BYTES = Math.floor(1.5 * 1024 * 1024);
-const PASTED_IMAGE_MAX_SIDE_PX = 1600;
-const PASTED_IMAGE_QUALITY = 0.82;
 const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
-function commonPrefixLength(a: string, b: string): number {
-  const limit = Math.min(a.length, b.length);
-  let i = 0;
-  while (i < limit && a.charCodeAt(i) === b.charCodeAt(i)) i += 1;
-  return i;
-}
 
-function commonSuffixLength(a: string, b: string, prefixLength: number): number {
-  const max = Math.min(a.length, b.length) - prefixLength;
-  let i = 0;
-  while (i < max && a.charCodeAt(a.length - 1 - i) === b.charCodeAt(b.length - 1 - i)) i += 1;
-  return i;
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  const mb = kb / 1024;
-  return `${mb.toFixed(1)} MB`;
-}
-
-function sanitizeDroppedFileName(name: string): string {
-  const trimmed = name.trim().replace(/\\/g, '/');
-  const base = trimmed.split('/').filter(Boolean).at(-1) ?? '';
-  return base.replace(/\0/g, '').trim();
-}
 const OAUTH_REDIRECT_GUARD_KEY = 'oauth_redirect_guard';
 const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
 const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
 const MARKDOWN_LINK_PREVIEW_MAX_CHARS = 1800;
 const MARKDOWN_LINK_PREVIEW_MAX_LINES = 18;
 const READER_AI_SOURCE_MAX_CHARS = 140_000;
-const READER_AI_HISTORY_MAX_ENTRIES = 12;
-const READER_AI_HISTORY_MAX_MESSAGES = 100;
-const READER_AI_HISTORY_MAX_APPLIED_CHANGES = 100;
 const INPUT_GITHUB_REPO_FULL_NAME = 'inputmd/input';
 const INPUT_GITHUB_SOURCE_PATH = 'README.md';
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
@@ -230,6 +231,7 @@ function markAutoOnceGuard(key: string): void {
   }
 }
 
+
 function isRepoWriteConflictError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err instanceof ApiError && err.status === 409) return true;
@@ -250,122 +252,6 @@ function repoNewDraftKey(
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${path}:${field}`;
 }
 
-function isSidebarTextFileName(name: string | null | undefined): boolean {
-  if (!name) return false;
-  return (
-    isMarkdownFileName(name) ||
-    /\.(txt|ts|js|py|tsx|jsx|json|jsonc|yml|yaml|toml|css|scss|html|sh|sql|xml|csv|mdx|rst)$/i.test(name)
-  );
-}
-
-function isKeepFilePath(path: string | null | undefined): boolean {
-  return Boolean(path && /(?:^|\/)\.keep$/i.test(path));
-}
-
-function isSidebarTextListPath(path: string): boolean {
-  return isSidebarTextFileName(path) || isKeepFilePath(path);
-}
-
-function isEditableTextFilePath(path: string | null | undefined): boolean {
-  return Boolean(path && isSidebarTextListPath(path));
-}
-
-function isVisibleSidebarFilePath(path: string): boolean {
-  return !isKeepFilePath(path);
-}
-
-function isSafeImageFileName(name: string | null | undefined): boolean {
-  if (!name) return false;
-  return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(name);
-}
-
-function isLikelyBinaryBytes(bytes: Uint8Array): boolean {
-  const length = Math.min(bytes.length, 4096);
-  if (length === 0) return false;
-  let suspicious = 0;
-  for (let i = 0; i < length; i++) {
-    const byte = bytes[i];
-    if (byte === 0) return true;
-    const isAsciiControl = byte < 32 && byte !== 9 && byte !== 10 && byte !== 13;
-    const isDel = byte === 127;
-    if (isAsciiControl || isDel) suspicious++;
-  }
-  return suspicious / length > 0.2;
-}
-
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 4000): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
-    return await fetch(input, { ...init, signal });
-  } finally {
-    globalThis.clearTimeout(timeoutId);
-  }
-}
-
-async function fetchFullGistFileText(
-  file: Pick<GistFile, 'filename' | 'raw_url'>,
-): Promise<{ ok: true; content: string } | { ok: false; error: string } | { ok: false; binary: true }> {
-  const rawUrl = file.raw_url?.trim();
-  if (!rawUrl) return { ok: false, error: 'No raw_url available for this file.' };
-
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    return { ok: false, error: 'Invalid raw_url.' };
-  }
-
-  if (url.hostname !== 'gist.githubusercontent.com') {
-    return { ok: false, error: 'Unsupported raw_url host.' };
-  }
-
-  let res: Response;
-  try {
-    res = await fetchWithTimeout(rawUrl, { redirect: 'error' }, 4000);
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      return { ok: false, error: 'Timed out loading full content.' };
-    }
-    throw err;
-  }
-  if (!res.ok) return { ok: false, error: `Failed to load full content (${res.status}).` };
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  if (isSafeImageFileName(file.filename) || isLikelyBinaryBytes(bytes)) return { ok: false, binary: true };
-  return { ok: true, content: new TextDecoder().decode(bytes) };
-}
-
-function safeDecodeURIComponent(s: string): string {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-}
-
-function sanitizeTitleToFileName(title: string): string {
-  const trimmed = title
-    .trim()
-    .replace(/[/\\]/g, '')
-    .replace(/\.{2,}/g, '.');
-  if (!trimmed) return DEFAULT_NEW_FILENAME;
-  return trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`;
-}
-
-function fileNameFromPath(path: string): string {
-  const lastSlash = path.lastIndexOf('/');
-  return lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
-}
-
-function pathDepth(path: string): number {
-  return path.split('/').filter(Boolean).length;
-}
-
-function parentFolderPath(path: string): string {
-  const lastSlash = path.lastIndexOf('/');
-  return lastSlash >= 0 ? path.slice(0, lastSlash) : '';
-}
 
 function resolveRepoNewDraftPath(route: Route): string | null {
   if (route.name !== 'reponew') return null;
@@ -380,22 +266,6 @@ function resolveRepoNewFilePath(route: Route, value: string, options?: { literal
   if (!draftPath) return filename;
   const folder = parentFolderPath(draftPath);
   return folder ? `${folder}/${filename}` : filename;
-}
-
-function sanitizeScratchFileNameInput(input: string): string {
-  const normalized = input
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/+|\/+$/g, '');
-  if (
-    !normalized ||
-    normalized.includes('/') ||
-    normalized === '.' ||
-    normalized === '..' ||
-    /[:<>*?"|]/.test(normalized)
-  )
-    return '';
-  return normalized;
 }
 
 function gistNewFileDraftKey(gistId: string, field: 'active' | 'title' | 'content' | 'filename'): string {
@@ -446,25 +316,6 @@ function upsertRepoFile(files: RepoDocFile[], next: RepoDocFile): RepoDocFile[] 
   return updated;
 }
 
-function isPathInFolder(path: string, folderPath: string): boolean {
-  return path === folderPath || path.startsWith(`${folderPath}/`);
-}
-
-function folderDeleteConfirmMessage(folderPath: string, filePaths: string[]): string {
-  const deleteCount = filePaths.length;
-  const message = `Delete folder "${folderPath}" and ${deleteCount} file(s)?`;
-  if (deleteCount === 0 || deleteCount > 2) return message;
-  const names = filePaths.map((path) => `"${fileNameFromPath(path)}"`);
-  const details = deleteCount === 1 ? names[0] : `${names[0]} and ${names[1]}`;
-  return `${message} This will delete ${details}.`;
-}
-
-function renamePathWithNewFolder(path: string, oldFolderPath: string, newFolderPath: string): string {
-  if (!isPathInFolder(path, oldFolderPath)) return path;
-  if (path === oldFolderPath) return newFolderPath;
-  return `${newFolderPath}/${path.slice(oldFolderPath.length + 1)}`;
-}
-
 function repoDocFilesFromTree(result: RepoTreeResult, markdownOnly: boolean): RepoDocFile[] {
   if (Array.isArray(result.entries) && result.entries.length > 0) {
     return result.entries
@@ -479,41 +330,6 @@ function repoDocFilesFromTree(result: RepoTreeResult, markdownOnly: boolean): Re
   }
   if (markdownOnly) return result.files.filter((file) => isMarkdownFileName(file.path));
   return result.files;
-}
-
-function dirName(path: string): string {
-  const lastSlash = path.lastIndexOf('/');
-  return lastSlash >= 0 ? path.slice(0, lastSlash) : '';
-}
-
-function splitPathSuffix(path: string): { pathWithoutSuffix: string; suffix: string } {
-  const queryIdx = path.indexOf('?');
-  const hashIdx = path.indexOf('#');
-  const splitIdx =
-    queryIdx >= 0 && hashIdx >= 0
-      ? Math.min(queryIdx, hashIdx)
-      : queryIdx >= 0
-        ? queryIdx
-        : hashIdx >= 0
-          ? hashIdx
-          : -1;
-  if (splitIdx < 0) return { pathWithoutSuffix: path, suffix: '' };
-  return { pathWithoutSuffix: path.slice(0, splitIdx), suffix: path.slice(splitIdx) };
-}
-
-function normalizeRepoPath(path: string): string | null {
-  const normalized = path.replace(/\\/g, '/');
-  const parts: string[] = [];
-  for (const part of normalized.split('/')) {
-    if (!part || part === '.') continue;
-    if (part === '..') {
-      if (parts.length === 0) return null;
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  return parts.join('/');
 }
 
 function createMarkdownPreviewExcerpt(content: string): { text: string; truncated: boolean } {
@@ -592,243 +408,6 @@ function buildReaderAiContextLogPayload(options: {
   };
 }
 
-interface ReaderAiHistoryEntry {
-  messages: ReaderAiMessage[];
-  summary?: string;
-  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>;
-  stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
-  stagedChangesInvalid?: boolean;
-  stagedFileContents?: Record<string, string>;
-  appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>;
-}
-
-interface ReaderAiHistoryStore {
-  order: string[];
-  entries: Record<string, ReaderAiHistoryEntry>;
-}
-
-function buildReaderAiHistoryDocumentKey(options: {
-  currentRepoDocPath: string | null;
-  currentGistId: string | null;
-  currentFileName: string | null;
-  repoAccessMode: 'installed' | 'shared' | 'public' | null;
-  selectedRepo: string | null;
-  publicRepoRef: PublicRepoRef | null;
-  route: Route;
-}): string | null {
-  const { currentRepoDocPath, currentGistId, currentFileName, repoAccessMode, selectedRepo, publicRepoRef, route } =
-    options;
-
-  if (currentGistId && currentFileName) {
-    return `gist:${currentGistId}:${currentFileName}`;
-  }
-  if (currentRepoDocPath && repoAccessMode === 'installed' && selectedRepo) {
-    return `repo:${selectedRepo.toLowerCase()}:${currentRepoDocPath}`;
-  }
-  if (currentRepoDocPath && repoAccessMode === 'public' && publicRepoRef) {
-    return `public:${publicRepoRef.owner.toLowerCase()}/${publicRepoRef.repo.toLowerCase()}:${currentRepoDocPath}`;
-  }
-  if (currentRepoDocPath && repoAccessMode === 'shared' && (route.name === 'repofile' || route.name === 'repoedit')) {
-    return `shared:${route.params.owner.toLowerCase()}/${route.params.repo.toLowerCase()}:${currentRepoDocPath}`;
-  }
-  if (route.name === 'sharefile' && currentRepoDocPath) {
-    return `share:${route.params.owner}/${route.params.repo}:${currentRepoDocPath}`;
-  }
-  if (route.name === 'sharetoken' && currentRepoDocPath) {
-    return `share:${route.params.token}:${currentRepoDocPath}`;
-  }
-  return null;
-}
-
-function isReaderAiRole(value: unknown): value is ReaderAiMessage['role'] {
-  return value === 'user' || value === 'assistant';
-}
-
-function normalizeReaderAiMessages(value: unknown): ReaderAiMessage[] {
-  if (!Array.isArray(value)) return [];
-  const normalized = value
-    .map((item): ReaderAiMessage | null => {
-      if (!item || typeof item !== 'object') return null;
-      const role = (item as { role?: unknown }).role;
-      const content = (item as { content?: unknown }).content;
-      const edited = (item as { edited?: unknown }).edited;
-      if (!isReaderAiRole(role) || typeof content !== 'string') return null;
-      const message: ReaderAiMessage = { role, content };
-      if (edited === true) message.edited = true;
-      return message;
-    })
-    .filter((message): message is ReaderAiMessage => message !== null);
-  return normalized.slice(-READER_AI_HISTORY_MAX_MESSAGES);
-}
-
-function normalizePersistedStagedChanges(value: unknown): {
-  changes: NonNullable<ReaderAiHistoryEntry['stagedChanges']>;
-  invalid: boolean;
-} {
-  if (value === undefined) return { changes: [], invalid: false };
-  if (!Array.isArray(value)) return { changes: [], invalid: true };
-  const changes: NonNullable<ReaderAiHistoryEntry['stagedChanges']> = [];
-  let invalid = false;
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') {
-      invalid = true;
-      continue;
-    }
-    const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path : '';
-    const type = typeof (entry as { type?: unknown }).type === 'string' ? (entry as { type: string }).type : '';
-    const diff = typeof (entry as { diff?: unknown }).diff === 'string' ? (entry as { diff: string }).diff : '';
-    if (!path || (type !== 'edit' && type !== 'create' && type !== 'delete') || !diff) {
-      invalid = true;
-      continue;
-    }
-    changes.push({ path, type, diff });
-  }
-  return { changes, invalid };
-}
-
-function normalizePersistedAppliedChanges(value: unknown): NonNullable<ReaderAiHistoryEntry['appliedChanges']> {
-  if (!Array.isArray(value)) return [];
-  const applied: NonNullable<ReaderAiHistoryEntry['appliedChanges']> = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') continue;
-    const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path : '';
-    const type = typeof (entry as { type?: unknown }).type === 'string' ? (entry as { type: string }).type : '';
-    const appliedAt =
-      typeof (entry as { appliedAt?: unknown }).appliedAt === 'string'
-        ? (entry as { appliedAt: string }).appliedAt
-        : '';
-    if (!path || (type !== 'edit' && type !== 'create' && type !== 'delete') || !appliedAt) continue;
-    applied.push({ path, type, appliedAt });
-  }
-  if (applied.length <= READER_AI_HISTORY_MAX_APPLIED_CHANGES) return applied;
-  return applied.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
-}
-
-function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
-  if (typeof window === 'undefined') return { order: [], entries: {} };
-  try {
-    const raw = localStorage.getItem(READER_AI_HISTORY_KEY);
-    if (!raw) return { order: [], entries: {} };
-    const parsed = JSON.parse(raw) as { order?: unknown; entries?: unknown };
-    const rawEntries = parsed.entries;
-    if (!rawEntries || typeof rawEntries !== 'object') return { order: [], entries: {} };
-    const entries: Record<string, ReaderAiHistoryEntry> = {};
-    for (const [key, value] of Object.entries(rawEntries)) {
-      // Support both old format (ReaderAiMessage[]) and new format (ReaderAiHistoryEntry)
-      if (Array.isArray(value)) {
-        entries[key] = { messages: normalizeReaderAiMessages(value) };
-      } else if (value && typeof value === 'object') {
-        const entry = value as {
-          messages?: unknown;
-          summary?: unknown;
-          toolLog?: unknown;
-          stagedChanges?: unknown;
-          stagedFileContents?: unknown;
-          appliedChanges?: unknown;
-        };
-        const parsed: ReaderAiHistoryEntry = {
-          messages: normalizeReaderAiMessages(entry.messages),
-        };
-        if (typeof entry.summary === 'string' && entry.summary) parsed.summary = entry.summary;
-        if (Array.isArray(entry.toolLog) && entry.toolLog.length > 0)
-          parsed.toolLog = entry.toolLog as ReaderAiHistoryEntry['toolLog'];
-        const normalizedStagedChanges = normalizePersistedStagedChanges(entry.stagedChanges);
-        if (normalizedStagedChanges.changes.length > 0) parsed.stagedChanges = normalizedStagedChanges.changes;
-        if (normalizedStagedChanges.invalid) parsed.stagedChangesInvalid = true;
-        if (entry.stagedFileContents && typeof entry.stagedFileContents === 'object') {
-          const contents = Object.fromEntries(
-            Object.entries(entry.stagedFileContents).filter(
-              (item): item is [string, string] => typeof item[0] === 'string' && typeof item[1] === 'string',
-            ),
-          );
-          if (Object.keys(contents).length > 0) parsed.stagedFileContents = contents;
-        }
-        const normalizedAppliedChanges = normalizePersistedAppliedChanges(entry.appliedChanges);
-        if (normalizedAppliedChanges.length > 0) parsed.appliedChanges = normalizedAppliedChanges;
-        entries[key] = parsed;
-      }
-    }
-    const rawOrder = Array.isArray(parsed.order)
-      ? parsed.order.filter((key): key is string => typeof key === 'string')
-      : [];
-    const order = rawOrder.filter((key, index) => index < READER_AI_HISTORY_MAX_ENTRIES && key in entries);
-    for (const key of Object.keys(entries)) {
-      if (!order.includes(key)) delete entries[key];
-    }
-    return { order, entries };
-  } catch {
-    return { order: [], entries: {} };
-  }
-}
-
-function loadReaderAiEntryFromHistory(historyKey: string): ReaderAiHistoryEntry {
-  const store = loadReaderAiHistoryStore();
-  const entry = store.entries[historyKey] ?? { messages: [] };
-  return entry;
-}
-
-function persistReaderAiMessagesToHistory(
-  historyKey: string,
-  messages: ReaderAiMessage[],
-  summary?: string,
-  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>,
-  stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>,
-  stagedFileContents?: Record<string, string>,
-  appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>,
-): void {
-  if (typeof window === 'undefined') return;
-  const store = loadReaderAiHistoryStore();
-  const nextEntries = { ...store.entries };
-  const nextOrder = store.order.filter((key) => key !== historyKey);
-  const normalizedMessages = normalizeReaderAiMessages(messages);
-  if (normalizedMessages.length === 0) {
-    return;
-  }
-  const entry: ReaderAiHistoryEntry = { messages: normalizedMessages };
-  if (summary) entry.summary = summary;
-  if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;
-  if (stagedChanges && stagedChanges.length > 0) entry.stagedChanges = stagedChanges;
-  if (stagedFileContents && Object.keys(stagedFileContents).length > 0) entry.stagedFileContents = stagedFileContents;
-  if (appliedChanges && appliedChanges.length > 0)
-    entry.appliedChanges = appliedChanges.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
-  nextEntries[historyKey] = entry;
-  nextOrder.unshift(historyKey);
-  const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
-  for (const key of Object.keys(nextEntries)) {
-    if (!trimmedOrder.includes(key)) delete nextEntries[key];
-  }
-  try {
-    if (trimmedOrder.length === 0) {
-      localStorage.removeItem(READER_AI_HISTORY_KEY);
-      return;
-    }
-    localStorage.setItem(READER_AI_HISTORY_KEY, JSON.stringify({ order: trimmedOrder, entries: nextEntries }));
-  } catch {
-    return;
-  }
-}
-
-function clearReaderAiMessagesFromHistory(historyKey: string): void {
-  if (typeof window === 'undefined') return;
-  const store = loadReaderAiHistoryStore();
-  if (!(historyKey in store.entries)) return;
-  const nextEntries = { ...store.entries };
-  delete nextEntries[historyKey];
-  const trimmedOrder = store.order.filter((key) => key !== historyKey).slice(0, READER_AI_HISTORY_MAX_ENTRIES);
-  for (const key of Object.keys(nextEntries)) {
-    if (!trimmedOrder.includes(key)) delete nextEntries[key];
-  }
-  try {
-    if (trimmedOrder.length === 0) {
-      localStorage.removeItem(READER_AI_HISTORY_KEY);
-      return;
-    }
-    localStorage.setItem(READER_AI_HISTORY_KEY, JSON.stringify({ order: trimmedOrder, entries: nextEntries }));
-  } catch {
-    return;
-  }
-}
-
 function clampSidebarWidth(width: number): number {
   return Math.max(MIN_SIDEBAR_WIDTH_PX, Math.min(MAX_SIDEBAR_WIDTH_PX, width));
 }
@@ -854,113 +433,6 @@ function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
     .map(({ model }) => model);
 }
 
-function resolveRepoAssetPath(currentDocPath: string, src: string): string | null {
-  const { pathWithoutSuffix, suffix } = splitPathSuffix(src.trim());
-  if (!pathWithoutSuffix) return null;
-  const pathWithBase = pathWithoutSuffix.startsWith('/')
-    ? pathWithoutSuffix.slice(1)
-    : `${dirName(currentDocPath)}/${pathWithoutSuffix}`;
-  const normalized = normalizeRepoPath(pathWithBase);
-  if (!normalized) return null;
-  return `${normalized}${suffix}`;
-}
-
-function resolveRelativeDocPath(currentDocPath: string, targetPath: string): string | null {
-  const { pathWithoutSuffix } = splitPathSuffix(safeDecodeURIComponent(targetPath).trim());
-  if (!pathWithoutSuffix) return null;
-  const pathWithBase = pathWithoutSuffix.startsWith('/')
-    ? pathWithoutSuffix.slice(1)
-    : `${dirName(currentDocPath)}/${pathWithoutSuffix}`;
-  return normalizeRepoPath(pathWithBase);
-}
-
-interface WikiLinkResolver {
-  exists: boolean;
-  resolvedHref?: string;
-}
-
-function createWikiLinkResolver(
-  currentDocPath: string,
-  knownPaths: string[],
-): (targetPath: string) => WikiLinkResolver {
-  const exactPaths = new Set<string>();
-  const canonicalByLowerPath = new Map<string, string>();
-  const markdownDirectoryIndexByLowerPath = new Map<string, string>();
-
-  for (const knownPath of knownPaths) {
-    const normalized = normalizeRepoPath(safeDecodeURIComponent(knownPath).trim());
-    if (!normalized) continue;
-    exactPaths.add(normalized);
-    const lower = normalized.toLowerCase();
-    if (!canonicalByLowerPath.has(lower)) canonicalByLowerPath.set(lower, normalized);
-    if (lower.endsWith('/index.md')) {
-      const parentPath = dirName(normalized);
-      if (isMarkdownFileName(parentPath) && !markdownDirectoryIndexByLowerPath.has(parentPath.toLowerCase())) {
-        markdownDirectoryIndexByLowerPath.set(parentPath.toLowerCase(), normalized);
-      }
-    }
-  }
-
-  return (targetPath: string) => {
-    const resolvedTarget = resolveRelativeDocPath(currentDocPath, targetPath);
-    if (!resolvedTarget) return { exists: false };
-    if (exactPaths.has(resolvedTarget)) return { exists: true, resolvedHref: encodePathForHref(resolvedTarget) };
-    const markdownDirectoryIndex = markdownDirectoryIndexByLowerPath.get(resolvedTarget.toLowerCase());
-    if (markdownDirectoryIndex) return { exists: true, resolvedHref: encodePathForHref(markdownDirectoryIndex) };
-
-    const canonical = canonicalByLowerPath.get(resolvedTarget.toLowerCase());
-    if (!canonical) return { exists: false };
-    return { exists: true, resolvedHref: encodePathForHref(canonical) };
-  };
-}
-
-function findMarkdownDirectoryIndexPath(contents: RepoContents, requestedPath: string): string | null {
-  if (!Array.isArray(contents)) return null;
-  const normalizedRequestedPath = normalizeRepoPath(safeDecodeURIComponent(requestedPath).trim());
-  if (!normalizedRequestedPath) return null;
-  const expectedIndexLower = `${normalizedRequestedPath}/index.md`.toLowerCase();
-  for (const entry of contents) {
-    if (entry.type !== 'file') continue;
-    const normalizedEntryPath = normalizeRepoPath(entry.path) ?? entry.path;
-    if (normalizedEntryPath.toLowerCase() === expectedIndexLower) return entry.path;
-  }
-  return null;
-}
-
-function pickPreferredRepoMarkdownFile(files: RepoDocFile[]): RepoDocFile | undefined {
-  if (files.length === 0) return undefined;
-  const preferredByName = new Map<string, number>([
-    ['index.md', 0],
-    ['readme.md', 1],
-  ]);
-  return [...files].sort((a, b) => {
-    const aPriority = preferredByName.get(fileNameFromPath(a.path).toLowerCase()) ?? Number.POSITIVE_INFINITY;
-    const bPriority = preferredByName.get(fileNameFromPath(b.path).toLowerCase()) ?? Number.POSITIVE_INFINITY;
-    if (aPriority !== bPriority) return aPriority - bPriority;
-
-    const depthDifference = pathDepth(a.path) - pathDepth(b.path);
-    if (depthDifference !== 0) return depthDifference;
-
-    return a.path.localeCompare(b.path);
-  })[0];
-}
-
-interface PublicRepoRef {
-  owner: string;
-  repo: string;
-}
-
-function parseRepoFullName(fullName: string | null | undefined): PublicRepoRef | null {
-  if (!fullName) return null;
-  const [owner, repo] = fullName.split('/');
-  if (!owner || !repo) return null;
-  return { owner, repo };
-}
-
-function buildRepoFullName(owner: string, repo: string): string {
-  return `${owner}/${repo}`;
-}
-
 interface GoToWorkspaceTarget {
   filePath: string;
   repo: InstallationRepo;
@@ -984,18 +456,6 @@ interface PendingImageUpload {
   uploadingToken: string;
   failedToken: string;
   finalMarkdown: string;
-}
-
-function extensionFromMimeType(mimeType: string): string {
-  const mimeExt: Record<string, string> = {
-    'image/png': 'png',
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/gif': 'gif',
-    'image/webp': 'webp',
-    'image/svg+xml': 'svg',
-  };
-  return mimeExt[mimeType] ?? 'png';
 }
 
 function routeKeyForGist(gistId: string, filename?: string | null): string {
@@ -1030,72 +490,6 @@ function routeKeyFromRoute(route: Route): string | null {
     );
   }
   return null;
-}
-
-function isResizableImageType(mimeType: string): boolean {
-  return mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/jpg' || mimeType === 'image/webp';
-}
-
-async function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), mimeType, quality);
-  });
-}
-
-async function maybeResizePastedImage(file: File): Promise<{
-  bytes: Uint8Array;
-  extension: string;
-  resized: boolean;
-  dimensions: ImageDimensions | null;
-}> {
-  const originalBytes = new Uint8Array(await file.arrayBuffer());
-  const originalExtension = extensionFromMimeType(file.type);
-
-  try {
-    const bitmap = await createImageBitmap(file);
-    const { width, height } = bitmap;
-    const originalDimensions = { width, height };
-
-    if (file.size <= PASTED_IMAGE_RESIZE_THRESHOLD_BYTES || !isResizableImageType(file.type)) {
-      bitmap.close();
-      return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: originalDimensions };
-    }
-
-    const longest = Math.max(width, height);
-    const scale = longest > PASTED_IMAGE_MAX_SIDE_PX ? PASTED_IMAGE_MAX_SIDE_PX / longest : 1;
-    const targetWidth = Math.max(1, Math.round(width * scale));
-    const targetHeight = Math.max(1, Math.round(height * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-    const context = canvas.getContext('2d');
-    if (!context) {
-      bitmap.close();
-      return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: originalDimensions };
-    }
-    context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
-    bitmap.close();
-
-    const outputMimeType = file.type === 'image/jpeg' || file.type === 'image/jpg' ? 'image/jpeg' : 'image/webp';
-    const resizedBlob = await canvasToBlob(canvas, outputMimeType, PASTED_IMAGE_QUALITY);
-    if (!resizedBlob) {
-      return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: originalDimensions };
-    }
-
-    const resizedBytes = new Uint8Array(await resizedBlob.arrayBuffer());
-    if (resizedBytes.length >= originalBytes.length) {
-      return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: originalDimensions };
-    }
-
-    return {
-      bytes: resizedBytes,
-      extension: extensionFromMimeType(outputMimeType),
-      resized: true,
-      dimensions: { width: targetWidth, height: targetHeight },
-    };
-  } catch {
-    return { bytes: originalBytes, extension: originalExtension, resized: false, dimensions: null };
-  }
 }
 
 function replaceFirst(source: string, needle: string, replacement: string): string {
@@ -4206,7 +3600,7 @@ export function App() {
               appliedAt,
             })),
           ];
-          return next.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
+          return next.slice(-100);
         });
       };
       const hasCompleteStagedContent = readerAiStagedChanges.every(
