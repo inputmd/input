@@ -21,6 +21,11 @@ export function startRateLimitCleanup(): void {
   ).unref();
 }
 
+// Trusts the first address in X-Forwarded-For, which is set by the reverse
+// proxy (Fly.io / Cloudflare). This is safe because Fly terminates external
+// connections and overwrites the header before forwarding to the app. If the
+// server were ever exposed directly to the internet without a trusted proxy,
+// clients could spoof this header to bypass rate limits.
 function getClientIp(req: http.IncomingMessage): string {
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string') {

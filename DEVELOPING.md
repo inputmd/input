@@ -202,6 +202,15 @@ validating the certificate.
 - **SSL/TLS > Overview**: Full (strict)
 - **SSL/TLS > Edge Certificates**: Verify Universal SSL covers `*.input.md`
 
+### Proxy trust and rate limiting
+
+The server rate limiter (`server/rate_limit.ts`) uses the first IP address from
+the `X-Forwarded-For` header to identify clients. This is safe when running
+behind a trusted reverse proxy (Fly.io / Cloudflare) that overwrites the header
+before forwarding requests. If the server is ever exposed directly to the
+internet without a trusted proxy in front, clients could spoof this header to
+bypass per-IP rate limits.
+
 ### Protected subdomains
 
 `www`, `api`, `app`, `mail`, `ftp`, `admin`, `blog`, `docs`, `status`,
