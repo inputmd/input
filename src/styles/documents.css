@@ -127,6 +127,32 @@
   padding: 0;
 }
 
+.workspaces-installation-trigger {
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  max-width: 240px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--btn-bg);
+  color: var(--text);
+}
+
+.workspaces-installation-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.workspaces-installation-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .doc-actions-menu-content {
   min-width: 140px;
   padding: 6px;

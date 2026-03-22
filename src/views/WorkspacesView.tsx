@@ -1,9 +1,11 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, Ellipsis, ExternalLink, Globe, Lock } from 'lucide-react';
+import { Check, ChevronDown, ExternalLink, Globe, Lock } from 'lucide-react';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { GistSummary } from '../github';
 import type { InstallationRepo, LinkedInstallation } from '../github_app';
 import { DocumentsView } from './DocumentsView';
+
+const CONNECT_REPOS_LABEL = 'Connect Repos';
 
 interface WorkspacesViewProps {
   installationId: string | null;
@@ -69,6 +71,10 @@ export function WorkspacesView({
   const didAutoLoadRef = useRef(false);
   const [retryingRepos, setRetryingRepos] = useState(false);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const selectedInstallation =
+    linkedInstallations.find((candidate) => candidate.installationId === installationId) ??
+    linkedInstallations[0] ??
+    null;
   useEffect(() => {
     if (didAutoLoadRef.current) return;
     didAutoLoadRef.current = true;
@@ -106,18 +112,31 @@ export function WorkspacesView({
         </div>
         <div class="workspaces-actions">
           <button type="button" class="workspaces-connect-btn" onClick={() => void onConnect()}>
-            Connect Repos
+            {CONNECT_REPOS_LABEL}
           </button>
           <DropdownMenu.Root open={actionsMenuOpen} onOpenChange={setActionsMenuOpen}>
             <DropdownMenu.Trigger asChild>
               <button
                 type="button"
-                class="doc-actions-menu-trigger"
-                aria-label="Workspace actions"
-                title="Workspace actions"
+                class="doc-actions-menu-trigger workspaces-installation-trigger"
+                aria-label="Select installation"
+                title={
+                  selectedInstallation?.accountLogin ?? selectedInstallation?.installationId ?? 'Select installation'
+                }
                 disabled={!installationId}
               >
-                <Ellipsis size={16} aria-hidden="true" />
+                {installationId && selectedInstallation?.accountAvatarUrl ? (
+                  <img
+                    src={selectedInstallation.accountAvatarUrl}
+                    alt=""
+                    aria-hidden="true"
+                    class="workspaces-installation-avatar"
+                  />
+                ) : null}
+                <span class="workspaces-installation-label">
+                  {selectedInstallation?.accountLogin ?? selectedInstallation?.installationId ?? 'Select installation'}
+                </span>
+                <ChevronDown size={14} aria-hidden="true" />
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
@@ -161,16 +180,18 @@ export function WorkspacesView({
                   </DropdownMenu.Item>
                 ))}
                 {linkedInstallations.length > 0 ? <DropdownMenu.Separator class="user-menu-separator" /> : null}
-                <DropdownMenu.Item
-                  class="doc-actions-menu-item"
-                  onSelect={(event: Event) => {
-                    event.preventDefault();
-                    setActionsMenuOpen(false);
-                    void onDisconnectCurrentInstallation();
-                  }}
-                >
-                  Disconnect selected installation
-                </DropdownMenu.Item>
+                {installationId ? (
+                  <DropdownMenu.Item
+                    class="doc-actions-menu-item"
+                    onSelect={(event: Event) => {
+                      event.preventDefault();
+                      setActionsMenuOpen(false);
+                      void onDisconnectCurrentInstallation();
+                    }}
+                  >
+                    Disconnect selected installation
+                  </DropdownMenu.Item>
+                ) : null}
                 <DropdownMenu.Item
                   class="doc-actions-menu-item doc-actions-menu-item-danger"
                   onSelect={(event: Event) => {
@@ -248,7 +269,7 @@ export function WorkspacesView({
             <a href="https://github.com/new" target="_blank" rel="noopener noreferrer">
               Create a repo
             </a>{' '}
-            and select "Configure" to get started.
+            {`and select "${CONNECT_REPOS_LABEL}" to get started.`}
           </p>
         </div>
       )}
