@@ -226,7 +226,7 @@ marked.use({
         const duplicateIndex = promptListConversationDuplicateCounts.get(promptHash) ?? 0;
         promptListConversationDuplicateCounts.set(promptHash, duplicateIndex + 1);
         const promptListId = `${promptHash}-${duplicateIndex}`;
-        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}"><div class="prompt-list-header"><div class="prompt-list-caption">${caption}</div><button type="button" class="prompt-list-toggle" aria-expanded="true">Collapse</button></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
+        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}"><div class="prompt-list-header"><div class="prompt-list-caption" role="button" tabindex="0" aria-expanded="true">${caption}</div></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
       },
     },
     {

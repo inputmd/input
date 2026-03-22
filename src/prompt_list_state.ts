@@ -15,10 +15,9 @@ export function hashPromptListIdentifierText(text: string): string {
 
 export function setPromptListCollapsedState(container: HTMLElement, collapsed: boolean) {
   container.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
-  const toggle = container.querySelector<HTMLButtonElement>('.prompt-list-toggle');
+  const toggle = container.querySelector<HTMLElement>('.prompt-list-caption');
   if (!toggle) return;
   toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-  toggle.textContent = collapsed ? 'Expand' : 'Collapse';
 }
 
 function readCollapsedPromptListIdsFromLocation(): Set<string> {

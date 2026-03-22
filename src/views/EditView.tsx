@@ -411,8 +411,8 @@ export function EditView({
 
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
-    const toggle = target?.closest('.prompt-list-toggle');
-    if (toggle instanceof HTMLButtonElement) {
+    const toggle = target?.closest('.prompt-list-caption');
+    if (toggle instanceof HTMLElement) {
       event.preventDefault();
       const container = toggle.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
@@ -436,6 +436,18 @@ export function EditView({
 
     event.preventDefault();
     onPreviewImageClick(image);
+  };
+
+  const onPreviewKeyDown = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    const toggle = target?.closest('.prompt-list-caption');
+    if (!(toggle instanceof HTMLElement)) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    const container = toggle.closest('.prompt-list-conversation');
+    if (container instanceof HTMLElement) {
+      togglePromptListCollapsedStateInUrl(container);
+    }
   };
 
   return (
@@ -517,6 +529,7 @@ export function EditView({
                 class="rendered-markdown"
                 data-markdown-custom-css={previewCustomCssScope ?? undefined}
                 onClick={onPreviewClick}
+                onKeyDown={onPreviewKeyDown}
                 onMouseDown={onRenderedMarkdownMouseDown}
                 onMouseUp={onRenderedMarkdownMouseUp}
                 onMouseMove={onRenderedMarkdownMouseMove}
@@ -543,6 +556,7 @@ export function EditView({
               class="rendered-markdown"
               data-markdown-custom-css={previewCustomCssScope ?? undefined}
               onClick={onPreviewClick}
+              onKeyDown={onPreviewKeyDown}
               onMouseDown={onRenderedMarkdownMouseDown}
               onMouseUp={onRenderedMarkdownMouseUp}
               onMouseMove={onRenderedMarkdownMouseMove}

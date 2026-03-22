@@ -296,8 +296,8 @@ export function ContentView({
     pointerDownRef.current = false;
     pointerDownPositionRef.current = null;
 
-    const toggle = target?.closest('.prompt-list-toggle');
-    if (toggle instanceof HTMLButtonElement) {
+    const toggle = target?.closest('.prompt-list-caption');
+    if (toggle instanceof HTMLElement) {
       event.preventDefault();
       const container = toggle.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
@@ -350,6 +350,18 @@ export function ContentView({
     onInternalLinkNavigate(route);
     if (resolved.hash) {
       window.history.replaceState(window.history.state, '', `${resolved.pathname}${resolved.search}${resolved.hash}`);
+    }
+  };
+
+  const onRenderedMarkdownKeyDown = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    const toggle = target?.closest('.prompt-list-caption');
+    if (!(toggle instanceof HTMLElement)) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    const container = toggle.closest('.prompt-list-conversation');
+    if (container instanceof HTMLElement) {
+      togglePromptListCollapsedStateInUrl(container);
     }
   };
 
@@ -596,6 +608,7 @@ export function ContentView({
             class="rendered-markdown"
             data-markdown-custom-css={markdownCustomCssScope ?? undefined}
             onClick={onRenderedMarkdownClick}
+            onKeyDown={onRenderedMarkdownKeyDown}
             onMouseDown={onRenderedMarkdownMouseDown}
             onMouseUp={onRenderedMarkdownMouseUp}
             onMouseMove={onRenderedMarkdownMouseMove}

@@ -230,26 +230,14 @@
   font-size: 0.78em;
   line-height: 1.3;
   text-align: center;
-}
-
-.rendered-markdown .prompt-list-toggle {
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--toolbar-bg) 72%, transparent);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 0.76em;
-  line-height: 1;
-  padding: 0.38rem 0.68rem;
   cursor: pointer;
 }
 
-.rendered-markdown .prompt-list-toggle:hover {
-  background: color-mix(in srgb, var(--btn-hover) 72%, transparent);
-  color: var(--text);
+.rendered-markdown .prompt-list-caption:hover {
+  color: color-mix(in srgb, var(--text-secondary) 64%, var(--text) 36%);
 }
 
-.rendered-markdown .prompt-list-toggle:focus-visible {
+.rendered-markdown .prompt-list-caption:focus-visible {
   outline: 2px solid var(--focus-border);
   outline-offset: 2px;
 }
