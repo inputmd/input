@@ -210,6 +210,8 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--btn-bg) 70%, transparent);
   color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .workspaces-alert-close {

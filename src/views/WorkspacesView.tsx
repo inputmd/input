@@ -1,12 +1,13 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Ellipsis, ExternalLink, Globe, Lock } from 'lucide-react';
+import { Check, Ellipsis, ExternalLink, Globe, Lock } from 'lucide-react';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { GistSummary } from '../github';
-import type { InstallationRepo } from '../github_app';
+import type { InstallationRepo, LinkedInstallation } from '../github_app';
 import { DocumentsView } from './DocumentsView';
 
 interface WorkspacesViewProps {
   installationId: string | null;
+  linkedInstallations: LinkedInstallation[];
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
   reposLoadError: string | null;
@@ -22,6 +23,8 @@ interface WorkspacesViewProps {
   onRenameGist: (gist: GistSummary) => void | Promise<void>;
   onDeleteGist: (gist: GistSummary) => void | Promise<void>;
   onConnect: () => void;
+  onSelectInstallation: (installationId: string) => void | Promise<void>;
+  onDisconnectCurrentInstallation: () => void | Promise<void>;
   onDisconnect: () => void;
   onOpenRepo: (fullName: string, id: number, isPrivate: boolean) => void;
   reposInitialLoaded: boolean;
@@ -37,6 +40,7 @@ function formatRepoMeta(repo: InstallationRepo): string {
 
 export function WorkspacesView({
   installationId,
+  linkedInstallations,
   availableRepos,
   repoListLoading,
   reposLoadError,
@@ -52,6 +56,8 @@ export function WorkspacesView({
   onRenameGist,
   onDeleteGist,
   onConnect,
+  onSelectInstallation,
+  onDisconnectCurrentInstallation,
   onDisconnect,
   onOpenRepo,
   reposInitialLoaded,
@@ -62,6 +68,7 @@ export function WorkspacesView({
 }: WorkspacesViewProps) {
   const didAutoLoadRef = useRef(false);
   const [retryingRepos, setRetryingRepos] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   useEffect(() => {
     if (didAutoLoadRef.current) return;
     didAutoLoadRef.current = true;
@@ -99,9 +106,9 @@ export function WorkspacesView({
         </div>
         <div class="workspaces-actions">
           <button type="button" class="workspaces-connect-btn" onClick={() => void onConnect()}>
-            Configure Repos
+            Connect Repos
           </button>
-          <DropdownMenu.Root>
+          <DropdownMenu.Root open={actionsMenuOpen} onOpenChange={setActionsMenuOpen}>
             <DropdownMenu.Trigger asChild>
               <button
                 type="button"
@@ -115,9 +122,62 @@ export function WorkspacesView({
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="doc-actions-menu-content" sideOffset={6} align="end">
+                {linkedInstallations.map((installation) => (
+                  <DropdownMenu.Item
+                    key={installation.installationId}
+                    class="doc-actions-menu-item"
+                    onSelect={(event: Event) => {
+                      event.preventDefault();
+                      setActionsMenuOpen(false);
+                      void onSelectInstallation(installation.installationId);
+                    }}
+                  >
+                    {installation.accountAvatarUrl ? (
+                      <img
+                        src={installation.accountAvatarUrl}
+                        alt=""
+                        aria-hidden="true"
+                        width={18}
+                        height={18}
+                        style={{ width: '18px', height: '18px', borderRadius: '999px', flexShrink: 0 }}
+                      />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          borderRadius: '999px',
+                          background: 'var(--border-color)',
+                          display: 'inline-block',
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                    <span style={{ marginLeft: '8px', flex: 1 }}>
+                      {installation.accountLogin ?? installation.installationId}
+                    </span>
+                    {installation.installationId === installationId ? <Check size={14} aria-hidden="true" /> : null}
+                  </DropdownMenu.Item>
+                ))}
+                {linkedInstallations.length > 0 ? <DropdownMenu.Separator class="user-menu-separator" /> : null}
+                <DropdownMenu.Item
+                  class="doc-actions-menu-item"
+                  onSelect={(event: Event) => {
+                    event.preventDefault();
+                    setActionsMenuOpen(false);
+                    void onDisconnectCurrentInstallation();
+                  }}
+                >
+                  Disconnect selected installation
+                </DropdownMenu.Item>
                 <DropdownMenu.Item
                   class="doc-actions-menu-item doc-actions-menu-item-danger"
-                  onSelect={() => void onDisconnect()}
+                  onSelect={(event: Event) => {
+                    event.preventDefault();
+                    setActionsMenuOpen(false);
+                    void onDisconnect();
+                  }}
                 >
                   Disconnect all repos
                 </DropdownMenu.Item>

@@ -7,11 +7,12 @@
 | `GET` | `/api/github-app/health` | Health check |
 | `GET` | `/api/auth/github/start?return_to=...` | Starts GitHub OAuth and redirects to GitHub |
 | `GET` | `/api/auth/github/callback` | OAuth callback endpoint (redirects back to app) |
-| `GET` | `/api/auth/session` | Returns current auth session (`authenticated`, `user`, `installationId`) |
+| `GET` | `/api/auth/session` | Returns current auth session (`authenticated`, `user`, `installationId`, `installations`) |
 | `POST` | `/api/auth/logout` | Clears the server-side auth session |
 | `GET` | `/api/github-app/install-url?state=...` | Returns the GitHub App installation URL |
-| `POST` | `/api/github-app/sessions` | Associates an `installationId` with the current auth session |
-| `POST` | `/api/github-app/disconnect` | Clears the saved GitHub App installation from the current user session |
+| `POST` | `/api/github-app/sessions` | Links an installation to the current user and makes it the active installation |
+| `POST` | `/api/github-app/installations/select` | Switches the active linked installation for the current user |
+| `POST` | `/api/github-app/disconnect` | Disconnects one linked installation or all linked installations from the current user session |
 | `GET` | `/api/gists/:id` | Cached proxy for public gist reads (see [Gist proxy](#gist-proxy)) |
 | `GET` | `/api/public/repos/:owner/:repo/contents?path=...&ref=...` | Reads public repo file or directory contents |
 | `GET` | `/api/public/repos/:owner/:repo/raw?path=...` | Reads a public repo file as raw bytes |
@@ -45,7 +46,7 @@
 | `POST` | `/api/ai/project/:id/reset` | Clears staged changes in a project session |
 | `DELETE` | `/api/ai/project/:id` | Deletes a project session |
 
-Sessions are stored server-side in SQLite (`DATABASE_PATH`) and keyed by an `HttpOnly` cookie. `installationId` is linked to the signed-in GitHub user and enforced on repo API routes.
+Sessions are stored server-side in SQLite (`DATABASE_PATH`) and keyed by an `HttpOnly` cookie. Users can link multiple GitHub App installations; `installationId` is the currently selected installation, while repo API routes are enforced against the signed-in user's linked installation set.
 
 ## Reader AI streaming events
 

@@ -3,43 +3,6 @@ import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
-import { extensionFromMimeType, fetchFullGistFileText, fetchWithTimeout, maybeResizePastedImage } from './image_processing';
-import {
-  commonPrefixLength,
-  commonSuffixLength,
-  dirName,
-  fileNameFromPath,
-  folderDeleteConfirmMessage,
-  formatBytes,
-  isEditableTextFilePath,
-  isLikelyBinaryBytes,
-  isPathInFolder,
-  isSafeImageFileName,
-  isSidebarTextFileName,
-  isSidebarTextListPath,
-  isVisibleSidebarFilePath,
-  parentFolderPath,
-  renamePathWithNewFolder,
-  resolveRepoAssetPath,
-  safeDecodeURIComponent,
-  sanitizeDroppedFileName,
-  sanitizeScratchFileNameInput,
-  sanitizeTitleToFileName,
-} from './path_utils';
-import {
-  buildReaderAiHistoryDocumentKey,
-  clearReaderAiMessagesFromHistory,
-  loadReaderAiEntryFromHistory,
-  persistReaderAiMessagesToHistory,
-} from './reader_ai_history';
-import {
-  buildRepoFullName,
-  createWikiLinkResolver,
-  findMarkdownDirectoryIndexPath,
-  parseRepoFullName,
-  pickPreferredRepoMarkdownFile,
-  type PublicRepoRef,
-} from './wiki_links';
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
 import type { InlinePromptRequest } from './components/codemirror_inline_prompt';
@@ -79,10 +42,10 @@ import {
   clearSelectedRepo,
   compactRepoRecentCommits,
   consumeInstallState,
+  createInstallationSession,
   createInstallState,
   createRepoFileShareLink,
   createRepoFilesAtomic,
-  createSession,
   deleteRepoPathsAtomic,
   disconnectInstallation,
   getEditorSharedRepoFile,
@@ -101,6 +64,7 @@ import {
   hasInstallState,
   type InstallationRepo,
   isRepoFile,
+  type LinkedInstallation,
   listInstallationRepos,
   listRepoRecentCommits,
   publicRepoRawFileUrl,
@@ -113,6 +77,7 @@ import {
   renameRepoPathsAtomic,
   repoRawFileUrl,
   SessionExpiredError,
+  selectInstallation as selectGitHubInstallation,
   setInstallationId,
   setPendingInstallationId,
   setSelectedRepo as storeSelectedRepo,
@@ -129,7 +94,35 @@ import { removeDocumentDraft, useDocumentPersistence } from './hooks/useDocument
 import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown } from './image_markdown';
+import {
+  extensionFromMimeType,
+  fetchFullGistFileText,
+  fetchWithTimeout,
+  maybeResizePastedImage,
+} from './image_processing';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
+import {
+  commonPrefixLength,
+  commonSuffixLength,
+  dirName,
+  fileNameFromPath,
+  folderDeleteConfirmMessage,
+  formatBytes,
+  isEditableTextFilePath,
+  isLikelyBinaryBytes,
+  isPathInFolder,
+  isSafeImageFileName,
+  isSidebarTextFileName,
+  isSidebarTextListPath,
+  isVisibleSidebarFilePath,
+  parentFolderPath,
+  renamePathWithNewFolder,
+  resolveRepoAssetPath,
+  safeDecodeURIComponent,
+  sanitizeDroppedFileName,
+  sanitizeScratchFileNameInput,
+  sanitizeTitleToFileName,
+} from './path_utils';
 import { formatPromptListAnswer } from './prompt_list_format';
 import { splitPromptListStableText } from './prompt_list_streaming';
 import {
@@ -144,6 +137,12 @@ import {
   resetReaderAiProjectSession,
   updateReaderAiProjectSessionFile,
 } from './reader_ai';
+import {
+  buildReaderAiHistoryDocumentKey,
+  clearReaderAiMessagesFromHistory,
+  loadReaderAiEntryFromHistory,
+  persistReaderAiMessagesToHistory,
+} from './reader_ai_history';
 import { matchRoute, type Route, routePath } from './routing';
 import { isSubdomainMode } from './subdomain';
 import {
@@ -159,6 +158,14 @@ import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { LoadingView } from './views/LoadingView';
 import { WorkspacesView } from './views/WorkspacesView';
+import {
+  buildRepoFullName,
+  createWikiLinkResolver,
+  findMarkdownDirectoryIndexPath,
+  type PublicRepoRef,
+  parseRepoFullName,
+  pickPreferredRepoMarkdownFile,
+} from './wiki_links';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const READER_AI_VISIBLE_KEY = 'reader_ai_visible';
@@ -182,7 +189,6 @@ const MIN_READER_AI_WIDTH_PX = 280;
 const MAX_READER_AI_WIDTH_PX = 640;
 const SIDEBAR_FILE_FILTER_KEY = 'sidebar_file_filter';
 const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
-
 
 const OAUTH_REDIRECT_GUARD_KEY = 'oauth_redirect_guard';
 const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
@@ -231,7 +237,6 @@ function markAutoOnceGuard(key: string): void {
   }
 }
 
-
 function isRepoWriteConflictError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err instanceof ApiError && err.status === 409) return true;
@@ -251,7 +256,6 @@ function repoNewDraftKey(
 ): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${path}:${field}`;
 }
-
 
 function resolveRepoNewDraftPath(route: Route): string | null {
   if (route.name !== 'reponew') return null;
@@ -601,16 +605,16 @@ export function App() {
   // --- Shared state ---
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [installationId, setInstId] = useState<string | null>(getInstallationId());
+  const [linkedInstallations, setLinkedInstallations] = useState<LinkedInstallation[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
   const [selectedRepoPrivate, setSelectedRepoPrivate] = useState<boolean | null>(getSelectedRepo()?.private ?? null);
   const [sharedRepoInstallationId, setSharedRepoInstallationId] = useState<string | null>(null);
   const [publicRepoRef, setPublicRepoRef] = useState<PublicRepoRef | null>(null);
   const [repoAccessMode, setRepoAccessMode] = useState<'installed' | 'shared' | 'public' | null>(null);
-  const [installationRepos, setInstallationRepos] = useState<InstallationRepo[]>([]);
-  const [installationReposLoading, setInstallationReposLoading] = useState(false);
-  const [loadedReposInstallationId, setLoadedReposInstallationId] = useState<string | null>(null);
+  const [installationReposById, setInstallationReposById] = useState<Record<string, InstallationRepo[]>>({});
+  const [loadingInstallationReposId, setLoadingInstallationReposId] = useState<string | null>(null);
+  const [reposLoadErrorsById, setReposLoadErrorsById] = useState<Record<string, string>>({});
   const [autoLoadAttemptedReposInstallationId, setAutoLoadAttemptedReposInstallationId] = useState<string | null>(null);
-  const [reposLoadError, setReposLoadError] = useState<string | null>(null);
   const [menuGists, setMenuGists] = useState<GistSummary[]>([]);
   const [menuGistsLoading, setMenuGistsLoading] = useState(false);
   const [menuGistsLoaded, setMenuGistsLoaded] = useState(false);
@@ -618,6 +622,10 @@ export function App() {
   const [menuGistsAllLoaded, setMenuGistsAllLoaded] = useState(false);
   const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
+  const installationRepos = installationId ? (installationReposById[installationId] ?? []) : [];
+  const installationReposLoading = installationId !== null && loadingInstallationReposId === installationId;
+  const loadedReposInstallationId = installationId && installationReposById[installationId] ? installationId : null;
+  const reposLoadError = installationId ? (reposLoadErrorsById[installationId] ?? null) : null;
   const [localRateLimit, setLocalRateLimit] = useState<GitHubRateLimitSnapshot | null>(() =>
     readStoredGitHubRateLimitSnapshot('serverLocal'),
   );
@@ -803,6 +811,30 @@ export function App() {
     },
     [],
   );
+  const applyInstallationSessionState = useCallback(
+    (sessionState: { installationId?: string | null; installations?: LinkedInstallation[] }) => {
+      const nextInstallationId = sessionState.installationId ?? null;
+      const nextInstallations = sessionState.installations ?? [];
+      setLinkedInstallations(nextInstallations);
+      if (nextInstallationId) {
+        setInstallationId(nextInstallationId);
+      } else {
+        clearInstallationId();
+      }
+      setInstId(nextInstallationId);
+    },
+    [],
+  );
+  const clearInstalledRepoSelection = useCallback(() => {
+    clearSelectedRepo();
+    setSelectedRepo(null);
+    setSelectedRepoPrivate(null);
+    setRepoFiles([]);
+    setRepoSidebarFiles([]);
+    if (repoAccessMode === 'installed') {
+      navigate(routePath.workspaces());
+    }
+  }, [navigate, repoAccessMode]);
   const routeView = viewFromRoute(route);
   const activeView = viewPhase ?? routeView;
   const currentRouteKey = routeKeyFromRoute(route);
@@ -1030,11 +1062,15 @@ export function App() {
     clearSelectedRepo();
     setUser(null);
     setInstId(null);
+    setLinkedInstallations([]);
     setSelectedRepo(null);
     setSelectedRepoPrivate(null);
     setSharedRepoInstallationId(null);
     setRepoAccessMode(null);
     setPublicRepoRef(null);
+    setInstallationReposById({});
+    setLoadingInstallationReposId(null);
+    setReposLoadErrorsById({});
     setRepoFiles([]);
     setRepoSidebarFiles([]);
     setCurrentDocumentSavedContent(null);
@@ -1549,8 +1585,12 @@ export function App() {
         clearInstallationId();
         clearSelectedRepo();
         setInstId(null);
+        setLinkedInstallations([]);
         setSelectedRepo(null);
         setSelectedRepoPrivate(null);
+        setInstallationReposById({});
+        setReposLoadErrorsById({});
+        setLoadingInstallationReposId(null);
         return { authenticated: false, navigated: false };
       }
       clearOAuthRedirectGuard();
@@ -1558,9 +1598,8 @@ export function App() {
       const pendingInstallationId = getPendingInstallationId();
       if (pendingInstallationId) {
         try {
-          await createSession(pendingInstallationId);
-          setInstallationId(pendingInstallationId);
-          setInstId(pendingInstallationId);
+          const nextSessionState = await createInstallationSession(pendingInstallationId);
+          applyInstallationSessionState(nextSessionState);
           clearPendingInstallationId();
           setWorkspaceNotice('GitHub App installation connected. Review your installation details below.');
         } catch (err) {
@@ -1569,21 +1608,13 @@ export function App() {
           }
         }
       }
-      if (session.installationId) {
-        setInstallationId(session.installationId);
-        setInstId(session.installationId);
-      } else {
-        clearInstallationId();
-        setInstId(null);
-        setInstallationRepos([]);
-        setLoadedReposInstallationId(null);
-      }
+      applyInstallationSessionState(session);
       return { authenticated: true, navigated: false };
     } catch {
       setUser(null);
       return { authenticated: false, navigated: false };
     }
-  }, [clearOAuthRedirectGuard]);
+  }, [applyInstallationSessionState, clearOAuthRedirectGuard]);
 
   // --- GitHub App redirect ---
   const tryHandleGitHubAppSetupRedirect = useCallback(async (): Promise<boolean> => {
@@ -1611,7 +1642,8 @@ export function App() {
         }
         return true;
       }
-      await createSession(id);
+      const nextSessionState = await createInstallationSession(id);
+      applyInstallationSessionState(nextSessionState);
     } catch (err) {
       showRateLimitToastIfNeeded(err);
       if (err instanceof Error && err.message === 'Unauthorized') {
@@ -1631,13 +1663,11 @@ export function App() {
     }
 
     consumeInstallState(actualState);
-    setInstallationId(id);
-    setInstId(id);
     setWorkspaceNotice('GitHub App installation setup complete. Review your installation details below.');
 
     navigate(routePath.workspaces(), { replace: true, state: null });
     return true;
-  }, [navigate, showError, showRateLimitToastIfNeeded, startGitHubSignIn]);
+  }, [applyInstallationSessionState, navigate, showError, showRateLimitToastIfNeeded, startGitHubSignIn]);
 
   const onConnectInstallation = useCallback(async () => {
     try {
@@ -2724,11 +2754,10 @@ export function App() {
   useEffect(() => {
     void installationId;
     void user?.login;
-    setInstallationRepos([]);
-    setInstallationReposLoading(false);
-    setLoadedReposInstallationId(null);
+    setInstallationReposById({});
+    setLoadingInstallationReposId(null);
     setAutoLoadAttemptedReposInstallationId(null);
-    setReposLoadError(null);
+    setReposLoadErrorsById({});
     setGistsLoadError(null);
     setMenuGistsLoaded(false);
     setMenuGistsPage(1);
@@ -5041,11 +5070,10 @@ export function App() {
     setMenuGistsLoading(false);
     setAutoLoadAttemptedGists(false);
     setGistsLoadError(null);
-    setInstallationRepos([]);
-    setInstallationReposLoading(false);
-    setLoadedReposInstallationId(null);
+    setInstallationReposById({});
+    setLoadingInstallationReposId(null);
     setAutoLoadAttemptedReposInstallationId(null);
-    setReposLoadError(null);
+    setReposLoadErrorsById({});
     showSuccessToast('Caches cleared');
   }, [showConfirm, showSuccessToast]);
 
@@ -5976,22 +6004,29 @@ export function App() {
 
   const loadInstallationRepos = useCallback(async () => {
     if (!installationId) return;
-    setInstallationReposLoading(true);
+    setLoadingInstallationReposId(installationId);
     try {
       const repos = await listInstallationRepos(installationId);
-      setInstallationRepos(repos.repositories);
-      setLoadedReposInstallationId(installationId);
-      setReposLoadError(null);
+      setInstallationReposById((prev) => ({ ...prev, [installationId]: repos.repositories }));
+      setReposLoadErrorsById((prev) => {
+        if (!(installationId in prev)) return prev;
+        const next = { ...prev };
+        delete next[installationId];
+        return next;
+      });
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         handleSessionExpired();
         return;
       }
       showRateLimitToastIfNeeded(err);
-      setInstallationRepos([]);
-      setReposLoadError(err instanceof Error ? err.message : 'Failed to load repos');
+      setInstallationReposById((prev) => ({ ...prev, [installationId]: [] }));
+      setReposLoadErrorsById((prev) => ({
+        ...prev,
+        [installationId]: err instanceof Error ? err.message : 'Failed to load repos',
+      }));
     } finally {
-      setInstallationReposLoading(false);
+      setLoadingInstallationReposId((current) => (current === installationId ? null : current));
     }
   }, [handleSessionExpired, installationId, showRateLimitToastIfNeeded]);
 
@@ -6095,27 +6130,74 @@ export function App() {
     [showAlert, showFailureToast, showPrompt],
   );
 
+  const onSelectActiveInstallation = useCallback(
+    async (nextInstallationId: string) => {
+      if (!nextInstallationId || nextInstallationId === installationId) return;
+      try {
+        const nextSessionState = await selectGitHubInstallation(nextInstallationId);
+        applyInstallationSessionState(nextSessionState);
+        clearInstalledRepoSelection();
+      } catch (err) {
+        showRateLimitToastIfNeeded(err);
+        void showAlert(err instanceof Error ? err.message : 'Failed to switch installation');
+      }
+    },
+    [applyInstallationSessionState, clearInstalledRepoSelection, installationId, showAlert, showRateLimitToastIfNeeded],
+  );
+
   const onDisconnect = useCallback(async () => {
     const confirmed = await showConfirm('Disconnect all repos?');
     if (!confirmed) return;
 
     try {
-      await disconnectInstallation();
+      const nextSessionState = await disconnectInstallation();
+      applyInstallationSessionState(nextSessionState);
     } catch {
       /* still clear local state below */
     } finally {
       clearInstallationId();
       clearSelectedRepo();
       setInstId(null);
+      setLinkedInstallations([]);
       setSelectedRepo(null);
       setSelectedRepoPrivate(null);
-      setInstallationRepos([]);
-      setLoadedReposInstallationId(null);
+      setInstallationReposById({});
+      setLoadingInstallationReposId(null);
+      setReposLoadErrorsById({});
       setRepoFiles([]);
       setRepoSidebarFiles([]);
       navigate(routePath.workspaces());
     }
-  }, [navigate, showConfirm]);
+  }, [applyInstallationSessionState, navigate, showConfirm]);
+
+  const onDisconnectCurrentInstallation = useCallback(async () => {
+    if (!installationId) return;
+    const currentInstallation = linkedInstallations.find((candidate) => candidate.installationId === installationId);
+    const installationLabel = currentInstallation?.accountLogin ?? installationId;
+    const confirmed = await showConfirm(`Disconnect installation "${installationLabel}"?`, {
+      intent: 'danger',
+      confirmLabel: 'Disconnect',
+      defaultFocus: 'cancel',
+    });
+    if (!confirmed) return;
+
+    try {
+      const nextSessionState = await disconnectInstallation(installationId);
+      applyInstallationSessionState(nextSessionState);
+      clearInstalledRepoSelection();
+    } catch (err) {
+      showRateLimitToastIfNeeded(err);
+      void showAlert(err instanceof Error ? err.message : 'Failed to disconnect installation');
+    }
+  }, [
+    applyInstallationSessionState,
+    clearInstalledRepoSelection,
+    installationId,
+    linkedInstallations,
+    showAlert,
+    showConfirm,
+    showRateLimitToastIfNeeded,
+  ]);
 
   // --- Render active view ---
   const renderView = () => {
@@ -6125,6 +6207,7 @@ export function App() {
         return user ? (
           <WorkspacesView
             installationId={installationId}
+            linkedInstallations={linkedInstallations}
             availableRepos={installationRepos}
             repoListLoading={installationReposLoading}
             reposLoadError={reposLoadError}
@@ -6140,6 +6223,8 @@ export function App() {
             onRenameGist={onRenameWorkspaceGist}
             onDeleteGist={onDeleteWorkspaceGist}
             onConnect={onConnectInstallation}
+            onSelectInstallation={onSelectActiveInstallation}
+            onDisconnectCurrentInstallation={onDisconnectCurrentInstallation}
             onDisconnect={onDisconnect}
             onOpenRepo={onOpenRepoFromWorkspaces}
             reposInitialLoaded={reposInitialLoaded}

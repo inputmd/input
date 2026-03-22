@@ -10,6 +10,15 @@ export interface Session {
   expiresAtMs: number;
 }
 
+export interface UserInstallation {
+  installationId: string;
+  accountLogin: string | null;
+  accountType: string | null;
+  accountAvatarUrl: string | null;
+  accountHtmlUrl: string | null;
+  updatedAtMs: number;
+}
+
 export interface TokenCacheRecord {
   token: string;
   expires_at: string;

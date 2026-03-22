@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { DATABASE_PATH, SESSION_MAX_LIFETIME_SECONDS, SESSION_TTL_SECONDS } from './config';
-import type { Session } from './types';
+import { DATABASE_PATH, SESSION_MAX_LIFETIME_SECONDS, SESSION_TTL_SECONDS } from './config.ts';
+import type { Session, UserInstallation } from './types.ts';
 
 const SESSION_COOKIE_NAME = 'input_session_id';
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -67,11 +67,70 @@ try {
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_installations (
-    github_user_id INTEGER PRIMARY KEY,
+    github_user_id INTEGER NOT NULL,
     installation_id TEXT NOT NULL,
+    account_login TEXT,
+    account_type TEXT,
+    account_avatar_url TEXT,
+    account_html_url TEXT,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (github_user_id, installation_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_user_installations_github_user_id
+  ON user_installations (github_user_id, updated_at_ms DESC);
+
+  CREATE TABLE IF NOT EXISTS user_installation_preferences (
+    github_user_id INTEGER PRIMARY KEY,
+    selected_installation_id TEXT,
     updated_at_ms INTEGER NOT NULL
   );
 `);
+
+type TableInfoRow = {
+  name: string;
+  pk: number;
+};
+
+function hasLegacyUserInstallationsSchema(): boolean {
+  const rows = db.prepare('PRAGMA table_info(user_installations)').all() as TableInfoRow[];
+  if (rows.length === 0) return false;
+  const githubUserId = rows.find((row) => row.name === 'github_user_id');
+  const installationId = rows.find((row) => row.name === 'installation_id');
+  const hasMetadataColumns = rows.some((row) => row.name === 'account_login');
+  return Boolean(githubUserId?.pk === 1 && installationId?.pk === 0 && !hasMetadataColumns);
+}
+
+if (hasLegacyUserInstallationsSchema()) {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_user_installations_github_user_id;
+    ALTER TABLE user_installations RENAME TO user_installations_legacy;
+
+    CREATE TABLE user_installations (
+      github_user_id INTEGER NOT NULL,
+      installation_id TEXT NOT NULL,
+      account_login TEXT,
+      account_type TEXT,
+      account_avatar_url TEXT,
+      account_html_url TEXT,
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (github_user_id, installation_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_installations_github_user_id
+    ON user_installations (github_user_id, updated_at_ms DESC);
+
+    INSERT INTO user_installations (github_user_id, installation_id, updated_at_ms)
+    SELECT github_user_id, installation_id, updated_at_ms
+    FROM user_installations_legacy;
+
+    INSERT INTO user_installation_preferences (github_user_id, selected_installation_id, updated_at_ms)
+    SELECT github_user_id, installation_id, updated_at_ms
+    FROM user_installations_legacy;
+
+    DROP TABLE user_installations_legacy;
+  `);
+}
 
 const sessionUpsertStmt = db.prepare(`
   INSERT INTO sessions (
@@ -114,20 +173,65 @@ const deleteSessionByIdStmt = db.prepare('DELETE FROM sessions WHERE id = ?');
 const deleteExpiredSessionsStmt = db.prepare('DELETE FROM sessions WHERE expires_at_ms <= ?');
 
 const upsertInstallationStmt = db.prepare(`
-  INSERT INTO user_installations (github_user_id, installation_id, updated_at_ms)
-  VALUES (?, ?, ?)
-  ON CONFLICT(github_user_id) DO UPDATE SET
-    installation_id = excluded.installation_id,
+  INSERT INTO user_installations (
+    github_user_id,
+    installation_id,
+    account_login,
+    account_type,
+    account_avatar_url,
+    account_html_url,
+    updated_at_ms
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(github_user_id, installation_id) DO UPDATE SET
+    account_login = excluded.account_login,
+    account_type = excluded.account_type,
+    account_avatar_url = excluded.account_avatar_url,
+    account_html_url = excluded.account_html_url,
     updated_at_ms = excluded.updated_at_ms
 `);
 
-const selectInstallationStmt = db.prepare(`
-  SELECT installation_id
-  FROM user_installations
+const upsertInstallationPreferenceStmt = db.prepare(`
+  INSERT INTO user_installation_preferences (github_user_id, selected_installation_id, updated_at_ms)
+  VALUES (?, ?, ?)
+  ON CONFLICT(github_user_id) DO UPDATE SET
+    selected_installation_id = excluded.selected_installation_id,
+    updated_at_ms = excluded.updated_at_ms
+`);
+
+const selectInstallationPreferenceStmt = db.prepare(`
+  SELECT selected_installation_id
+  FROM user_installation_preferences
   WHERE github_user_id = ?
 `);
 
-const deleteInstallationStmt = db.prepare('DELETE FROM user_installations WHERE github_user_id = ?');
+const selectInstallationsForUserStmt = db.prepare(`
+  SELECT
+    installation_id,
+    account_login,
+    account_type,
+    account_avatar_url,
+    account_html_url,
+    updated_at_ms
+  FROM user_installations
+  WHERE github_user_id = ?
+  ORDER BY updated_at_ms DESC, installation_id DESC
+`);
+
+const selectInstallationByUserAndIdStmt = db.prepare(`
+  SELECT 1
+  FROM user_installations
+  WHERE github_user_id = ? AND installation_id = ?
+  LIMIT 1
+`);
+
+const deleteInstallationStmt = db.prepare(
+  'DELETE FROM user_installations WHERE github_user_id = ? AND installation_id = ?',
+);
+const deleteAllInstallationsStmt = db.prepare('DELETE FROM user_installations WHERE github_user_id = ?');
+const deleteInstallationPreferenceStmt = db.prepare(
+  'DELETE FROM user_installation_preferences WHERE github_user_id = ?',
+);
 
 function parseCookies(req: http.IncomingMessage): Record<string, string> {
   const raw = req.headers.cookie;
@@ -261,18 +365,104 @@ export function refreshSession(session: Session, res: http.ServerResponse): Sess
   );
 }
 
-export function rememberInstallationForUser(githubUserId: number, installationId: string): void {
-  upsertInstallationStmt.run(githubUserId, installationId, Date.now());
+type UpsertInstallationInput = {
+  installationId: string;
+  accountLogin?: string | null;
+  accountType?: string | null;
+  accountAvatarUrl?: string | null;
+  accountHtmlUrl?: string | null;
+};
+
+type InstallationRow = {
+  installation_id?: string;
+  account_login?: string | null;
+  account_type?: string | null;
+  account_avatar_url?: string | null;
+  account_html_url?: string | null;
+  updated_at_ms?: number;
+};
+
+function rowToUserInstallation(row: InstallationRow): UserInstallation {
+  return {
+    installationId: String(row.installation_id),
+    accountLogin: row.account_login == null ? null : String(row.account_login),
+    accountType: row.account_type == null ? null : String(row.account_type),
+    accountAvatarUrl: row.account_avatar_url == null ? null : String(row.account_avatar_url),
+    accountHtmlUrl: row.account_html_url == null ? null : String(row.account_html_url),
+    updatedAtMs: Number(row.updated_at_ms ?? 0),
+  };
+}
+
+function setSelectedInstallationPreference(githubUserId: number, installationId: string | null): void {
+  const nowMs = Date.now();
+  if (installationId === null) {
+    upsertInstallationPreferenceStmt.run(githubUserId, null, nowMs);
+    return;
+  }
+  upsertInstallationPreferenceStmt.run(githubUserId, installationId, nowMs);
+}
+
+function getPreferredInstallationIdForUser(githubUserId: number): string | null {
+  const row = selectInstallationPreferenceStmt.get(githubUserId) as
+    | { selected_installation_id?: string | null }
+    | undefined;
+  if (!row?.selected_installation_id) return null;
+  return String(row.selected_installation_id);
+}
+
+export function linkInstallationForUser(githubUserId: number, input: UpsertInstallationInput): void {
+  const nowMs = Date.now();
+  upsertInstallationStmt.run(
+    githubUserId,
+    input.installationId,
+    input.accountLogin ?? null,
+    input.accountType ?? null,
+    input.accountAvatarUrl ?? null,
+    input.accountHtmlUrl ?? null,
+    nowMs,
+  );
+}
+
+export function listInstallationsForUser(githubUserId: number): UserInstallation[] {
+  const rows = selectInstallationsForUserStmt.all(githubUserId) as InstallationRow[];
+  return rows.map(rowToUserInstallation);
+}
+
+export function isInstallationLinkedForUser(githubUserId: number, installationId: string): boolean {
+  const row = selectInstallationByUserAndIdStmt.get(githubUserId, installationId) as { 1?: number } | undefined;
+  return Boolean(row);
 }
 
 export function getRememberedInstallationForUser(githubUserId: number): string | null {
-  const row = selectInstallationStmt.get(githubUserId) as { installation_id?: string } | undefined;
-  if (!row?.installation_id) return null;
-  return row.installation_id;
+  const preferred = getPreferredInstallationIdForUser(githubUserId);
+  if (preferred && isInstallationLinkedForUser(githubUserId, preferred)) return preferred;
+  const firstInstallation = listInstallationsForUser(githubUserId)[0];
+  return firstInstallation?.installationId ?? null;
+}
+
+export function rememberInstallationForUser(githubUserId: number, input: UpsertInstallationInput): void {
+  linkInstallationForUser(githubUserId, input);
+  setSelectedInstallationPreference(githubUserId, input.installationId);
+}
+
+export function selectInstallationForUser(githubUserId: number, installationId: string): boolean {
+  if (!isInstallationLinkedForUser(githubUserId, installationId)) return false;
+  setSelectedInstallationPreference(githubUserId, installationId);
+  return true;
+}
+
+export function removeInstallationForUser(githubUserId: number, installationId: string): string | null {
+  deleteInstallationStmt.run(githubUserId, installationId);
+  const preferred = getPreferredInstallationIdForUser(githubUserId);
+  if (preferred !== installationId) return getRememberedInstallationForUser(githubUserId);
+  const nextSelectedInstallationId = listInstallationsForUser(githubUserId)[0]?.installationId ?? null;
+  setSelectedInstallationPreference(githubUserId, nextSelectedInstallationId);
+  return nextSelectedInstallationId;
 }
 
 export function clearRememberedInstallationForUser(githubUserId: number): void {
-  deleteInstallationStmt.run(githubUserId);
+  deleteAllInstallationsStmt.run(githubUserId);
+  deleteInstallationPreferenceStmt.run(githubUserId);
 }
 
 export function createOAuthState(returnTo: string): string {

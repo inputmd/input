@@ -97,6 +97,24 @@ async function publicFetch(url: string, init?: RequestInit): Promise<Response> {
 // --- Public endpoints (no auth) ---
 
 export async function createSession(installationId: string): Promise<void> {
+  await createInstallationSession(installationId);
+}
+
+export interface LinkedInstallation {
+  installationId: string;
+  accountLogin: string | null;
+  accountType: string | null;
+  accountAvatarUrl: string | null;
+  accountHtmlUrl: string | null;
+  updatedAtMs: number;
+}
+
+export interface InstallationSessionState {
+  installationId: string | null;
+  installations: LinkedInstallation[];
+}
+
+export async function createInstallationSession(installationId: string): Promise<InstallationSessionState> {
   const res = await fetch('/api/github-app/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -106,17 +124,33 @@ export async function createSession(installationId: string): Promise<void> {
   recordServerLocalRateLimitFromResponse(res);
   recordGitHubRateLimitFromResponse(res);
   if (!res.ok) throw await responseToApiError(res);
-  await res.json();
+  return (await res.json()) as InstallationSessionState;
 }
 
-export async function disconnectInstallation(): Promise<void> {
-  const res = await fetch('/api/github-app/disconnect', {
+export async function selectInstallation(installationId: string): Promise<InstallationSessionState> {
+  const res = await fetch('/api/github-app/installations/select', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
+    body: JSON.stringify({ installationId }),
   });
   recordServerLocalRateLimitFromResponse(res);
   recordGitHubRateLimitFromResponse(res);
   if (!res.ok) throw await responseToApiError(res);
+  return (await res.json()) as InstallationSessionState;
+}
+
+export async function disconnectInstallation(installationId?: string): Promise<InstallationSessionState> {
+  const res = await fetch('/api/github-app/disconnect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(installationId ? { installationId } : {}),
+  });
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
+  if (!res.ok) throw await responseToApiError(res);
+  return (await res.json()) as InstallationSessionState;
 }
 
 export function createInstallState(): string {

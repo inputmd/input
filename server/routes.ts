@@ -68,12 +68,16 @@ import {
   destroySession,
   getRememberedInstallationForUser,
   getSession,
+  isInstallationLinkedForUser,
+  listInstallationsForUser,
   refreshSession,
   rememberInstallationForUser,
+  removeInstallationForUser,
+  selectInstallationForUser,
 } from './session';
 import { createRepoFileShareToken, verifyRepoFileShareToken } from './share_tokens';
 import { stripManagedSubdomain } from './subdomain';
-import type { Session } from './types';
+import type { Session, UserInstallation } from './types';
 
 interface RouteContext {
   req: http.IncomingMessage;
@@ -278,10 +282,61 @@ function checkRateLimitForSession(ctx: RouteContext, session: Session | null): b
 
 function requireMatchedInstallation(ctx: RouteContext, session: Session, matchIndex: number): string {
   const installationId = ctx.match[matchIndex];
-  if (!session.installationId || session.installationId !== installationId) {
+  if (!isInstallationLinkedForUser(session.githubUserId, installationId)) {
     throw new ClientError('Forbidden', 403);
   }
   return installationId;
+}
+
+function authSessionResponse(session: Session): {
+  authenticated: true;
+  user: {
+    login: string;
+    avatar_url: string;
+    name: string | null;
+  };
+  installationId: string | null;
+  installations: UserInstallation[];
+} {
+  return {
+    authenticated: true,
+    user: {
+      login: session.githubLogin,
+      avatar_url: session.githubAvatarUrl,
+      name: session.githubName,
+    },
+    installationId: session.installationId,
+    installations: listInstallationsForUser(session.githubUserId),
+  };
+}
+
+type GitHubInstallationAccount = {
+  login?: string;
+  type?: string;
+  avatar_url?: string;
+  html_url?: string;
+};
+
+type GitHubInstallation = {
+  id?: number;
+  account?: GitHubInstallationAccount | null;
+};
+
+async function fetchGitHubInstallation(installationId: string): Promise<GitHubInstallation> {
+  const jwt = await createAppJwt();
+  const ghRes = await fetch(`https://api.github.com/app/installations/${encodeURIComponent(installationId)}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${jwt}`,
+      'User-Agent': 'input-github-app-auth-server',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+  });
+  if (!ghRes.ok) {
+    throw new ClientError('Invalid installation', 403);
+  }
+  return (await ghRes.json()) as GitHubInstallation;
 }
 
 async function githubFetchWithUserToken(session: Session, path: string, init: RequestInit = {}): Promise<Response> {
@@ -809,15 +864,7 @@ async function handleAuthSession(ctx: RouteContext): Promise<void> {
     return;
   }
   refreshSession(session, ctx.res);
-  json(ctx.res, 200, {
-    authenticated: true,
-    user: {
-      login: session.githubLogin,
-      avatar_url: session.githubAvatarUrl,
-      name: session.githubName,
-    },
-    installationId: session.installationId,
-  });
+  json(ctx.res, 200, authSessionResponse(session));
 }
 
 async function handleAuthLogout(ctx: RouteContext): Promise<void> {
@@ -868,38 +915,67 @@ async function handleCreateSession(ctx: RouteContext): Promise<void> {
     return;
   }
 
-  const jwt = await createAppJwt();
-  const ghRes = await fetch(`https://api.github.com/app/installations/${encodeURIComponent(installationId)}`, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${jwt}`,
-      'User-Agent': 'input-github-app-auth-server',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
-  });
-
-  if (!ghRes.ok) {
-    clearRememberedInstallationForUser(session.githubUserId);
-    session.installationId = null;
-    refreshSession(session, ctx.res);
+  let installation: GitHubInstallation;
+  try {
+    installation = await fetchGitHubInstallation(installationId);
+  } catch {
     json(ctx.res, 403, { error: 'Invalid installation' });
     return;
   }
 
   session.installationId = installationId;
-  rememberInstallationForUser(session.githubUserId, installationId);
+  rememberInstallationForUser(session.githubUserId, {
+    installationId,
+    accountLogin: installation.account?.login ?? null,
+    accountType: installation.account?.type ?? null,
+    accountAvatarUrl: installation.account?.avatar_url ?? null,
+    accountHtmlUrl: installation.account?.html_url ?? null,
+  });
   refreshSession(session, ctx.res);
-  json(ctx.res, 200, { installationId });
+  json(ctx.res, 200, {
+    installationId,
+    installations: listInstallationsForUser(session.githubUserId),
+  });
 }
 
 async function handleDisconnectInstallation(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
-  session.installationId = null;
-  clearRememberedInstallationForUser(session.githubUserId);
+  const body = await readJson(ctx.req).catch(() => undefined);
+  const installationId = typeof body?.installationId === 'string' ? body.installationId : null;
+  if (installationId) {
+    session.installationId = removeInstallationForUser(session.githubUserId, installationId);
+  } else {
+    session.installationId = null;
+    clearRememberedInstallationForUser(session.githubUserId);
+  }
   refreshSession(session, ctx.res);
-  json(ctx.res, 200, { ok: true });
+  json(ctx.res, 200, {
+    ok: true,
+    installationId: session.installationId,
+    installations: listInstallationsForUser(session.githubUserId),
+  });
+}
+
+async function handleSelectInstallation(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  const body = await readJson(ctx.req);
+  const installationId = body?.installationId;
+  if (!installationId || typeof installationId !== 'string') {
+    json(ctx.res, 400, { error: 'installationId is required' });
+    return;
+  }
+  if (!selectInstallationForUser(session.githubUserId, installationId)) {
+    json(ctx.res, 403, { error: 'Installation is not linked to this user' });
+    return;
+  }
+  session.installationId = installationId;
+  refreshSession(session, ctx.res);
+  json(ctx.res, 200, {
+    installationId,
+    installations: listInstallationsForUser(session.githubUserId),
+  });
 }
 
 async function handleGitHubUser(ctx: RouteContext): Promise<void> {
@@ -957,7 +1033,12 @@ async function handleDeleteGist(ctx: RouteContext): Promise<void> {
   const ghRes = await githubFetchWithUserToken(session, `/gists/${encodeURIComponent(ctx.match[1])}`, {
     method: 'DELETE',
   });
-  if (await gitHubResponseFailed(ctx.res, ghRes, `/gists/${encodeURIComponent(ctx.match[1])} [DELETE]`, { throw401: true })) return;
+  if (
+    await gitHubResponseFailed(ctx.res, ghRes, `/gists/${encodeURIComponent(ctx.match[1])} [DELETE]`, {
+      throw401: true,
+    })
+  )
+    return;
   json(ctx.res, 200, { ok: true });
 }
 
@@ -1158,7 +1239,7 @@ async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
   if (!installationId || !repoFullName || !pathParam)
     throw new ClientError('installationId, repoFullName, and path are required', 400);
   if (!pathParam.toLowerCase().endsWith('.md')) throw new ClientError('Only markdown files can be shared', 400);
-  if (!session.installationId || session.installationId !== installationId) throw new ClientError('Forbidden', 403);
+  if (!isInstallationLinkedForUser(session.githubUserId, installationId)) throw new ClientError('Forbidden', 403);
 
   const { owner, repo } = splitRepoFullName(repoFullName);
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
@@ -2315,7 +2396,8 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: gistUpdates }),
       });
-      if (await gitHubResponseFailed(ctx.res, ghRes, `/gists/${encodeURIComponent(gistId)}`, { throw401: true })) return;
+      if (await gitHubResponseFailed(ctx.res, ghRes, `/gists/${encodeURIComponent(gistId)}`, { throw401: true }))
+        return;
       applied.push(...Object.keys(gistUpdates));
     }
     json(ctx.res, 200, { applied, failed });
@@ -2328,7 +2410,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
     if (!installationId || !repoFullName) {
       throw new ClientError('context.installation_id and context.repo_full_name are required', 400);
     }
-    if (!session.installationId || session.installationId !== installationId) throw new ClientError('Forbidden', 403);
+    if (!isInstallationLinkedForUser(session.githubUserId, installationId)) throw new ClientError('Forbidden', 403);
     const { owner, repo } = splitRepoFullName(repoFullName);
 
     if (changes.length > 1) {
@@ -3242,6 +3324,7 @@ const routes: RouteDef[] = [
   { method: 'DELETE', pattern: /^\/api\/github\/gists\/([a-f0-9]+)$/i, handler: handleDeleteGist },
   { method: 'GET', pattern: /^\/api\/github-app\/install-url$/, handler: handleInstallUrl },
   { method: 'POST', pattern: /^\/api\/github-app\/sessions$/, handler: handleCreateSession },
+  { method: 'POST', pattern: /^\/api\/github-app\/installations\/select$/, handler: handleSelectInstallation },
   { method: 'POST', pattern: /^\/api\/github-app\/disconnect$/, handler: handleDisconnectInstallation },
   { method: 'POST', pattern: /^\/api\/share\/repo-file$/, handler: handleCreateRepoFileShare },
   { method: 'GET', pattern: SHARE_REPO_FILE_PATTERN, handler: handleGetSharedRepoFile },

@@ -1,6 +1,13 @@
 import type { RepoDocFile } from './document_store';
 import type { RepoContents } from './github_app';
-import { dirName, fileNameFromPath, normalizeRepoPath, pathDepth, resolveRelativeDocPath, safeDecodeURIComponent } from './path_utils';
+import {
+  dirName,
+  fileNameFromPath,
+  normalizeRepoPath,
+  pathDepth,
+  resolveRelativeDocPath,
+  safeDecodeURIComponent,
+} from './path_utils';
 import { encodePathForHref, isMarkdownFileName } from './util';
 
 export interface WikiLinkResolver {

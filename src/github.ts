@@ -1,5 +1,6 @@
 import { responseToApiError } from './api_error';
 import { emitCacheEvent } from './cache_events';
+import type { LinkedInstallation } from './github_app';
 import { recordGitHubRateLimitFromResponse, recordServerLocalRateLimitFromResponse } from './github_rate_limit';
 import { SyncedCache } from './synced_cache';
 import { readCacheTtlMs } from './util';
@@ -87,10 +88,11 @@ export interface GitHubUser {
   name: string | null;
 }
 
-interface AuthSessionResponse {
+export interface AuthSessionResponse {
   authenticated: boolean;
   user?: GitHubUser;
   installationId?: string | null;
+  installations?: LinkedInstallation[];
 }
 
 async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
