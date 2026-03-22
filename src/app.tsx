@@ -196,6 +196,7 @@ const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
 const MARKDOWN_LINK_PREVIEW_MAX_CHARS = 1800;
 const MARKDOWN_LINK_PREVIEW_MAX_LINES = 18;
 const READER_AI_SOURCE_MAX_CHARS = 140_000;
+const DRAFT_PERSIST_DELAY_MS = 250;
 const INPUT_GITHUB_REPO_FULL_NAME = 'inputmd/input';
 const INPUT_GITHUB_SOURCE_PATH = 'README.md';
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
@@ -1009,6 +1010,27 @@ export function App() {
     },
     [currentGistId, draftMode, editContent, editTitle, editingBackend],
   );
+
+  const persistNewGistFileDraft = useCallback(() => {
+    if (activeView !== 'edit' || editingBackend !== 'gist' || !currentGistId || currentFileName !== null) return;
+    const persisted = readPersistedNewGistFileDraft(currentGistId);
+    writePersistedNewGistFileDraft(currentGistId, {
+      title: editTitle || persisted?.title || UNSAVED_FILE_LABEL,
+      content: editContent,
+      filename: persisted?.filename || DEFAULT_SCRATCH_FILENAME,
+    });
+  }, [activeView, currentFileName, currentGistId, editContent, editTitle, editingBackend]);
+
+  const persistRepoNewDraft = useCallback(() => {
+    if (route.name !== 'reponew') return;
+    if (editingBackend !== 'repo' || currentRepoDocPath) return;
+    const instId = installationId ?? getInstallationId();
+    const repoName = selectedRepo ?? getSelectedRepo()?.full_name ?? null;
+    if (!instId || !repoName) return;
+    const path = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
+    localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'title'), editTitle);
+    localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'content'), editContent);
+  }, [route, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle, editContent]);
 
   const startGitHubSignIn = useCallback(
     (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
@@ -2726,30 +2748,42 @@ export function App() {
   // --- Draft persistence ---
   useEffect(() => {
     if (!draftMode) return;
-    localStorage.setItem(DRAFT_TITLE_KEY, editTitle);
-    localStorage.setItem(DRAFT_CONTENT_KEY, editContent);
-  }, [draftMode, editTitle, editContent]);
+    const timerId = window.setTimeout(() => {
+      persistPendingGistDraft();
+    }, DRAFT_PERSIST_DELAY_MS);
+    return () => window.clearTimeout(timerId);
+  }, [draftMode, persistPendingGistDraft]);
 
   useEffect(() => {
     if (activeView !== 'edit' || editingBackend !== 'gist' || !currentGistId || currentFileName !== null) return;
-    const persisted = readPersistedNewGistFileDraft(currentGistId);
-    writePersistedNewGistFileDraft(currentGistId, {
-      title: editTitle || persisted?.title || UNSAVED_FILE_LABEL,
-      content: editContent,
-      filename: persisted?.filename || DEFAULT_SCRATCH_FILENAME,
-    });
-  }, [activeView, editingBackend, currentGistId, currentFileName, editTitle, editContent]);
+    const timerId = window.setTimeout(() => {
+      persistNewGistFileDraft();
+    }, DRAFT_PERSIST_DELAY_MS);
+    return () => window.clearTimeout(timerId);
+  }, [activeView, editingBackend, currentGistId, currentFileName, persistNewGistFileDraft]);
 
   useEffect(() => {
     if (route.name !== 'reponew') return;
     if (editingBackend !== 'repo' || currentRepoDocPath) return;
-    const instId = installationId ?? getInstallationId();
-    const repoName = selectedRepo ?? getSelectedRepo()?.full_name ?? null;
-    if (!instId || !repoName) return;
-    const path = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
-    localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'title'), editTitle);
-    localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'content'), editContent);
-  }, [route, route.name, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle, editContent]);
+    const timerId = window.setTimeout(() => {
+      persistRepoNewDraft();
+    }, DRAFT_PERSIST_DELAY_MS);
+    return () => window.clearTimeout(timerId);
+  }, [route, editingBackend, currentRepoDocPath, persistRepoNewDraft]);
+
+  useEffect(() => {
+    const flushDraftPersistence = () => {
+      persistPendingGistDraft();
+      persistNewGistFileDraft();
+      persistRepoNewDraft();
+    };
+    window.addEventListener('pagehide', flushDraftPersistence);
+    window.addEventListener('beforeunload', flushDraftPersistence);
+    return () => {
+      window.removeEventListener('pagehide', flushDraftPersistence);
+      window.removeEventListener('beforeunload', flushDraftPersistence);
+    };
+  }, [persistNewGistFileDraft, persistPendingGistDraft, persistRepoNewDraft]);
 
   useEffect(() => {
     void installationId;
@@ -6645,18 +6679,11 @@ export function App() {
   const onEditContentChange = useCallback(
     (update: { content: string; origin: 'local'; revision: number }) => {
       if (readerAiEditLocked) return;
-      persistPendingGistDraft({ content: update.content });
       setNextEditContent(update.content, { origin: update.origin, revision: update.revision });
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
     },
-    [
-      persistPendingGistDraft,
-      readerAiEditLocked,
-      setNextEditContent,
-      setHasUnsavedChanges,
-      setHasUserTypedUnsavedChanges,
-    ],
+    [readerAiEditLocked, setNextEditContent, setHasUnsavedChanges, setHasUserTypedUnsavedChanges],
   );
   const handleSignInWithGitHub = useCallback(
     (options?: { includeGists?: boolean }) => {

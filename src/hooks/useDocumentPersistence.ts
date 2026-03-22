@@ -38,6 +38,10 @@ export interface PostSaveVerificationState {
 const DOCUMENT_DRAFTS_STORAGE_KEY = 'document_drafts_v1';
 const MAX_DOCUMENT_DRAFTS = 10;
 const MAX_DOCUMENT_DRAFT_CONTENT_BYTES = 512 * 1024;
+const DOCUMENT_DRAFT_PERSIST_DELAY_MS = 250;
+
+let documentDraftStoreCache: DocumentDraftStore | null = null;
+let documentDraftPersistTimer: number | null = null;
 
 // --- Draft store helpers ---
 
@@ -50,12 +54,19 @@ export function documentDraftKeyForRepo(installationId: string, repoFullName: st
 }
 
 function loadDocumentDraftStore(): DocumentDraftStore {
+  if (documentDraftStoreCache) return documentDraftStoreCache;
   if (typeof window === 'undefined') return {};
   try {
     const raw = localStorage.getItem(DOCUMENT_DRAFTS_STORAGE_KEY);
-    if (!raw) return {};
+    if (!raw) {
+      documentDraftStoreCache = {};
+      return documentDraftStoreCache;
+    }
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') return {};
+    if (!parsed || typeof parsed !== 'object') {
+      documentDraftStoreCache = {};
+      return documentDraftStoreCache;
+    }
     const store: DocumentDraftStore = {};
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
       if (!value || typeof value !== 'object') continue;
@@ -75,9 +86,11 @@ function loadDocumentDraftStore(): DocumentDraftStore {
         path: typeof entry.path === 'string' ? entry.path : undefined,
       };
     }
-    return store;
+    documentDraftStoreCache = store;
+    return documentDraftStoreCache;
   } catch {
-    return {};
+    documentDraftStoreCache = {};
+    return documentDraftStoreCache;
   }
 }
 
@@ -94,12 +107,32 @@ function persistDocumentDraftStore(store: DocumentDraftStore): void {
   }
 }
 
+function cancelScheduledDocumentDraftPersist(): void {
+  if (documentDraftPersistTimer == null || typeof window === 'undefined') return;
+  window.clearTimeout(documentDraftPersistTimer);
+  documentDraftPersistTimer = null;
+}
+
+function flushDocumentDraftStore(): void {
+  cancelScheduledDocumentDraftPersist();
+  persistDocumentDraftStore(loadDocumentDraftStore());
+}
+
+function scheduleDocumentDraftStorePersist(): void {
+  if (typeof window === 'undefined') return;
+  cancelScheduledDocumentDraftPersist();
+  documentDraftPersistTimer = window.setTimeout(() => {
+    documentDraftPersistTimer = null;
+    persistDocumentDraftStore(loadDocumentDraftStore());
+  }, DOCUMENT_DRAFT_PERSIST_DELAY_MS);
+}
+
 export function loadDocumentDraft(key: string): PersistedDocumentDraft | null {
   const store = loadDocumentDraftStore();
   return store[key] ?? null;
 }
 
-export function saveDocumentDraft(key: string, draft: PersistedDocumentDraft): void {
+export function saveDocumentDraft(key: string, draft: PersistedDocumentDraft, options?: { immediate?: boolean }): void {
   if (new Blob([draft.content]).size > MAX_DOCUMENT_DRAFT_CONTENT_BYTES) return;
   const store = loadDocumentDraftStore();
   store[key] = draft;
@@ -110,14 +143,18 @@ export function saveDocumentDraft(key: string, draft: PersistedDocumentDraft): v
       delete store[k];
     }
   }
-  persistDocumentDraftStore(store);
+  if (options?.immediate === false) {
+    scheduleDocumentDraftStorePersist();
+    return;
+  }
+  flushDocumentDraftStore();
 }
 
 export function removeDocumentDraft(key: string): void {
   const store = loadDocumentDraftStore();
   if (!(key in store)) return;
   delete store[key];
-  persistDocumentDraftStore(store);
+  flushDocumentDraftStore();
 }
 
 function wait(ms: number): Promise<void> {
@@ -259,6 +296,17 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
 
   // --- Effects ---
 
+  useEffect(() => {
+    const flush = () => flushDocumentDraftStore();
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+      flush();
+    };
+  }, []);
+
   // Clear verification when route changes away
   useEffect(() => {
     if (!postSaveVerification) return;
@@ -370,7 +418,7 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
             }
           : null;
     if (!nextDraft) return;
-    saveDocumentDraft(currentDocumentDraftKey, nextDraft);
+    saveDocumentDraft(currentDocumentDraftKey, nextDraft, { immediate: false });
     setCurrentDocumentDraft(nextDraft);
   }, [
     activeView,
