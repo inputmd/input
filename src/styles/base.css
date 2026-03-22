@@ -11,7 +11,7 @@
   --border: #30363d;
   --input-bg: #0d1117;
   --btn-bg: #21262d;
-  --code-block-bg: color-mix(in srgb, var(--bg) 84%, var(--ansi-cyan) 16%);
+  --code-block-bg: color-mix(in srgb, var(--bg) 90%, var(--ansi-cyan) 10%);
   --image-loading-bg: color-mix(in srgb, var(--bg) 84%, var(--btn-bg) 16%);
   --btn-text: #c9d1d9;
   --btn-hover: #30363d;
