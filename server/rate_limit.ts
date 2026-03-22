@@ -7,6 +7,10 @@ const RATE_LIMIT_AUTHENTICATED_MAX = 500;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
 
+// In-memory store — does not survive server restarts. This is acceptable for a
+// single-instance deployment: a restart briefly resets all rate limit windows,
+// but they refill within one RATE_LIMIT_WINDOW_MS (60s). If the app ever scales
+// to multiple instances, this should move to a shared store (e.g. Redis).
 const rateLimitWindows = new Map<string, RateLimitEntry>();
 
 export function startRateLimitCleanup(): void {
