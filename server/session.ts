@@ -171,6 +171,7 @@ const sessionByIdStmt = db.prepare(`
 
 const deleteSessionByIdStmt = db.prepare('DELETE FROM sessions WHERE id = ?');
 const deleteExpiredSessionsStmt = db.prepare('DELETE FROM sessions WHERE expires_at_ms <= ?');
+const sessionStoreHealthStmt = db.prepare('SELECT 1');
 
 const upsertInstallationStmt = db.prepare(`
   INSERT INTO user_installations (
@@ -363,6 +364,10 @@ export function refreshSession(session: Session, res: http.ServerResponse): Sess
     },
     session.createdAtMs,
   );
+}
+
+export function assertSessionStoreHealthy(): void {
+  sessionStoreHealthStmt.get();
 }
 
 type UpsertInstallationInput = {

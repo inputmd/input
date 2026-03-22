@@ -7,6 +7,7 @@ import { applyCors } from './cors';
 import { ClientError } from './errors';
 import { startGistCacheCleanup } from './gist_cache';
 import { startInstallationTokenCacheCleanup } from './github_client';
+import { writeHealthResponse } from './health';
 import { json } from './http_helpers';
 import { startRateLimitCleanup } from './rate_limit';
 import { handleApiRequest } from './routes';
@@ -49,6 +50,11 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
 
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const pathname = url.pathname;
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/healthz' || pathname === '/readyz')) {
+      writeHealthResponse(res);
+      return;
+    }
 
     const handledApi = await handleApiRequest(req, res, url, pathname);
     if (handledApi) return;
