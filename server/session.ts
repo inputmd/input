@@ -23,6 +23,12 @@ type SessionInput = {
   installationId: string | null;
 };
 
+// TODO: In-memory store — does not survive server restarts. Restart during an
+// active OAuth flow (within the 10-minute TTL) will cause that flow to fail
+// with "Invalid or expired OAuth state", requiring the user to retry login.
+// Unlike sessions (persisted in SQLite), this is intentionally ephemeral since
+// OAuth states are short-lived and single-use. Multi-instance deployments would
+// need a shared store (e.g. Redis) or sticky sessions.
 const oauthStates = new Map<string, OAuthStateRecord>();
 
 function ensureDbDir(dbPath: string): void {
