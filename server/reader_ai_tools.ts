@@ -1,10 +1,7 @@
 // ── Reader AI Tool Definitions, Execution, and Subagent Support ──
 
 import { createTwoFilesPatch } from 'diff';
-import {
-  appendStreamText,
-  shouldInsertStreamBoundarySpace,
-} from '../shared/stream_boundary_dictionary.ts';
+import { appendStreamText, shouldInsertStreamBoundarySpace } from '../shared/stream_boundary_dictionary.ts';
 import { stripCriticMarkupComments } from './criticmarkup.js';
 
 export const READER_AI_TOOL_RESULT_MAX_CHARS = 30_000;
