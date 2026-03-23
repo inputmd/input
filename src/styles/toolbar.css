@@ -54,8 +54,8 @@
 
 .toolbar button:focus,
 .toolbar button:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
   box-shadow: none;
 }
 
@@ -167,8 +167,8 @@
 
 .repo-menu-trigger:focus,
 .repo-menu-trigger:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
   box-shadow: none;
 }
 
@@ -567,8 +567,8 @@
 
 .document-menu-trigger:focus,
 .document-menu-trigger:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
   box-shadow: none;
 }
 
@@ -599,8 +599,8 @@
 
 .user-menu-trigger:focus,
 .user-menu-trigger:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
   box-shadow: none;
 }
 
