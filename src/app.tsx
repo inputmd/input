@@ -4090,7 +4090,7 @@ export function App() {
           : 'The source contains a document ending with an inline brace query.',
         `Brace query: ${requestPrompt}`,
         hasParagraphTail ? `Text after the brace in the same paragraph:\n${sanitizedParagraphTail}` : null,
-        'Return exactly 3 candidate replacement fragments for the text inside the braces.',
+        'Return exactly 5 candidate replacement fragments for the text inside the braces.',
         'Rules:',
         '- Output plain text only.',
         '- One option per line.',

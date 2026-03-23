@@ -2,7 +2,7 @@ import { isolateHistory } from '@codemirror/commands';
 import type { EditorState } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { useCallback, useRef, useState } from 'preact/hooks';
-import { type BracePromptRequest, buildBracePromptRequest, findBracePromptMatch } from './codemirror_inline_prompt';
+import { type BracePromptRequest, buildBracePromptRequest, findBracePromptMatch } from './codemirror_inline_prompt.ts';
 
 export interface BracePromptPanelState {
   request: BracePromptRequest;
@@ -30,7 +30,9 @@ export type BracePromptStreamFn = (
 
 const BRACE_PROMPT_INACTIVITY_TIMEOUT_MS = 10_000;
 const BRACE_PROMPT_MAX_DURATION_MS = 30_000;
-const BRACE_PROMPT_MAX_RENDERED_OPTIONS = 4;
+const BRACE_PROMPT_CANDIDATE_COUNT = 5;
+// Keep one extra rendered slot because the model occasionally spends its first line advising the user instead of giving a fragment.
+const BRACE_PROMPT_MAX_RENDERED_OPTIONS = BRACE_PROMPT_CANDIDATE_COUNT + 1;
 const BRACE_PROMPT_HOVER_PREVIEW_DEBOUNCE_MS = 150;
 
 class BracePromptPreviewWidget extends WidgetType {
@@ -82,7 +84,7 @@ function adjustedBracePromptInsertionRange(doc: EditorState['doc'], from: number
 }
 
 export function canBracePromptGenerateMore(panel: BracePromptPanelState): boolean {
-  return !panel.loading && panel.options.length >= 3;
+  return !panel.loading && panel.options.length >= BRACE_PROMPT_MAX_RENDERED_OPTIONS;
 }
 
 interface UseBracePromptPanelOptions {
