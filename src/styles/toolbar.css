@@ -413,6 +413,7 @@
   background: #238636;
   border-color: #2ea043;
   color: #ffffff;
+  white-space: nowrap;
 }
 
 .github-signin-btn:hover {
