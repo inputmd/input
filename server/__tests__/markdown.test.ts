@@ -194,6 +194,14 @@ test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt
   );
 });
 
+test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('Email test@example.com for details.'));
+
+  t.true(html.includes('<p>Email test@example.com for details.</p>'));
+  t.false(html.includes('<a'));
+  t.false(html.includes('mailto:'));
+});
+
 test('parseMarkdownToHtml keeps multiline prompt answer content inside the prompt-answer list item', (t) => {
   const html = withDom(() =>
     parseMarkdownToHtml(['% Question', '= First paragraph', '  ', '  Second paragraph', '  - Nested item'].join('\n')),

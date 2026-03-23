@@ -11,7 +11,7 @@
   --border: #30363d;
   --input-bg: #0d1117;
   --btn-bg: #21262d;
-  --code-block-bg: color-mix(in srgb, var(--bg) 90%, var(--ansi-cyan) 10%);
+  --code-block-bg: color-mix(in srgb, var(--bg) 36%, var(--btn-hover) 64%);
   --image-loading-bg: color-mix(in srgb, var(--bg) 84%, var(--btn-bg) 16%);
   --btn-text: #c9d1d9;
   --btn-hover: #30363d;
@@ -71,7 +71,7 @@
   --border: #d0d7de;
   --input-bg: #f6f8fa;
   --btn-bg: #f6f8fa;
-  --code-block-bg: color-mix(in srgb, var(--bg) 94%, var(--ansi-cyan) 6%);
+  --code-block-bg: color-mix(in srgb, var(--bg) 24%, var(--btn-hover) 76%);
   --image-loading-bg: color-mix(in srgb, var(--bg) 96%, var(--border) 4%);
   --btn-text: #1f2328;
   --btn-hover: #eaeef2;

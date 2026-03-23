@@ -1770,9 +1770,9 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
   template.content.querySelectorAll('a').forEach((anchor: HTMLAnchorElement) => {
     const href = sanitizeMarkdownHref(anchor.getAttribute('href') ?? '');
     if (href == null) {
-      anchor.removeAttribute('href');
-      anchor.removeAttribute('target');
-      anchor.removeAttribute('rel');
+      const fragment = document.createDocumentFragment();
+      while (anchor.firstChild) fragment.appendChild(anchor.firstChild);
+      anchor.replaceWith(fragment);
       return;
     }
 
