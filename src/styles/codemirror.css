@@ -156,6 +156,15 @@
   background: var(--selection-bg) !important;
 }
 
+.doc-editor .cm-matchingBracket,
+.doc-editor .cm-nonmatchingBracket,
+.content-code-view .cm-matchingBracket,
+.content-code-view .cm-nonmatchingBracket {
+  display: inline;
+  width: auto;
+  min-width: 0;
+}
+
 .doc-editor .cm-cursor {
   border-left-color: var(--text);
 }
