@@ -600,6 +600,9 @@ export function App() {
   const [linkedInstallations, setLinkedInstallations] = useState<LinkedInstallation[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
   const [selectedRepoPrivate, setSelectedRepoPrivate] = useState<boolean | null>(getSelectedRepo()?.private ?? null);
+  const [selectedRepoInstallationId, setSelectedRepoInstallationId] = useState<string | null>(
+    getSelectedRepo()?.installationId ?? getInstallationId(),
+  );
   const [sharedRepoInstallationId, setSharedRepoInstallationId] = useState<string | null>(null);
   const [publicRepoRef, setPublicRepoRef] = useState<PublicRepoRef | null>(null);
   const [repoAccessMode, setRepoAccessMode] = useState<'installed' | 'shared' | 'public' | null>(null);
@@ -618,6 +621,7 @@ export function App() {
   const installationReposLoading = installationId !== null && loadingInstallationReposId === installationId;
   const loadedReposInstallationId = installationId && installationReposById[installationId] ? installationId : null;
   const reposLoadError = installationId ? (reposLoadErrorsById[installationId] ?? null) : null;
+  const activeInstalledRepoInstallationId = selectedRepoInstallationId ?? installationId;
   const [localRateLimit, setLocalRateLimit] = useState<GitHubRateLimitSnapshot | null>(() =>
     readStoredGitHubRateLimitSnapshot('serverLocal'),
   );
@@ -843,6 +847,7 @@ export function App() {
     clearSelectedRepo();
     setSelectedRepo(null);
     setSelectedRepoPrivate(null);
+    setSelectedRepoInstallationId(null);
     setRepoFiles([]);
     setRepoSidebarFiles([]);
     if (repoAccessMode === 'installed') {
@@ -1041,13 +1046,13 @@ export function App() {
   const persistRepoNewDraft = useCallback(() => {
     if (route.name !== 'reponew') return;
     if (editingBackend !== 'repo' || currentRepoDocPath) return;
-    const instId = installationId ?? getInstallationId();
+    const instId = activeInstalledRepoInstallationId ?? getInstallationId();
     const repoName = selectedRepo ?? getSelectedRepo()?.full_name ?? null;
     if (!instId || !repoName) return;
     const path = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
     localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'title'), editTitle);
     localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'content'), editContentRef.current);
-  }, [route, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle]);
+  }, [route, editingBackend, currentRepoDocPath, activeInstalledRepoInstallationId, selectedRepo, editTitle]);
 
   const startGitHubSignIn = useCallback(
     (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
@@ -1104,6 +1109,7 @@ export function App() {
     setLinkedInstallations([]);
     setSelectedRepo(null);
     setSelectedRepoPrivate(null);
+    setSelectedRepoInstallationId(null);
     setSharedRepoInstallationId(null);
     setRepoAccessMode(null);
     setPublicRepoRef(null);
@@ -1262,7 +1268,7 @@ export function App() {
           const isInstalledRoute =
             routeCandidate.name === 'repoedit' ||
             (selectedRepoFullName !== null && selectedRepoFullName.toLowerCase() === repoFullName.toLowerCase());
-          const instId = getInstallationId();
+          const instId = activeInstalledRepoInstallationId ?? getInstallationId();
           const loaded =
             isInstalledRoute && instId
               ? await getRepoContents(instId, repoFullName, path)
@@ -1332,7 +1338,7 @@ export function App() {
         markdownLinkPreviewPendingRef.current.delete(routePathname);
       }
     },
-    [currentGistId, gistFiles, selectedRepo, user],
+    [activeInstalledRepoInstallationId, currentGistId, gistFiles, selectedRepo, user],
   );
 
   const fetchDocumentForStack = useCallback(
@@ -1356,7 +1362,7 @@ export function App() {
         const isInstalledRoute =
           routeCandidate.name === 'repoedit' ||
           (selectedRepoFullName !== null && selectedRepoFullName.toLowerCase() === repoFullName.toLowerCase());
-        const instId = getInstallationId();
+        const instId = activeInstalledRepoInstallationId ?? getInstallationId();
         const loaded =
           isInstalledRoute && instId
             ? await getRepoContents(instId, repoFullName, path)
@@ -1423,7 +1429,15 @@ export function App() {
         markdown: true,
       };
     },
-    [currentGistId, gistFiles, repoFiles, resolveMarkdownImageSrc, selectedRepo, user],
+    [
+      activeInstalledRepoInstallationId,
+      currentGistId,
+      gistFiles,
+      repoFiles,
+      resolveMarkdownImageSrc,
+      selectedRepo,
+      user,
+    ],
   );
 
   useEffect(() => {
@@ -1627,6 +1641,7 @@ export function App() {
         setLinkedInstallations([]);
         setSelectedRepo(null);
         setSelectedRepoPrivate(null);
+        setSelectedRepoInstallationId(null);
         setInstallationReposById({});
         setReposLoadErrorsById({});
         setLoadingInstallationReposId(null);
@@ -1742,18 +1757,23 @@ export function App() {
   }, []);
 
   const refreshRepoTreeAfterWrite = useCallback(async (): Promise<RepoDocFile[] | null> => {
-    if (repoAccessMode !== 'installed' || !installationId || !selectedRepo) return null;
-    const files = await loadRepoAllFiles(installationId, selectedRepo);
+    if (repoAccessMode !== 'installed' || !activeInstalledRepoInstallationId || !selectedRepo) return null;
+    const files = await loadRepoAllFiles(activeInstalledRepoInstallationId, selectedRepo);
     setRepoSidebarFiles(files);
     setRepoFiles(files.filter((file) => isMarkdownFileName(file.path)));
     return files;
-  }, [repoAccessMode, installationId, selectedRepo, loadRepoAllFiles]);
+  }, [repoAccessMode, activeInstalledRepoInstallationId, selectedRepo, loadRepoAllFiles]);
 
-  const onSelectRepo = useCallback((fullName: string, id: number, isPrivate: boolean) => {
-    setSelectedRepo(fullName);
-    setSelectedRepoPrivate(isPrivate);
-    storeSelectedRepo({ full_name: fullName, id, private: isPrivate });
-  }, []);
+  const onSelectRepo = useCallback(
+    (fullName: string, id: number, isPrivate: boolean) => {
+      const instId = installationId ?? getInstallationId();
+      setSelectedRepo(fullName);
+      setSelectedRepoPrivate(isPrivate);
+      setSelectedRepoInstallationId(instId);
+      storeSelectedRepo({ full_name: fullName, id, private: isPrivate, installationId: instId ?? undefined });
+    },
+    [installationId],
+  );
 
   const openInstalledRepo = useCallback(
     async (
@@ -1763,13 +1783,16 @@ export function App() {
         isPrivate?: boolean;
         replace?: boolean;
         allFiles?: RepoDocFile[];
+        installationId?: string;
       },
     ) => {
+      const instId = options?.installationId ?? installationId ?? getInstallationId();
       if (options && typeof options.id === 'number' && typeof options.isPrivate === 'boolean') {
         onSelectRepo(fullName, options.id, options.isPrivate);
       } else {
         setSelectedRepo(fullName);
-        storeSelectedRepo({ full_name: fullName });
+        setSelectedRepoInstallationId(instId);
+        storeSelectedRepo({ full_name: fullName, installationId: instId ?? undefined });
       }
 
       const repoRef = parseRepoFullName(fullName);
@@ -1778,7 +1801,6 @@ export function App() {
         return;
       }
 
-      const instId = getInstallationId();
       if (!instId) {
         navigate(routePath.workspaces(), options?.replace ? { replace: true } : undefined);
         return;
@@ -1814,7 +1836,15 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Failed to load repository documents');
       }
     },
-    [handleSessionExpired, loadRepoAllFiles, navigate, onSelectRepo, showError, showRateLimitToastIfNeeded],
+    [
+      handleSessionExpired,
+      installationId,
+      loadRepoAllFiles,
+      navigate,
+      onSelectRepo,
+      showError,
+      showRateLimitToastIfNeeded,
+    ],
   );
 
   // --- Data loaders ---
@@ -2038,7 +2068,7 @@ export function App() {
       forEdit: boolean,
       options?: { suppressError?: boolean },
     ): Promise<boolean> => {
-      const instId = getInstallationId();
+      const instId = activeInstalledRepoInstallationId ?? getInstallationId();
       const repoName = buildRepoFullName(owner, repo);
       if (!instId) {
         return false;
@@ -2057,10 +2087,17 @@ export function App() {
         const contentBytes = contents.content ? decodeBase64ToBytes(contents.content) : new Uint8Array();
         const binary = isLikelyBinaryBytes(contentBytes);
         const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
-        const currentSelectedRepo = getSelectedRepo()?.full_name ?? null;
-        if (!currentSelectedRepo || currentSelectedRepo.toLowerCase() !== repoName.toLowerCase()) {
+        const storedSelectedRepo = getSelectedRepo();
+        const currentSelectedRepo = storedSelectedRepo?.full_name ?? null;
+        const currentSelectedRepoInstallationId = storedSelectedRepo?.installationId ?? null;
+        if (
+          !currentSelectedRepo ||
+          currentSelectedRepo.toLowerCase() !== repoName.toLowerCase() ||
+          currentSelectedRepoInstallationId !== instId
+        ) {
           setSelectedRepo(repoName);
-          storeSelectedRepo({ full_name: repoName });
+          setSelectedRepoInstallationId(instId);
+          storeSelectedRepo({ full_name: repoName, installationId: instId });
         }
         setRepoAccessMode('installed');
         setPublicRepoRef(null);
@@ -2126,6 +2163,7 @@ export function App() {
       repoFiles,
       loadRepoMarkdownFiles,
       presentLoadedFileContent,
+      activeInstalledRepoInstallationId,
       activeView,
       currentFileName,
       showRateLimitToastIfNeeded,
@@ -2367,7 +2405,7 @@ export function App() {
           const repo = safeDecodeURIComponent(r.params.repo);
           const repoFullName = buildRepoFullName(owner, repo);
           const selectedRepoFullName = getSelectedRepo()?.full_name ?? selectedRepo;
-          const instId = getInstallationId();
+          const instId = activeInstalledRepoInstallationId ?? getInstallationId();
           const useInstalledRepo =
             Boolean(isAuthenticated && instId) &&
             selectedRepoFullName !== null &&
@@ -2434,7 +2472,7 @@ export function App() {
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
           const decodedPath = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
-          const instId = getInstallationId();
+          const instId = activeInstalledRepoInstallationId ?? getInstallationId();
           const repoFullName = buildRepoFullName(owner, repo).toLowerCase();
           const hasLoadedInstallationRepos =
             Boolean(instId) && loadedReposInstallationId !== null && loadedReposInstallationId === instId;
@@ -2479,14 +2517,15 @@ export function App() {
           const path = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
           const repoName = buildRepoFullName(owner, repo);
           const switchingRepos = (selectedRepo ?? '').toLowerCase() !== repoName.toLowerCase();
-          const instId = getInstallationId();
+          const instId = activeInstalledRepoInstallationId ?? getInstallationId();
           if (!instId || !isAuthenticated) {
             navigate(routePath.workspaces());
             return;
           }
           if ((selectedRepo ?? '').toLowerCase() !== repoName.toLowerCase()) {
             setSelectedRepo(repoName);
-            storeSelectedRepo({ full_name: repoName });
+            setSelectedRepoInstallationId(instId);
+            storeSelectedRepo({ full_name: repoName, installationId: instId });
           }
           setDraftMode(false);
           setRepoAccessMode('installed');
@@ -2786,6 +2825,7 @@ export function App() {
       postSaveVerificationRef.current?.routeKey,
       setCurrentDocumentSavedContent,
       setHasUnsavedChanges,
+      activeInstalledRepoInstallationId,
     ],
   );
 
@@ -3000,8 +3040,8 @@ export function App() {
       let active = true;
       void (async () => {
         try {
-          if (repoAccessMode === 'installed' && installationId && selectedRepo) {
-            const files = await loadRepoAllFiles(installationId, selectedRepo);
+          if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo) {
+            const files = await loadRepoAllFiles(activeInstalledRepoInstallationId, selectedRepo);
             if (active) setRepoSidebarFiles(files);
             return;
           }
@@ -3021,7 +3061,7 @@ export function App() {
   }, [
     sidebarFileFilter,
     repoAccessMode,
-    installationId,
+    activeInstalledRepoInstallationId,
     selectedRepo,
     publicRepoRef,
     loadRepoAllFiles,
@@ -3248,8 +3288,11 @@ export function App() {
     if (allFiles.length === 0) return;
 
     let cached: RepoFileEntry[] | null = null;
-    if (repoAccessMode === 'installed' && installationId && selectedRepo) {
-      cached = tryBuildRepoFilesFromCache({ installationId, repoFullName: selectedRepo }, allFiles);
+    if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo) {
+      cached = tryBuildRepoFilesFromCache(
+        { installationId: activeInstalledRepoInstallationId, repoFullName: selectedRepo },
+        allFiles,
+      );
     } else if (repoAccessMode === 'public' && publicRepoRef) {
       cached = tryBuildRepoFilesFromCache({ owner: publicRepoRef.owner, repo: publicRepoRef.repo }, allFiles);
     }
@@ -3273,7 +3316,7 @@ export function App() {
     repoSidebarFiles,
     repoFiles,
     repoAccessMode,
-    installationId,
+    activeInstalledRepoInstallationId,
     selectedRepo,
     publicRepoRef,
     readerAiSelectedModel,
@@ -3307,8 +3350,8 @@ export function App() {
             content: f.content,
             size: f.size,
           }));
-        } else if (repoAccessMode === 'installed' && installationId && selectedRepo) {
-          files = await getRepoTarball(installationId, selectedRepo);
+        } else if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo) {
+          files = await getRepoTarball(activeInstalledRepoInstallationId, selectedRepo);
         } else if (repoAccessMode === 'public' && publicRepoRef) {
           files = await getPublicRepoTarball(publicRepoRef.owner, publicRepoRef.repo);
         } else {
@@ -3334,7 +3377,7 @@ export function App() {
     },
     [
       repoAccessMode,
-      installationId,
+      activeInstalledRepoInstallationId,
       selectedRepo,
       publicRepoRef,
       showRateLimitToastIfNeeded,
@@ -3756,7 +3799,7 @@ export function App() {
       const canCommitToRepo =
         !readerAiStagedChangesInvalid &&
         hasCompleteStagedContent &&
-        Boolean(repoAccessMode === 'installed' && installationId && selectedRepo);
+        Boolean(repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo);
 
       try {
         if (mode === 'without-saving') {
@@ -3792,9 +3835,9 @@ export function App() {
           );
           applied.push(...result.applied);
           failed.push(...result.failed);
-        } else if (canCommitToRepo && installationId && selectedRepo) {
+        } else if (canCommitToRepo && activeInstalledRepoInstallationId && selectedRepo) {
           const result = await applyReaderAiChanges(
-            { kind: 'repo', installationId, repoFullName: selectedRepo },
+            { kind: 'repo', installationId: activeInstalledRepoInstallationId, repoFullName: selectedRepo },
             readerAiStagedChanges,
             readerAiStagedFileContents,
             commitMessage,
@@ -3851,7 +3894,7 @@ export function App() {
       isGistContext,
       currentGistId,
       repoAccessMode,
-      installationId,
+      activeInstalledRepoInstallationId,
       selectedRepo,
       readerAiStagedChangesInvalid,
       setNextEditContent,
@@ -4272,6 +4315,7 @@ export function App() {
     setInstId(null);
     setSelectedRepo(null);
     setSelectedRepoPrivate(null);
+    setSelectedRepoInstallationId(null);
     setRepoAccessMode(null);
     setPublicRepoRef(null);
     setCurrentGistId(null);
@@ -4382,12 +4426,12 @@ export function App() {
         currentRepoDocPath
       ) {
         if (selectedRepoPrivate === true) {
-          const installationId = getInstallationId();
-          if (!installationId) {
+          const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+          if (!instId) {
             showFailureToast('Sharing is not available for this file');
             return;
           }
-          const shareLink = await createRepoFileShareLink(installationId, selectedRepo, currentRepoDocPath);
+          const shareLink = await createRepoFileShareLink(instId, selectedRepo, currentRepoDocPath);
           url = shareLink.url;
         } else {
           const [owner, repo] = selectedRepo.split('/');
@@ -4441,14 +4485,15 @@ export function App() {
     showRateLimitToastIfNeeded,
     showSuccessToast,
     showFailureToast,
+    activeInstalledRepoInstallationId,
   ]);
 
   const loadCompactCommits = useCallback(async () => {
-    if (!installationId || !selectedRepo) return;
+    if (!activeInstalledRepoInstallationId || !selectedRepo) return;
     setCompactCommitsLoading(true);
     setCompactCommitsError(null);
     try {
-      const data = await listRepoRecentCommits(installationId, selectedRepo, 20);
+      const data = await listRepoRecentCommits(activeInstalledRepoInstallationId, selectedRepo, 20);
       setCompactCommitsData(data);
       setCompactCommitSelection(new Set());
       setCompactCommitMessage('Compact recent commits');
@@ -4463,13 +4508,13 @@ export function App() {
     } finally {
       setCompactCommitsLoading(false);
     }
-  }, [handleSessionExpired, installationId, selectedRepo, showRateLimitToastIfNeeded]);
+  }, [activeInstalledRepoInstallationId, handleSessionExpired, selectedRepo, showRateLimitToastIfNeeded]);
 
   const openCompactCommitsDialog = useCallback(() => {
-    if (repoAccessMode !== 'installed' || !installationId || !selectedRepo) return;
+    if (repoAccessMode !== 'installed' || !activeInstalledRepoInstallationId || !selectedRepo) return;
     setCompactCommitsOpen(true);
     void loadCompactCommits();
-  }, [installationId, loadCompactCommits, repoAccessMode, selectedRepo]);
+  }, [activeInstalledRepoInstallationId, loadCompactCommits, repoAccessMode, selectedRepo]);
 
   const closeCompactCommitsDialog = useCallback(() => {
     if (compactCommitsSubmitting) return;
@@ -4512,7 +4557,7 @@ export function App() {
   }, [compactCommitsData]);
 
   const submitCompactCommits = useCallback(async () => {
-    if (!installationId || !selectedRepo || !compactCommitsData?.headSha) return;
+    if (!activeInstalledRepoInstallationId || !selectedRepo || !compactCommitsData?.headSha) return;
     const selectedShas = compactCommitsData.commits
       .filter((commit) => compactCommitSelection.has(commit.sha))
       .map((commit) => commit.sha);
@@ -4532,7 +4577,7 @@ export function App() {
 
     setCompactCommitsSubmitting(true);
     try {
-      const result = await compactRepoRecentCommits(installationId, selectedRepo, {
+      const result = await compactRepoRecentCommits(activeInstalledRepoInstallationId, selectedRepo, {
         headSha: compactCommitsData.headSha,
         selectedShas,
         message: compactCommitMessage.trim(),
@@ -4559,11 +4604,11 @@ export function App() {
       setCompactCommitsSubmitting(false);
     }
   }, [
+    activeInstalledRepoInstallationId,
     compactCommitMessage,
     compactCommitSelection,
     compactCommitsData,
     handleSessionExpired,
-    installationId,
     loadCompactCommits,
     selectedRepo,
     showConfirm,
@@ -4671,8 +4716,8 @@ export function App() {
       setSaving(true);
 
       try {
-        const instId = getInstallationId();
-        const repoName = getSelectedRepo()?.full_name ?? null;
+        const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+        const repoName = selectedRepo ?? getSelectedRepo()?.full_name ?? null;
         const currentRepoRef =
           repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
         const currentRepoFullName =
@@ -4980,6 +5025,8 @@ export function App() {
       setHasUnsavedChanges,
       setSaving,
       sharedRepoInstallationId,
+      activeInstalledRepoInstallationId,
+      selectedRepo,
     ],
   );
 
@@ -5231,14 +5278,14 @@ export function App() {
     }
 
     if (repoAccessMode === 'installed' && selectedRepo) {
-      const instId = getInstallationId();
-      const repoName = getSelectedRepo()?.full_name;
+      const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+      const repoName = selectedRepo ?? getSelectedRepo()?.full_name;
       if (!instId || !repoName) return null;
       return createRepoDocumentStore(instId, repoName);
     }
 
     return null;
-  }, [currentGistId, repoAccessMode, selectedRepo]);
+  }, [activeInstalledRepoInstallationId, currentGistId, repoAccessMode, selectedRepo]);
 
   const onClearCaches = useCallback(async () => {
     const confirmed = await showConfirm(
@@ -5528,9 +5575,9 @@ export function App() {
           setGistFiles(gist.files);
           setHasUnsavedChanges(false);
         } else {
-          if (!installationId || !selectedRepo) return;
+          if (!activeInstalledRepoInstallationId || !selectedRepo) return;
           await createRepoFilesAtomic(
-            installationId,
+            activeInstalledRepoInstallationId,
             selectedRepo,
             [{ path: seedFilePath, content: '' }],
             `Create folder "${directoryPath}"`,
@@ -5555,7 +5602,7 @@ export function App() {
       getActiveDocumentStore,
       showAlert,
       showRateLimitToastIfNeeded,
-      installationId,
+      activeInstalledRepoInstallationId,
       selectedRepo,
       navigateToSidebarFile,
       setHasUnsavedChanges,
@@ -5564,7 +5611,7 @@ export function App() {
 
   const handleUploadFileToSidebar = useCallback(
     async (file: File, targetFolderPath: string) => {
-      if (repoAccessMode !== 'installed' || !installationId || !selectedRepo) {
+      if (repoAccessMode !== 'installed' || !activeInstalledRepoInstallationId || !selectedRepo) {
         showFailureToast('File upload is only available in installed repositories.');
         return;
       }
@@ -5594,7 +5641,13 @@ export function App() {
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const contentB64 = encodeBytesToBase64(bytes);
-        const result = await putRepoFile(installationId, selectedRepo, path, `Upload ${fileName}`, contentB64);
+        const result = await putRepoFile(
+          activeInstalledRepoInstallationId,
+          selectedRepo,
+          path,
+          `Upload ${fileName}`,
+          contentB64,
+        );
         const createdFile: RepoDocFile = {
           name: fileNameFromPath(result.content.path),
           path: result.content.path,
@@ -5615,7 +5668,7 @@ export function App() {
     },
     [
       repoAccessMode,
-      installationId,
+      activeInstalledRepoInstallationId,
       selectedRepo,
       showConfirm,
       showLoadingToast,
@@ -5849,9 +5902,9 @@ export function App() {
             }
           }
         } else {
-          if (!installationId || !selectedRepo) return;
+          if (!activeInstalledRepoInstallationId || !selectedRepo) return;
           await deleteRepoPathsAtomic(
-            installationId,
+            activeInstalledRepoInstallationId,
             selectedRepo,
             repoTargets.map((file) => file.path),
             `Delete folder "${folderPath}"`,
@@ -5908,7 +5961,7 @@ export function App() {
       showRateLimitToastIfNeeded,
       showSuccessToast,
       dismissToast,
-      installationId,
+      activeInstalledRepoInstallationId,
       selectedRepo,
       selectedRepoRef,
       openInstalledRepo,
@@ -5931,9 +5984,9 @@ export function App() {
             navigate(routePath.gistView(currentGistId, newPath));
           }
         } else {
-          if (!installationId || !selectedRepo) return;
+          if (!activeInstalledRepoInstallationId || !selectedRepo) return;
           await renameRepoPathsAtomic(
-            installationId,
+            activeInstalledRepoInstallationId,
             selectedRepo,
             [{ from: oldPath, to: newPath }],
             `Rename ${oldPath} to ${newPath}`,
@@ -5971,7 +6024,7 @@ export function App() {
       showRateLimitToastIfNeeded,
       selectedRepoRef,
       refreshRepoTreeAfterWrite,
-      installationId,
+      activeInstalledRepoInstallationId,
       selectedRepo,
     ],
   );
@@ -6044,14 +6097,14 @@ export function App() {
             return;
           }
         } else {
-          if (!installationId || !selectedRepo) return;
+          if (!activeInstalledRepoInstallationId || !selectedRepo) return;
           const paths = repoSidebarFiles.filter((file) => isPathInFolder(file.path, oldPath));
           if (paths.length === 0) {
             dismissToast(renameToastId);
             return;
           }
           await renameRepoPathsAtomic(
-            installationId,
+            activeInstalledRepoInstallationId,
             selectedRepo,
             paths.map((file) => ({
               from: file.path,
@@ -6108,7 +6161,7 @@ export function App() {
       showRateLimitToastIfNeeded,
       showSuccessToast,
       dismissToast,
-      installationId,
+      activeInstalledRepoInstallationId,
       selectedRepo,
       selectedRepoRef,
       refreshRepoTreeAfterWrite,
@@ -6338,6 +6391,7 @@ export function App() {
       setLinkedInstallations([]);
       setSelectedRepo(null);
       setSelectedRepoPrivate(null);
+      setSelectedRepoInstallationId(null);
       setInstallationReposById({});
       setLoadingInstallationReposId(null);
       setReposLoadErrorsById({});
@@ -6918,7 +6972,7 @@ export function App() {
   const canApplyAndCommit =
     !readerAiStagedChangesInvalid &&
     hasAllNonDeleteStagedContent &&
-    ((repoAccessMode === 'installed' && Boolean(installationId && selectedRepo)) ||
+    ((repoAccessMode === 'installed' && Boolean(activeInstalledRepoInstallationId && selectedRepo)) ||
       (isGistContext && Boolean(currentGistId && user)));
   const canApplyWithoutSaving =
     !readerAiStagedChangesInvalid &&
@@ -6981,7 +7035,9 @@ export function App() {
         onOpenRepoMenu={onOpenRepoMenu}
         onRetryRepos={() => onOpenRepoMenu('manual')}
         onRetryGists={() => onOpenRepoMenu('manual')}
-        onSelectRepo={onSelectRepo}
+        onSelectRepo={(fullName, id, isPrivate) => {
+          void openInstalledRepo(fullName, { id, isPrivate });
+        }}
         onSignOut={signOut}
         onClearCache={onClearCaches}
         onToggleTheme={toggleTheme}

@@ -39,6 +39,7 @@ export interface SelectedRepo {
   full_name: string; // owner/name
   id?: number;
   private?: boolean;
+  installationId?: string;
 }
 
 export function getSelectedRepo(): SelectedRepo | null {
