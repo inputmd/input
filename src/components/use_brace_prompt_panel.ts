@@ -482,6 +482,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
   };
 
   const isActive = useCallback((): boolean => panelRef.current != null, []);
+  const getPanel = useCallback((): BracePromptPanelState | null => panelRef.current, []);
 
   const destroy = () => {
     abortRef.current?.abort();
@@ -528,6 +529,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     syncLayout,
     syncValidity,
     isActive,
+    getPanel,
     destroy,
     getPreview,
   };

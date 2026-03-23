@@ -25,7 +25,7 @@ export interface PromptListRequest {
 
 interface BracePromptEnterController {
   isActive: () => boolean;
-  panel: { options: string[] } | null;
+  getPanel: () => { options: string[] } | null;
   acceptSelection: (view: EditorView) => boolean;
 }
 
@@ -84,7 +84,7 @@ export function wrapWithMarker(view: EditorView, marker: string): boolean {
 
 export function acceptBracePromptSelectionOnEnter(view: EditorView, bracePrompt: BracePromptEnterController): boolean {
   if (!bracePrompt.isActive()) return false;
-  if ((bracePrompt.panel?.options.length ?? 0) === 0) return true;
+  if ((bracePrompt.getPanel()?.options.length ?? 0) === 0) return true;
   return bracePrompt.acceptSelection(view);
 }
 

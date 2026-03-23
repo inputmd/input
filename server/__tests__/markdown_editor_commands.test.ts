@@ -739,7 +739,7 @@ test('acceptBracePromptSelectionOnEnter confirms the selected brace completion',
 
   const handled = acceptBracePromptSelectionOnEnter(view, {
     isActive: () => true,
-    panel: { options: ['today ends differently'] },
+    getPanel: () => ({ options: ['today ends differently'] }),
     acceptSelection: () => {
       accepted = true;
       return true;
@@ -756,7 +756,7 @@ test('acceptBracePromptSelectionOnEnter swallows Enter while brace completions a
 
   const handled = acceptBracePromptSelectionOnEnter(view, {
     isActive: () => true,
-    panel: { options: [] },
+    getPanel: () => ({ options: [] }),
     acceptSelection: () => {
       accepted = true;
       return true;
@@ -765,6 +765,37 @@ test('acceptBracePromptSelectionOnEnter swallows Enter while brace completions a
 
   t.true(handled);
   t.false(accepted);
+});
+
+test('acceptBracePromptSelectionOnEnter reads live brace prompt options instead of a stale render snapshot', (t) => {
+  const view = makeMockView('today {finish this}');
+  let accepted = false;
+  let optionCount = 0;
+
+  const handledBeforeOptions = acceptBracePromptSelectionOnEnter(view, {
+    isActive: () => true,
+    getPanel: () => ({ options: Array.from({ length: optionCount }, (_, index) => `option ${index}`) }),
+    acceptSelection: () => {
+      accepted = true;
+      return true;
+    },
+  });
+
+  t.true(handledBeforeOptions);
+  t.false(accepted);
+
+  optionCount = 1;
+  const handledAfterOptions = acceptBracePromptSelectionOnEnter(view, {
+    isActive: () => true,
+    getPanel: () => ({ options: Array.from({ length: optionCount }, (_, index) => `option ${index}`) }),
+    acceptSelection: () => {
+      accepted = true;
+      return true;
+    },
+  });
+
+  t.true(handledAfterOptions);
+  t.true(accepted);
 });
 
 test('normalizeBlockquotePaste continues blockquote prefixes for pasted multiline text', (t) => {

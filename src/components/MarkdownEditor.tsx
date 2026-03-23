@@ -271,7 +271,7 @@ export function MarkdownEditor({
               key: 'Tab',
               run: (view) => {
                 if (bracePrompt.isActive()) {
-                  if (bracePrompt.panel?.options.length === 0) return true;
+                  if ((bracePrompt.getPanel()?.options.length ?? 0) === 0) return true;
                   return bracePrompt.acceptSelection(view);
                 }
                 return bracePrompt.start(view);
