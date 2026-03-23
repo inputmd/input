@@ -1,6 +1,15 @@
 import { autocompletion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@codemirror/commands';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
+import {
+  findNext,
+  findPrevious,
+  getSearchQuery,
+  highlightSelectionMatches,
+  SearchQuery,
+  search,
+  setSearchQuery,
+} from '@codemirror/search';
 import { Compartment, EditorState, Prec } from '@codemirror/state';
 import {
   drawSelection,
@@ -11,8 +20,9 @@ import {
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
+import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
@@ -84,6 +94,7 @@ export function MarkdownEditor({
   const rootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const editorControllerRef = useRef<EditorController | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
@@ -95,6 +106,14 @@ export function MarkdownEditor({
   const streamingCursorPositionRef = useRef<number | null>(null);
   const streamingCursorFollowingRef = useRef(false);
   const ignoreNextStreamingScrollEventRef = useRef(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQueryState] = useState('');
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
+  const searchCaseSensitiveRef = useRef(searchCaseSensitive);
+  searchCaseSensitiveRef.current = searchCaseSensitive;
+  const openSearchRef = useRef<(view: EditorView) => boolean>(() => false);
 
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
@@ -126,6 +145,25 @@ export function MarkdownEditor({
 
   const clampPosition = (view: EditorView, position: number): number => {
     return Math.max(0, Math.min(position, view.state.doc.length));
+  };
+
+  const applySearchQuery = (view: EditorView, query: string, caseSensitive: boolean) => {
+    const next = new SearchQuery({ search: query, caseSensitive });
+    if (!getSearchQuery(view.state).eq(next)) {
+      view.dispatch({ effects: setSearchQuery.of(next) });
+    }
+  };
+
+  const focusSearchInput = () => {
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    viewRef.current?.focus();
   };
 
   const editorUsesOwnScroll = (view: EditorView): boolean => {
@@ -189,6 +227,20 @@ export function MarkdownEditor({
     });
   };
 
+  openSearchRef.current = (view: EditorView) => {
+    const selection = view.state.selection.main;
+    const selectedText =
+      !selection.empty && selection.to - selection.from <= 200 ? view.state.sliceDoc(selection.from, selection.to) : '';
+    const nextQuery = selectedText && !selectedText.includes('\n') ? selectedText : getSearchQuery(view.state).search;
+    const nextCaseSensitive = getSearchQuery(view.state).caseSensitive;
+    setSearchQueryState(nextQuery);
+    setSearchCaseSensitive(nextCaseSensitive);
+    setSearchOpen(true);
+    applySearchQuery(view, nextQuery, nextCaseSensitive);
+    focusSearchInput();
+    return true;
+  };
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect; content/readOnly/placeholder synced via separate effects
   useEffect(() => {
     if (!containerRef.current) return;
@@ -230,6 +282,8 @@ export function MarkdownEditor({
           ],
         }),
         markdownEditorLanguageSupport(),
+        search(),
+        highlightSelectionMatches(),
         promptListAnsweringCompartment.current.of(promptListAnsweringFacet.of(inlinePromptActive)),
         bracePromptPreviewCompartment.current.of([]),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
@@ -265,6 +319,11 @@ export function MarkdownEditor({
         }),
         Prec.highest(
           keymap.of([
+            {
+              key: 'Mod-f',
+              run: (view) => openSearchRef.current(view),
+              preventDefault: true,
+            },
             { key: 'Mod-b', run: (view) => wrapWithMarker(view, '**') },
             { key: 'Mod-i', run: (view) => wrapWithMarker(view, '*') },
             {
@@ -308,6 +367,34 @@ export function MarkdownEditor({
             { key: 'Enter', run: insertNewlineContinueLooseListItem },
             { key: 'Backspace', run: backspacePromptQuestionMarker },
             { key: 'Tab', run: indentMore, shift: indentLess },
+            {
+              key: 'F3',
+              run: (view) => {
+                if (!searchQueryRef.current) return openSearchRef.current(view);
+                applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+                return findNext(view);
+              },
+              shift: (view) => {
+                if (!searchQueryRef.current) return openSearchRef.current(view);
+                applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+                return findPrevious(view);
+              },
+              preventDefault: true,
+            },
+            {
+              key: 'Mod-g',
+              run: (view) => {
+                if (!searchQueryRef.current) return openSearchRef.current(view);
+                applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+                return findNext(view);
+              },
+              shift: (view) => {
+                if (!searchQueryRef.current) return openSearchRef.current(view);
+                applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+                return findPrevious(view);
+              },
+              preventDefault: true,
+            },
             ...historyKeymap,
           ]),
         ),
@@ -501,10 +588,66 @@ export function MarkdownEditor({
     return () => window.removeEventListener('resize', sync);
   }, [bracePrompt.panel, bracePrompt.syncValidity]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: helper is stable enough for this local sync effect
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    applySearchQuery(view, searchQuery, searchCaseSensitive);
+  }, [searchCaseSensitive, searchQuery]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: helper only forwards focus to the current input ref
+  useEffect(() => {
+    if (!searchOpen) return;
+    focusSearchInput();
+  }, [searchOpen]);
+
   const showGenerateMore = bracePrompt.panel ? canBracePromptGenerateMore(bracePrompt.panel) : false;
+
+  const goToNextMatch = () => {
+    const view = viewRef.current;
+    if (!view) return;
+    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+    if (!searchQueryRef.current) return;
+    findNext(view);
+  };
+
+  const goToPreviousMatch = () => {
+    const view = viewRef.current;
+    if (!view) return;
+    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+    if (!searchQueryRef.current) return;
+    findPrevious(view);
+  };
 
   return (
     <div ref={rootRef} class={`doc-editor-shell${className ? ` ${className}` : ''}`}>
+      {searchOpen ? (
+        <CodeMirrorSearchPanel
+          query={searchQuery}
+          caseSensitive={searchCaseSensitive}
+          inputRef={searchInputRef}
+          onQueryChange={setSearchQueryState}
+          onToggleCaseSensitive={() => setSearchCaseSensitive((value) => !value)}
+          onNext={goToNextMatch}
+          onPrevious={goToPreviousMatch}
+          onClose={closeSearch}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              closeSearch();
+              return;
+            }
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              if (event.shiftKey) {
+                goToPreviousMatch();
+              } else {
+                goToNextMatch();
+              }
+            }
+          }}
+        />
+      ) : null}
       <div ref={containerRef} class="doc-editor-shell__editor" />
       {bracePrompt.panel ? (
         <div
@@ -557,48 +700,52 @@ export function MarkdownEditor({
             ) : null}
             {showGenerateMore ? (
               <button
-                key={`${bracePrompt.panel.request.from}:more`}
                 type="button"
-                class={`brace-prompt-panel__option brace-prompt-panel__option--action${bracePrompt.panel.selectedIndex === bracePrompt.panel.options.length ? ' is-selected' : ''}`}
+                class={`brace-prompt-panel__option brace-prompt-panel__option--action brace-prompt-panel__option--close${
+                  bracePrompt.panel.selectedIndex === bracePrompt.panel.options.length ? ' is-selected' : ''
+                }`}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => {
-                  bracePrompt.scheduleHoverPreview(null);
+                  bracePrompt.scheduleHoverPreview(bracePrompt.panel?.options.length ?? null);
                 }}
                 onClick={() => {
                   const view = viewRef.current;
-                  if (!view) return;
-                  bracePrompt.launch(view, bracePrompt.panel!.request);
-                  view.focus();
+                  const panel = bracePrompt.getPanel();
+                  if (!view || !panel) return;
+                  bracePrompt.launch(view, panel.request);
                 }}
               >
-                Generate more
+                Keep going
+                {bracePromptModelLabel ? (
+                  <span class="brace-prompt-panel__option-caption">{bracePromptModelLabel}</span>
+                ) : null}
               </button>
             ) : null}
             <button
-              key={`${bracePrompt.panel.request.from}:close`}
               type="button"
-              class={`brace-prompt-panel__option brace-prompt-panel__option--action brace-prompt-panel__option--close${bracePrompt.panel.selectedIndex === bracePrompt.panel.options.length + (showGenerateMore ? 1 : 0) ? ' is-selected' : ''}`}
+              class={`brace-prompt-panel__option brace-prompt-panel__option--action brace-prompt-panel__option--close${
+                bracePrompt.panel.selectedIndex === bracePrompt.panel.options.length + (showGenerateMore ? 1 : 0)
+                  ? ' is-selected'
+                  : ''
+              }`}
               onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => {
-                bracePrompt.scheduleHoverPreview(null);
+                const index = (bracePrompt.panel?.options.length ?? 0) + (showGenerateMore ? 1 : 0);
+                bracePrompt.scheduleHoverPreview(index);
               }}
               onClick={() => {
                 const view = viewRef.current;
+                if (view) view.focus();
                 bracePrompt.close();
-                view?.focus();
               }}
             >
-              <span>Esc to close</span>
-              {bracePromptModelLabel ? (
-                <span class="brace-prompt-panel__option-caption" aria-hidden="true">
-                  {bracePromptModelLabel}
-                </span>
-              ) : null}
+              Close
+              <span class="brace-prompt-panel__option-caption">Esc</span>
             </button>
+            {bracePrompt.panel.error ? (
+              <div class="brace-prompt-panel__status brace-prompt-panel__status--error">Couldn’t load suggestions</div>
+            ) : null}
           </div>
-          {!bracePrompt.panel.loading && bracePrompt.panel.error ? (
-            <div class="brace-prompt-panel__status brace-prompt-panel__status--error">{bracePrompt.panel.error}</div>
-          ) : null}
         </div>
       ) : null}
     </div>

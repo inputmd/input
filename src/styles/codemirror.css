@@ -373,6 +373,171 @@
   background: transparent;
 }
 
+.cm-panels {
+  background: transparent;
+}
+
+.codemirror-find-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  background: color-mix(in srgb, var(--bg) 12%, var(--toolbar-bg));
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  backdrop-filter: blur(8px);
+}
+
+.content-code-view-wrap .codemirror-find-panel {
+  margin-bottom: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 10px;
+}
+
+.codemirror-find-panel__field {
+  display: flex;
+  align-items: center;
+  flex: 1 1 280px;
+  min-width: min(280px, 100%);
+  gap: 9px;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text-secondary);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bg) 24%, transparent);
+}
+
+.codemirror-find-panel__field:focus-within {
+  border-color: var(--focus-border);
+}
+
+.codemirror-find-panel__field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+  font: inherit;
+}
+
+.codemirror-find-panel__field input::placeholder {
+  color: var(--text-secondary);
+}
+
+.codemirror-find-panel button {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--btn-bg) 88%, var(--toolbar-bg));
+  color: var(--btn-text);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+  font: inherit;
+}
+
+.codemirror-find-panel button:hover {
+  background: color-mix(in srgb, var(--btn-hover) 86%, var(--toolbar-bg));
+  border-color: color-mix(in srgb, var(--border) 54%, var(--text-secondary));
+}
+
+.codemirror-find-panel button:focus,
+.codemirror-find-panel button:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
+}
+
+.codemirror-find-panel svg {
+  flex: 0 0 auto;
+}
+
+.codemirror-find-panel__nav {
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+.codemirror-find-panel__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.codemirror-find-panel__toggle.is-active {
+  border-color: color-mix(in srgb, var(--focus-border) 52%, var(--border));
+  background: color-mix(in srgb, var(--focus-border) 18%, var(--toolbar-bg));
+  color: var(--text);
+}
+
+.codemirror-find-panel__checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-secondary));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--input-bg) 82%, transparent);
+}
+
+.codemirror-find-panel__checkbox-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.codemirror-find-panel__checkbox-indicator.is-active {
+  background: var(--focus-border);
+}
+
+.codemirror-find-panel__close {
+  margin-left: auto;
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--btn-bg) 24%, transparent);
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.codemirror-find-panel__close:hover {
+  background: var(--btn-hover);
+  color: var(--text);
+}
+
+.cm-searchMatch {
+  background: color-mix(in srgb, var(--selection-bg) 40%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--selection-bg) 60%, transparent);
+}
+
+.cm-searchMatch.cm-searchMatch-selected {
+  background: var(--selection-bg);
+  outline-color: var(--selection-bg);
+}
+
 /* CodeMirror syntax highlighting */
 
 .cm-editor .tok-content,

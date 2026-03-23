@@ -1,5 +1,14 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
+import {
+  findNext,
+  findPrevious,
+  getSearchQuery,
+  highlightSelectionMatches,
+  SearchQuery,
+  search,
+  setSearchQuery,
+} from '@codemirror/search';
 import { Compartment, EditorState } from '@codemirror/state';
 import {
   drawSelection,
@@ -10,8 +19,9 @@ import {
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
+import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { detectedLanguageForFileName } from './codemirror_languages';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
@@ -52,6 +62,7 @@ export function TextEditor({
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const editorControllerRef = useRef<EditorController | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
@@ -63,6 +74,14 @@ export function TextEditor({
   const streamingCursorFollowingRef = useRef(false);
   const ignoreNextStreamingScrollEventRef = useRef(false);
   const detectedLanguage = detectedLanguageForFileName(fileName, { includeMarkdown: false });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQueryState] = useState('');
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
+  const searchCaseSensitiveRef = useRef(searchCaseSensitive);
+  searchCaseSensitiveRef.current = searchCaseSensitive;
+  const openSearchRef = useRef<(view: EditorView) => boolean>(() => false);
 
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
@@ -73,6 +92,25 @@ export function TextEditor({
 
   const clampPosition = (view: EditorView, position: number): number => {
     return Math.max(0, Math.min(position, view.state.doc.length));
+  };
+
+  const applySearchQuery = (view: EditorView, query: string, caseSensitive: boolean) => {
+    const next = new SearchQuery({ search: query, caseSensitive });
+    if (!getSearchQuery(view.state).eq(next)) {
+      view.dispatch({ effects: setSearchQuery.of(next) });
+    }
+  };
+
+  const focusSearchInput = () => {
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    viewRef.current?.focus();
   };
 
   const editorUsesOwnScroll = (view: EditorView): boolean => {
@@ -136,6 +174,20 @@ export function TextEditor({
     });
   };
 
+  openSearchRef.current = (view: EditorView) => {
+    const selection = view.state.selection.main;
+    const selectedText =
+      !selection.empty && selection.to - selection.from <= 200 ? view.state.sliceDoc(selection.from, selection.to) : '';
+    const nextQuery = selectedText && !selectedText.includes('\n') ? selectedText : getSearchQuery(view.state).search;
+    const nextCaseSensitive = getSearchQuery(view.state).caseSensitive;
+    setSearchQueryState(nextQuery);
+    setSearchCaseSensitive(nextCaseSensitive);
+    setSearchOpen(true);
+    applySearchQuery(view, nextQuery, nextCaseSensitive);
+    focusSearchInput();
+    return true;
+  };
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect; synced via dedicated effects
   useEffect(() => {
     if (!containerRef.current) return;
@@ -161,6 +213,8 @@ export function TextEditor({
         indentOnInput(),
         syntaxHighlighting(appCodeMirrorHighlighter, { fallback: true }),
         bracketMatching(),
+        search(),
+        highlightSelectionMatches(),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         languageCompartment.current.of(detectedLanguage?.extensions ?? []),
@@ -168,7 +222,43 @@ export function TextEditor({
         EditorView.lineWrapping,
         continuedIndentExtension({ mode: 'indent', maxColumns: 10 }),
         EditorView.updateListener.of(onUpdate),
-        keymap.of([...historyKeymap, ...defaultKeymap]),
+        keymap.of([
+          {
+            key: 'Mod-f',
+            run: (view) => openSearchRef.current(view),
+            preventDefault: true,
+          },
+          {
+            key: 'F3',
+            run: (view) => {
+              if (!searchQueryRef.current) return openSearchRef.current(view);
+              applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+              return findNext(view);
+            },
+            shift: (view) => {
+              if (!searchQueryRef.current) return openSearchRef.current(view);
+              applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+              return findPrevious(view);
+            },
+            preventDefault: true,
+          },
+          {
+            key: 'Mod-g',
+            run: (view) => {
+              if (!searchQueryRef.current) return openSearchRef.current(view);
+              applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+              return findNext(view);
+            },
+            shift: (view) => {
+              if (!searchQueryRef.current) return openSearchRef.current(view);
+              applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+              return findPrevious(view);
+            },
+            preventDefault: true,
+          },
+          ...historyKeymap,
+          ...defaultKeymap,
+        ]),
       ],
     });
 
@@ -340,5 +430,65 @@ export function TextEditor({
     });
   }, [detectedLanguage]);
 
-  return <div ref={containerRef} class={className} />;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: helper is stable enough for this local sync effect
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    applySearchQuery(view, searchQuery, searchCaseSensitive);
+  }, [searchCaseSensitive, searchQuery]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: helper only forwards focus to the current input ref
+  useEffect(() => {
+    if (!searchOpen) return;
+    focusSearchInput();
+  }, [searchOpen]);
+
+  const goToNextMatch = () => {
+    const view = viewRef.current;
+    if (!view) return;
+    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+    if (!searchQueryRef.current) return;
+    findNext(view);
+  };
+
+  const goToPreviousMatch = () => {
+    const view = viewRef.current;
+    if (!view) return;
+    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+    if (!searchQueryRef.current) return;
+    findPrevious(view);
+  };
+
+  return (
+    <div class={`doc-editor-shell${className ? ` ${className}` : ''}`}>
+      {searchOpen ? (
+        <CodeMirrorSearchPanel
+          query={searchQuery}
+          caseSensitive={searchCaseSensitive}
+          inputRef={searchInputRef}
+          onQueryChange={setSearchQueryState}
+          onToggleCaseSensitive={() => setSearchCaseSensitive((value) => !value)}
+          onNext={goToNextMatch}
+          onPrevious={goToPreviousMatch}
+          onClose={closeSearch}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              closeSearch();
+              return;
+            }
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              if (event.shiftKey) {
+                goToPreviousMatch();
+              } else {
+                goToNextMatch();
+              }
+            }
+          }}
+        />
+      ) : null}
+      <div ref={containerRef} class="doc-editor-shell__editor" />
+    </div>
+  );
 }
