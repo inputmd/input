@@ -154,6 +154,7 @@ import {
 } from './util';
 import { ContentView } from './views/ContentView';
 import { DocumentStackView } from './views/DocumentStackView';
+import { EditSessionView } from './views/EditSessionView';
 import { EditView } from './views/EditView';
 import { ErrorView } from './views/ErrorView';
 import { LoadingView } from './views/LoadingView';
@@ -199,31 +200,7 @@ const READER_AI_SOURCE_MAX_CHARS = 140_000;
 const DRAFT_PERSIST_DELAY_MS = 250;
 const INPUT_GITHUB_REPO_FULL_NAME = 'inputmd/input';
 const INPUT_GITHUB_SOURCE_PATH = 'README.md';
-const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
-### Input
-
-Input is a tool for editing workspaces of Markdown files on GitHub.
-
-It comes with an AI assistant, and several new ways to write with AI without leaving the editor.
-
-It supports live preview, sharing and collaboration, and \\[\\[wiki links\\]\\]. Your data is stored in [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/).
-
-You can also use Input as an alternative frontend for any public repo -- just replace github.com with input.md. Check out the source [here](https://input.md/inputmd/input).
-
-#### Inline AI Features
-
-- Inline AI chat - start a line with %, then press \`Enter\`
-- Inline completions - write your query in {braces}, then press \`Tab\`
-- Middle-out completions - write your query in {braces} with text after, then press \`Shift-Tab\`
-
-#### Examples
-
-- [awesome-markdown](https://input.md/mundimark/awesome-markdown)
-- [awesome-ai-tools](https://input.md/mahseema/awesome-ai-tools)
-- [awesome-mac](https://input.md/jaywcjlove/awesome-mac)
-- [papers-we-love](https://input.md/papers-we-love/papers-we-love)
-- [conversations-with-ai](https://input.md/raykyri/conversations)
-`;
+const EDIT_CONTENT_SNAPSHOT_DELAY_MS = 250;
 
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
@@ -809,8 +786,23 @@ export function App() {
   const readerAiSkipPersistVisibleRef = useRef(false);
   const pendingGistDraftDirtyRef = useRef(false);
   const editContentRef = useRef(editContent);
-  editContentRef.current = editContent;
+  const editContentSnapshotTimerRef = useRef<number | null>(null);
   currentFileNameRef.current = currentFileName;
+  const cancelEditContentSnapshot = useCallback(() => {
+    if (editContentSnapshotTimerRef.current == null) return;
+    window.clearTimeout(editContentSnapshotTimerRef.current);
+    editContentSnapshotTimerRef.current = null;
+  }, []);
+  const scheduleEditContentSnapshot = useCallback(
+    (nextContent: string) => {
+      cancelEditContentSnapshot();
+      editContentSnapshotTimerRef.current = window.setTimeout(() => {
+        editContentSnapshotTimerRef.current = null;
+        setEditContent((previousContent) => (previousContent === nextContent ? previousContent : nextContent));
+      }, EDIT_CONTENT_SNAPSHOT_DELAY_MS);
+    },
+    [cancelEditContentSnapshot],
+  );
   const setNextEditContent = useCallback(
     (
       nextContent: string | ((previousContent: string) => string),
@@ -820,13 +812,19 @@ export function App() {
         selection?: { anchor: number; head: number } | null;
       },
     ) => {
-      setEditContent(nextContent);
+      cancelEditContentSnapshot();
+      setEditContent(() => {
+        const resolvedContent = typeof nextContent === 'function' ? nextContent(editContentRef.current) : nextContent;
+        editContentRef.current = resolvedContent;
+        return resolvedContent;
+      });
       setEditContentOrigin(options?.origin ?? 'external');
       setEditContentRevision((previousRevision) => options?.revision ?? previousRevision + 1);
       setEditContentSelection(options?.selection ?? null);
     },
-    [],
+    [cancelEditContentSnapshot],
   );
+  useEffect(() => cancelEditContentSnapshot, [cancelEditContentSnapshot]);
   const applyInstallationSessionState = useCallback(
     (sessionState: { installationId?: string | null; installations?: LinkedInstallation[] }) => {
       const nextInstallationId = sessionState.installationId ?? null;
@@ -1015,31 +1013,30 @@ export function App() {
 
   useEffect(() => {
     void editTitle;
-    void editContent;
     pendingGistDraftDirtyRef.current = draftMode && editingBackend === 'gist' && currentGistId === null;
-  }, [currentGistId, draftMode, editContent, editTitle, editingBackend]);
+  }, [currentGistId, draftMode, editTitle, editingBackend]);
 
   const persistPendingGistDraft = useCallback(() => {
     if (!draftMode || editingBackend !== 'gist' || currentGistId !== null) return;
     if (!pendingGistDraftDirtyRef.current) return;
     try {
       localStorage.setItem(DRAFT_TITLE_KEY, editTitle);
-      localStorage.setItem(DRAFT_CONTENT_KEY, editContent);
+      localStorage.setItem(DRAFT_CONTENT_KEY, editContentRef.current);
       pendingGistDraftDirtyRef.current = false;
     } catch {
       // Best effort only; continue with OAuth redirect.
     }
-  }, [currentGistId, draftMode, editContent, editTitle, editingBackend]);
+  }, [currentGistId, draftMode, editTitle, editingBackend]);
 
   const persistNewGistFileDraft = useCallback(() => {
     if (activeView !== 'edit' || editingBackend !== 'gist' || !currentGistId || currentFileName !== null) return;
     const persisted = readPersistedNewGistFileDraft(currentGistId);
     writePersistedNewGistFileDraft(currentGistId, {
       title: editTitle || persisted?.title || UNSAVED_FILE_LABEL,
-      content: editContent,
+      content: editContentRef.current,
       filename: persisted?.filename || DEFAULT_SCRATCH_FILENAME,
     });
-  }, [activeView, currentFileName, currentGistId, editContent, editTitle, editingBackend]);
+  }, [activeView, currentFileName, currentGistId, editTitle, editingBackend]);
 
   const persistRepoNewDraft = useCallback(() => {
     if (route.name !== 'reponew') return;
@@ -1049,8 +1046,8 @@ export function App() {
     if (!instId || !repoName) return;
     const path = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
     localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'title'), editTitle);
-    localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'content'), editContent);
-  }, [route, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle, editContent]);
+    localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'content'), editContentRef.current);
+  }, [route, editingBackend, currentRepoDocPath, installationId, selectedRepo, editTitle]);
 
   const startGitHubSignIn = useCallback(
     (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
@@ -4326,7 +4323,8 @@ export function App() {
       void showAlert('Wait for image uploads to finish before leaving the editor.');
       return;
     }
-    if (activeView === 'edit' && (hasUnsavedChanges || isScratchDocument) && editContent.trim().length > 0) {
+    const currentEditContent = editContentRef.current;
+    if (activeView === 'edit' && (hasUnsavedChanges || isScratchDocument) && currentEditContent.trim().length > 0) {
       const leave = await showConfirm('Leave the editor? You have unsaved changes.', {
         title: 'Unsaved changes',
         defaultFocus: 'cancel',
@@ -4351,7 +4349,6 @@ export function App() {
     else navigate(routePath.workspaces());
   }, [
     activeView,
-    editContent,
     hasUnsavedChanges,
     isScratchDocument,
     readerAiEditLocked,
@@ -4638,7 +4635,7 @@ export function App() {
         return null;
       }
       const title = (options?.title ?? editTitle).trim() || DEFAULT_NEW_FILENAME;
-      const content = options?.content ?? editContent;
+      const content = options?.content ?? editContentRef.current;
       let scratchFilename: string | null = null;
 
       if (editingBackend === 'repo' && currentRepoDocPath === null) {
@@ -4959,7 +4956,6 @@ export function App() {
       currentRepoDocSha,
       currentRouteRepoRef,
       draftMode,
-      editContent,
       editTitle,
       editingBackend,
       handleSessionExpired,
@@ -5207,7 +5203,7 @@ export function App() {
     if (activeView !== 'edit' || !currentDocumentDraftKey || currentDocumentSavedContent === null) return;
     const pendingRestore = parsePendingDraftRestore(routeState);
     if (!pendingRestore || pendingRestore.documentDraftKey !== currentDocumentDraftKey) return;
-    if (editContent !== pendingRestore.content) {
+    if (editContentRef.current !== pendingRestore.content) {
       setNextEditContent(pendingRestore.content);
     }
     setHasUserTypedUnsavedChanges(false);
@@ -5221,7 +5217,6 @@ export function App() {
     activeView,
     currentDocumentDraftKey,
     currentDocumentSavedContent,
-    editContent,
     commitAndStayInEdit,
     navigate,
     routeState,
@@ -6495,18 +6490,13 @@ export function App() {
       }
       case 'edit':
         return (
-          <EditView
+          <EditSessionView
             fileName={editingFileName}
             markdown={editPreviewEnabled}
             content={editContent}
             contentOrigin={editContentOrigin}
             contentRevision={editContentRevision}
             contentSelection={editContentSelection}
-            previewHtml={editPreviewHtml}
-            previewCustomCss={editPreviewCustomCss}
-            previewCustomCssScope={editPreviewCustomCssScope}
-            previewFrontMatterError={editPreviewFrontMatterError}
-            previewCssWarning={editPreviewCssWarning}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             scrollStorageKey={currentDocumentScrollKey}
@@ -6529,6 +6519,11 @@ export function App() {
             onEditorReady={(controller) => {
               editViewControllerRef.current = controller;
             }}
+            resolvePreviewImageSrc={(src) =>
+              resolveMarkdownImageSrc(src, editingBackend === 'repo' ? currentRepoDocPath : null)
+            }
+            previewWikiLinkResolver={editPreviewWikiLinkResolver}
+            showLoggedOutNewDocPreviewDescription={route.name === 'new' && activeView === 'edit' && !user}
             saving={saving}
             canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
             hasUserTypedUnsavedChanges={hasUserTypedUnsavedChanges}
@@ -6706,17 +6701,8 @@ export function App() {
   const editingFileName = currentFileName ?? (isScratchDocument ? UNSAVED_FILE_LABEL : editTitle);
   const editPreviewEnabled = isScratchDocument || isMarkdownFileName(currentFileName ?? editTitle);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
-  const showLoggedOutNewDocPreviewDescription =
-    route.name === 'new' && activeView === 'edit' && !user && editContent.trim().length === 0;
   const showEditorCancel = activeView === 'edit' && !draftMode && repoAccessMode !== 'public';
   const showEditorSave = activeView === 'edit' && !(draftMode && !user) && repoAccessMode !== 'public';
-  const [deferredEditContent, setDeferredEditContent] = useState(editContent);
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setDeferredEditContent(editContent);
-    }, 150);
-    return () => window.clearTimeout(timeoutId);
-  }, [editContent]);
   const editPreviewWikiLinkResolver = useMemo(() => {
     if (!editPreviewEnabled) return undefined;
 
@@ -6736,33 +6722,6 @@ export function App() {
       : [...knownMarkdownPaths, currentFileName];
     return createWikiLinkResolver(currentFileName, wikiPaths);
   }, [editPreviewEnabled, editingBackend, currentRepoDocPath, repoFiles, currentFileName, gistFiles]);
-  const editPreviewDocument = useMemo(
-    () =>
-      editPreviewEnabled
-        ? parseMarkdownDocument(
-            showLoggedOutNewDocPreviewDescription ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION : deferredEditContent,
-            {
-              resolveImageSrc: (src) =>
-                resolveMarkdownImageSrc(src, editingBackend === 'repo' ? currentRepoDocPath : null),
-              resolveWikiLinkMeta: editPreviewWikiLinkResolver,
-            },
-          )
-        : { html: '', customCss: null, customCssScope: null, frontMatterError: null, cssWarning: null },
-    [
-      currentRepoDocPath,
-      editPreviewEnabled,
-      deferredEditContent,
-      editPreviewWikiLinkResolver,
-      editingBackend,
-      resolveMarkdownImageSrc,
-      showLoggedOutNewDocPreviewDescription,
-    ],
-  );
-  const editPreviewHtml = editPreviewDocument.html;
-  const editPreviewCustomCss = editPreviewDocument.customCss;
-  const editPreviewCustomCssScope = editPreviewDocument.customCssScope;
-  const editPreviewFrontMatterError = editPreviewDocument.frontMatterError;
-  const editPreviewCssWarning = editPreviewDocument.cssWarning;
   const onToggleSidebar = useCallback(() => {
     setSidebarVisibilityOverride((prev) => {
       const current = prev ?? defaultShowSidebar;
@@ -6829,11 +6788,21 @@ export function App() {
   const onEditContentChange = useCallback(
     (update: { content: string; origin: 'local'; revision: number }) => {
       if (readerAiEditLocked) return;
-      setNextEditContent(update.content, { origin: update.origin, revision: update.revision });
+      editContentRef.current = update.content;
+      pendingGistDraftDirtyRef.current = draftMode && editingBackend === 'gist' && currentGistId === null;
+      scheduleEditContentSnapshot(update.content);
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
     },
-    [readerAiEditLocked, setNextEditContent, setHasUnsavedChanges, setHasUserTypedUnsavedChanges],
+    [
+      currentGistId,
+      draftMode,
+      editingBackend,
+      readerAiEditLocked,
+      scheduleEditContentSnapshot,
+      setHasUnsavedChanges,
+      setHasUserTypedUnsavedChanges,
+    ],
   );
   const handleSignInWithGitHub = useCallback(
     (options?: { includeGists?: boolean }) => {

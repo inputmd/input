@@ -47,7 +47,7 @@ function isMissingWikiLink(anchor: HTMLAnchorElement): boolean {
   return anchor.classList.contains('missing-wikilink');
 }
 
-interface EditViewProps {
+export interface EditViewProps {
   fileName?: string | null;
   markdown?: boolean;
   content: string;
