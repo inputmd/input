@@ -18,7 +18,9 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
+import type { ReaderAiModel } from '../reader_ai';
 import { routePath } from '../routing';
+import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 
 function isLocalhostHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '::1';
@@ -112,6 +114,11 @@ interface ToolbarProps {
   aiVisible: boolean;
   aiDisabled?: boolean;
   onToggleAi: () => void;
+  aiModels: ReaderAiModel[];
+  aiModelsLoading: boolean;
+  aiModelsError: string | null;
+  selectedAiModel: string;
+  onSelectAiModel: (modelId: string) => void;
   showCancel: boolean;
   onCancel: () => void;
   showSave: boolean;
@@ -181,6 +188,11 @@ export function Toolbar({
   aiVisible,
   aiDisabled = false,
   onToggleAi,
+  aiModels,
+  aiModelsLoading,
+  aiModelsError,
+  selectedAiModel,
+  onSelectAiModel,
   showCancel,
   onCancel,
   showSave,
@@ -220,7 +232,8 @@ export function Toolbar({
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
-  const showPreviewAndAiGroup = showPreviewToggle && showAiToggle;
+  const showHeaderToggleGroup = showPreviewToggle || showAiToggle;
+  const showAiModelSelector = showAiToggle;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const resolvedLocalRateLimit = localRateLimit ?? readStoredGitHubRateLimitSnapshot('serverLocal');
@@ -711,10 +724,10 @@ export function Toolbar({
           )}
           {showActionsMenu && view === 'edit' && authorMenu}
         </div>
-        {showPreviewToggle || showAiToggle ? (
+        {showHeaderToggleGroup ? (
           <div class="toolbar-toggle-controls">
-            {showPreviewAndAiGroup ? (
-              <div class="toggle-button-group" role="group" aria-label="Preview and Reader AI controls">
+            <div class="toggle-button-group" role="group" aria-label="Preview and Reader AI controls">
+              {showPreviewToggle ? (
                 <button
                   type="button"
                   class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
@@ -724,6 +737,8 @@ export function Toolbar({
                 >
                   <Eye size={16} />
                 </button>
+              ) : null}
+              {showAiToggle ? (
                 <button
                   type="button"
                   class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
@@ -734,34 +749,23 @@ export function Toolbar({
                 >
                   <Sparkles size={16} />
                 </button>
-              </div>
-            ) : (
-              <>
-                {showPreviewToggle && (
-                  <button
-                    type="button"
-                    class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
-                    title={previewVisible ? 'Hide preview' : 'Show preview'}
-                    aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
-                    onClick={onTogglePreview}
-                  >
-                    <Eye size={16} />
-                  </button>
-                )}
-                {showAiToggle && (
-                  <button
-                    type="button"
-                    class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
-                    title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
-                    aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
-                    disabled={aiDisabled}
-                    onClick={onToggleAi}
-                  >
-                    <Sparkles size={16} />
-                  </button>
-                )}
-              </>
-            )}
+              ) : null}
+              {showAiModelSelector ? (
+                <ReaderAiModelSelector
+                  models={aiModels}
+                  modelsLoading={aiModelsLoading}
+                  modelsError={aiModelsError}
+                  selectedModel={selectedAiModel}
+                  onSelectModel={onSelectAiModel}
+                  disabled={aiDisabled}
+                  triggerClassName="preview-toggle-btn preview-toggle-btn-model"
+                  triggerAriaLabel="Reader AI model"
+                  menuClassName="reader-ai-model-menu"
+                  align="end"
+                  showFreeBadge
+                />
+              ) : null}
+            </div>
           </div>
         ) : null}
         {user ? (

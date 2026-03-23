@@ -14,7 +14,10 @@ export interface ReaderAiModel {
 }
 
 export function formatReaderAiModelDisplayName(model: Pick<ReaderAiModel, 'name' | 'id' | 'provider'>): string {
-  const baseName = model.name.replace(/\s+\((free|local codex|paid)\)\s*$/i, '');
+  const baseName = model.name
+    .replace(/\s+\((free|local codex|paid)\)\s*$/i, '')
+    .replace(/^Claude\s+/i, '')
+    .replace(/\s+30B A3B\s*$/i, '');
   if (model.provider === 'codex_local') return baseName.toLowerCase();
   return baseName.replace(/^[^:]+:\s*/, '');
 }

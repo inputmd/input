@@ -69,6 +69,24 @@
   white-space: nowrap;
 }
 
+.reader-ai-model-trigger-content {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reader-ai-model-trigger-badge {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--ansi-green) 24%, var(--border));
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--ansi-green) 12%, var(--input-bg));
+  color: color-mix(in srgb, var(--ansi-green) 78%, var(--text));
+  font-size: 10px;
+  line-height: 1.2;
+}
+
 .reader-ai-model-trigger-icon {
   width: 14px;
   height: 14px;
@@ -153,6 +171,10 @@
   display: flex;
   align-items: center;
   user-select: none;
+}
+
+.reader-ai-model-menu-heading--plain {
+  font-style: normal;
 }
 
 .reader-ai-messages {

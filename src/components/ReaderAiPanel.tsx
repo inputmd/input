@@ -1,13 +1,9 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowRight, ChevronDown, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-react';
+import { ArrowRight, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseMarkdownToHtml } from '../markdown';
-import {
-  formatReaderAiModelDisplayName,
-  type ReaderAiModel,
-  type ReaderAiStagedChange,
-  readerAiModelPriorityRank,
-} from '../reader_ai';
+import type { ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
+import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
 
@@ -102,10 +98,6 @@ function ReaderAiAssistantMessage({ content, streaming }: { content: string; str
   return <div ref={contentRef} class="reader-ai-message-content rendered-markdown" />;
 }
 
-function displayModelName(model: ReaderAiModel): string {
-  return formatReaderAiModelDisplayName(model);
-}
-
 export function ReaderAiPanel({
   models,
   modelsLoading,
@@ -154,23 +146,6 @@ export function ReaderAiPanel({
   const canSend = draft.trim().length > 0 && !sending && Boolean(selectedModel);
   const hasMessages = messageCount > 0;
   const composerAtTop = !hasMessages;
-  const modelSelectDisabled = modelsLoading || models.length === 0 || sending;
-  const selectedModelName = (() => {
-    const model = models.find((entry) => entry.id === selectedModel);
-    return model ? displayModelName(model) : '';
-  })();
-  const modelTriggerLabel = selectedModelName || (modelsLoading ? 'Loading models...' : 'No models');
-  const localModels = models.filter((model) => model.provider === 'codex_local');
-  const paidModels = models.filter(
-    (model) => model.provider !== 'codex_local' && !model.id.trim().toLowerCase().endsWith(':free'),
-  );
-  const freeModels = models.filter(
-    (model) => model.provider !== 'codex_local' && model.id.trim().toLowerCase().endsWith(':free'),
-  );
-  const featuredModels = freeModels.filter((model) => readerAiModelPriorityRank(model) !== -1);
-  const nonFeaturedModels = freeModels.filter((model) => readerAiModelPriorityRank(model) === -1);
-  const unverifiedModels = nonFeaturedModels;
-  const hasRecommendedSection = localModels.length > 0 || paidModels.length > 0 || featuredModels.length > 0;
   const statusText = useMemo(() => {
     if (modelsLoading) return 'Loading free models...';
     if (modelsError) return modelsError;
@@ -342,81 +317,15 @@ export function ReaderAiPanel({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <button
-            type="button"
-            class="reader-ai-model-trigger reader-ai-model-trigger--composer"
-            aria-label="Reader AI model"
-            disabled={modelSelectDisabled}
-          >
-            <span class="reader-ai-model-trigger-label">{modelTriggerLabel}</span>
-            <ChevronDown size={14} class="reader-ai-model-trigger-icon" aria-hidden="true" />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content class="reader-ai-model-menu" sideOffset={6} align="start">
-            <DropdownMenu.RadioGroup value={selectedModel} onValueChange={handleSelectModel}>
-              {paidModels.length > 0 ? (
-                <>
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    Recommended models
-                  </DropdownMenu.Item>
-                  {paidModels.map((model) => (
-                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model)}
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </>
-              ) : null}
-
-              {localModels.length > 0 ? (
-                <>
-                  {paidModels.length > 0 ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    Via local Codex server
-                  </DropdownMenu.Item>
-                  {localModels.map((model) => (
-                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model)}
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </>
-              ) : null}
-
-              {featuredModels.length > 0 ? (
-                <>
-                  {paidModels.length > 0 || localModels.length > 0 ? (
-                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
-                  ) : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    Recommended free providers
-                  </DropdownMenu.Item>
-                  {featuredModels.map((model) => (
-                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model)}
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </>
-              ) : null}
-
-              {unverifiedModels.length > 0 ? (
-                <>
-                  {hasRecommendedSection ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    Unverified free providers
-                  </DropdownMenu.Item>
-                  {unverifiedModels.map((model) => (
-                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model)}
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </>
-              ) : null}
-            </DropdownMenu.RadioGroup>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+      <ReaderAiModelSelector
+        models={models}
+        modelsLoading={modelsLoading}
+        modelsError={modelsError}
+        selectedModel={selectedModel}
+        onSelectModel={handleSelectModel}
+        disabled={sending}
+        triggerClassName="reader-ai-model-trigger reader-ai-model-trigger--composer"
+      />
       <textarea
         ref={composerInputRef}
         class={`reader-ai-input${hasMessages ? ' reader-ai-input--bottom' : ''}`}

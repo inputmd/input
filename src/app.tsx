@@ -414,7 +414,12 @@ function clampReaderAiWidth(width: number): number {
 
 function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
   return models
-    .map((model, originalIndex) => ({ model, originalIndex, rank: readerAiModelPriorityRank(model) }))
+    .map((model, originalIndex) => ({
+      model,
+      originalIndex,
+      rank: readerAiModelPriorityRank(model),
+      trinityPenalty: /^Trinity\b/i.test(model.name.trim()) ? 1 : 0,
+    }))
     .sort((a, b) => {
       const aLocal = a.model.provider === 'codex_local';
       const bLocal = b.model.provider === 'codex_local';
@@ -424,6 +429,7 @@ function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
         if (b.rank === -1) return -1;
         return a.rank - b.rank;
       }
+      if (a.trinityPenalty !== b.trinityPenalty) return a.trinityPenalty - b.trinityPenalty;
       return a.originalIndex - b.originalIndex;
     })
     .map(({ model }) => model);
@@ -7060,6 +7066,11 @@ export function App() {
         aiVisible={showReaderAiPanel}
         aiDisabled={readerAiToggleDisabled}
         onToggleAi={onToggleReaderAi}
+        aiModels={readerAiModels}
+        aiModelsLoading={readerAiModelsLoading}
+        aiModelsError={readerAiModelsError}
+        selectedAiModel={readerAiSelectedModel}
+        onSelectAiModel={setReaderAiSelectedModel}
         showCancel={showEditorCancel}
         onCancel={onCancel}
         showSave={showEditorSave}
