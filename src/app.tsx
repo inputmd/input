@@ -206,16 +206,24 @@ Input is a tool for editing workspaces of Markdown files on GitHub.
 
 It comes with an AI assistant, and several new ways to write with AI without leaving the editor.
 
-It also supports live preview, sharing and collaboration, and \\[\\[wiki links\\]\\]. Your data is stored in [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/).
+It supports live preview, sharing and collaboration, and \\[\\[wiki links\\]\\]. Your data is stored in [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/).
 
-Try it on an example:
+You can also use Input as an alternative frontend for any public repo -- just replace github.com with input.md. Check out the source [here](https://input.md/inputmd/input).
+
+#### Inline AI Features
+
+- Inline AI chat - start a line with %, then press \`Enter\`
+- Inline completions - write your query in {braces}, then press \`Tab\`
+- Middle-out completions - write your query in {braces} with text after, then press \`Shift-Tab\`
+
+#### Examples
+
 - [awesome-markdown](https://input.md/mundimark/awesome-markdown)
 - [awesome-ai-tools](https://input.md/mahseema/awesome-ai-tools)
 - [awesome-mac](https://input.md/jaywcjlove/awesome-mac)
 - [papers-we-love](https://input.md/papers-we-love/papers-we-love)
 - [conversations-with-ai](https://input.md/raykyri/conversations)
-
-You can also use Input as an alternative frontend for any public repo -- just replace github.com with input.md. Try it on the [source code](https://input.md/inputmd/input) here.`;
+`;
 
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;

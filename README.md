@@ -20,7 +20,7 @@ Also, `[username].input.md` automatically renders the public GitHub repo
   all your files. Or persist to Gists if you don't want to connect a repo.
 - **Share links**: Generate server-signed links for sharing individual private
   files from a private repo.
-- **Share editors**: Add an `editors` field in Markdown front matter to let
+- **Collaborators**: Add an `editors` field in Markdown front matter to let
   specific GitHub users open and update a private repo document, without
   repo-wide write access.
 - **Reader AI**: Comes with an experimental AI interface similar to Cursor, that
@@ -30,6 +30,20 @@ Also, `[username].input.md` automatically renders the public GitHub repo
 - **Open source**: AGPL licensed, MIT licensed version coming soon.
 
 ## Inline Prompting
+
+You can ask AI to help you complete sentences or paragraphs. Give it instructions inside curly braces, and then press Tab:
+
+```
+There are opportunities, but also risks, of artificial intelligence. {Add three examples}
+```
+
+*Middle-out completion* includes the rest of the paragraph as context. To trigger middle-out completion, press Shift-Tab:
+
+```
+First, gather eggs, milk, and butter. {Now what?} Now you have a cake!
+```
+
+## Inline Chat
 
 You can prompt the currently selected AI directly inside the Markdown editor
 using a custom list syntax:
