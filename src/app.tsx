@@ -202,21 +202,20 @@ const INPUT_GITHUB_SOURCE_PATH = 'README.md';
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
-An experimental Markdown editor, and alternative GitHub frontend.
+Input is a tool for editing workspaces of Markdown files on GitHub.
 
-Input is a tool for editing and publishing workspaces of Markdown files. It's like Obsidian in your browser, except built on GitHub.
+It comes with an AI assistant, and several new ways to write with AI without leaving the editor.
 
-It supports live preview, multi-document workspaces, and \\[\\[wiki links\\]\\]. Your data is stored in your own [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/).
-
-You can also view any public GitHub repo, by replacing github.com with input.md.
-
-[View on GitHub](https://github.com/inputmd/input)
+It also supports live preview, sharing and collaboration, and \\[\\[wiki links\\]\\]. Your data is stored in [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/).
 
 Try it on an example:
 - [awesome-markdown](https://input.md/mundimark/awesome-markdown)
 - [awesome-ai-tools](https://input.md/mahseema/awesome-ai-tools)
 - [awesome-mac](https://input.md/jaywcjlove/awesome-mac)
-- [papers-we-love](https://input.md/papers-we-love/papers-we-love)`;
+- [papers-we-love](https://input.md/papers-we-love/papers-we-love)
+- [conversations-with-ai](https://input.md/raykyri/conversations)
+
+You can also use Input as an alternative frontend for any public repo -- just replace github.com with input.md. Try it on the [source code](https://input.md/inputmd/input) here.`;
 
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
