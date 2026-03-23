@@ -75,8 +75,8 @@
 }
 
 .sidebar-filter-trigger:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 3px;
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
   border-radius: 4px;
 }
 
@@ -142,6 +142,21 @@
   align-items: stretch;
 }
 
+.sidebar-add-group > button {
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar-add-group:focus-within > button {
+  z-index: 0;
+}
+
+.sidebar-add-group > button:focus,
+.sidebar-add-group > button:focus-visible,
+.sidebar-add-group > button[data-state="open"] {
+  z-index: 2;
+}
+
 .sidebar-add-btn-primary {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
@@ -159,8 +174,8 @@
 
 .sidebar-add-btn:focus,
 .sidebar-add-btn:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
   box-shadow: none;
 }
 

@@ -184,6 +184,7 @@ body {
 button {
   padding: 6px 16px;
   border: 1px solid var(--border);
+  border-width: 1px;
   border-radius: 6px;
   background: var(--btn-bg);
   color: var(--btn-text);
@@ -196,6 +197,13 @@ button {
 
 button:hover {
   background: var(--btn-hover);
+}
+
+button:focus,
+button:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
+  box-shadow: none;
 }
 
 @media (max-width: 768px) {

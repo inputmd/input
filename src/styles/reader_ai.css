@@ -224,8 +224,8 @@
 
 .reader-ai-summarize-btn:focus,
 .reader-ai-summarize-btn:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
   box-shadow: none;
 }
 
@@ -467,8 +467,8 @@
 }
 
 .reader-ai-suggest-project-mode-btn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--success-color) 65%, #ffffff);
-  outline-offset: 1px;
+  outline: 1px solid color-mix(in srgb, var(--success-color) 65%, #ffffff);
+  outline-offset: 0;
 }
 
 .reader-ai-input-wrap {
@@ -667,8 +667,8 @@
 }
 
 .reader-ai-toggle input:focus-visible + .reader-ai-toggle-track {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
 }
 
 .reader-ai-toggle-thumb {
