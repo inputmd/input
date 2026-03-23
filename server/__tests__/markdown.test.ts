@@ -158,6 +158,19 @@ test('marked preserves markdown links while styling bare bracketed text', (t) =>
   t.true(html.includes('<a href="https://example.com">docs</a>'));
 });
 
+test('marked renders bare brace prompts without braces', (t) => {
+  const html = marked.parse('Use {draft a reply} here.');
+
+  t.true(html.includes('Use <span class="brace-prompt">{draft a reply}</span> here.'));
+});
+
+test('marked keeps CriticMarkup comments distinct from bare brace prompts', (t) => {
+  const html = marked.parse('Use {draft a reply} and {>>note<<}.');
+
+  t.true(html.includes('<span class="brace-prompt">{draft a reply}</span>'));
+  t.true(html.includes('<span class="critic-comment">note</span>'));
+});
+
 test('marked renders prompt question and answer lines as list items inside a single unordered list', (t) => {
   const html = marked.parse(
     '% Can you explain Solomonoff induction?\n= Solomonoff induction is a theoretical framework.',

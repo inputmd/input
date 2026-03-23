@@ -503,7 +503,9 @@
   color: var(--missing-link-color);
 }
 
-.rendered-markdown .bracketed-text {
+.rendered-markdown .bracketed-text,
+.rendered-markdown .brace-prompt,
+.markdown-link-preview-body .brace-prompt {
   text-decoration-line: underline;
   text-decoration-style: dotted;
   text-decoration-color: var(--bracketed-text-underline-color);

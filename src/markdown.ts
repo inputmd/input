@@ -105,6 +105,39 @@ function parseEmojiShortcode(raw: string): string | null {
   return nameToEmoji[normalized] ?? null;
 }
 
+function startsWithCriticMarkupLikeMarker(text: string): boolean {
+  return /^[\t ]*[+\-=~>]/.test(text);
+}
+
+function parseBracePromptAt(
+  source: string,
+  from: number,
+): {
+  raw: string;
+  text: string;
+  to: number;
+} | null {
+  if (source[from] !== '{') return null;
+
+  const closeIndex = source.indexOf('}', from + 1);
+  if (closeIndex < 0) return null;
+  if (source[from + 1] === '{' || source[closeIndex + 1] === '}') return null;
+  if (parseCriticMarkupAt(source, from)?.to === closeIndex + 1) return null;
+  if (source.indexOf('{', from + 1) >= 0 && source.indexOf('{', from + 1) < closeIndex) return null;
+  if (source.indexOf('}', from + 1) !== closeIndex) return null;
+
+  const text = source.slice(from + 1, closeIndex);
+  if (text.includes('{') || text.includes('}')) return null;
+  if (startsWithCriticMarkupLikeMarker(text)) return null;
+  if (text.trim().length === 0) return null;
+
+  return {
+    raw: source.slice(from, closeIndex + 1),
+    text,
+    to: closeIndex + 1,
+  };
+}
+
 function deriveSuperscriptLinkLabel(text: string, href: string): string {
   if (text !== 'src') return text;
 
@@ -280,6 +313,26 @@ marked.use({
           return `<span class="critic-comment">${escapeHtmlAttr(criticToken.text ?? '')}</span>`;
         }
         return `<span class="critic-substitution"><del class="critic-deletion">${this.parser.parseInline(criticToken.oldTokens ?? [])}</del><ins class="critic-addition">${this.parser.parseInline(criticToken.newTokens ?? [])}</ins></span>`;
+      },
+    },
+    {
+      name: 'bracePrompt',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf('{');
+      },
+      tokenizer(src: string) {
+        const match = parseBracePromptAt(src, 0);
+        if (!match) return undefined;
+        return {
+          type: 'bracePrompt',
+          raw: match.raw,
+          text: match.text,
+          tokens: this.lexer.inlineTokens(match.text),
+        };
+      },
+      renderer(token) {
+        return `<span class="brace-prompt">{${this.parser.parseInline(token.tokens ?? [])}}</span>`;
       },
     },
     {
