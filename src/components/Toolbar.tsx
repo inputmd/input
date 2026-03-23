@@ -395,7 +395,7 @@ export function Toolbar({
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="user-menu-content github-signin-menu-content" sideOffset={6} align="end">
             <DropdownMenu.Item class="user-menu-item" onSelect={() => onSignInWithGitHub({ includeGists: false })}>
-              Sign in with GitHub (no gists)
+              Sign in (privacy mode, no gists)
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
