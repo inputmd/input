@@ -7071,6 +7071,7 @@ export function App() {
         aiModelsError={readerAiModelsError}
         selectedAiModel={readerAiSelectedModel}
         onSelectAiModel={setReaderAiSelectedModel}
+        showAiLoginPrompt={!user}
         showCancel={showEditorCancel}
         onCancel={onCancel}
         showSave={showEditorSave}
@@ -7167,6 +7168,7 @@ export function App() {
               modelsError={readerAiModelsError}
               selectedModel={readerAiSelectedModel}
               onSelectModel={setReaderAiSelectedModel}
+              showLoginForMoreModels={!user}
               messages={readerAiMessages}
               sending={readerAiSending}
               toolStatus={readerAiToolStatus}

@@ -21,6 +21,7 @@ interface ReaderAiPanelProps {
   modelsError: string | null;
   selectedModel: string;
   onSelectModel: (modelId: string) => void;
+  showLoginForMoreModels?: boolean;
   messages: ReaderAiMessage[];
   sending: boolean;
   toolStatus: string | null;
@@ -104,6 +105,7 @@ export function ReaderAiPanel({
   modelsError,
   selectedModel,
   onSelectModel,
+  showLoginForMoreModels = false,
   messages,
   sending,
   toolStatus,
@@ -325,6 +327,7 @@ export function ReaderAiPanel({
         onSelectModel={handleSelectModel}
         disabled={sending}
         triggerClassName="reader-ai-model-trigger reader-ai-model-trigger--composer"
+        showLoginForMoreModels={showLoginForMoreModels}
       />
       <textarea
         ref={composerInputRef}

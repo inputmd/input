@@ -15,6 +15,7 @@ interface ReaderAiModelSelectorProps {
   align?: 'start' | 'center' | 'end';
   sideOffset?: number;
   showFreeBadge?: boolean;
+  showLoginForMoreModels?: boolean;
 }
 
 function displayModelName(model: ReaderAiModel): string {
@@ -49,6 +50,7 @@ export function ReaderAiModelSelector({
   align = 'start',
   sideOffset = 6,
   showFreeBadge = false,
+  showLoginForMoreModels = false,
 }: ReaderAiModelSelectorProps) {
   const localModels = models.filter((model) => model.provider === 'codex_local');
   const paidModels = models.filter(
@@ -70,6 +72,7 @@ export function ReaderAiModelSelector({
         selectedModelEntry.id.trim().toLowerCase().endsWith(':free'),
     );
   const modelTriggerLabel = selectedReaderAiModelLabel(models, selectedModel, modelsLoading);
+  const showLoggedOutHeading = showLoginForMoreModels && (featuredModels.length > 0 || unverifiedModels.length > 0);
 
   return (
     <DropdownMenu.Root>
@@ -94,7 +97,7 @@ export function ReaderAiModelSelector({
             <DropdownMenu.RadioGroup value={selectedModel} onValueChange={onSelectModel}>
               {paidModels.length > 0 ? (
                 <>
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading reader-ai-model-menu-heading--plain" disabled>
                     Recommended models
                   </DropdownMenu.Item>
                   {paidModels.map((model) => (
@@ -116,6 +119,18 @@ export function ReaderAiModelSelector({
                       {displayModelName(model)}
                     </DropdownMenu.RadioItem>
                   ))}
+                </>
+              ) : null}
+
+              {showLoggedOutHeading ? (
+                <>
+                  {paidModels.length > 0 || localModels.length > 0 ? (
+                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
+                  ) : null}
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading reader-ai-model-menu-heading--plain" disabled>
+                    Log in for more models
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
                 </>
               ) : null}
 

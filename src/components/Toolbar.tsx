@@ -119,6 +119,7 @@ interface ToolbarProps {
   aiModelsError: string | null;
   selectedAiModel: string;
   onSelectAiModel: (modelId: string) => void;
+  showAiLoginPrompt?: boolean;
   showCancel: boolean;
   onCancel: () => void;
   showSave: boolean;
@@ -193,6 +194,7 @@ export function Toolbar({
   aiModelsError,
   selectedAiModel,
   onSelectAiModel,
+  showAiLoginPrompt = false,
   showCancel,
   onCancel,
   showSave,
@@ -763,6 +765,7 @@ export function Toolbar({
                   menuClassName="reader-ai-model-menu"
                   align="end"
                   showFreeBadge
+                  showLoginForMoreModels={showAiLoginPrompt}
                 />
               ) : null}
             </div>
