@@ -213,7 +213,6 @@ export function Toolbar({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const collaboratorsTooltipCloseTimeoutRef = useRef<number | null>(null);
   const isHomeDraft = view === 'edit' && draftMode;
-  const showSignInToSave = isHomeDraft && !user;
   const showHomeOnlyActions = isHomeDraft && !user;
   const showGitHubApp = !!user;
   const showSidebarToggle = view === 'content' || view === 'edit';
@@ -711,7 +710,6 @@ export function Toolbar({
             </div>
           )}
           {showActionsMenu && view === 'edit' && authorMenu}
-          {showSignInToSave && signInButton}
         </div>
         {showPreviewToggle || showAiToggle ? (
           <div class="toolbar-toggle-controls">
@@ -849,9 +847,9 @@ export function Toolbar({
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
-        ) : !showSignInToSave ? (
+        ) : (
           signInButton
-        ) : null}
+        )}
       </div>
     </header>
   );
