@@ -21,6 +21,7 @@ import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codem
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController } from './editor_controller';
 import {
+  acceptBracePromptSelectionOnEnter,
   backspacePromptQuestionMarker,
   buildExternalContentSyncTransaction,
   buildExternalEditorChangeTransaction,
@@ -282,6 +283,7 @@ export function MarkdownEditor({
             {
               key: 'Enter',
               run: (view) => {
+                if (acceptBracePromptSelectionOnEnter(view, bracePrompt)) return true;
                 const request = getPromptListRequest(view.state);
                 if (!request) return false;
                 onPromptListSubmitRef.current?.(request);

@@ -15,6 +15,7 @@ import { continuedIndentExtension } from '../../src/components/codemirror_contin
 import { fencedCodeLineClassExtension } from '../../src/components/codemirror_fenced_code_lines.ts';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from '../../src/components/codemirror_markdown.ts';
 import {
+  acceptBracePromptSelectionOnEnter,
   backspacePromptQuestionMarker,
   buildExternalContentSyncTransaction,
   buildExternalEditorChangeTransaction,
@@ -730,6 +731,40 @@ test('prompt question Enter binding wins over markdown Enter handling for multil
   } finally {
     restore();
   }
+});
+
+test('acceptBracePromptSelectionOnEnter confirms the selected brace completion', (t) => {
+  const view = makeMockView('today {finish this}');
+  let accepted = false;
+
+  const handled = acceptBracePromptSelectionOnEnter(view, {
+    isActive: () => true,
+    panel: { options: ['today ends differently'] },
+    acceptSelection: () => {
+      accepted = true;
+      return true;
+    },
+  });
+
+  t.true(handled);
+  t.true(accepted);
+});
+
+test('acceptBracePromptSelectionOnEnter swallows Enter while brace completions are still loading', (t) => {
+  const view = makeMockView('today {finish this}');
+  let accepted = false;
+
+  const handled = acceptBracePromptSelectionOnEnter(view, {
+    isActive: () => true,
+    panel: { options: [] },
+    acceptSelection: () => {
+      accepted = true;
+      return true;
+    },
+  });
+
+  t.true(handled);
+  t.false(accepted);
 });
 
 test('normalizeBlockquotePaste continues blockquote prefixes for pasted multiline text', (t) => {

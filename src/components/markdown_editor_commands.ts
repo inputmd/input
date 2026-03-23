@@ -23,6 +23,12 @@ export interface PromptListRequest {
   answerFrom: number;
 }
 
+interface BracePromptEnterController {
+  isActive: () => boolean;
+  panel: { options: string[] } | null;
+  acceptSelection: (view: EditorView) => boolean;
+}
+
 interface PromptListItem {
   kind: 'question' | 'answer';
   indent: string;
@@ -74,6 +80,12 @@ export function wrapWithMarker(view: EditorView, marker: string): boolean {
     }),
   );
   return true;
+}
+
+export function acceptBracePromptSelectionOnEnter(view: EditorView, bracePrompt: BracePromptEnterController): boolean {
+  if (!bracePrompt.isActive()) return false;
+  if ((bracePrompt.panel?.options.length ?? 0) === 0) return true;
+  return bracePrompt.acceptSelection(view);
 }
 
 export const externalSyncAnnotation = Transaction.userEvent.of('external');
