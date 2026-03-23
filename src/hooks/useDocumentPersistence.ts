@@ -166,6 +166,7 @@ function wait(ms: number): Promise<void> {
 export interface UseDocumentPersistenceInput {
   repoAccessMode: 'installed' | 'shared' | 'public' | null;
   installationId: string | null;
+  selectedRepoInstallationId: string | null;
   selectedRepo: string | null;
   sharedRepoInstallationId: string | null;
   sharedRepoFullName: string | null;
@@ -192,6 +193,7 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
   const {
     repoAccessMode,
     installationId,
+    selectedRepoInstallationId,
     selectedRepo,
     sharedRepoInstallationId,
     sharedRepoFullName,
@@ -246,8 +248,9 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
 
   // --- Derived values ---
   const currentDocumentDraftKey = useMemo(() => {
-    if (repoAccessMode === 'installed' && installationId && selectedRepo && currentRepoDocPath) {
-      return documentDraftKeyForRepo(installationId, selectedRepo, currentRepoDocPath);
+    const activeInstalledRepoInstallationId = selectedRepoInstallationId ?? installationId;
+    if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo && currentRepoDocPath) {
+      return documentDraftKeyForRepo(activeInstalledRepoInstallationId, selectedRepo, currentRepoDocPath);
     }
     if (repoAccessMode === 'shared' && sharedRepoInstallationId && sharedRepoFullName && currentRepoDocPath) {
       return documentDraftKeyForRepo(sharedRepoInstallationId, sharedRepoFullName, currentRepoDocPath);
@@ -259,6 +262,7 @@ export function useDocumentPersistence(input: UseDocumentPersistenceInput) {
   }, [
     repoAccessMode,
     installationId,
+    selectedRepoInstallationId,
     selectedRepo,
     sharedRepoInstallationId,
     sharedRepoFullName,

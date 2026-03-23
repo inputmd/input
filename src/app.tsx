@@ -864,6 +864,7 @@ export function App() {
   const persistence = useDocumentPersistence({
     repoAccessMode,
     installationId,
+    selectedRepoInstallationId,
     selectedRepo,
     sharedRepoInstallationId,
     sharedRepoFullName: sharedRepoFullNameForPersistence,
@@ -1147,7 +1148,7 @@ export function App() {
       const effectiveMode = repoSource?.mode ?? repoAccessMode;
       if (effectiveMode === 'installed') {
         const effectiveSelectedRepo = repoSource?.selectedRepo ?? selectedRepo;
-        const effectiveInstallationId = repoSource?.installationId ?? installationId;
+        const effectiveInstallationId = repoSource?.installationId ?? activeInstalledRepoInstallationId;
         if (effectiveSelectedRepo && effectiveInstallationId) {
           return repoRawFileUrl(effectiveInstallationId, effectiveSelectedRepo, resolvedPath);
         }
@@ -1160,7 +1161,7 @@ export function App() {
       }
       return normalizedSrc;
     },
-    [installationId, publicRepoRef, repoAccessMode, selectedRepo],
+    [activeInstalledRepoInstallationId, publicRepoRef, repoAccessMode, selectedRepo],
   );
 
   const renderDocumentContent = useCallback(
@@ -1560,7 +1561,7 @@ export function App() {
 
       event.preventDefault();
 
-      if (editingBackend !== 'repo' || !currentRepoDocPath || !selectedRepo || !installationId) {
+      if (editingBackend !== 'repo' || !currentRepoDocPath || !selectedRepo || !activeInstalledRepoInstallationId) {
         showFailureToast('Save your document before uploading images');
         return;
       }
@@ -1591,7 +1592,7 @@ export function App() {
             const finalMarkdown = buildImageMarkdown(imageName, `./.assets/${imageName}`, processed.dimensions);
             const upload: PendingImageUpload = {
               id: uploadId,
-              installationId,
+              installationId: activeInstalledRepoInstallationId,
               repoFullName: selectedRepo,
               imageName,
               imageRepoPath,
@@ -1617,7 +1618,7 @@ export function App() {
     [
       currentRepoDocPath,
       editingBackend,
-      installationId,
+      activeInstalledRepoInstallationId,
       replaceEditorSelectionContent,
       runPendingImageUpload,
       selectedRepo,
