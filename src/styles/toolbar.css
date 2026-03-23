@@ -425,6 +425,30 @@
   display: inline-flex;
 }
 
+.github-signin-group > button,
+.toolbar-split-button-group > button,
+.toggle-button-group > .preview-toggle-btn {
+  position: relative;
+  z-index: 1;
+}
+
+.github-signin-group:focus-within > button,
+.toolbar-split-button-group:focus-within > button,
+.toggle-button-group:focus-within > .preview-toggle-btn {
+  z-index: 0;
+}
+
+.github-signin-group > button:focus,
+.github-signin-group > button:focus-visible,
+.github-signin-group > button[data-state="open"],
+.toolbar-split-button-group > button:focus,
+.toolbar-split-button-group > button:focus-visible,
+.toolbar-split-button-group > button[data-state="open"],
+.toggle-button-group > .preview-toggle-btn:focus,
+.toggle-button-group > .preview-toggle-btn:focus-visible {
+  z-index: 2;
+}
+
 .github-signin-btn-main,
 .toolbar-split-button-main {
   border-top-right-radius: 0;
