@@ -1,5 +1,9 @@
 import test from 'ava';
-import { findBracePromptMatch, findInlinePromptMatch } from '../../src/components/codemirror_inline_prompt.ts';
+import {
+  buildBracePromptRequest,
+  findBracePromptMatch,
+  findInlinePromptMatch,
+} from '../../src/components/codemirror_inline_prompt.ts';
 
 test('findInlinePromptMatch finds slash prompts at valid boundaries', (t) => {
   const text = 'Ask /rewrite this';
@@ -80,4 +84,32 @@ test('findBracePromptMatch ignores CriticMarkup-like shorthand and malformed var
 
 test('findBracePromptMatch ignores doubled braces', (t) => {
   t.is(findBracePromptMatch('{{multiply wrapped braces}}', '{{multiply wrapped braces}}'.length), null);
+});
+
+test('buildBracePromptRequest keeps default brace prompts scoped to the document prefix', (t) => {
+  const text = 'Alpha {rewrite this} beta\nstill same paragraph\n\nNext paragraph';
+  const position = 'Alpha {rewrite this}'.length;
+
+  t.deepEqual(buildBracePromptRequest(text, position), {
+    prompt: 'rewrite this',
+    from: 6,
+    to: position,
+    documentContent: text.slice(0, position),
+    paragraphTail: '',
+    mode: 'replace',
+  });
+});
+
+test('buildBracePromptRequest includes the rest of the paragraph when requested', (t) => {
+  const text = 'Alpha {rewrite this} beta\nstill same paragraph\n\nNext paragraph';
+  const position = 'Alpha {rewrite this}'.length;
+
+  t.deepEqual(buildBracePromptRequest(text, position, { includeParagraphTail: true }), {
+    prompt: 'rewrite this',
+    from: 6,
+    to: position,
+    documentContent: text.slice(0, position),
+    paragraphTail: ' beta\nstill same paragraph',
+    mode: 'replace-with-paragraph-tail',
+  });
 });

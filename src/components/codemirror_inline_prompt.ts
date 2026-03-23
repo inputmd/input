@@ -20,12 +20,35 @@ export interface BracePromptRequest {
   from: number;
   to: number;
   documentContent: string;
+  paragraphTail: string;
+  mode: 'replace' | 'replace-with-paragraph-tail';
 }
 
 export interface BracePromptMatch {
   from: number;
   to: number;
   prompt: string;
+}
+
+function lineRangeAt(text: string, position: number): { from: number; to: number } {
+  let from = position;
+  while (from > 0 && text[from - 1] !== '\n') from -= 1;
+  let to = position;
+  while (to < text.length && text[to] !== '\n') to += 1;
+  return { from, to };
+}
+
+function findParagraphEnd(text: string, position: number): number {
+  const originLineFrom = lineRangeAt(text, position).from;
+  let lineStart = originLineFrom;
+  while (lineStart < text.length) {
+    const { from, to } = lineRangeAt(text, lineStart);
+    const lineText = text.slice(from, to);
+    if (from !== originLineFrom && lineText.trim().length === 0) return from;
+    if (to >= text.length) return text.length;
+    lineStart = to + 1;
+  }
+  return text.length;
 }
 
 function startsWithCriticMarkupLikeMarker(text: string): boolean {
@@ -71,6 +94,30 @@ export function findBracePromptMatch(text: string, position: number): BracePromp
     from: openIndex,
     to: position,
     prompt,
+  };
+}
+
+export function buildBracePromptRequest(
+  documentText: string,
+  position: number,
+  options?: { includeParagraphTail?: boolean },
+): BracePromptRequest | null {
+  const line = lineRangeAt(documentText, position);
+  const match = findBracePromptMatch(documentText.slice(line.from, line.to), position - line.from);
+  if (!match) return null;
+
+  const from = line.from + match.from;
+  const to = line.from + match.to;
+  const paragraphTail = options?.includeParagraphTail
+    ? documentText.slice(to, findParagraphEnd(documentText, to)).replace(/\n+$/, '')
+    : '';
+  return {
+    prompt: match.prompt,
+    from,
+    to,
+    documentContent: documentText.slice(0, to),
+    paragraphTail,
+    mode: paragraphTail ? 'replace-with-paragraph-tail' : 'replace',
   };
 }
 

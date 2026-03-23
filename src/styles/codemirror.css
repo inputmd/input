@@ -190,6 +190,15 @@
   font-size: 14px;
 }
 
+.brace-prompt-panel__header {
+  padding: 8px 11px 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
 .brace-prompt-panel__option {
   display: block;
   position: relative;

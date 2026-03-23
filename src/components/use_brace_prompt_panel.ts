@@ -2,7 +2,7 @@ import { isolateHistory } from '@codemirror/commands';
 import type { EditorState } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { useCallback, useRef, useState } from 'preact/hooks';
-import { type BracePromptRequest, findBracePromptMatch } from './codemirror_inline_prompt';
+import { type BracePromptRequest, buildBracePromptRequest, findBracePromptMatch } from './codemirror_inline_prompt';
 
 export interface BracePromptPanelState {
   request: BracePromptRequest;
@@ -412,9 +412,15 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     return true;
   };
 
-  const start = (view: EditorView): boolean => {
+  const start = (view: EditorView, options?: { includeParagraphTail?: boolean }): boolean => {
     const selection = view.state.selection.main;
     if (!selection.empty) return false;
+    if (options?.includeParagraphTail) {
+      const request = buildBracePromptRequest(view.state.doc.toString(), selection.head, options);
+      if (!request) return false;
+      return launch(view, request);
+    }
+
     const line = view.state.doc.lineAt(selection.head);
     const match = findBracePromptMatch(line.text, selection.head - line.from);
     if (!match) return false;
@@ -424,6 +430,8 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       from: line.from + match.from,
       to: line.from + match.to,
       documentContent: view.state.doc.sliceString(0, line.from + match.to),
+      paragraphTail: '',
+      mode: 'replace',
     });
   };
 
@@ -473,7 +481,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     return true;
   };
 
-  const isActive = (): boolean => panelRef.current != null;
+  const isActive = useCallback((): boolean => panelRef.current != null, []);
 
   const destroy = () => {
     abortRef.current?.abort();
@@ -498,7 +506,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     }
   };
 
-  const getPreview = (): BracePromptPreviewState | null => {
+  const getPreview = useCallback((): BracePromptPreviewState | null => {
     const previewIndex = hoverIndex ?? panel?.selectedIndex ?? null;
     if (!panel || previewIndex == null || previewIndex < 0 || previewIndex >= panel.options.length) return null;
     return {
@@ -506,7 +514,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       to: panel.request.to,
       text: panel.options[previewIndex] ?? '',
     };
-  };
+  }, [hoverIndex, panel]);
 
   return {
     panel,

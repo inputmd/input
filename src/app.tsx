@@ -3945,7 +3945,7 @@ export function App() {
 
   const onBracePromptStream = useCallback(
     async (
-      { prompt, documentContent }: BracePromptRequest,
+      { prompt, documentContent, paragraphTail, mode }: BracePromptRequest,
       callbacks: { onDelta: (delta: string) => void },
       signal: AbortSignal,
     ) => {
@@ -3959,6 +3959,31 @@ export function App() {
         stripLeadingFrontMatter(stripCriticMarkupComments(documentContent)),
       );
       const requestPrompt = stripCriticMarkupComments(trimmedPrompt);
+      const sanitizedParagraphTail = stripCriticMarkupComments(paragraphTail).trimEnd();
+      const hasParagraphTail = mode === 'replace-with-paragraph-tail' && sanitizedParagraphTail;
+      const requestContent = [
+        hasParagraphTail
+          ? 'The source contains a document with an inline brace query inside a paragraph.'
+          : 'The source contains a document ending with an inline brace query.',
+        `Brace query: ${requestPrompt}`,
+        hasParagraphTail ? `Text after the brace in the same paragraph:\n${sanitizedParagraphTail}` : null,
+        'Return exactly 3 candidate replacement fragments for the text inside the braces.',
+        'Rules:',
+        '- Output plain text only.',
+        '- One option per line.',
+        '- No numbering, bullets, quotes, or commentary.',
+        '- Keep each option brief.',
+        '- Each option must contain only the replacement fragment, not the full sentence or paragraph.',
+        '- Do not repeat any surrounding document text.',
+        hasParagraphTail ? '- Do not repeat or continue the provided paragraph-tail context.' : null,
+        hasParagraphTail
+          ? '- Each option should read naturally when followed immediately by the provided paragraph-tail context.'
+          : null,
+        '- Each option should be ready to insert directly in place of the brace contents.',
+        '- Unless the user explicitly asks, complete at maximum a single sentence, without adding new clauses through semicolons or em dashes.',
+      ]
+        .filter(Boolean)
+        .join('\n');
 
       await askReaderAiStream(
         readerAiSelectedModel,
@@ -3966,20 +3991,7 @@ export function App() {
         [
           {
             role: 'user',
-            content: [
-              'The source contains a document ending with an inline brace query.',
-              `Brace query: ${requestPrompt}`,
-              'Return exactly 3 candidate replacement fragments for the text inside the braces.',
-              'Rules:',
-              '- Output plain text only.',
-              '- One option per line.',
-              '- No numbering, bullets, quotes, or commentary.',
-              '- Keep each option brief.',
-              '- Each option must contain only the replacement fragment, not the full sentence or paragraph.',
-              '- Do not repeat any surrounding document text.',
-              '- Each option should be ready to insert directly in place of the brace contents.',
-              '- Unless the user explicitly asks, complete at maximum a single sentence, without adding new clauses through semicolons or em dashes.',
-            ].join('\n'),
+            content: requestContent,
           },
         ],
         {

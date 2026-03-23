@@ -275,7 +275,7 @@ export function MarkdownEditor({
                 }
                 return bracePrompt.start(view);
               },
-              shift: indentLess,
+              shift: (view) => bracePrompt.start(view, { includeParagraphTail: true }) || indentLess(view),
             },
             { key: 'ArrowDown', run: () => bracePrompt.moveSelection(1) },
             { key: 'ArrowUp', run: () => bracePrompt.moveSelection(-1) },
@@ -424,7 +424,15 @@ export function MarkdownEditor({
       pendingScrollRestoreKeyRef.current = null;
     }
     restoreScrollPositionRef.current?.();
-  }, [bracePrompt.close, content, contentOrigin, contentRevision, contentSelection, scrollStorageKey]);
+  }, [
+    bracePrompt.close,
+    bracePrompt.isActive,
+    content,
+    contentOrigin,
+    contentRevision,
+    contentSelection,
+    scrollStorageKey,
+  ]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -478,7 +486,7 @@ export function MarkdownEditor({
     view.dispatch({
       effects: bracePromptPreviewCompartment.current.reconfigure(bracePromptPreviewExtension(preview)),
     });
-  }, [bracePrompt.hoverIndex, bracePrompt.panel]);
+  }, [bracePrompt.getPreview]);
 
   useEffect(() => {
     if (!bracePrompt.panel) return;
@@ -507,6 +515,9 @@ export function MarkdownEditor({
           role="listbox"
           aria-label="AI completions"
         >
+          {bracePrompt.panel.request.mode === 'replace-with-paragraph-tail' ? (
+            <div class="brace-prompt-panel__header">Used full paragraph as context</div>
+          ) : null}
           <div
             class="brace-prompt-panel__options"
             onMouseLeave={() => {
