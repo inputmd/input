@@ -126,7 +126,7 @@ interface ToolbarProps {
   onOpenRepoMenu: () => void;
   onRetryRepos: () => void;
   onRetryGists: () => void;
-  onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void;
+  onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void | Promise<void>;
   onSignOut: () => void;
   onClearCache: () => void | Promise<void>;
   onToggleTheme: () => void;
@@ -487,13 +487,7 @@ export function Toolbar({
                               key={repo.id}
                               class="repo-menu-item"
                               onSelect={() => {
-                                onSelectRepo(repo.full_name, repo.id, repo.private);
-                                const [owner, name] = repo.full_name.split('/');
-                                if (!owner || !name) {
-                                  navigate(routePath.workspaces());
-                                  return;
-                                }
-                                navigate(routePath.repoDocuments(owner, name));
+                                void onSelectRepo(repo.full_name, repo.id, repo.private);
                               }}
                             >
                               <span class="repo-menu-item-main">

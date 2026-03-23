@@ -1752,6 +1752,74 @@ export function App() {
     return files;
   }, [repoAccessMode, installationId, selectedRepo, loadRepoAllFiles]);
 
+  const onSelectRepo = useCallback((fullName: string, id: number, isPrivate: boolean) => {
+    setSelectedRepo(fullName);
+    setSelectedRepoPrivate(isPrivate);
+    storeSelectedRepo({ full_name: fullName, id, private: isPrivate });
+  }, []);
+
+  const openInstalledRepo = useCallback(
+    async (
+      fullName: string,
+      options?: {
+        id?: number;
+        isPrivate?: boolean;
+        replace?: boolean;
+        allFiles?: RepoDocFile[];
+      },
+    ) => {
+      if (options && typeof options.id === 'number' && typeof options.isPrivate === 'boolean') {
+        onSelectRepo(fullName, options.id, options.isPrivate);
+      } else {
+        setSelectedRepo(fullName);
+        storeSelectedRepo({ full_name: fullName });
+      }
+
+      const repoRef = parseRepoFullName(fullName);
+      if (!repoRef) {
+        navigate(routePath.workspaces(), options?.replace ? { replace: true } : undefined);
+        return;
+      }
+
+      const instId = getInstallationId();
+      if (!instId) {
+        navigate(routePath.workspaces(), options?.replace ? { replace: true } : undefined);
+        return;
+      }
+
+      try {
+        const nextAllFiles = options?.allFiles ?? (await loadRepoAllFiles(instId, fullName));
+        const nextMarkdownFiles = nextAllFiles.filter((file) => isMarkdownFileName(file.path));
+        setRepoAccessMode('installed');
+        setPublicRepoRef(null);
+        setRepoFiles(nextMarkdownFiles);
+        setRepoSidebarFiles(nextAllFiles);
+
+        const target = pickPreferredRepoMarkdownFile(nextMarkdownFiles);
+        if (target) {
+          navigate(
+            routePath.repoFile(repoRef.owner, repoRef.repo, target.path),
+            options?.replace ? { replace: true } : undefined,
+          );
+          return;
+        }
+
+        navigate(
+          routePath.repoNew(repoRef.owner, repoRef.repo, DEFAULT_NEW_FILENAME),
+          options?.replace ? { replace: true } : undefined,
+        );
+      } catch (err) {
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+          return;
+        }
+        showRateLimitToastIfNeeded(err);
+        showError(err instanceof Error ? err.message : 'Failed to load repository documents');
+      }
+    },
+    [handleSessionExpired, loadRepoAllFiles, navigate, onSelectRepo, showError, showRateLimitToastIfNeeded],
+  );
+
   // --- Data loaders ---
   const loadGist = useCallback(
     async (id: string, filename: string | undefined, anonymous: boolean) => {
@@ -4279,7 +4347,7 @@ export function App() {
       navigate(routePath.repoFile(currentDocRepoRef.owner, currentDocRepoRef.repo, currentRepoDocPath));
     } else if (currentGistId && currentFileName) navigate(routePath.gistView(currentGistId, currentFileName));
     else if (currentGistId) navigate(routePath.gistView(currentGistId));
-    else if (selectedRepoRef) navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
+    else if (selectedRepoRef) await openInstalledRepo(buildRepoFullName(selectedRepoRef.owner, selectedRepoRef.repo));
     else navigate(routePath.workspaces());
   }, [
     activeView,
@@ -4297,6 +4365,7 @@ export function App() {
     currentRouteRepoRef,
     repoAccessMode,
     selectedRepoRef,
+    openInstalledRepo,
     navigate,
     routeState,
   ]);
@@ -5709,7 +5778,7 @@ export function App() {
           const deletedCurrent = currentRepoDocPath === repoFile.path;
           if (deletedCurrent) {
             if (selectedRepoRef) {
-              navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
+              await openInstalledRepo(buildRepoFullName(selectedRepoRef.owner, selectedRepoRef.repo));
             } else {
               navigate(routePath.workspaces());
             }
@@ -5736,6 +5805,7 @@ export function App() {
       showRateLimitToastIfNeeded,
       currentGistId,
       selectedRepoRef,
+      openInstalledRepo,
       refreshRepoTreeAfterWrite,
     ],
   );
@@ -5798,7 +5868,9 @@ export function App() {
             : false;
           if (deletedCurrent) {
             if (selectedRepoRef) {
-              navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo));
+              await openInstalledRepo(buildRepoFullName(selectedRepoRef.owner, selectedRepoRef.repo), {
+                allFiles: remainingSidebar,
+              });
             } else {
               navigate(routePath.workspaces());
             }
@@ -5844,6 +5916,7 @@ export function App() {
       installationId,
       selectedRepo,
       selectedRepoRef,
+      openInstalledRepo,
       refreshRepoTreeAfterWrite,
     ],
   );
@@ -6072,23 +6145,11 @@ export function App() {
   );
 
   // --- GitHub App callbacks ---
-  const onSelectRepo = useCallback((fullName: string, id: number, isPrivate: boolean) => {
-    setSelectedRepo(fullName);
-    setSelectedRepoPrivate(isPrivate);
-    storeSelectedRepo({ full_name: fullName, id, private: isPrivate });
-  }, []);
-
   const onOpenRepoFromWorkspaces = useCallback(
-    (fullName: string, id: number, isPrivate: boolean) => {
-      onSelectRepo(fullName, id, isPrivate);
-      const repoRef = parseRepoFullName(fullName);
-      if (!repoRef) {
-        navigate(routePath.workspaces());
-        return;
-      }
-      navigate(routePath.repoDocuments(repoRef.owner, repoRef.repo));
+    async (fullName: string, id: number, isPrivate: boolean) => {
+      await openInstalledRepo(fullName, { id, isPrivate });
     },
-    [navigate, onSelectRepo],
+    [openInstalledRepo],
   );
 
   const loadWorkspaceGists = useCallback(
