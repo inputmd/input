@@ -161,7 +161,7 @@ marked.use({
       name: 'promptList',
       level: 'block',
       start(src: string) {
-        const match = /(?:^|\n)(?:[ \t]*)-(?:\*|⏺)[ \t]+/u.exec(src);
+        const match = /(?:^|\n)(?:[ \t]*)(?:%|=)[ \t]+/u.exec(src);
         return match ? match.index + (match[0].startsWith('\n') ? 1 : 0) : undefined;
       },
       tokenizer(this: TokenizerThis, src: string) {

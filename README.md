@@ -34,17 +34,17 @@ Also, `[username].input.md` automatically renders the public GitHub repo
 You can prompt the currently selected AI directly inside the Markdown editor
 using a custom list syntax:
 
-- `-* ` starts a prompt question.
-- `-- ` starts a prompt answer.
+- `% ` starts a prompt question.
+- `= ` starts a prompt answer.
 
 You can also create branches by indenting. Indented continuations will not be
 included in further lines below the current one.
 
 ```md
--* How many r's are in strawberry.
--- There are three r's in strawberry - one in "straw", two in "berry".
-  -* Let me start a quick sidebar about that...
--* Okay, how about blueberry?
+% How many r's are in strawberry.
+= There are three r's in strawberry - one in "straw", two in "berry".
+  % Let me start a quick sidebar about that...
+% Okay, how about blueberry?
 ```
 
 You can change the AI used to respond to prompts by selecting it from the

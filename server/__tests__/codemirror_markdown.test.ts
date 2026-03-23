@@ -85,18 +85,18 @@ test('markdown editor language keeps inline comment content opaque to emphasis p
 });
 
 test('promptListHintLabelForText returns question hint labels', (t) => {
-  t.is(promptListHintLabelForText('-* '), 'Type to ask AI');
-  t.is(promptListHintLabelForText('-* Explain Solomonoff induction'), null);
+  t.is(promptListHintLabelForText('% '), 'Type to ask AI');
+  t.is(promptListHintLabelForText('% Explain Solomonoff induction'), null);
 });
 
 test('promptListHintLabelForText returns answering hint for blank answers while streaming', (t) => {
-  t.is(promptListHintLabelForText('-⏺ ', true), 'Answering... (Esc to cancel)');
-  t.is(promptListHintLabelForText('-⏺ Existing answer', true), null);
-  t.is(promptListHintLabelForText('-⏺ ', false), null);
+  t.is(promptListHintLabelForText('= ', true), 'Answering... (Esc to cancel)');
+  t.is(promptListHintLabelForText('= Existing answer', true), null);
+  t.is(promptListHintLabelForText('= ', false), null);
 });
 
 test('promptListHintLabelForText ignores non-question lines', (t) => {
-  t.is(promptListHintLabelForText('-⏺ Existing answer'), null);
+  t.is(promptListHintLabelForText('= Existing answer'), null);
   t.is(promptListHintLabelForText('- regular bullet'), null);
 });
 

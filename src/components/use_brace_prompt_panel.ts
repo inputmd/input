@@ -90,10 +90,7 @@ interface UseBracePromptPanelOptions {
   onBracePromptStreamRef: { current: BracePromptStreamFn | undefined };
 }
 
-export function useBracePromptPanel({
-  rootRef,
-  onBracePromptStreamRef,
-}: UseBracePromptPanelOptions) {
+export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBracePromptPanelOptions) {
   const abortRef = useRef<AbortController | null>(null);
   const panelRef = useRef<BracePromptPanelState | null>(null);
   const rawBufferRef = useRef('');

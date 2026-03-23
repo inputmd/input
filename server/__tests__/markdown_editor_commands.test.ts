@@ -280,45 +280,45 @@ test('insertNewlineExitBlockquote ignores non-terminal cursor positions', (t) =>
 });
 
 test('insertNewlineContinuePromptAnswer creates a prompt question line after an answer', (t) => {
-  const view = makeMockView('-⏺ Existing answer', EditorSelection.cursor('-⏺ Existing answer'.length), [
+  const view = makeMockView('= Existing answer', EditorSelection.cursor('= Existing answer'.length), [
     markdown({ base: markdownLanguage }),
   ]);
 
   const handled = insertNewlineContinuePromptAnswer(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '-⏺ Existing answer\n-* ');
-  t.is(view.state.selection.main.head, '-⏺ Existing answer\n-* '.length);
+  t.is(view.state.doc.toString(), '= Existing answer\n% ');
+  t.is(view.state.selection.main.head, '= Existing answer\n% '.length);
 });
 
 test('insertNewlineContinuePromptAnswer preserves indent for nested prompt answers', (t) => {
-  const view = makeMockView('  -⏺ Existing answer', EditorSelection.cursor('  -⏺ Existing answer'.length), [
+  const view = makeMockView('  = Existing answer', EditorSelection.cursor('  = Existing answer'.length), [
     markdown({ base: markdownLanguage }),
   ]);
 
   const handled = insertNewlineContinuePromptAnswer(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '  -⏺ Existing answer\n  -* ');
-  t.is(view.state.selection.main.head, '  -⏺ Existing answer\n  -* '.length);
+  t.is(view.state.doc.toString(), '  = Existing answer\n  % ');
+  t.is(view.state.selection.main.head, '  = Existing answer\n  % '.length);
 });
 
 test('insertNewlineContinuePromptAnswer works from the last continuation line of a multiline answer', (t) => {
-  const doc = '-⏺ Existing answer\n  continuation';
+  const doc = '= Existing answer\n  continuation';
   const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
 
   const handled = insertNewlineContinuePromptAnswer(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '-⏺ Existing answer\n  continuation\n-* ');
-  t.is(view.state.selection.main.head, '-⏺ Existing answer\n  continuation\n-* '.length);
+  t.is(view.state.doc.toString(), '= Existing answer\n  continuation\n% ');
+  t.is(view.state.selection.main.head, '= Existing answer\n  continuation\n% '.length);
 });
 
 test('insertNewlineContinuePromptAnswer ignores non-answer or non-terminal positions', (t) => {
-  const questionView = makeMockView('-* Question', EditorSelection.cursor('-* Question'.length), [
+  const questionView = makeMockView('% Question', EditorSelection.cursor('% Question'.length), [
     markdown({ base: markdownLanguage }),
   ]);
-  const midLineView = makeMockView('-⏺ Existing answer', EditorSelection.cursor('-⏺ Existing'.length), [
+  const midLineView = makeMockView('= Existing answer', EditorSelection.cursor('= Existing'.length), [
     markdown({ base: markdownLanguage }),
   ]);
 
@@ -327,49 +327,45 @@ test('insertNewlineContinuePromptAnswer ignores non-answer or non-terminal posit
 });
 
 test('insertNewlineExitPromptQuestion clears an empty trailing prompt question at document end', (t) => {
-  const doc = '-* Question\n-⏺ Answer\n-* ';
+  const doc = '% Question\n= Answer\n% ';
   const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
 
   const handled = insertNewlineExitPromptQuestion(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '-* Question\n-⏺ Answer\n\n');
-  t.is(view.state.selection.main.head, '-* Question\n-⏺ Answer\n\n'.length);
+  t.is(view.state.doc.toString(), '% Question\n= Answer\n\n');
+  t.is(view.state.selection.main.head, '% Question\n= Answer\n\n'.length);
 });
 
 test('insertNewlineExitPromptQuestion clears an empty trailing prompt question before a non-list line', (t) => {
-  const doc = '-* Question\n-⏺ Answer\n-* \nParagraph';
-  const questionLineEnd = '-* Question\n-⏺ Answer\n-* '.length;
+  const doc = '% Question\n= Answer\n% \nParagraph';
+  const questionLineEnd = '% Question\n= Answer\n% '.length;
   const view = makeMockView(doc, EditorSelection.cursor(questionLineEnd), [markdown({ base: markdownLanguage })]);
 
   const handled = insertNewlineExitPromptQuestion(view);
 
   t.true(handled);
-  t.is(view.state.doc.toString(), '-* Question\n-⏺ Answer\n\n\nParagraph');
-  t.is(view.state.selection.main.head, '-* Question\n-⏺ Answer\n\n'.length);
+  t.is(view.state.doc.toString(), '% Question\n= Answer\n\n\nParagraph');
+  t.is(view.state.selection.main.head, '% Question\n= Answer\n\n'.length);
 });
 
 test('insertNewlineExitPromptQuestion clears empty prompt questions without requiring prior or trailing list context', (t) => {
-  const firstLineView = makeMockView('-* ', EditorSelection.cursor('-* '.length), [
+  const firstLineView = makeMockView('% ', EditorSelection.cursor('% '.length), [markdown({ base: markdownLanguage })]);
+  const nonTrailingView = makeMockView('% Question\n% \n= Answer', EditorSelection.cursor('% Question\n% '.length), [
     markdown({ base: markdownLanguage }),
   ]);
-  const nonTrailingView = makeMockView(
-    '-* Question\n-* \n-⏺ Answer',
-    EditorSelection.cursor('-* Question\n-* '.length),
-    [markdown({ base: markdownLanguage })],
-  );
 
   t.true(insertNewlineExitPromptQuestion(firstLineView));
   t.is(firstLineView.state.doc.toString(), '\n');
   t.is(firstLineView.state.selection.main.head, 1);
 
   t.true(insertNewlineExitPromptQuestion(nonTrailingView));
-  t.is(nonTrailingView.state.doc.toString(), '-* Question\n\n\n-⏺ Answer');
-  t.is(nonTrailingView.state.selection.main.head, '-* Question\n\n'.length);
+  t.is(nonTrailingView.state.doc.toString(), '% Question\n\n\n= Answer');
+  t.is(nonTrailingView.state.selection.main.head, '% Question\n\n'.length);
 });
 
-test('backspacePromptQuestionMarker removes the -* marker and preserves trailing spacing', (t) => {
-  const view = makeMockView('-* ', EditorSelection.cursor('-* '.length), [markdown({ base: markdownLanguage })]);
+test('backspacePromptQuestionMarker removes the % marker and preserves trailing spacing', (t) => {
+  const view = makeMockView('% ', EditorSelection.cursor('% '.length), [markdown({ base: markdownLanguage })]);
 
   const handled = backspacePromptQuestionMarker(view);
 
@@ -379,9 +375,7 @@ test('backspacePromptQuestionMarker removes the -* marker and preserves trailing
 });
 
 test('backspacePromptQuestionMarker preserves indentation when removing a nested prompt marker', (t) => {
-  const view = makeMockView('  -*   ', EditorSelection.cursor('  -*   '.length), [
-    markdown({ base: markdownLanguage }),
-  ]);
+  const view = makeMockView('  %   ', EditorSelection.cursor('  %   '.length), [markdown({ base: markdownLanguage })]);
 
   const handled = backspacePromptQuestionMarker(view);
 
@@ -391,8 +385,8 @@ test('backspacePromptQuestionMarker preserves indentation when removing a nested
 });
 
 test('backspacePromptQuestionMarker ignores non-empty prompt questions and other cursor positions', (t) => {
-  const nonEmptyView = makeMockView('-* question', EditorSelection.cursor(3), [markdown({ base: markdownLanguage })]);
-  const midSpacingView = makeMockView('-*  ', EditorSelection.cursor(2), [markdown({ base: markdownLanguage })]);
+  const nonEmptyView = makeMockView('% question', EditorSelection.cursor(3), [markdown({ base: markdownLanguage })]);
+  const midSpacingView = makeMockView('%  ', EditorSelection.cursor(2), [markdown({ base: markdownLanguage })]);
 
   t.false(backspacePromptQuestionMarker(nonEmptyView));
   t.false(backspacePromptQuestionMarker(midSpacingView));
@@ -400,28 +394,28 @@ test('backspacePromptQuestionMarker ignores non-empty prompt questions and other
 
 test('getPromptListRequest returns an insert request for question lines at line end', (t) => {
   const state = EditorState.create({
-    doc: '-* What is Solomonoff induction?',
-    selection: EditorSelection.cursor('-* What is Solomonoff induction?'.length),
+    doc: '% What is Solomonoff induction?',
+    selection: EditorSelection.cursor('% What is Solomonoff induction?'.length),
     extensions: [markdown({ base: markdownLanguage })],
   });
 
   t.deepEqual(getPromptListRequest(state), {
     prompt: 'What is Solomonoff induction?',
-    documentContent: '-* What is Solomonoff induction?',
+    documentContent: '% What is Solomonoff induction?',
     messages: [{ role: 'user', content: 'What is Solomonoff induction?' }],
     answerIndent: '',
-    insertFrom: '-* What is Solomonoff induction?'.length,
-    insertTo: '-* What is Solomonoff induction?'.length,
-    insertedPrefix: '\n-⏺ ',
-    answerFrom: '-* What is Solomonoff induction?\n-⏺ '.length,
+    insertFrom: '% What is Solomonoff induction?'.length,
+    insertTo: '% What is Solomonoff induction?'.length,
+    insertedPrefix: '\n= ',
+    answerFrom: '% What is Solomonoff induction?\n= '.length,
   });
 });
 
 test('getPromptListRequest replaces an existing answer line', (t) => {
-  const doc = '-* What is Solomonoff induction?\n-⏺ Old answer';
+  const doc = '% What is Solomonoff induction?\n= Old answer';
   const state = EditorState.create({
     doc,
-    selection: EditorSelection.cursor('-* What is Solomonoff induction?'.length),
+    selection: EditorSelection.cursor('% What is Solomonoff induction?'.length),
     extensions: [markdown({ base: markdownLanguage })],
   });
 
@@ -430,18 +424,18 @@ test('getPromptListRequest replaces an existing answer line', (t) => {
     documentContent: doc,
     messages: [{ role: 'user', content: 'What is Solomonoff induction?' }],
     answerIndent: '',
-    insertFrom: '-* What is Solomonoff induction?\n'.length,
+    insertFrom: '% What is Solomonoff induction?\n'.length,
     insertTo: doc.length,
-    insertedPrefix: '-⏺ ',
-    answerFrom: '-* What is Solomonoff induction?\n-⏺ '.length,
+    insertedPrefix: '= ',
+    answerFrom: '% What is Solomonoff induction?\n= '.length,
   });
 });
 
 test('getPromptListRequest replaces an existing multiline answer block', (t) => {
-  const doc = '-* Question\n-⏺ Old answer\n  continuation';
+  const doc = '% Question\n= Old answer\n  continuation';
   const state = EditorState.create({
     doc,
-    selection: EditorSelection.cursor('-* Question'.length),
+    selection: EditorSelection.cursor('% Question'.length),
     extensions: [markdown({ base: markdownLanguage })],
   });
 
@@ -450,18 +444,18 @@ test('getPromptListRequest replaces an existing multiline answer block', (t) => 
     documentContent: doc,
     messages: [{ role: 'user', content: 'Question' }],
     answerIndent: '',
-    insertFrom: '-* Question\n'.length,
+    insertFrom: '% Question\n'.length,
     insertTo: doc.length,
-    insertedPrefix: '-⏺ ',
-    answerFrom: '-* Question\n-⏺ '.length,
+    insertedPrefix: '= ',
+    answerFrom: '% Question\n= '.length,
   });
 });
 
 test('getPromptListRequest includes prior prompt-list history and local multiline excerpt', (t) => {
-  const doc = ['Before', '-* First question', '-⏺ First answer', '-* Follow-up question', 'After'].join('\n');
+  const doc = ['Before', '% First question', '= First answer', '% Follow-up question', 'After'].join('\n');
   const state = EditorState.create({
     doc,
-    selection: EditorSelection.cursor('Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length),
+    selection: EditorSelection.cursor('Before\n% First question\n= First answer\n% Follow-up question'.length),
     extensions: [markdown({ base: markdownLanguage })],
   });
 
@@ -474,15 +468,15 @@ test('getPromptListRequest includes prior prompt-list history and local multilin
       { role: 'user', content: 'Follow-up question' },
     ],
     answerIndent: '',
-    insertFrom: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length,
-    insertTo: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question'.length,
-    insertedPrefix: '\n-⏺ ',
-    answerFrom: 'Before\n-* First question\n-⏺ First answer\n-* Follow-up question\n-⏺ '.length,
+    insertFrom: 'Before\n% First question\n= First answer\n% Follow-up question'.length,
+    insertTo: 'Before\n% First question\n= First answer\n% Follow-up question'.length,
+    insertedPrefix: '\n= ',
+    answerFrom: 'Before\n% First question\n= First answer\n% Follow-up question\n= '.length,
   });
 });
 
 test('getPromptListRequest keeps prompt-list history across a single blank line between turns', (t) => {
-  const doc = ['-* First question', '-⏺ First answer', '  ', '-* Follow-up question'].join('\n');
+  const doc = ['% First question', '= First answer', '  ', '% Follow-up question'].join('\n');
   const state = EditorState.create({
     doc,
     selection: EditorSelection.cursor(doc.length),
@@ -500,13 +494,13 @@ test('getPromptListRequest keeps prompt-list history across a single blank line 
     answerIndent: '',
     insertFrom: doc.length,
     insertTo: doc.length,
-    insertedPrefix: '\n-⏺ ',
-    answerFrom: `${doc}\n-⏺ `.length,
+    insertedPrefix: '\n= ',
+    answerFrom: `${doc}\n= `.length,
   });
 });
 
 test('getPromptListRequest treats two blank lines between turns as a new prompt list', (t) => {
-  const doc = ['-* First question', '-⏺ First answer', '  ', '  ', '-* Follow-up question'].join('\n');
+  const doc = ['% First question', '= First answer', '  ', '  ', '% Follow-up question'].join('\n');
   const state = EditorState.create({
     doc,
     selection: EditorSelection.cursor(doc.length),
@@ -520,30 +514,30 @@ test('getPromptListRequest treats two blank lines between turns as a new prompt 
     answerIndent: '',
     insertFrom: doc.length,
     insertTo: doc.length,
-    insertedPrefix: '\n-⏺ ',
-    answerFrom: `${doc}\n-⏺ `.length,
+    insertedPrefix: '\n= ',
+    answerFrom: `${doc}\n= `.length,
   });
 });
 
 test('getPromptListRequest keeps all prior sibling branches under the same parent in context', (t) => {
   const doc = [
-    '-* user1',
-    '-⏺ asst1',
-    '  -* ignored',
-    '  -⏺ ignored',
-    '    -* ignored',
-    '    -⏺ ignored',
-    '-* user2',
-    '-⏺ asst2',
-    '  -* user2a',
-    '  -⏺ asst2a',
-    '  -* user3',
-    '  -⏺ asst3',
-    '    -* ignored',
-    '    -⏺ ignored',
-    '  -* user4',
-    '  -⏺ asst4',
-    '  -* hello',
+    '% user1',
+    '= asst1',
+    '  % ignored',
+    '  = ignored',
+    '    % ignored',
+    '    = ignored',
+    '% user2',
+    '= asst2',
+    '  % user2a',
+    '  = asst2a',
+    '  % user3',
+    '  = asst3',
+    '    % ignored',
+    '    = ignored',
+    '  % user4',
+    '  = asst4',
+    '  % hello',
   ].join('\n');
   const target = doc.length;
   const state = EditorState.create({
@@ -571,25 +565,25 @@ test('getPromptListRequest keeps all prior sibling branches under the same paren
     answerIndent: '  ',
     insertFrom: doc.length,
     insertTo: doc.length,
-    insertedPrefix: '\n  -⏺ ',
-    answerFrom: `${doc}\n  -⏺ `.length,
+    insertedPrefix: '\n  = ',
+    answerFrom: `${doc}\n  = `.length,
   });
 });
 
 test('getPromptListRequest replaces an existing nested answer and keeps branch ancestry in context', (t) => {
   const doc = [
-    '-* root',
-    '-⏺ root answer',
-    '  -* child one',
-    '  -⏺ child one answer',
-    '  -* child two',
-    '  -⏺ old child two answer',
+    '% root',
+    '= root answer',
+    '  % child one',
+    '  = child one answer',
+    '  % child two',
+    '  = old child two answer',
     '    continuation',
   ].join('\n');
   const state = EditorState.create({
     doc,
     selection: EditorSelection.cursor(
-      '-* root\n-⏺ root answer\n  -* child one\n  -⏺ child one answer\n  -* child two'.length,
+      '% root\n= root answer\n  % child one\n  = child one answer\n  % child two'.length,
     ),
     extensions: [markdown({ base: markdownLanguage })],
   });
@@ -605,17 +599,15 @@ test('getPromptListRequest replaces an existing nested answer and keeps branch a
       { role: 'user', content: 'child two' },
     ],
     answerIndent: '  ',
-    insertFrom: '-* root\n-⏺ root answer\n  -* child one\n  -⏺ child one answer\n  -* child two\n'.length,
+    insertFrom: '% root\n= root answer\n  % child one\n  = child one answer\n  % child two\n'.length,
     insertTo: doc.length,
-    insertedPrefix: '  -⏺ ',
-    answerFrom: '-* root\n-⏺ root answer\n  -* child one\n  -⏺ child one answer\n  -* child two\n  -⏺ '.length,
+    insertedPrefix: '  = ',
+    answerFrom: '% root\n= root answer\n  % child one\n  = child one answer\n  % child two\n  = '.length,
   });
 });
 
 test('getPromptListRequest ignores nested descendants when continuing at root level', (t) => {
-  const doc = ['-* root one', '-⏺ root one answer', '  -* nested child', '  -⏺ nested answer', '-* root two'].join(
-    '\n',
-  );
+  const doc = ['% root one', '= root one answer', '  % nested child', '  = nested answer', '% root two'].join('\n');
   const state = EditorState.create({
     doc,
     selection: EditorSelection.cursor(doc.length),
@@ -633,20 +625,20 @@ test('getPromptListRequest ignores nested descendants when continuing at root le
     answerIndent: '',
     insertFrom: doc.length,
     insertTo: doc.length,
-    insertedPrefix: '\n-⏺ ',
-    answerFrom: `${doc}\n-⏺ `.length,
+    insertedPrefix: '\n= ',
+    answerFrom: `${doc}\n= `.length,
   });
 });
 
 test('getPromptListRequest supports tab-indented sibling branches', (t) => {
   const doc = [
-    '-* root',
-    '-⏺ root answer',
-    '-* parent',
-    '-⏺ parent answer',
-    '\t-* tab one',
-    '\t-⏺ tab one answer',
-    '\t-* tab two',
+    '% root',
+    '= root answer',
+    '% parent',
+    '= parent answer',
+    '\t% tab one',
+    '\t= tab one answer',
+    '\t% tab two',
   ].join('\n');
   const state = EditorState.create({
     doc,
@@ -669,20 +661,20 @@ test('getPromptListRequest supports tab-indented sibling branches', (t) => {
     answerIndent: '\t',
     insertFrom: doc.length,
     insertTo: doc.length,
-    insertedPrefix: '\n\t-⏺ ',
-    answerFrom: `${doc}\n\t-⏺ `.length,
+    insertedPrefix: '\n\t= ',
+    answerFrom: `${doc}\n\t= `.length,
   });
 });
 
 test('getPromptListRequest ignores non-question prompt list lines and non-terminal cursors', (t) => {
   const nonTerminal = EditorState.create({
-    doc: '-* What is Solomonoff induction?',
-    selection: EditorSelection.cursor('-* What is Sol'.length),
+    doc: '% What is Solomonoff induction?',
+    selection: EditorSelection.cursor('% What is Sol'.length),
     extensions: [markdown({ base: markdownLanguage })],
   });
   const answerLine = EditorState.create({
-    doc: '-⏺ Existing answer',
-    selection: EditorSelection.cursor('-⏺ Existing answer'.length),
+    doc: '= Existing answer',
+    selection: EditorSelection.cursor('= Existing answer'.length),
     extensions: [markdown({ base: markdownLanguage })],
   });
 
@@ -697,10 +689,10 @@ test('prompt question Enter binding wins over markdown Enter handling for multil
   try {
     let submitted = false;
     const doc = [
-      '-* What are some novel HCI interfaces that I could implement inside a text editor?',
-      '-⏺ - Semantic zoom for code: pinch/keys to smoothly move between tokens, lines, blocks, functions, and architecture views.',
+      '% What are some novel HCI interfaces that I could implement inside a text editor?',
+      '= - Semantic zoom for code: pinch/keys to smoothly move between tokens, lines, blocks, functions, and architecture views.',
       '   - Intent lens: hold a modifier to reveal why code exists, likely next edits, and affected symbols inline.',
-      '-* More?',
+      '% More?',
     ].join('\n');
 
     const view = new EditorView({
