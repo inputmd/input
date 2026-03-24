@@ -1498,21 +1498,15 @@ function isStandaloneCriticCommentBlock(element: Element): boolean {
 }
 
 function applyBlockLeadingIndent(element: Element): void {
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
-
-  let current = walker.nextNode();
-  while (current) {
-    if (current instanceof Text) {
-      const text = current.textContent ?? '';
-      if (!text) {
-        current = walker.nextNode();
-        continue;
-      }
+  for (const child of Array.from(element.childNodes)) {
+    if (child instanceof Text) {
+      const text = child.textContent ?? '';
+      if (!text) continue;
 
       const indent = leadingIndentInfo(text);
       if (!indent) return;
 
-      current.textContent = text.slice(indent.raw.length);
+      child.textContent = text.slice(indent.raw.length);
       element.classList.add('leading-indent-block');
       if (element instanceof HTMLElement) {
         element.style.setProperty('--leading-indent-columns', String(indent.columns));
@@ -1520,11 +1514,10 @@ function applyBlockLeadingIndent(element: Element): void {
       return;
     }
 
-    if (current instanceof HTMLElement) {
-      if (current.tagName === 'BR' || isWhitespacePreservingElement(current)) return;
+    if (child instanceof HTMLElement) {
+      if (child.tagName === 'BR' || isWhitespacePreservingElement(child)) return;
+      return;
     }
-
-    current = walker.nextNode();
   }
 }
 

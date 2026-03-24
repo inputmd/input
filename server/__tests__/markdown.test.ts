@@ -350,6 +350,17 @@ test('parseMarkdownToHtml renders CriticMarkup inside footnote definitions', (t)
   t.true(html.includes('<ins class="critic-addition">this</ins>'));
 });
 
+test('parseMarkdownToHtml does not treat leading space inside opening CriticMarkup as paragraph indentation', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml(
+      '{== I think it should be possible to use ai to create a software system that captures snippets or pieces of general directions of thinking ==}, and allows people to collaborate on extending them.',
+    ),
+  );
+
+  t.true(html.includes('<mark class="critic-highlight"> I think it should be possible'));
+  t.false(html.includes('leading-indent-block'));
+});
+
 test('parseMarkdownToHtml does not parse CriticMarkup inside fenced code blocks', (t) => {
   const html = withDom(() => parseMarkdownToHtml('```md\n{++literal++}\n```'));
 
