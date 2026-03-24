@@ -2226,7 +2226,7 @@ export function App() {
   );
 
   const loadPublicRepoFile = useCallback(
-    async (owner: string, repo: string, path: string) => {
+    async (owner: string, repo: string, path: string, options?: { suppressError?: boolean }): Promise<boolean> => {
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
       if (shouldShowLoading) {
         setViewPhase('loading');
@@ -2277,9 +2277,13 @@ export function App() {
           );
         }
         setViewPhase(null);
+        return true;
       } catch (err) {
         showRateLimitToastIfNeeded(err);
-        showError(err instanceof Error ? err.message : 'Failed to load file');
+        if (!options?.suppressError) {
+          showError(err instanceof Error ? err.message : 'Failed to load file');
+        }
+        return false;
       }
     },
     [
@@ -2540,6 +2544,8 @@ export function App() {
             const loadedInstalled = await loadRepoFile(owner, repo, decodedPath, false, { suppressError: true });
             if (loadedInstalled) return;
           }
+          const loadedPublic = await loadPublicRepoFile(owner, repo, decodedPath, { suppressError: true });
+          if (loadedPublic) return;
           if (isAuthenticated) {
             const loadedShared = await loadEditorSharedRepoFile(owner, repo, decodedPath, false, {
               suppressError: true,
