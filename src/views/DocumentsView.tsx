@@ -68,10 +68,11 @@ export function DocumentsView({
   };
 
   if (error) {
+    const errorMessage = error === 'Unauthorized' ? 'Gist authorization may have expired' : error;
     return (
       <div class="empty-state workspaces-empty-state">
         <p>Failed to load gists</p>
-        <p class="hint">{error}</p>
+        <p class="hint">{errorMessage}</p>
         <div class="workspaces-empty-state-actions">
           <button type="button" onClick={() => void handleRetry()} disabled={retrying} aria-busy={retrying}>
             {retrying ? <span class="documents-button-spinner" aria-hidden="true" /> : null}
@@ -79,7 +80,7 @@ export function DocumentsView({
           </button>
           {onRetrySignIn ? (
             <button type="button" class="documents-new-btn" onClick={onRetrySignIn}>
-              Retry Sign In
+              Reconnect
             </button>
           ) : null}
         </div>
