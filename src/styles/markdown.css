@@ -375,6 +375,38 @@
   margin-top: 0.65em;
 }
 
+.rendered-markdown .prompt-list-placeholder {
+  display: inline-flex;
+  gap: 0.08em;
+  opacity: 0.6;
+}
+
+.rendered-markdown .prompt-list-placeholder > span {
+  display: inline-block;
+  animation: prompt-list-placeholder-dot 1s ease-in-out 1;
+}
+
+.rendered-markdown .prompt-list-placeholder > span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.rendered-markdown .prompt-list-placeholder > span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes prompt-list-placeholder-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
 .rendered-markdown li.prompt-question > p {
   margin-top: 0;
   margin-bottom: 0;

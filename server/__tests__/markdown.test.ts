@@ -184,6 +184,16 @@ test('marked renders prompt question and answer lines as list items inside a sin
   );
 });
 
+test('marked renders placeholders for empty prompt question and answer rows', (t) => {
+  const html = marked.parse('% \n= ');
+
+  t.true(
+    html.includes(
+      '<ul class="prompt-list"><li class="prompt-question"><span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></li><li class="prompt-answer"><span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></li></ul>',
+    ),
+  );
+});
+
 test('marked keeps liquid-style template tag lines out of prompt lists', (t) => {
   const html = marked.parse('{% TODO %}');
 
@@ -227,6 +237,16 @@ test('parseMarkdownToHtml keeps multiline prompt answer content inside the promp
   t.true(html.includes('<ul>'));
   t.true(html.includes('<li>Nested item</li>'));
   t.true(html.includes('</ul> </li></ul>'));
+});
+
+test('parseMarkdownToHtml renders placeholders for empty prompt question and answer rows', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('% \n= '));
+
+  t.true(
+    html.includes(
+      '<li class="prompt-question"><span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></li><li class="prompt-answer"><span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></li>',
+    ),
+  );
 });
 
 test('parseMarkdownToHtml keeps a prompt list unified across a single blank line between items', (t) => {

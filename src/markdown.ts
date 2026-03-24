@@ -689,7 +689,12 @@ function buildPromptListTree(
 function renderPromptListTree(nodes: PromptListRenderNode[]): string {
   return nodes
     .map((node) => {
-      if (node.type === 'item') return `<li class="${node.className}">${node.contentHtml}</li>`;
+      if (node.type === 'item') {
+        const contentHtml = node.contentHtml.trim()
+          ? node.contentHtml
+          : '<span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>';
+        return `<li class="${node.className}">${contentHtml}</li>`;
+      }
       return `<li class="prompt-list-branch"><ul>${renderPromptListTree(node.children)}</ul></li>`;
     })
     .join('');
