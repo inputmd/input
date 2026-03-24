@@ -452,7 +452,9 @@ export function Sidebar({
   }, [createParentPath, creatingNew, folderPaths]);
 
   useEffect(() => {
-    if (renamingTarget) renameInputRef.current?.focus();
+    if (!renamingTarget) return;
+    setRenameValue(renamingTarget.kind === 'file' ? fileNameFromPath(renamingTarget.path) : renamingTarget.path);
+    renameInputRef.current?.focus();
   }, [renamingTarget]);
 
   useEffect(() => {
@@ -592,7 +594,6 @@ export function Sidebar({
     }
     cancelRenameOnBlurRef.current = false;
     setRenamingTarget(target);
-    setRenameValue(target.kind === 'file' ? fileNameFromPath(target.path) : target.path);
   };
 
   const toggleFolder = (path: string) => {
