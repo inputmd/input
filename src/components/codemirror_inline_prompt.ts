@@ -1,5 +1,8 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
+import { syntaxTree } from '@codemirror/language';
+import type { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
+import type { SyntaxNode } from '@lezer/common';
 import { parseCriticMarkupAt } from '../criticmarkup.ts';
 
 export interface InlinePromptMatch {
@@ -28,6 +31,15 @@ export interface BracePromptMatch {
   from: number;
   to: number;
   prompt: string;
+}
+
+const BRACE_PROMPT_BLOCKED_CODE_NODE_NAMES = new Set(['FencedCode', 'InlineCode', 'CodeText', 'CodeMark']);
+
+function hasAncestorNamed(node: SyntaxNode | null, names: ReadonlySet<string>): boolean {
+  for (let current = node; current; current = current.parent) {
+    if (names.has(current.name)) return true;
+  }
+  return false;
 }
 
 function lineRangeAt(text: string, position: number): { from: number; to: number } {
@@ -95,6 +107,14 @@ export function findBracePromptMatch(text: string, position: number): BracePromp
     to: position,
     prompt,
   };
+}
+
+export function isBracePromptBlockedInCode(state: EditorState, pos: number): boolean {
+  const tree = syntaxTree(state);
+  return (
+    hasAncestorNamed(tree.resolveInner(pos, 1), BRACE_PROMPT_BLOCKED_CODE_NODE_NAMES) ||
+    hasAncestorNamed(tree.resolveInner(Math.max(0, pos - 1), -1), BRACE_PROMPT_BLOCKED_CODE_NODE_NAMES)
+  );
 }
 
 export function buildBracePromptRequest(

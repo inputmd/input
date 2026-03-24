@@ -1,9 +1,12 @@
+import { EditorState } from '@codemirror/state';
 import test from 'ava';
 import {
   buildBracePromptRequest,
   findBracePromptMatch,
   findInlinePromptMatch,
+  isBracePromptBlockedInCode,
 } from '../../src/components/codemirror_inline_prompt.ts';
+import { markdownEditorLanguageSupport } from '../../src/components/codemirror_markdown.ts';
 
 test('findInlinePromptMatch finds slash prompts at valid boundaries', (t) => {
   const text = 'Ask /rewrite this';
@@ -112,4 +115,18 @@ test('buildBracePromptRequest includes the rest of the paragraph when requested'
     paragraphTail: ' beta\nstill same paragraph',
     mode: 'replace-with-paragraph-tail',
   });
+});
+
+test('isBracePromptBlockedInCode returns true for inline code and fenced code', (t) => {
+  const inlineState = EditorState.create({
+    doc: '`{query}`',
+    extensions: [markdownEditorLanguageSupport()],
+  });
+  const fencedState = EditorState.create({
+    doc: '```md\n{query}\n```',
+    extensions: [markdownEditorLanguageSupport()],
+  });
+
+  t.true(isBracePromptBlockedInCode(inlineState, '`{query}`'.length - 1));
+  t.true(isBracePromptBlockedInCode(fencedState, '```md\n{query}'.length));
 });

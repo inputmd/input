@@ -12,7 +12,7 @@ import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
 import { matchPromptListLine } from '../prompt_list_syntax.ts';
 import { criticMarkupDecorationExtension } from './codemirror_criticmarkup.ts';
-import { findBracePromptMatch } from './codemirror_inline_prompt.ts';
+import { findBracePromptMatch, isBracePromptBlockedInCode } from './codemirror_inline_prompt.ts';
 
 const wikiLinkInlineParser: InlineParser = {
   name: 'WikiLink',
@@ -268,6 +268,7 @@ function promptListHintLabel(view: EditorView): { position: number; label: strin
 
   const braceHint = bracePromptHintForText(line.text, selection.head - line.from);
   if (!braceHint) return null;
+  if (isBracePromptBlockedInCode(view.state, selection.head)) return null;
 
   return {
     position: line.from + braceHint.position,
@@ -329,9 +330,11 @@ function buildBracePromptDecorations(view: EditorView): DecorationSet {
     for (; lineNumber <= lastLineNumber; lineNumber += 1) {
       const line = view.state.doc.line(lineNumber);
       for (const range of bracePromptRangesForText(line.text)) {
+        const absoluteTo = line.from + range.to;
+        if (isBracePromptBlockedInCode(view.state, absoluteTo)) continue;
         builder.add(
           line.from + range.from,
-          line.from + range.to,
+          absoluteTo,
           Decoration.mark({
             class: 'cm-brace-prompt',
           }),

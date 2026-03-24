@@ -117,6 +117,20 @@ test('bracePromptHintLabelForText ignores positions away from a completed brace 
   t.deepEqual(bracePromptHintForText(text, text.length), null);
 });
 
+test('brace prompt syntax exists inside code, but editor parsing can identify those code contexts', (t) => {
+  const inlineState = EditorState.create({
+    doc: '`{query}`',
+    extensions: [markdownEditorLanguageSupport()],
+  });
+  const fencedState = EditorState.create({
+    doc: '```md\n{query}\n```',
+    extensions: [markdownEditorLanguageSupport()],
+  });
+
+  t.true(syntaxNodeNames(inlineState).has('InlineCode'));
+  t.true(syntaxNodeNames(fencedState).has('FencedCode'));
+});
+
 test('bracePromptHintForText anchors the hint at the closing brace', (t) => {
   const text = 'today {come up with two more examples} next';
   t.deepEqual(bracePromptHintForText(text, 'today {come up with two more examples}'.length), {

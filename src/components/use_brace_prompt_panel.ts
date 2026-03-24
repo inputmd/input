@@ -2,7 +2,12 @@ import { isolateHistory } from '@codemirror/commands';
 import type { EditorState } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { useCallback, useRef, useState } from 'preact/hooks';
-import { type BracePromptRequest, buildBracePromptRequest, findBracePromptMatch } from './codemirror_inline_prompt.ts';
+import {
+  type BracePromptRequest,
+  buildBracePromptRequest,
+  findBracePromptMatch,
+  isBracePromptBlockedInCode,
+} from './codemirror_inline_prompt.ts';
 
 export interface BracePromptPanelState {
   request: BracePromptRequest;
@@ -202,6 +207,10 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
 
       const selection = view.state.selection.main;
       if (!selection.empty || selection.head !== currentPanel.request.to) {
+        close();
+        return;
+      }
+      if (isBracePromptBlockedInCode(view.state, selection.head)) {
         close();
         return;
       }
@@ -417,6 +426,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
   const start = (view: EditorView, options?: { includeParagraphTail?: boolean }): boolean => {
     const selection = view.state.selection.main;
     if (!selection.empty) return false;
+    if (isBracePromptBlockedInCode(view.state, selection.head)) return false;
     if (options?.includeParagraphTail) {
       const request = buildBracePromptRequest(view.state.doc.toString(), selection.head, options);
       if (!request) return false;
