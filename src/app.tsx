@@ -978,6 +978,21 @@ export function App() {
     setReaderAiModelsError(null);
     setReaderAiConfigured(true);
   }, []);
+  const clearAuthDataCaches = useCallback(() => {
+    clearGitHubCaches();
+    clearGitHubAppCaches();
+    setMenuGists([]);
+    setMenuGistsLoaded(false);
+    setMenuGistsPage(1);
+    setMenuGistsAllLoaded(false);
+    setMenuGistsLoading(false);
+    setAutoLoadAttemptedGists(false);
+    setGistsLoadError(null);
+    setInstallationReposById({});
+    setLoadingInstallationReposId(null);
+    setAutoLoadAttemptedReposInstallationId(null);
+    setReposLoadErrorsById({});
+  }, []);
   const readerAiHistoryDocumentKey = useMemo(
     () =>
       buildReaderAiHistoryDocumentKey({
@@ -4349,6 +4364,7 @@ export function App() {
   const signOut = useCallback(() => {
     void (async () => {
       await logout().catch(() => {});
+      clearAuthDataCaches();
       resetReaderAiModelsForAuth(false);
       clearInstallationId();
       clearSelectedRepo();
@@ -4364,7 +4380,7 @@ export function App() {
       setRepoSidebarFiles([]);
       navigate(routePath.home());
     })();
-  }, [navigate, resetReaderAiModelsForAuth]);
+  }, [clearAuthDataCaches, navigate, resetReaderAiModelsForAuth]);
 
   const selectedRepoRef = useMemo(() => parseRepoFullName(selectedRepo), [selectedRepo]);
   const currentRouteRepoRef = useMemo(() => {
@@ -5335,21 +5351,9 @@ export function App() {
       { confirmLabel: 'Clear cache', intent: 'danger', defaultFocus: 'cancel' },
     );
     if (!confirmed) return;
-    clearGitHubCaches();
-    clearGitHubAppCaches();
-    setMenuGists([]);
-    setMenuGistsLoaded(false);
-    setMenuGistsPage(1);
-    setMenuGistsAllLoaded(false);
-    setMenuGistsLoading(false);
-    setAutoLoadAttemptedGists(false);
-    setGistsLoadError(null);
-    setInstallationReposById({});
-    setLoadingInstallationReposId(null);
-    setAutoLoadAttemptedReposInstallationId(null);
-    setReposLoadErrorsById({});
+    clearAuthDataCaches();
     showSuccessToast('Caches cleared');
-  }, [showConfirm, showSuccessToast]);
+  }, [clearAuthDataCaches, showConfirm, showSuccessToast]);
 
   // --- Sidebar actions ---
   const navigateToSidebarFile = useCallback(
