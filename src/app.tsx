@@ -1931,17 +1931,8 @@ export function App() {
           setRepoSidebarFiles([]);
           setHasUnsavedChanges(false);
 
-          if (!filename) {
-            setCurrentFileName(null);
-            setCurrentDocumentSavedContent(null);
-            clearRenderedContent();
-            setContentLoadPending(false);
-            setViewPhase(null);
-            return;
-          }
-
           const fileKeys = Object.keys(files);
-          const targetName = safeDecodeURIComponent(filename);
+          const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
           const file = targetName ? files[targetName] : null;
           if (!file) {
             showError('File not found in gist');
@@ -1992,17 +1983,8 @@ export function App() {
         setRepoSidebarFiles([]);
         setHasUnsavedChanges(false);
 
-        if (!filename) {
-          setCurrentFileName(null);
-          setCurrentDocumentSavedContent(null);
-          clearRenderedContent();
-          setContentLoadPending(false);
-          setViewPhase(null);
-          return;
-        }
-
         const fileKeys = Object.keys(gist.files);
-        const targetName = safeDecodeURIComponent(filename);
+        const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
         const file = targetName ? gist.files[targetName] : null;
         if (!file) {
           showError('File not found in gist');
@@ -2033,7 +2015,6 @@ export function App() {
       activeView,
       currentFileName,
       showRateLimitToastIfNeeded,
-      clearRenderedContent,
       setCurrentDocumentSavedContent,
       setHasUnsavedChanges,
     ],
