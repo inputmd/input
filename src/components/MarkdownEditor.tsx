@@ -6,6 +6,8 @@ import {
   findPrevious,
   getSearchQuery,
   highlightSelectionMatches,
+  replaceAll,
+  replaceNext,
   SearchQuery,
   search,
   setSearchQuery,
@@ -93,6 +95,7 @@ export function MarkdownEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
   const editorControllerRef = useRef<EditorController | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
@@ -107,10 +110,13 @@ export function MarkdownEditor({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQueryState] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [replaceText, setReplaceTextState] = useState('');
   const searchQueryRef = useRef(searchQuery);
   searchQueryRef.current = searchQuery;
   const searchCaseSensitiveRef = useRef(searchCaseSensitive);
   searchCaseSensitiveRef.current = searchCaseSensitive;
+  const replaceTextRef = useRef(replaceText);
+  replaceTextRef.current = replaceText;
   const openSearchRef = useRef<(view: EditorView) => boolean>(() => false);
 
   const onContentChangeRef = useRef(onContentChange);
@@ -145,8 +151,8 @@ export function MarkdownEditor({
     return Math.max(0, Math.min(position, view.state.doc.length));
   };
 
-  const applySearchQuery = (view: EditorView, query: string, caseSensitive: boolean) => {
-    const next = new SearchQuery({ search: query, caseSensitive });
+  const applySearchQuery = (view: EditorView, query: string, caseSensitive: boolean, replace = '') => {
+    const next = new SearchQuery({ search: query, caseSensitive, replace });
     if (!getSearchQuery(view.state).eq(next)) {
       view.dispatch({ effects: setSearchQuery.of(next) });
     }
@@ -229,12 +235,15 @@ export function MarkdownEditor({
     const selection = view.state.selection.main;
     const selectedText =
       !selection.empty && selection.to - selection.from <= 200 ? view.state.sliceDoc(selection.from, selection.to) : '';
-    const nextQuery = selectedText && !selectedText.includes('\n') ? selectedText : getSearchQuery(view.state).search;
-    const nextCaseSensitive = getSearchQuery(view.state).caseSensitive;
+    const currentSearchQuery = getSearchQuery(view.state);
+    const nextQuery = selectedText && !selectedText.includes('\n') ? selectedText : currentSearchQuery.search;
+    const nextCaseSensitive = currentSearchQuery.caseSensitive;
+    const nextReplace = currentSearchQuery.replace;
     setSearchQueryState(nextQuery);
     setSearchCaseSensitive(nextCaseSensitive);
+    setReplaceTextState(nextReplace);
     setSearchOpen(true);
-    applySearchQuery(view, nextQuery, nextCaseSensitive);
+    applySearchQuery(view, nextQuery, nextCaseSensitive, nextReplace);
     focusSearchInput();
     return true;
   };
@@ -593,8 +602,8 @@ export function MarkdownEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    applySearchQuery(view, searchQuery, searchCaseSensitive);
-  }, [searchCaseSensitive, searchQuery]);
+    applySearchQuery(view, searchQuery, searchCaseSensitive, replaceText);
+  }, [replaceText, searchCaseSensitive, searchQuery]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: helper only forwards focus to the current input ref
   useEffect(() => {
@@ -607,7 +616,7 @@ export function MarkdownEditor({
   const goToNextMatch = () => {
     const view = viewRef.current;
     if (!view) return;
-    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current, replaceTextRef.current);
     if (!searchQueryRef.current) return;
     findNext(view);
   };
@@ -615,9 +624,25 @@ export function MarkdownEditor({
   const goToPreviousMatch = () => {
     const view = viewRef.current;
     if (!view) return;
-    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current);
+    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current, replaceTextRef.current);
     if (!searchQueryRef.current) return;
     findPrevious(view);
+  };
+
+  const replaceCurrentMatch = () => {
+    const view = viewRef.current;
+    if (!view) return;
+    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current, replaceTextRef.current);
+    if (!searchQueryRef.current) return;
+    replaceNext(view);
+  };
+
+  const replaceAllMatches = () => {
+    const view = viewRef.current;
+    if (!view) return;
+    applySearchQuery(view, searchQueryRef.current, searchCaseSensitiveRef.current, replaceTextRef.current);
+    if (!searchQueryRef.current) return;
+    replaceAll(view);
   };
 
   return (
@@ -627,12 +652,17 @@ export function MarkdownEditor({
           query={searchQuery}
           caseSensitive={searchCaseSensitive}
           inputRef={searchInputRef}
+          replaceValue={replaceText}
+          replaceInputRef={replaceInputRef}
           onQueryChange={setSearchQueryState}
+          onReplaceChange={setReplaceTextState}
           onToggleCaseSensitive={() => setSearchCaseSensitive((value) => !value)}
           onNext={goToNextMatch}
           onPrevious={goToPreviousMatch}
+          onReplace={replaceCurrentMatch}
+          onReplaceAll={replaceAllMatches}
           onClose={closeSearch}
-          onKeyDown={(event) => {
+          onQueryKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault();
               closeSearch();
@@ -644,6 +674,21 @@ export function MarkdownEditor({
                 goToPreviousMatch();
               } else {
                 goToNextMatch();
+              }
+            }
+          }}
+          onReplaceKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              closeSearch();
+              return;
+            }
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              if (event.shiftKey) {
+                replaceAllMatches();
+              } else {
+                replaceCurrentMatch();
               }
             }
           }}

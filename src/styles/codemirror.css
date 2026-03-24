@@ -416,6 +416,15 @@
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bg) 24%, transparent);
 }
 
+.codemirror-find-panel__field--replace {
+  flex: 1 1 220px;
+  min-width: min(220px, 100%);
+}
+
+.codemirror-find-panel__field--replace svg {
+  display: none;
+}
+
 .codemirror-find-panel__field:focus-within {
   border-color: var(--focus-border);
 }
@@ -475,6 +484,11 @@
   min-width: 36px;
   min-height: 36px;
   padding: 0;
+}
+
+.codemirror-find-panel__action {
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 .codemirror-find-panel__toggle {

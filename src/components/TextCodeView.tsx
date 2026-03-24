@@ -255,7 +255,7 @@ export function TextCodeView({ content, fileName = null, scrollStorageKey = null
           onNext={goToNextMatch}
           onPrevious={goToPreviousMatch}
           onClose={closeSearch}
-          onKeyDown={(event) => {
+          onQueryKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault();
               closeSearch();
