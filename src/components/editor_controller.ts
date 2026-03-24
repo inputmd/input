@@ -8,6 +8,7 @@ export interface ExternalEditorChange {
   to: number;
   insert: string;
   selection?: EditorSelectionRange | null;
+  scrollIntoView?: boolean;
   addToHistory?: boolean;
   isolateHistory?: 'before' | 'after' | 'full';
 }

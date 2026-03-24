@@ -199,6 +199,23 @@ test('buildExternalEditorChangeTransaction can update selection without changing
   t.is(transaction.state.selection.main.head, 2);
 });
 
+test('buildExternalEditorChangeTransaction can request scrolling the new selection into view', (t) => {
+  const state = EditorState.create({
+    doc: 'same',
+    selection: EditorSelection.cursor(0),
+  });
+
+  const spec = buildExternalEditorChangeTransaction(state, {
+    from: 0,
+    to: 4,
+    insert: 'same',
+    selection: { anchor: 2, head: 2 },
+    scrollIntoView: true,
+  });
+  t.truthy(spec);
+  t.is(spec?.scrollIntoView, true);
+});
+
 test('buildExternalEditorChangeTransaction can opt AI edits into isolated undo history', (t) => {
   let state = EditorState.create({
     doc: 'hello world',
@@ -636,6 +653,27 @@ test('getPromptListRequest ignores nested descendants when continuing at root le
     insertTo: doc.length,
     insertedPrefix: '\n-⏺ ',
     answerFrom: `${doc}\n-⏺ `.length,
+  });
+});
+
+test('getPromptListRequest inserts a missing answer after deeper descendants in the same branch', (t) => {
+  const doc = ["-* how many r's are in strawberry", "  -⏺ there are three r's", '-* next root'].join('\n');
+  const target = "-* how many r's are in strawberry".length;
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(target),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: "how many r's are in strawberry",
+    documentContent: doc,
+    messages: [{ role: 'user', content: "how many r's are in strawberry" }],
+    answerIndent: '',
+    insertFrom: "-* how many r's are in strawberry\n  -⏺ there are three r's".length,
+    insertTo: "-* how many r's are in strawberry\n  -⏺ there are three r's".length,
+    insertedPrefix: '\n-⏺ ',
+    answerFrom: "-* how many r's are in strawberry\n  -⏺ there are three r's\n-⏺ ".length,
   });
 });
 

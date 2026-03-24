@@ -4275,15 +4275,16 @@ export function App() {
         );
       };
 
-      editViewControllerRef.current?.startStreamingCursorTracking(answerFrom);
       editViewControllerRef.current?.applyExternalChange({
         from: insertFrom,
         to: insertTo,
         insert: insertedPrefix,
         selection: { anchor: answerFrom, head: answerFrom },
+        scrollIntoView: true,
         addToHistory: true,
         isolateHistory: 'before',
       });
+      editViewControllerRef.current?.startStreamingCursorTracking(answerFrom);
       setNextEditContent(
         (previousContent) => previousContent.slice(0, insertFrom) + insertedPrefix + previousContent.slice(insertTo),
         {

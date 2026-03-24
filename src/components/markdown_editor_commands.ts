@@ -144,6 +144,7 @@ export function buildExternalEditorChangeTransaction(
   return {
     changes: hasDocChange ? { from, to, insert } : undefined,
     selection: nextSelection,
+    scrollIntoView: change.scrollIntoView ?? false,
     annotations,
   };
 }
@@ -399,6 +400,19 @@ function contextMessagesThroughTurn(block: PromptListBlock, turnIndex: number): 
   return messages;
 }
 
+function insertionPointAfterTurnSubtree(block: PromptListBlock, turnIndex: number): number {
+  const question = block.items[block.turns[turnIndex].questionItemIndex];
+  let insertionPoint = question.to;
+
+  for (let itemIndex = block.turns[turnIndex].questionItemIndex + 1; itemIndex < block.items.length; itemIndex += 1) {
+    const item = block.items[itemIndex];
+    if (item.indentWidth <= question.indentWidth) break;
+    insertionPoint = item.to;
+  }
+
+  return insertionPoint;
+}
+
 function findPromptListBlockAt(
   state: EditorState,
   lineNumber: number,
@@ -553,16 +567,17 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
     };
   }
 
+  const insertFrom = insertionPointAfterTurnSubtree(thread.block, currentTurnIndex);
   const insertedPrefix = `${state.lineBreak}${match.indent}-⏺ `;
   return {
     prompt,
     documentContent: state.doc.toString(),
     messages,
     answerIndent: match.indent,
-    insertFrom: line.to,
-    insertTo: line.to,
+    insertFrom,
+    insertTo: insertFrom,
     insertedPrefix,
-    answerFrom: line.to + insertedPrefix.length,
+    answerFrom: insertFrom + insertedPrefix.length,
   };
 }
 
