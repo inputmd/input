@@ -72,7 +72,8 @@ export function ReaderAiModelSelector({
         selectedModelEntry.id.trim().toLowerCase().endsWith(':free'),
     );
   const modelTriggerLabel = selectedReaderAiModelLabel(models, selectedModel, modelsLoading);
-  const showLoggedOutHeading = showLoginForMoreModels && (featuredModels.length > 0 || unverifiedModels.length > 0);
+  const showLoggedOutHeading =
+    showLoginForMoreModels && paidModels.length === 0 && (featuredModels.length > 0 || unverifiedModels.length > 0);
 
   return (
     <DropdownMenu.Root>

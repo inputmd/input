@@ -666,7 +666,7 @@ export function Toolbar({
               )}
             </button>
           )}
-          {showActionsMenu && view !== 'edit' && authorMenu}
+          {showActionsMenu && view !== 'edit' && view !== 'workspaces' && authorMenu}
           {editUrl && (
             <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
               Edit <ExternalLink size={14} aria-hidden="true" />

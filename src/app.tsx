@@ -412,13 +412,30 @@ function clampReaderAiWidth(width: number): number {
   return Math.max(MIN_READER_AI_WIDTH_PX, Math.min(MAX_READER_AI_WIDTH_PX, width));
 }
 
+function isPaidReaderAiModel(model: ReaderAiModel): boolean {
+  return model.provider !== 'codex_local' && !model.id.trim().toLowerCase().endsWith(':free');
+}
+
+function readerAiModelPenalty(model: ReaderAiModel): number {
+  const normalized = `${model.id} ${model.name}`.toLowerCase();
+  return /\b(?:trinity|opus|sonnet)\b/u.test(normalized) ? 1 : 0;
+}
+
+function accessibleReaderAiModels(models: ReaderAiModel[], authenticated: boolean): ReaderAiModel[] {
+  return authenticated ? models : models.filter((model) => !isPaidReaderAiModel(model));
+}
+
+function firstPaidReaderAiModelId(models: ReaderAiModel[]): string {
+  return models.find(isPaidReaderAiModel)?.id ?? '';
+}
+
 function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
   return models
     .map((model, originalIndex) => ({
       model,
       originalIndex,
       rank: readerAiModelPriorityRank(model),
-      trinityPenalty: /^Trinity\b/i.test(model.name.trim()) ? 1 : 0,
+      modelPenalty: readerAiModelPenalty(model),
     }))
     .sort((a, b) => {
       const aLocal = a.model.provider === 'codex_local';
@@ -429,7 +446,7 @@ function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
         if (b.rank === -1) return -1;
         return a.rank - b.rank;
       }
-      if (a.trinityPenalty !== b.trinityPenalty) return a.trinityPenalty - b.trinityPenalty;
+      if (a.modelPenalty !== b.modelPenalty) return a.modelPenalty - b.modelPenalty;
       return a.originalIndex - b.originalIndex;
     })
     .map(({ model }) => model);
@@ -946,6 +963,21 @@ export function App() {
     () => readerAiModels.find((model) => model.id === readerAiSelectedModel) ?? null,
     [readerAiModels, readerAiSelectedModel],
   );
+  const readerAiAuthenticated = Boolean(user);
+  const preferPaidReaderAiModelOnNextLoadRef = useRef(false);
+  const resetReaderAiModelsForAuth = useCallback((authenticated: boolean) => {
+    setReaderAiModels((current) => {
+      const next = accessibleReaderAiModels(current, authenticated);
+      setReaderAiSelectedModel((selected) => {
+        if (selected && next.some((model) => model.id === selected)) return selected;
+        return next[0]?.id ?? '';
+      });
+      return next;
+    });
+    if (!authenticated) preferPaidReaderAiModelOnNextLoadRef.current = false;
+    setReaderAiModelsError(null);
+    setReaderAiConfigured(true);
+  }, []);
   const readerAiHistoryDocumentKey = useMemo(
     () =>
       buildReaderAiHistoryDocumentKey({
@@ -1642,6 +1674,7 @@ export function App() {
       const session = await getAuthSession();
       if (!session.authenticated || !session.user) {
         setUser(null);
+        resetReaderAiModelsForAuth(false);
         clearInstallationId();
         clearSelectedRepo();
         setInstId(null);
@@ -1655,7 +1688,9 @@ export function App() {
         return { authenticated: false, navigated: false };
       }
       clearOAuthRedirectGuard();
+      preferPaidReaderAiModelOnNextLoadRef.current = true;
       setUser(session.user);
+      resetReaderAiModelsForAuth(true);
       const pendingInstallationId = getPendingInstallationId();
       if (pendingInstallationId) {
         try {
@@ -1673,9 +1708,10 @@ export function App() {
       return { authenticated: true, navigated: false };
     } catch {
       setUser(null);
+      resetReaderAiModelsForAuth(false);
       return { authenticated: false, navigated: false };
     }
-  }, [applyInstallationSessionState, clearOAuthRedirectGuard]);
+  }, [applyInstallationSessionState, clearOAuthRedirectGuard, resetReaderAiModelsForAuth]);
 
   // --- GitHub App redirect ---
   const tryHandleGitHubAppSetupRedirect = useCallback(async (): Promise<boolean> => {
@@ -3124,9 +3160,12 @@ export function App() {
     setReaderAiModelsError(null);
     try {
       const models = prioritizeReaderAiModels(await listReaderAiModels());
+      const preferredPaidModelId = preferPaidReaderAiModelOnNextLoadRef.current ? firstPaidReaderAiModelId(models) : '';
+      preferPaidReaderAiModelOnNextLoadRef.current = false;
       setReaderAiConfigured(true);
       setReaderAiModels(models);
       setReaderAiSelectedModel((current) => {
+        if (preferredPaidModelId) return preferredPaidModelId;
         if (current && models.some((model) => model.id === current)) return current;
         return models[0]?.id ?? '';
       });
@@ -3224,6 +3263,18 @@ export function App() {
     readerAiModelsLoading,
     showReaderAiToggleCandidate,
   ]);
+
+  const previousReaderAiAuthenticatedRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    const previous = previousReaderAiAuthenticatedRef.current;
+    previousReaderAiAuthenticatedRef.current = readerAiAuthenticated;
+    if (previous === null || previous === readerAiAuthenticated) return;
+    if (readerAiAuthenticated) preferPaidReaderAiModelOnNextLoadRef.current = true;
+    resetReaderAiModelsForAuth(readerAiAuthenticated);
+    if (!showReaderAiToggleCandidate) return;
+    void loadReaderAiModels();
+  }, [loadReaderAiModels, readerAiAuthenticated, resetReaderAiModelsForAuth, showReaderAiToggleCandidate]);
 
   const readerAiEnabled = showReaderAiToggleCandidate && readerAiConfigured;
 
@@ -4315,21 +4366,24 @@ export function App() {
 
   // --- Sign out ---
   const signOut = useCallback(() => {
-    void logout().catch(() => {});
-    clearInstallationId();
-    clearSelectedRepo();
-    setUser(null);
-    setInstId(null);
-    setSelectedRepo(null);
-    setSelectedRepoPrivate(null);
-    setSelectedRepoInstallationId(null);
-    setRepoAccessMode(null);
-    setPublicRepoRef(null);
-    setCurrentGistId(null);
-    setRepoFiles([]);
-    setRepoSidebarFiles([]);
-    navigate(routePath.home());
-  }, [navigate]);
+    void (async () => {
+      await logout().catch(() => {});
+      resetReaderAiModelsForAuth(false);
+      clearInstallationId();
+      clearSelectedRepo();
+      setUser(null);
+      setInstId(null);
+      setSelectedRepo(null);
+      setSelectedRepoPrivate(null);
+      setSelectedRepoInstallationId(null);
+      setRepoAccessMode(null);
+      setPublicRepoRef(null);
+      setCurrentGistId(null);
+      setRepoFiles([]);
+      setRepoSidebarFiles([]);
+      navigate(routePath.home());
+    })();
+  }, [navigate, resetReaderAiModelsForAuth]);
 
   const selectedRepoRef = useMemo(() => parseRepoFullName(selectedRepo), [selectedRepo]);
   const currentRouteRepoRef = useMemo(() => {
