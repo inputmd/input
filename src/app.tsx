@@ -7045,6 +7045,8 @@ export function App() {
         inRepoContext={inRepoContext}
         documentCollaborators={headerDocumentCollaborators}
         availableRepos={installationRepos}
+        installationId={installationId}
+        linkedInstallations={linkedInstallations}
         repoListLoading={installationReposLoading}
         reposLoadError={reposLoadError}
         menuGists={menuGists.slice(0, 6)}
@@ -7081,6 +7083,7 @@ export function App() {
         onOpenRepoMenu={onOpenRepoMenu}
         onRetryRepos={() => onOpenRepoMenu('manual')}
         onRetryGists={() => onOpenRepoMenu('manual')}
+        onSelectInstallation={onSelectActiveInstallation}
         onSelectRepo={(fullName, id, isPrivate) => {
           void openInstalledRepo(fullName, { id, isPrivate });
         }}

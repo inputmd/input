@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { GistSummary, GitHubUser } from '../github';
-import type { InstallationRepo } from '../github_app';
+import type { InstallationRepo, LinkedInstallation } from '../github_app';
 import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
 import type { ReaderAiModel } from '../reader_ai';
 import { routePath } from '../routing';
@@ -81,6 +81,8 @@ interface ToolbarProps {
   inRepoContext: boolean;
   documentCollaborators: Array<{ login: string; avatarUrl: string; isAuthor: boolean }>;
   availableRepos: InstallationRepo[];
+  installationId: string | null;
+  linkedInstallations: LinkedInstallation[];
   repoListLoading: boolean;
   reposLoadError: string | null;
   menuGists: GistSummary[];
@@ -134,6 +136,7 @@ interface ToolbarProps {
   onOpenRepoMenu: () => void;
   onRetryRepos: () => void;
   onRetryGists: () => void;
+  onSelectInstallation: (installationId: string) => void | Promise<void>;
   onSelectRepo: (fullName: string, id: number, isPrivate: boolean) => void | Promise<void>;
   onSignOut: () => void;
   onClearCache: () => void | Promise<void>;
@@ -156,6 +159,8 @@ export function Toolbar({
   inRepoContext,
   documentCollaborators,
   availableRepos,
+  installationId,
+  linkedInstallations,
   repoListLoading,
   reposLoadError,
   menuGists,
@@ -209,6 +214,7 @@ export function Toolbar({
   onOpenRepoMenu,
   onRetryRepos,
   onRetryGists,
+  onSelectInstallation,
   onSelectRepo,
   onSignOut,
   onClearCache,
@@ -552,6 +558,42 @@ export function Toolbar({
                           </DropdownMenu.Item>
                         ))
                       )}
+                      {linkedInstallations.length > 1 ? (
+                        <>
+                          <DropdownMenu.Separator class="user-menu-separator" />
+                          <div class="repo-menu-section-label">Installations</div>
+                          {linkedInstallations.map((installation) => {
+                            const isSelected = installation.installationId === installationId;
+                            return (
+                              <DropdownMenu.Item
+                                key={installation.installationId}
+                                class="repo-menu-item"
+                                onSelect={() => {
+                                  void onSelectInstallation(installation.installationId);
+                                }}
+                              >
+                                <span class="repo-menu-item-main">
+                                  {installation.accountAvatarUrl ? (
+                                    <img
+                                      src={installation.accountAvatarUrl}
+                                      alt=""
+                                      aria-hidden="true"
+                                      class="repo-menu-installation-avatar"
+                                    />
+                                  ) : (
+                                    <span
+                                      aria-hidden="true"
+                                      class="repo-menu-installation-avatar repo-menu-installation-avatar--placeholder"
+                                    />
+                                  )}
+                                  <span>{installation.accountLogin ?? installation.installationId}</span>
+                                </span>
+                                {isSelected ? <Check size={14} class="repo-menu-icon" aria-hidden="true" /> : null}
+                              </DropdownMenu.Item>
+                            );
+                          })}
+                        </>
+                      ) : null}
                       <DropdownMenu.Separator class="user-menu-separator" />
                       <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.workspaces())}>
                         {noReposOrGists ? 'Get started...' : 'Manage Workspaces'}

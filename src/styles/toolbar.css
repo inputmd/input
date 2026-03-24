@@ -223,6 +223,19 @@
   text-overflow: ellipsis;
 }
 
+.repo-menu-installation-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  flex: 0 0 18px;
+  flex-shrink: 0;
+}
+
+.repo-menu-installation-avatar--placeholder {
+  display: inline-block;
+  background: var(--border);
+}
+
 .repo-menu-section-label {
   padding: 4px 10px;
   font-size: 11px;
