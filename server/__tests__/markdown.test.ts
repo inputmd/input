@@ -184,6 +184,14 @@ test('marked renders prompt question and answer lines as list items inside a sin
   );
 });
 
+test('marked keeps liquid-style template tag lines out of prompt lists', (t) => {
+  const html = marked.parse('{% TODO %}');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<p>{% TODO %}</p>'));
+  t.false(html.includes('prompt-list-conversation'));
+});
+
 test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('% Ask about **Solomonoff induction**'));
 
@@ -192,6 +200,13 @@ test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt
       '<ul class="prompt-list"><li class="prompt-question">Ask about <strong>Solomonoff induction</strong></li></ul>',
     ),
   );
+});
+
+test('parseMarkdownToHtml keeps liquid-style template tag lines out of prompt lists', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('{% TODO %}'));
+
+  t.true(html.includes('<p>{% TODO %}</p>'));
+  t.false(html.includes('prompt-list-conversation'));
 });
 
 test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t) => {

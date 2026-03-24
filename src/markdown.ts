@@ -109,6 +109,12 @@ function startsWithCriticMarkupLikeMarker(text: string): boolean {
   return /^[\t ]*[+\-=~>]/.test(text);
 }
 
+function matchTemplateTagLine(src: string): string | null {
+  const firstLine = src.split('\n', 1)[0]?.replace(/\r$/, '') ?? '';
+  if (!/^[{]%[\t ].*%[}]$/u.test(firstLine)) return null;
+  return firstLine;
+}
+
 function parseBracePromptAt(
   source: string,
   from: number,
@@ -190,6 +196,27 @@ marked.use({
     },
   },
   extensions: [
+    {
+      name: 'templateTagLine',
+      level: 'block',
+      start(src: string) {
+        const match = /(?:^|\n)[ \t]*[{]%[\t ].*%[}](?=\r?\n|$)/u.exec(src);
+        return match ? match.index + (match[0].startsWith('\n') ? 1 : 0) : undefined;
+      },
+      tokenizer(src: string) {
+        const raw = matchTemplateTagLine(src);
+        if (!raw) return undefined;
+
+        return {
+          type: 'templateTagLine',
+          raw,
+          text: raw,
+        };
+      },
+      renderer(token) {
+        return `<p>${escapeHtmlAttr((token as Tokens.Generic & { text?: string }).text ?? '')}</p>\n`;
+      },
+    },
     {
       name: 'promptList',
       level: 'block',
