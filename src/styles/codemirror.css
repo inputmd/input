@@ -124,12 +124,16 @@
 }
 
 .doc-editor .cm-prompt-list-hint.cm-brace-prompt-hint {
-  display: inline-block;
-  font-size: 1.34em;
+  display: inline;
+  width: 1ch;
+  position: relative;
+  top: -1px;
+  font-family: inherit;
+  font-size: inherit;
   font-style: normal;
-  line-height: 1;
-  width: 0;
-  overflow: visible;
+  line-height: inherit;
+  overflow: hidden;
+  text-align: center;
   vertical-align: baseline;
 }
 
