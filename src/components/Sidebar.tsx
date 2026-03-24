@@ -52,6 +52,7 @@ interface SidebarProps {
   onRenameFile: (oldPath: string, newPath: string) => void | Promise<void>;
   onRenameFolder: (oldPath: string, newPath: string) => void | Promise<void>;
   onMoveFile: (filePath: string, targetFolderPath: string) => void | Promise<void>;
+  onMoveFolder: (folderPath: string, targetFolderPath: string) => void | Promise<void>;
   onUploadFile?: (file: globalThis.File, targetFolderPath: string) => void | Promise<void>;
 }
 
@@ -77,6 +78,7 @@ interface SidebarFolderNode {
 type SidebarTreeNode = SidebarFileNode | SidebarFolderNode;
 type RenameTarget = { kind: 'file' | 'folder'; path: string } | null;
 type CreateKind = 'file' | 'directory';
+type DraggedSidebarItem = { kind: 'file' | 'folder'; path: string } | null;
 type SidebarVisibleNode = {
   kind: 'file' | 'folder';
   path: string;
@@ -392,6 +394,7 @@ export function Sidebar({
   onRenameFile,
   onRenameFolder,
   onMoveFile,
+  onMoveFolder,
   onUploadFile,
 }: SidebarProps) {
   const [creatingNew, setCreatingNew] = useState(false);
@@ -402,10 +405,10 @@ export function Sidebar({
   const [renamingTarget, setRenamingTarget] = useState<RenameTarget>(null);
   const [renamingInFlightTarget, setRenamingInFlightTarget] = useState<RenameTarget>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [draggingFilePath, setDraggingFilePath] = useState<string | null>(null);
+  const [draggingItem, setDraggingItem] = useState<DraggedSidebarItem>(null);
   const [draggingExternalFile, setDraggingExternalFile] = useState(false);
   const [dropFolderPath, setDropFolderPath] = useState<string | null>(null);
-  const [movingFilePath, setMovingFilePath] = useState<string | null>(null);
+  const [movingTarget, setMovingTarget] = useState<RenameTarget>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -732,7 +735,7 @@ export function Sidebar({
   );
 
   const clearDragState = () => {
-    setDraggingFilePath(null);
+    setDraggingItem(null);
     setDraggingExternalFile(false);
     setDropFolderPath(null);
   };
@@ -743,11 +746,16 @@ export function Sidebar({
     return types.includes('Files');
   };
 
-  const resolveDraggedPath = (event: DragEvent): string | null => {
+  const resolveDraggedItem = (event: DragEvent): DraggedSidebarItem => {
+    const dataKind = event.dataTransfer?.getData('application/x-input-sidebar-node-kind') ?? '';
     const dataPath = event.dataTransfer?.getData('text/plain') ?? '';
-    const candidate = dataPath || draggingFilePath || '';
-    if (!candidate) return null;
-    return files.some((file) => file.path === candidate) ? candidate : null;
+    const candidate = dataPath || draggingItem?.path || '';
+    const kind = dataKind === 'file' || dataKind === 'folder' ? dataKind : draggingItem?.kind;
+    if (!candidate || !kind) return null;
+    if (kind === 'file') {
+      return files.some((file) => file.path === candidate) ? { kind, path: candidate } : null;
+    }
+    return folderPaths.has(candidate) ? { kind, path: candidate } : null;
   };
 
   const handleExternalFileDrop = async (event: DragEvent, targetFolderPath: string) => {
@@ -762,15 +770,24 @@ export function Sidebar({
   const handleDropToFolder = async (event: DragEvent, targetFolderPath: string) => {
     event.preventDefault();
     event.stopPropagation();
-    const draggedPath = resolveDraggedPath(event);
+    const draggedItem = resolveDraggedItem(event);
     clearDragState();
-    if (!draggedPath) return;
-    if (parentFolderPath(draggedPath) === targetFolderPath) return;
-    setMovingFilePath(draggedPath);
+    if (!draggedItem) return;
+    if (parentFolderPath(draggedItem.path) === targetFolderPath) return;
+    if (draggedItem.kind === 'folder') {
+      if (targetFolderPath === draggedItem.path || targetFolderPath.startsWith(`${draggedItem.path}/`)) return;
+    }
+    setMovingTarget(draggedItem);
     try {
-      await onMoveFile(draggedPath, targetFolderPath);
+      if (draggedItem.kind === 'file') {
+        await onMoveFile(draggedItem.path, targetFolderPath);
+      } else {
+        await onMoveFolder(draggedItem.path, targetFolderPath);
+      }
     } finally {
-      setMovingFilePath((current) => (current === draggedPath ? null : current));
+      setMovingTarget((current) =>
+        current?.kind === draggedItem.kind && current.path === draggedItem.path ? null : current,
+      );
     }
   };
 
@@ -786,11 +803,13 @@ export function Sidebar({
     const collapsed = Boolean(collapsedFolders[folder.path]);
     const isRenaming = renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
     const isRenamePending = renamingInFlightTarget?.kind === 'folder' && renamingInFlightTarget.path === folder.path;
+    const isMoving = movingTarget?.kind === 'folder' && movingTarget.path === folder.path;
     const FolderIcon = collapsed ? FolderClosed : FolderOpen;
-    const isDropTarget = (draggingFilePath !== null || draggingExternalFile) && dropFolderPath === folder.path;
+    const isDragging = draggingItem?.kind === 'folder' && draggingItem.path === folder.path;
+    const isDropTarget = (draggingItem !== null || draggingExternalFile) && dropFolderPath === folder.path;
     const folderRow = (
       <div
-        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${folder.deemphasized ? ' sidebar-file-deemphasized' : ''}${isDropTarget ? ' drop-target' : ''}`}
+        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${folder.deemphasized ? ' sidebar-file-deemphasized' : ''}${isDropTarget ? ' drop-target' : ''}${isDragging ? ' dragging' : ''}`}
         ref={(el) => {
           rowRefs.current[folder.path] = el;
         }}
@@ -799,6 +818,7 @@ export function Sidebar({
         aria-level={depth + 1}
         aria-expanded={!collapsed}
         aria-selected={folder.hasActiveDescendant || undefined}
+        draggable={!readOnly && !isRenaming && !isRenamePending && !isMoving}
         data-folder-path={folder.path}
         style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
         onClick={() => toggleFolder(folder.path)}
@@ -809,7 +829,12 @@ export function Sidebar({
         }}
         onDragOver={(e) => {
           if (readOnly) return;
-          if (draggingFilePath) {
+          if (draggingItem) {
+            if (
+              draggingItem.kind === 'folder' &&
+              (folder.path === draggingItem.path || folder.path.startsWith(`${draggingItem.path}/`))
+            )
+              return;
             e.preventDefault();
             if (dropFolderPath !== folder.path) setDropFolderPath(folder.path);
             return;
@@ -820,10 +845,23 @@ export function Sidebar({
           if (dropFolderPath !== folder.path) setDropFolderPath(folder.path);
         }}
         onDragLeave={(e) => {
-          if (!draggingFilePath && !draggingExternalFile) return;
+          if (!draggingItem && !draggingExternalFile) return;
           const nextTarget = e.relatedTarget as Node | null;
           if (nextTarget && (e.currentTarget as HTMLElement).contains(nextTarget)) return;
           if (dropFolderPath === folder.path) setDropFolderPath(null);
+        }}
+        onDragStart={(e) => {
+          if (readOnly || isRenaming || isRenamePending || isMoving) {
+            e.preventDefault();
+            return;
+          }
+          e.dataTransfer?.setData('text/plain', folder.path);
+          e.dataTransfer?.setData('application/x-input-sidebar-node-kind', 'folder');
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+          setDraggingItem({ kind: 'folder', path: folder.path });
+        }}
+        onDragEnd={() => {
+          clearDragState();
         }}
         onDrop={(e) => {
           if (readOnly) return;
@@ -848,7 +886,7 @@ export function Sidebar({
         <span class={`sidebar-folder-caret${collapsed ? '' : ' open'}`} aria-hidden="true">
           <ChevronRight size={CHEVRON_SIZE} />
         </span>
-        {isRenamePending ? (
+        {isRenamePending || isMoving ? (
           <span class="sidebar-rename-spinner" aria-hidden="true" />
         ) : (
           <FolderIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
@@ -940,12 +978,12 @@ export function Sidebar({
   const renderFileRow = (file: SidebarFileNode, depth: number) => {
     const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
     const isRenamePending = renamingInFlightTarget?.kind === 'file' && renamingInFlightTarget.path === file.path;
-    const isMoving = movingFilePath === file.path;
+    const isMoving = movingTarget?.kind === 'file' && movingTarget.path === file.path;
     const FileIcon = getFileIcon(file.name, file.size);
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     const fileRow = (
       <div
-        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${draggingFilePath === file.path ? ' dragging' : ''}`}
+        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${draggingItem?.kind === 'file' && draggingItem.path === file.path ? ' dragging' : ''}`}
         ref={(el) => {
           rowRefs.current[file.path] = el;
         }}
@@ -971,8 +1009,9 @@ export function Sidebar({
             return;
           }
           e.dataTransfer?.setData('text/plain', file.path);
+          e.dataTransfer?.setData('application/x-input-sidebar-node-kind', 'file');
           if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-          setDraggingFilePath(file.path);
+          setDraggingItem({ kind: 'file', path: file.path });
         }}
         onDragEnd={() => {
           clearDragState();
@@ -1201,14 +1240,14 @@ export function Sidebar({
         )}
       </div>
       <div
-        class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}${(draggingFilePath || draggingExternalFile) && dropFolderPath === '' ? ' drop-target-root' : ''}${draggingExternalFile ? ' sidebar-files-uploading' : ''}`}
+        class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}${(draggingItem || draggingExternalFile) && dropFolderPath === '' ? ' drop-target-root' : ''}${draggingExternalFile ? ' sidebar-files-uploading' : ''}`}
         role="tree"
         aria-label="Workspace files"
         onKeyDown={handleFilesKeyDown}
         onClick={handleSidebarBackgroundClick}
         onDragOver={(e) => {
           if (readOnly) return;
-          if (draggingFilePath) {
+          if (draggingItem) {
             e.preventDefault();
             const target = e.target as HTMLElement | null;
             if (!target?.closest('[data-folder-path]')) setDropFolderPath('');
@@ -1232,7 +1271,7 @@ export function Sidebar({
             void handleExternalFileDrop(e, '');
             return;
           }
-          if (!draggingFilePath) return;
+          if (!draggingItem) return;
           const target = e.target as HTMLElement | null;
           if (target?.closest('[data-folder-path]')) return;
           void handleDropToFolder(e, '');

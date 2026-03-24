@@ -305,6 +305,22 @@ function upsertRepoFile(files: RepoDocFile[], next: RepoDocFile): RepoDocFile[] 
   return updated;
 }
 
+function renameRepoDocFiles(files: RepoDocFile[], renames: Array<{ from: string; to: string }>): RepoDocFile[] {
+  if (renames.length === 0) return files;
+  const renameMap = new Map(renames.map((entry) => [entry.from, entry.to]));
+  return files
+    .map((file) => {
+      const nextPath = renameMap.get(file.path);
+      if (!nextPath) return file;
+      return {
+        ...file,
+        name: fileNameFromPath(nextPath),
+        path: nextPath,
+      };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
 function repoDocFilesFromTree(result: RepoTreeResult, markdownOnly: boolean): RepoDocFile[] {
   if (Array.isArray(result.entries) && result.entries.length > 0) {
     return result.entries
@@ -6031,13 +6047,16 @@ export function App() {
           }
         } else {
           if (!activeInstalledRepoInstallationId || !selectedRepo) return;
+          const renames = [{ from: oldPath, to: newPath }];
           await renameRepoPathsAtomic(
             activeInstalledRepoInstallationId,
             selectedRepo,
-            [{ from: oldPath, to: newPath }],
+            renames,
             `Rename ${oldPath} to ${newPath}`,
           );
-          await refreshRepoTreeAfterWrite();
+          const nextSidebarFiles = renameRepoDocFiles(repoSidebarFiles, renames);
+          setRepoSidebarFiles(nextSidebarFiles);
+          setRepoFiles(nextSidebarFiles.filter((file) => isMarkdownFileName(file.path)));
           if (currentFileNameRef.current === oldPath) {
             if (selectedRepoRef) {
               navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, newPath));
@@ -6069,9 +6088,9 @@ export function App() {
       showAlert,
       showRateLimitToastIfNeeded,
       selectedRepoRef,
-      refreshRepoTreeAfterWrite,
       activeInstalledRepoInstallationId,
       selectedRepo,
+      repoSidebarFiles,
     ],
   );
 
@@ -6129,7 +6148,9 @@ export function App() {
           if (gist) {
             setGistFiles(gist.files);
             if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
-              navigate(routePath.gistView(gistId, renamePathWithNewFolder(currentFileName, oldPath, newPath)));
+              const nextCurrentPath = renamePathWithNewFolder(currentFileName, oldPath, newPath);
+              setCurrentFileName(nextCurrentPath);
+              navigate(routePath.gistView(gistId, nextCurrentPath));
             }
           }
           if (batchError) {
@@ -6149,17 +6170,20 @@ export function App() {
             dismissToast(renameToastId);
             return;
           }
+          const renames = paths.map((file) => ({
+            from: file.path,
+            to: renamePathWithNewFolder(file.path, oldPath, newPath),
+          }));
           await renameRepoPathsAtomic(
             activeInstalledRepoInstallationId,
             selectedRepo,
-            paths.map((file) => ({
-              from: file.path,
-              to: renamePathWithNewFolder(file.path, oldPath, newPath),
-            })),
+            renames,
             `Rename folder "${oldPath}" to "${newPath}"`,
           );
           completedCount = paths.length;
-          await refreshRepoTreeAfterWrite();
+          const nextSidebarFiles = renameRepoDocFiles(repoSidebarFiles, renames);
+          setRepoSidebarFiles(nextSidebarFiles);
+          setRepoFiles(nextSidebarFiles.filter((file) => isMarkdownFileName(file.path)));
           if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
             if (selectedRepoRef) {
               navigate(
@@ -6210,7 +6234,6 @@ export function App() {
       activeInstalledRepoInstallationId,
       selectedRepo,
       selectedRepoRef,
-      refreshRepoTreeAfterWrite,
     ],
   );
 
@@ -6236,6 +6259,35 @@ export function App() {
       await handleRenameFile(filePath, nextPath);
     },
     [handleBeforeRenameFile, handleRenameFile, showConfirm],
+  );
+
+  const handleMoveFolder = useCallback(
+    async (folderPath: string, targetFolderPath: string) => {
+      const currentFolderPath = parentFolderPath(folderPath);
+      if (currentFolderPath === targetFolderPath) return;
+      if (targetFolderPath === folderPath || targetFolderPath.startsWith(`${folderPath}/`)) return;
+
+      const nextPath = targetFolderPath
+        ? `${targetFolderPath}/${fileNameFromPath(folderPath)}`
+        : fileNameFromPath(folderPath);
+      if (nextPath === folderPath) return;
+
+      const currentEditingPath = editingBackend === 'repo' ? currentRepoDocPath : currentFileName;
+      if (currentEditingPath && isPathInFolder(currentEditingPath, folderPath)) {
+        const canRename = await handleBeforeRenameFile(currentEditingPath);
+        if (!canRename) return;
+      }
+
+      const confirmed = await showConfirm(`Move folder "${folderPath}" to "${nextPath}"?`, {
+        title: 'Move folder',
+        confirmLabel: 'Move',
+        defaultFocus: 'cancel',
+      });
+      if (!confirmed) return;
+
+      await handleRenameFolder(folderPath, nextPath);
+    },
+    [currentFileName, currentRepoDocPath, editingBackend, handleBeforeRenameFile, handleRenameFolder, showConfirm],
   );
 
   // --- GitHub App callbacks ---
@@ -7179,6 +7231,7 @@ export function App() {
               onRenameFile={handleRenameFile}
               onRenameFolder={handleRenameFolder}
               onMoveFile={handleMoveFile}
+              onMoveFolder={handleMoveFolder}
               onUploadFile={handleUploadFileToSidebar}
             />
             <div
