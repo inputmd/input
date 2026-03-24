@@ -837,11 +837,14 @@ export function App() {
     editContentSnapshotTimerRef.current = null;
   }, []);
   const scheduleEditContentSnapshot = useCallback(
-    (nextContent: string) => {
+    (update: { content: string; revision: number }) => {
       cancelEditContentSnapshot();
       editContentSnapshotTimerRef.current = window.setTimeout(() => {
         editContentSnapshotTimerRef.current = null;
-        setEditContent((previousContent) => (previousContent === nextContent ? previousContent : nextContent));
+        setEditContent((previousContent) => (previousContent === update.content ? previousContent : update.content));
+        setEditContentOrigin('local');
+        setEditContentRevision((previousRevision) => Math.max(previousRevision, update.revision));
+        setEditContentSelection(null);
       }, EDIT_CONTENT_SNAPSHOT_DELAY_MS);
     },
     [cancelEditContentSnapshot],
@@ -6950,7 +6953,7 @@ export function App() {
       if (readerAiEditLocked) return;
       editContentRef.current = update.content;
       pendingGistDraftDirtyRef.current = draftMode && editingBackend === 'gist' && currentGistId === null;
-      scheduleEditContentSnapshot(update.content);
+      scheduleEditContentSnapshot(update);
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
     },

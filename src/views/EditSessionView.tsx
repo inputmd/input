@@ -72,11 +72,23 @@ export function EditSessionView({
   const [deferredLiveContent, setDeferredLiveContent] = useState(content);
 
   useEffect(() => {
-    setLiveContent(content);
-    setLiveContentOrigin(contentOrigin);
-    setLiveContentRevision(contentRevision);
-    setLiveContentSelection(contentSelection);
-  }, [content, contentOrigin, contentRevision, contentSelection]);
+    setLiveContent((currentContent) => {
+      if (contentRevision < liveContentRevision) return currentContent;
+      if (contentRevision === liveContentRevision && content !== currentContent) return currentContent;
+      return content;
+    });
+    setLiveContentOrigin((currentOrigin) => {
+      if (contentRevision < liveContentRevision) return currentOrigin;
+      if (contentRevision === liveContentRevision && content !== liveContent) return currentOrigin;
+      return contentOrigin;
+    });
+    setLiveContentRevision((currentRevision) => Math.max(currentRevision, contentRevision));
+    setLiveContentSelection((currentSelection) => {
+      if (contentRevision < liveContentRevision) return currentSelection;
+      if (contentRevision === liveContentRevision && content !== liveContent) return currentSelection;
+      return contentSelection;
+    });
+  }, [content, contentOrigin, contentRevision, contentSelection, liveContent, liveContentRevision]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
