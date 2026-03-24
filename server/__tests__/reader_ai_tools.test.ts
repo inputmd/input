@@ -683,6 +683,19 @@ test('stream parser does not split inside a word after a single-letter chunk', a
   t.is(result.content, 'Ishmael');
 });
 
+test('stream parser inserts a boundary space after a standalone I before the next lowercase word', async (t) => {
+  const deltas: string[] = [];
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'Hello! How can I' } }] }),
+    sseChunk({ choices: [{ delta: { content: 'help you today?' } }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+  t.deepEqual(deltas, ['Hello! How can I ', 'help you today?']);
+  t.is(result.content, 'Hello! How can I help you today?');
+});
+
 test('stream parser buffers one chunk and repairs a missing space before a lowercase word', async (t) => {
   const deltas: string[] = [];
   const stream = makeStream([

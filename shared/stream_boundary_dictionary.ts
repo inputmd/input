@@ -227,6 +227,9 @@ export function shouldInsertStreamBoundarySpace(previous: string, next: string):
   const previousWord = previous.match(/([A-Za-z]+)$/)?.[1];
   const nextWord = next.match(/^([A-Za-z]+)/)?.[1];
   if (!previousWord || !nextWord) return false;
+  const previousWordStart = previous.length - previousWord.length;
+  const previousBoundaryChar = previousWordStart > 0 ? previous[previousWordStart - 1] : '';
+  const previousStartsAtWordBoundary = previousWordStart === 0 || /[\s([{"'`-]/.test(previousBoundaryChar);
   if (/[-‑–—][A-Za-z]{1,3}$/u.test(previousWord)) return false;
   if (/[-‑–—][A-Za-z]{1,3}$/u.test(previous)) return false;
   // Dictionary guard: if both fragments are substantial and joining them forms
@@ -236,7 +239,12 @@ export function shouldInsertStreamBoundarySpace(previous: string, next: string):
   if ((previousWord.length >= 3 && nextWord.length >= 3) || (previousWord.length >= 4 && nextWord.length >= 2)) {
     if (isKnownWord((previousWord + nextWord).toLowerCase())) return false;
   }
-  if (previousWord.length === 1) return false;
+  if (previousWord.length === 1) {
+    if (previousWord === 'I' && previousStartsAtWordBoundary && previous.length > previousWord.length) {
+      return true;
+    }
+    return false;
+  }
   if (/^[A-Z]/.test(nextWord)) return true;
   const nextLower = nextWord.toLowerCase();
   if (STREAM_BOUNDARY_JOINER_WORDS.has(nextLower)) return true;
