@@ -1,15 +1,14 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, ExternalLink, Globe, Lock } from 'lucide-react';
+import { ExternalLink, Globe, Lock, MoreHorizontal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { GistSummary } from '../github';
-import type { InstallationRepo, LinkedInstallation } from '../github_app';
+import type { InstallationRepo } from '../github_app';
 import { DocumentsView } from './DocumentsView';
 
 const CONNECT_REPOS_LABEL = 'Connect Repos';
 
 interface WorkspacesViewProps {
   installationId: string | null;
-  linkedInstallations: LinkedInstallation[];
   availableRepos: InstallationRepo[];
   repoListLoading: boolean;
   reposLoadError: string | null;
@@ -25,7 +24,6 @@ interface WorkspacesViewProps {
   onRenameGist: (gist: GistSummary) => void | Promise<void>;
   onDeleteGist: (gist: GistSummary) => void | Promise<void>;
   onConnect: () => void;
-  onSelectInstallation: (installationId: string) => void | Promise<void>;
   onDisconnectCurrentInstallation: () => void | Promise<void>;
   onDisconnect: () => void;
   onOpenRepo: (fullName: string, id: number, isPrivate: boolean) => void;
@@ -42,7 +40,6 @@ function formatRepoMeta(repo: InstallationRepo): string {
 
 export function WorkspacesView({
   installationId,
-  linkedInstallations,
   availableRepos,
   repoListLoading,
   reposLoadError,
@@ -58,7 +55,6 @@ export function WorkspacesView({
   onRenameGist,
   onDeleteGist,
   onConnect,
-  onSelectInstallation,
   onDisconnectCurrentInstallation,
   onDisconnect,
   onOpenRepo,
@@ -71,10 +67,6 @@ export function WorkspacesView({
   const didAutoLoadRef = useRef(false);
   const [retryingRepos, setRetryingRepos] = useState(false);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-  const selectedInstallation =
-    linkedInstallations.find((candidate) => candidate.installationId === installationId) ??
-    linkedInstallations[0] ??
-    null;
   useEffect(() => {
     if (didAutoLoadRef.current) return;
     didAutoLoadRef.current = true;
@@ -119,67 +111,14 @@ export function WorkspacesView({
               <button
                 type="button"
                 class="doc-actions-menu-trigger workspaces-installation-trigger"
-                aria-label="Select installation"
-                title={
-                  selectedInstallation?.accountLogin ?? selectedInstallation?.installationId ?? 'Select installation'
-                }
-                disabled={!installationId}
+                aria-label="Workspace actions"
+                title="Workspace actions"
               >
-                {installationId && selectedInstallation?.accountAvatarUrl ? (
-                  <img
-                    src={selectedInstallation.accountAvatarUrl}
-                    alt=""
-                    aria-hidden="true"
-                    class="workspaces-installation-avatar"
-                  />
-                ) : null}
-                <span class="workspaces-installation-label">
-                  {selectedInstallation?.accountLogin ?? selectedInstallation?.installationId ?? 'Select installation'}
-                </span>
-                <ChevronDown size={14} aria-hidden="true" />
+                <MoreHorizontal size={16} aria-hidden="true" />
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="doc-actions-menu-content" sideOffset={6} align="end">
-                {linkedInstallations.map((installation) => (
-                  <DropdownMenu.Item
-                    key={installation.installationId}
-                    class="doc-actions-menu-item"
-                    onSelect={(event: Event) => {
-                      event.preventDefault();
-                      setActionsMenuOpen(false);
-                      void onSelectInstallation(installation.installationId);
-                    }}
-                  >
-                    {installation.accountAvatarUrl ? (
-                      <img
-                        src={installation.accountAvatarUrl}
-                        alt=""
-                        aria-hidden="true"
-                        width={18}
-                        height={18}
-                        style={{ width: '18px', height: '18px', borderRadius: '999px', flexShrink: 0 }}
-                      />
-                    ) : (
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          width: '18px',
-                          height: '18px',
-                          borderRadius: '999px',
-                          background: 'var(--border-color)',
-                          display: 'inline-block',
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                    <span style={{ marginLeft: '8px', flex: 1 }}>
-                      {installation.accountLogin ?? installation.installationId}
-                    </span>
-                    {installation.installationId === installationId ? <Check size={14} aria-hidden="true" /> : null}
-                  </DropdownMenu.Item>
-                ))}
-                {linkedInstallations.length > 0 ? <DropdownMenu.Separator class="user-menu-separator" /> : null}
                 {installationId ? (
                   <DropdownMenu.Item
                     class="doc-actions-menu-item"
@@ -189,7 +128,7 @@ export function WorkspacesView({
                       void onDisconnectCurrentInstallation();
                     }}
                   >
-                    Disconnect selected installation
+                    Disconnect current installation
                   </DropdownMenu.Item>
                 ) : null}
                 <DropdownMenu.Item

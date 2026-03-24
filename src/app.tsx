@@ -6484,7 +6484,6 @@ export function App() {
         return user ? (
           <WorkspacesView
             installationId={installationId}
-            linkedInstallations={linkedInstallations}
             availableRepos={installationRepos}
             repoListLoading={installationReposLoading}
             reposLoadError={reposLoadError}
@@ -6500,7 +6499,6 @@ export function App() {
             onRenameGist={onRenameWorkspaceGist}
             onDeleteGist={onDeleteWorkspaceGist}
             onConnect={onConnectInstallation}
-            onSelectInstallation={onSelectActiveInstallation}
             onDisconnectCurrentInstallation={onDisconnectCurrentInstallation}
             onDisconnect={onDisconnect}
             onOpenRepo={onOpenRepoFromWorkspaces}
@@ -7043,6 +7041,7 @@ export function App() {
         selectedRepo={selectedRepo}
         selectedRepoPrivate={selectedRepoPrivate}
         inRepoContext={inRepoContext}
+        isGistContext={isGistContext}
         documentCollaborators={headerDocumentCollaborators}
         availableRepos={installationRepos}
         installationId={installationId}
@@ -7083,7 +7082,10 @@ export function App() {
         onOpenRepoMenu={onOpenRepoMenu}
         onRetryRepos={() => onOpenRepoMenu('manual')}
         onRetryGists={() => onOpenRepoMenu('manual')}
-        onSelectInstallation={onSelectActiveInstallation}
+        onSelectInstallation={async (nextInstallationId) => {
+          await onSelectActiveInstallation(nextInstallationId);
+          navigate(routePath.workspaces());
+        }}
         onSelectRepo={(fullName, id, isPrivate) => {
           void openInstalledRepo(fullName, { id, isPrivate });
         }}

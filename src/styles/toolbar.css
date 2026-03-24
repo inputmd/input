@@ -65,6 +65,19 @@
   gap: 6px;
 }
 
+.repo-menu-trigger-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  flex: 0 0 18px;
+  flex-shrink: 0;
+}
+
+.repo-menu-trigger-avatar--placeholder {
+  display: inline-block;
+  background: var(--border);
+}
+
 .toolbar-repo-group {
   display: inline-flex;
   align-items: center;

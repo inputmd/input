@@ -12,6 +12,7 @@ import {
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
@@ -79,6 +80,7 @@ interface ToolbarProps {
   selectedRepo: string | null;
   selectedRepoPrivate: boolean | null;
   inRepoContext: boolean;
+  isGistContext: boolean;
   documentCollaborators: Array<{ login: string; avatarUrl: string; isAuthor: boolean }>;
   availableRepos: InstallationRepo[];
   installationId: string | null;
@@ -157,6 +159,7 @@ export function Toolbar({
   selectedRepo,
   selectedRepoPrivate,
   inRepoContext,
+  isGistContext,
   documentCollaborators,
   availableRepos,
   installationId,
@@ -240,6 +243,12 @@ export function Toolbar({
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
+  const selectedInstallation =
+    linkedInstallations.find((candidate) => candidate.installationId === installationId) ??
+    linkedInstallations[0] ??
+    null;
+  const selectedInstallationLabel = selectedInstallation?.accountLogin ?? selectedInstallation?.installationId ?? null;
+  const selectedRepoName = selectedRepo?.split('/').at(-1) ?? selectedRepo;
   const showHeaderToggleGroup = showPreviewToggle || showAiToggle;
   const showAiModelSelector = showAiToggle;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
@@ -470,10 +479,37 @@ export function Toolbar({
                       {inRepoContext && selectedRepo ? (
                         <>
                           <RepoPrivacyIcon size={14} class="repo-menu-icon" aria-hidden="true" />
-                          <span class="repo-menu-current-name">{selectedRepo}</span>
+                          <span class="repo-menu-current-name">
+                            {selectedInstallationLabel
+                              ? `${selectedInstallationLabel}/${selectedRepoName}`
+                              : selectedRepo}
+                          </span>
                         </>
-                      ) : (
+                      ) : isGistContext ? (
                         'My Workspaces'
+                      ) : (
+                        <>
+                          {selectedInstallation?.accountAvatarUrl ? (
+                            <img
+                              class="repo-menu-trigger-avatar"
+                              src={selectedInstallation.accountAvatarUrl}
+                              alt=""
+                              aria-hidden="true"
+                              width={18}
+                              height={18}
+                            />
+                          ) : (
+                            <span
+                              class="repo-menu-trigger-avatar repo-menu-trigger-avatar--placeholder"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <span class="repo-menu-current-name">
+                            {selectedInstallation?.accountLogin ??
+                              selectedInstallation?.installationId ??
+                              'My Workspaces'}
+                          </span>
+                        </>
                       )}
                       <ChevronDown size={14} class="repo-menu-icon" aria-hidden="true" />
                     </button>
@@ -816,18 +852,12 @@ export function Toolbar({
         {user ? (
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
-              <button type="button" class="user-menu-trigger" aria-label="User menu" title="User menu">
-                <img class="user-avatar" src={user.avatar_url} alt="" width={24} height={24} />
+              <button type="button" class="user-menu-trigger" aria-label="Settings menu" title="Settings menu">
+                <Settings size={18} aria-hidden="true" />
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
-                <DropdownMenu.Label class="user-menu-label">
-                  <a href="https://github.com/settings/profile" target="_blank" rel="noopener noreferrer">
-                    {user.login}
-                  </a>
-                </DropdownMenu.Label>
-                <DropdownMenu.Separator class="user-menu-separator" />
                 {view !== 'workspaces' ? (
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.workspaces())}>
                     Workspaces
