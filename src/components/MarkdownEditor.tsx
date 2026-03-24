@@ -84,7 +84,7 @@ export function MarkdownEditor({
   inlinePromptActive = false,
   onPaste,
   readOnly = false,
-  placeholder = 'Write here, or use % or {} to prompt...',
+  placeholder = 'Write here, or use -* or {instructions} to prompt...',
   scrollStorageKey = null,
   onEditorReady,
   class: className,

@@ -540,7 +540,7 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
 
   if (currentTurn.answerItemIndex !== null) {
     const nextItem = thread.block.items[currentTurn.answerItemIndex];
-    const insertedPrefix = `${nextItem.indent}= `;
+    const insertedPrefix = `${nextItem.indent}-⏺ `;
     return {
       prompt,
       documentContent: state.doc.toString(),
@@ -553,7 +553,7 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
     };
   }
 
-  const insertedPrefix = `${state.lineBreak}${match.indent}= `;
+  const insertedPrefix = `${state.lineBreak}${match.indent}-⏺ `;
   return {
     prompt,
     documentContent: state.doc.toString(),
@@ -606,7 +606,7 @@ export function insertNewlineContinuePromptAnswer(view: EditorView): boolean {
   const item = thread.block.items[thread.itemIndex];
   if (item.kind !== 'answer' || line.number !== item.lastLineNumber) return false;
 
-  const insert = `${state.lineBreak}${item.indent}% `;
+  const insert = `${state.lineBreak}${item.indent}-* `;
   view.dispatch(
     state.update({
       changes: { from: range.from, to: range.to, insert },
@@ -633,7 +633,7 @@ export function backspacePromptQuestionMarker(view: EditorView): boolean {
   if (range.from !== markerEnd) return false;
 
   const markerFrom = line.from + match.indent.length;
-  const markerTo = markerFrom + match.marker.length;
+  const markerTo = markerFrom + 2;
   view.dispatch(
     state.update({
       changes: { from: markerFrom, to: markerTo, insert: '' },
