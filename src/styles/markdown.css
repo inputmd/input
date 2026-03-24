@@ -331,6 +331,11 @@
   color: inherit;
 }
 
+.rendered-markdown ul.prompt-list > li.prompt-list-branch + li.prompt-answer,
+.rendered-markdown li.prompt-list-branch > ul > li.prompt-list-branch + li.prompt-answer {
+  border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+}
+
 .rendered-markdown .prompt-list-conversation[data-collapsed="true"] li.prompt-answer {
   max-height: 80px;
   overflow: hidden;
