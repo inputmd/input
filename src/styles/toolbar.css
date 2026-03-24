@@ -630,9 +630,10 @@
 .user-menu-trigger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 35px;
-  min-width: 35px;
-  padding: 4px 8px;
+  min-width: 31px;
+  padding: 4px 6px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--btn-bg);

@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo, LinkedInstallation } from '../github_app';
 import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
+import { isEditableShortcutTarget, matchesControlShortcut } from '../keyboard_shortcuts';
 import type { ReaderAiModel } from '../reader_ai';
 import { routePath } from '../routing';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
@@ -233,6 +234,8 @@ export function Toolbar({
 }: ToolbarProps) {
   const [authorMenuOpen, setAuthorMenuOpen] = useState(false);
   const [collaboratorsTooltipOpen, setCollaboratorsTooltipOpen] = useState(false);
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [repoMenuOpen, setRepoMenuOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const collaboratorsTooltipCloseTimeoutRef = useRef<number | null>(null);
   const isHomeDraft = view === 'edit' && draftMode;
@@ -240,6 +243,7 @@ export function Toolbar({
   const showGitHubApp = !!user;
   const showSidebarToggle = view === 'content' || view === 'edit';
   const disableLeftControls = showLeftLoading && preserveLeftControlsWhileLoading;
+  const repoMenuShortcutAvailable = showGitHubApp && !disableLeftControls;
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
@@ -251,6 +255,7 @@ export function Toolbar({
   const selectedRepoName = selectedRepo?.split('/').at(-1) ?? selectedRepo;
   const showHeaderToggleGroup = showPreviewToggle || showAiToggle;
   const showAiModelSelector = showAiToggle;
+  const modelSelectorShortcutAvailable = showAiModelSelector && !aiDisabled && !aiModelsLoading && aiModels.length > 0;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const resolvedLocalRateLimit = localRateLimit ?? readStoredGitHubRateLimitSnapshot('serverLocal');
@@ -275,6 +280,38 @@ export function Toolbar({
       }
     };
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (!repoMenuShortcutAvailable || !matchesControlShortcut(event, 'r')) return;
+      if (isEditableShortcutTarget(event.target)) return;
+
+      event.preventDefault();
+      setRepoMenuOpen((open) => {
+        const nextOpen = !open;
+        if (nextOpen) onOpenRepoMenu();
+        return nextOpen;
+      });
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onOpenRepoMenu, repoMenuShortcutAvailable]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (!modelSelectorShortcutAvailable || !matchesControlShortcut(event, 'o')) return;
+      if (isEditableShortcutTarget(event.target)) return;
+
+      event.preventDefault();
+      setModelSelectorOpen((open) => !open);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [modelSelectorShortcutAvailable]);
 
   const openCollaboratorsTooltip = (): void => {
     if (collaboratorsTooltipCloseTimeoutRef.current !== null) {
@@ -464,7 +501,9 @@ export function Toolbar({
             {showGitHubApp && (
               <div class="toolbar-repo-group">
                 <DropdownMenu.Root
+                  open={repoMenuOpen}
                   onOpenChange={(open: boolean) => {
+                    setRepoMenuOpen(open);
                     if (disableLeftControls) return;
                     if (open) onOpenRepoMenu();
                   }}
@@ -837,6 +876,8 @@ export function Toolbar({
                   modelsError={aiModelsError}
                   selectedModel={selectedAiModel}
                   onSelectModel={onSelectAiModel}
+                  open={modelSelectorOpen}
+                  onOpenChange={setModelSelectorOpen}
                   disabled={aiDisabled}
                   triggerClassName="preview-toggle-btn preview-toggle-btn-model"
                   triggerAriaLabel="Reader AI model"

@@ -100,6 +100,7 @@ import {
   fetchWithTimeout,
   maybeResizePastedImage,
 } from './image_processing';
+import { isEditableShortcutTarget, matchesControlShortcut } from './keyboard_shortcuts';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
 import {
   commonPrefixLength,
@@ -6998,9 +6999,15 @@ export function App() {
   const showHomeHeaderSourceAction = route.name === 'new' && !user;
   const showHeaderSourceAction = showHeaderSourceToggle || showHomeHeaderSourceAction;
   const headerSourceActionLabel = contentSourceViewVisible ? 'View Rendered' : 'View Source';
+  const showHeaderLeftLoading = activeView === 'loading' && Boolean(user);
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
+  const headerSidebarToggleAvailable =
+    (activeView === 'content' || activeView === 'edit') &&
+    !(showHeaderLeftLoading && preserveHeaderLeftControlsWhileLoading);
+  const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;
+  const headerReaderAiToggleAvailable = showReaderAiToggle && !readerAiToggleDisabled;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
     repoAccessMode === 'installed' &&
@@ -7010,6 +7017,35 @@ export function App() {
   const showHeaderViewInGitHub = showHomeHeaderSourceAction || currentGistId !== null || currentRepoDocPath !== null;
   const showHeaderActionsMenu = showHeaderShare || showHeaderSourceAction || showHeaderViewInGitHub;
   const showDraftMenuActions = currentDocumentDraft !== null && (currentGistId !== null || currentRepoDocPath !== null);
+  useEffect(() => {
+    const bindings = [
+      { key: 't', available: headerSidebarToggleAvailable, action: onToggleSidebar },
+      { key: 'i', available: headerReaderAiToggleAvailable, action: onToggleReaderAi },
+      { key: 'p', available: headerPreviewToggleAvailable, action: onTogglePreview },
+      { key: 'e', available: showHeaderEdit, action: onEdit },
+    ] as const;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const binding = bindings.find((candidate) => candidate.available && matchesControlShortcut(event, candidate.key));
+      if (!binding || isEditableShortcutTarget(event.target)) return;
+
+      event.preventDefault();
+      binding.action();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    headerPreviewToggleAvailable,
+    headerReaderAiToggleAvailable,
+    headerSidebarToggleAvailable,
+    onTogglePreview,
+    onToggleReaderAi,
+    onToggleSidebar,
+    onEdit,
+    showHeaderEdit,
+  ]);
   const shareMenuMetadata = useMemo(() => {
     if (!showHeaderShare) return null;
     const timestamp = currentGistCreatedAt ?? currentGistUpdatedAt;
@@ -7022,7 +7058,6 @@ export function App() {
   }, [currentGistCreatedAt, currentGistUpdatedAt, showHeaderShare]);
   const inRepoContext =
     (activeView === 'content' || activeView === 'edit') && repoAccessMode === 'installed' && selectedRepo !== null;
-  const showHeaderLeftLoading = activeView === 'loading' && Boolean(user);
   const headerDocumentCollaborators = useMemo(() => {
     if (repoAccessMode !== 'installed') return [];
     if (!currentRepoDocPath || !currentDocumentContent || !user?.login) return [];

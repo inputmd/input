@@ -8,6 +8,8 @@ interface ReaderAiModelSelectorProps {
   modelsError: string | null;
   selectedModel: string;
   onSelectModel: (modelId: string) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   triggerClassName?: string;
   triggerAriaLabel?: string;
@@ -43,6 +45,8 @@ export function ReaderAiModelSelector({
   modelsError,
   selectedModel,
   onSelectModel,
+  open,
+  onOpenChange,
   disabled = false,
   triggerClassName = 'reader-ai-model-trigger',
   triggerAriaLabel = 'Reader AI model',
@@ -76,7 +80,7 @@ export function ReaderAiModelSelector({
     showLoginForMoreModels && paidModels.length === 0 && (featuredModels.length > 0 || unverifiedModels.length > 0);
 
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
