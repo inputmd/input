@@ -10,6 +10,8 @@ function makePanel(optionCount: number, loading = false): BracePromptPanelState 
       documentContent: 'today {finish this}',
       paragraphTail: '',
       mode: 'replace',
+      candidateCount: 5,
+      excludeOptions: [],
     },
     options: Array.from({ length: optionCount }, (_, index) => `option ${index + 1}`),
     draftOption: '',
@@ -22,8 +24,10 @@ function makePanel(optionCount: number, loading = false): BracePromptPanelState 
   };
 }
 
-test('canBracePromptGenerateMore waits until the five candidates and extra overflow slot are filled', (t) => {
-  t.false(canBracePromptGenerateMore(makePanel(5)));
-  t.true(canBracePromptGenerateMore(makePanel(6)));
-  t.false(canBracePromptGenerateMore(makePanel(6, true)));
+test('canBracePromptGenerateMore becomes available after the first five and stops at ten total', (t) => {
+  t.false(canBracePromptGenerateMore(makePanel(4)));
+  t.true(canBracePromptGenerateMore(makePanel(5)));
+  t.true(canBracePromptGenerateMore(makePanel(9)));
+  t.false(canBracePromptGenerateMore(makePanel(10)));
+  t.false(canBracePromptGenerateMore(makePanel(5, true)));
 });

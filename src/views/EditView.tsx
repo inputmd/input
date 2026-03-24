@@ -83,7 +83,6 @@ export interface EditViewProps {
   canSave: boolean;
   hasUserTypedUnsavedChanges?: boolean;
   onSave: () => void;
-  bracePromptModelLabel?: string | null;
   readOnly?: boolean;
   locked?: boolean;
   showLockIndicator?: boolean;
@@ -127,7 +126,6 @@ export function EditView({
   canSave,
   hasUserTypedUnsavedChanges = false,
   onSave,
-  bracePromptModelLabel = null,
   readOnly = false,
   locked = false,
   showLockIndicator = true,
@@ -500,7 +498,6 @@ export function EditView({
             onPromptListSubmit={onPromptListSubmit}
             onCancelInlinePrompt={onCancelInlinePrompt}
             inlinePromptActive={inlinePromptActive}
-            bracePromptModelLabel={bracePromptModelLabel}
             onPaste={onEditorPaste}
             readOnly={readOnly || locked || loading}
           />

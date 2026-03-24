@@ -100,6 +100,8 @@ test('buildBracePromptRequest keeps default brace prompts scoped to the document
     documentContent: text.slice(0, position),
     paragraphTail: '',
     mode: 'replace',
+    candidateCount: 5,
+    excludeOptions: [],
   });
 });
 
@@ -114,6 +116,8 @@ test('buildBracePromptRequest includes the rest of the paragraph when requested'
     documentContent: text.slice(0, position),
     paragraphTail: ' beta\nstill same paragraph',
     mode: 'replace-with-paragraph-tail',
+    candidateCount: 5,
+    excludeOptions: [],
   });
 });
 

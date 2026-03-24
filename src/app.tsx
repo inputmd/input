@@ -4131,7 +4131,7 @@ export function App() {
 
   const onBracePromptStream = useCallback(
     async (
-      { prompt, documentContent, paragraphTail, mode }: BracePromptRequest,
+      { prompt, documentContent, paragraphTail, mode, candidateCount, excludeOptions }: BracePromptRequest,
       callbacks: { onDelta: (delta: string) => void },
       signal: AbortSignal,
     ) => {
@@ -4153,7 +4153,10 @@ export function App() {
           : 'The source contains a document ending with an inline brace query.',
         `Brace query: ${requestPrompt}`,
         hasParagraphTail ? `Text after the brace in the same paragraph:\n${sanitizedParagraphTail}` : null,
-        'Return exactly 5 candidate replacement fragments for the text inside the braces.',
+        `Return exactly ${candidateCount} candidate replacement fragments for the text inside the braces.`,
+        excludeOptions.length > 0
+          ? `Already shown options that must not be repeated:\n${excludeOptions.map((option) => `- ${option}`).join('\n')}`
+          : null,
         'Rules:',
         '- Output plain text only.',
         '- One option per line.',
@@ -4161,6 +4164,7 @@ export function App() {
         '- Keep each option brief.',
         '- Each option must contain only the replacement fragment, not the full sentence or paragraph.',
         '- Do not repeat any surrounding document text.',
+        excludeOptions.length > 0 ? '- Do not repeat, restate, or lightly paraphrase any already shown option.' : null,
         hasParagraphTail ? '- Do not repeat or continue the provided paragraph-tail context.' : null,
         hasParagraphTail
           ? '- Each option should read naturally when followed immediately by the provided paragraph-tail context.'
@@ -6658,7 +6662,6 @@ export function App() {
             onPromptListSubmit={onPromptListSubmit}
             onCancelInlinePrompt={cancelInlinePrompt}
             inlinePromptActive={inlinePromptStreaming}
-            bracePromptModelLabel={editorLockLabel}
             onInternalLinkNavigate={(rawRoute) => {
               const routePathname = rawRoute.replace(/^\/+/, '');
               navigate(routePathname);

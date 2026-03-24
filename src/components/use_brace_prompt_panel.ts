@@ -35,9 +35,9 @@ export type BracePromptStreamFn = (
 
 const BRACE_PROMPT_INACTIVITY_TIMEOUT_MS = 10_000;
 const BRACE_PROMPT_MAX_DURATION_MS = 30_000;
-const BRACE_PROMPT_CANDIDATE_COUNT = 5;
-// Keep one extra rendered slot because the model occasionally spends its first line advising the user instead of giving a fragment.
-const BRACE_PROMPT_MAX_RENDERED_OPTIONS = BRACE_PROMPT_CANDIDATE_COUNT + 1;
+const BRACE_PROMPT_INITIAL_CANDIDATE_COUNT = 5;
+const BRACE_PROMPT_MORE_CANDIDATE_COUNT = 5;
+const BRACE_PROMPT_MAX_TOTAL_OPTIONS = BRACE_PROMPT_INITIAL_CANDIDATE_COUNT + BRACE_PROMPT_MORE_CANDIDATE_COUNT;
 const BRACE_PROMPT_HOVER_PREVIEW_DEBOUNCE_MS = 150;
 
 class BracePromptPreviewWidget extends WidgetType {
@@ -89,7 +89,11 @@ function adjustedBracePromptInsertionRange(doc: EditorState['doc'], from: number
 }
 
 export function canBracePromptGenerateMore(panel: BracePromptPanelState): boolean {
-  return !panel.loading && panel.options.length >= BRACE_PROMPT_MAX_RENDERED_OPTIONS;
+  return (
+    !panel.loading &&
+    panel.options.length >= BRACE_PROMPT_INITIAL_CANDIDATE_COUNT &&
+    panel.options.length < BRACE_PROMPT_MAX_TOTAL_OPTIONS
+  );
 }
 
 interface UseBracePromptPanelOptions {
@@ -234,21 +238,40 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     [close, syncLayout],
   );
 
-  const launch = (view: EditorView, request: BracePromptRequest): boolean => {
+  const launch = (view: EditorView, request: BracePromptRequest, options?: { append?: boolean }): boolean => {
     const runBracePromptStream = onBracePromptStreamRef.current;
     if (!runBracePromptStream) return false;
     const layout = computeLayout(view, request.to);
     if (!layout) return false;
 
-    close();
+    if (options?.append) {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      rawBufferRef.current = '';
+      if (draftFlushTimerRef.current != null) {
+        window.clearTimeout(draftFlushTimerRef.current);
+        draftFlushTimerRef.current = null;
+      }
+      if (inactivityTimerRef.current != null) {
+        window.clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+      if (maxDurationTimerRef.current != null) {
+        window.clearTimeout(maxDurationTimerRef.current);
+        maxDurationTimerRef.current = null;
+      }
+    } else {
+      close();
+    }
     const controller = new AbortController();
     abortRef.current = controller;
     rawBufferRef.current = '';
+    const basePanel = options?.append ? panelRef.current : null;
     setPanelState({
       request,
-      options: [],
+      options: basePanel?.options ?? [],
       draftOption: '',
-      selectedIndex: 0,
+      selectedIndex: basePanel?.selectedIndex ?? 0,
       loading: true,
       error: null,
       ...layout,
@@ -290,7 +313,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       if (
         !currentPanel ||
         currentPanel.options.includes(option) ||
-        currentPanel.options.length >= BRACE_PROMPT_MAX_RENDERED_OPTIONS
+        currentPanel.options.length >= BRACE_PROMPT_MAX_TOTAL_OPTIONS
       ) {
         return;
       }
@@ -353,13 +376,13 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
           if (!delta) return;
           resetInactivityTimeout();
           const currentPanel = panelRef.current;
-          if (currentPanel && currentPanel.options.length >= BRACE_PROMPT_MAX_RENDERED_OPTIONS) return;
+          if (currentPanel && currentPanel.options.length >= BRACE_PROMPT_MAX_TOTAL_OPTIONS) return;
           rawBufferRef.current += delta.replace(/\r/g, '');
           const lines = rawBufferRef.current.split('\n');
           rawBufferRef.current = lines.pop() ?? '';
           for (const lineText of lines) addFinalizedOption(lineText);
           const nextPanel = panelRef.current;
-          if (nextPanel && nextPanel.options.length >= BRACE_PROMPT_MAX_RENDERED_OPTIONS) {
+          if (nextPanel && nextPanel.options.length >= BRACE_PROMPT_MAX_TOTAL_OPTIONS) {
             rawBufferRef.current = '';
             scheduleDraftFlush(true);
             return;
@@ -444,6 +467,8 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       documentContent: view.state.doc.sliceString(0, line.from + match.to),
       paragraphTail: '',
       mode: 'replace',
+      candidateCount: BRACE_PROMPT_INITIAL_CANDIDATE_COUNT,
+      excludeOptions: [],
     });
   };
 
@@ -463,7 +488,15 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     const optionIndex = index ?? currentPanel.selectedIndex;
     const generateMore = canBracePromptGenerateMore(currentPanel);
     if (generateMore && optionIndex === currentPanel.options.length) {
-      return launch(view, currentPanel.request);
+      return launch(
+        view,
+        {
+          ...currentPanel.request,
+          candidateCount: BRACE_PROMPT_MORE_CANDIDATE_COUNT,
+          excludeOptions: currentPanel.options,
+        },
+        { append: true },
+      );
     }
     const closeIndex = currentPanel.options.length + (generateMore ? 1 : 0);
     if (optionIndex === closeIndex) {
@@ -495,6 +528,19 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
 
   const isActive = useCallback((): boolean => panelRef.current != null, []);
   const getPanel = useCallback((): BracePromptPanelState | null => panelRef.current, []);
+  const loadMore = (view: EditorView): boolean => {
+    const currentPanel = panelRef.current;
+    if (!currentPanel || !canBracePromptGenerateMore(currentPanel)) return false;
+    return launch(
+      view,
+      {
+        ...currentPanel.request,
+        candidateCount: BRACE_PROMPT_MORE_CANDIDATE_COUNT,
+        excludeOptions: currentPanel.options,
+      },
+      { append: true },
+    );
+  };
 
   const destroy = () => {
     abortRef.current?.abort();
@@ -537,6 +583,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     start,
     moveSelection,
     acceptSelection,
+    loadMore,
     scheduleHoverPreview,
     syncLayout,
     syncValidity,

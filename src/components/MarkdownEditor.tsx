@@ -68,7 +68,6 @@ interface MarkdownEditorProps {
   scrollStorageKey?: string | null;
   onEditorReady?: (controller: EditorController | null) => void;
   class?: string;
-  bracePromptModelLabel?: string | null;
 }
 
 export function MarkdownEditor({
@@ -88,7 +87,6 @@ export function MarkdownEditor({
   scrollStorageKey = null,
   onEditorReady,
   class: className,
-  bracePromptModelLabel = null,
 }: MarkdownEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -335,7 +333,10 @@ export function MarkdownEditor({
                 }
                 return bracePrompt.start(view);
               },
-              shift: (view) => bracePrompt.start(view, { includeParagraphTail: true }) || indentLess(view),
+              shift: (view) => {
+                if (bracePrompt.isActive()) return bracePrompt.loadMore(view) || true;
+                return bracePrompt.start(view, { includeParagraphTail: true }) || indentLess(view);
+              },
             },
             { key: 'ArrowDown', run: () => bracePrompt.moveSelection(1) },
             { key: 'ArrowUp', run: () => bracePrompt.moveSelection(-1) },
@@ -710,15 +711,12 @@ export function MarkdownEditor({
                 }}
                 onClick={() => {
                   const view = viewRef.current;
-                  const panel = bracePrompt.getPanel();
-                  if (!view || !panel) return;
-                  bracePrompt.launch(view, panel.request);
+                  if (!view) return;
+                  bracePrompt.loadMore(view);
                 }}
               >
-                Keep going
-                {bracePromptModelLabel ? (
-                  <span class="brace-prompt-panel__option-caption">{bracePromptModelLabel}</span>
-                ) : null}
+                More completions
+                <span class="brace-prompt-panel__option-caption">Shift-Tab</span>
               </button>
             ) : null}
             <button

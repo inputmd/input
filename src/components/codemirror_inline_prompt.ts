@@ -25,6 +25,8 @@ export interface BracePromptRequest {
   documentContent: string;
   paragraphTail: string;
   mode: 'replace' | 'replace-with-paragraph-tail';
+  candidateCount: number;
+  excludeOptions: string[];
 }
 
 export interface BracePromptMatch {
@@ -138,6 +140,8 @@ export function buildBracePromptRequest(
     documentContent: documentText.slice(0, to),
     paragraphTail,
     mode: paragraphTail ? 'replace-with-paragraph-tail' : 'replace',
+    candidateCount: 5,
+    excludeOptions: [],
   };
 }
 
