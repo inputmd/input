@@ -30,7 +30,7 @@ export function formatPromptListAnswer(text: string, indent: string): string {
   return compactLines
     .map((line, index) => {
       if (index === 0) return line;
-      return `${indent}   ${normalizePromptListContinuationLine(line)}`;
+      return `${indent}  ${normalizePromptListContinuationLine(line)}`;
     })
     .join('\n');
 }

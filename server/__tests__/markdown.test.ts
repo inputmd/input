@@ -173,7 +173,7 @@ test('marked keeps CriticMarkup comments distinct from bare brace prompts', (t) 
 
 test('marked renders prompt question and answer lines as list items inside a single unordered list', (t) => {
   const html = marked.parse(
-    '-* Can you explain Solomonoff induction?\n-⏺ Solomonoff induction is a theoretical framework.',
+    '~ Can you explain Solomonoff induction?\n⏺ Solomonoff induction is a theoretical framework.',
   );
 
   t.true(typeof html === 'string');
@@ -185,7 +185,7 @@ test('marked renders prompt question and answer lines as list items inside a sin
 });
 
 test('marked renders placeholders for empty prompt question and answer rows', (t) => {
-  const html = marked.parse('% \n= ');
+  const html = marked.parse('~ \n⏺ ');
 
   t.true(
     html.includes(
@@ -203,7 +203,7 @@ test('marked keeps liquid-style template tag lines out of prompt lists', (t) => 
 });
 
 test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt list items', (t) => {
-  const html = withDom(() => parseMarkdownToHtml('-* Ask about **Solomonoff induction**'));
+  const html = withDom(() => parseMarkdownToHtml('~ Ask about **Solomonoff induction**'));
 
   t.true(
     html.includes(
@@ -229,9 +229,7 @@ test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t
 
 test('parseMarkdownToHtml keeps multiline prompt answer content inside the prompt-answer list item', (t) => {
   const html = withDom(() =>
-    parseMarkdownToHtml(
-      ['-* Question', '-⏺ First paragraph', '  ', '  Second paragraph', '  - Nested item'].join('\n'),
-    ),
+    parseMarkdownToHtml(['~ Question', '⏺ First paragraph', '  ', '  Second paragraph', '  - Nested item'].join('\n')),
   );
 
   t.true(html.includes('<li class="prompt-answer"><p>First paragraph</p>'));
@@ -242,7 +240,7 @@ test('parseMarkdownToHtml keeps multiline prompt answer content inside the promp
 });
 
 test('parseMarkdownToHtml renders placeholders for empty prompt question and answer rows', (t) => {
-  const html = withDom(() => parseMarkdownToHtml('% \n= '));
+  const html = withDom(() => parseMarkdownToHtml('~ \n⏺ '));
 
   t.true(
     html.includes(
@@ -252,7 +250,7 @@ test('parseMarkdownToHtml renders placeholders for empty prompt question and ans
 });
 
 test('parseMarkdownToHtml keeps a prompt list unified across a single blank line between items', (t) => {
-  const html = withDom(() => parseMarkdownToHtml(['-* one', '-⏺ answer', '  ', '-* two', '-⏺ next'].join('\n')));
+  const html = withDom(() => parseMarkdownToHtml(['~ one', '⏺ answer', '  ', '~ two', '⏺ next'].join('\n')));
 
   t.is((html.match(/<ul class="prompt-list">/g) ?? []).length, 1);
   t.true(
@@ -264,7 +262,7 @@ test('parseMarkdownToHtml keeps a prompt list unified across a single blank line
 
 test('parseMarkdownToHtml wraps nested prompt-list branches in nested lists', (t) => {
   const html = withDom(() =>
-    parseMarkdownToHtml(['-* root', '-⏺ root answer', '  -* branch', '  -⏺ branch answer', '-* next root'].join('\n')),
+    parseMarkdownToHtml(['~ root', '⏺ root answer', '  ~ branch', '  ⏺ branch answer', '~ next root'].join('\n')),
   );
 
   t.true(html.includes('<li class="prompt-question">root</li><li class="prompt-answer">root answer</li>'));
@@ -277,7 +275,7 @@ test('parseMarkdownToHtml wraps nested prompt-list branches in nested lists', (t
 });
 
 test('parseMarkdownToHtml splits prompt lists across two blank lines between items', (t) => {
-  const html = withDom(() => parseMarkdownToHtml(['-* one', '-⏺ answer', '  ', '  ', '-* two', '-⏺ next'].join('\n')));
+  const html = withDom(() => parseMarkdownToHtml(['~ one', '⏺ answer', '  ', '  ', '~ two', '⏺ next'].join('\n')));
 
   t.is((html.match(/<ul class="prompt-list">/g) ?? []).length, 2);
 });
@@ -286,8 +284,8 @@ test('parseMarkdownToHtml does not preserve an extra leading space on resumed pr
   const html = withDom(() =>
     parseMarkdownToHtml(
       [
-        '-* What symbols are used as prompts by different shells?',
-        "-⏺ Different shells use various symbols as prompts to indicate the user's current context.",
+        '~ What symbols are used as prompts by different shells?',
+        "⏺ Different shells use various symbols as prompts to indicate the user's current context.",
         '   ',
         '   - $ for regular users',
         '   - # for root users',
@@ -337,7 +335,7 @@ test('parseMarkdownToHtml keeps fenced code blocks unchanged while preserving pr
 });
 
 test('parseMarkdownToHtml renders CriticMarkup inside prompt list items', (t) => {
-  const html = withDom(() => parseMarkdownToHtml('-* Review {++this++}\n-⏺ Keep {--that--}'));
+  const html = withDom(() => parseMarkdownToHtml('~ Review {++this++}\n⏺ Keep {--that--}'));
 
   t.true(html.includes('<li class="prompt-question">Review <ins class="critic-addition">this</ins></li>'));
   t.true(html.includes('<li class="prompt-answer">Keep <del class="critic-deletion">that</del></li>'));
@@ -383,8 +381,8 @@ test('parseMarkdownToHtml trims padding inside standalone CriticMarkup comments 
   const html = withDom(() =>
     parseMarkdownToHtml(
       [
-        '-* Question',
-        '-⏺ Here is a short reply.',
+        '~ Question',
+        '⏺ Here is a short reply.',
         '',
         '   More detail here.',
         '',
@@ -561,8 +559,8 @@ css: |
   .prompt-answer { font-family: "Noto Serif", var(--font-sans), sans-serif; }
   li.prompt-answer:hover { color: #123456; }
 ---
--* Question
-- Answer`,
+~ Question
+⏺ Answer`,
     ),
   );
 
@@ -588,8 +586,8 @@ test('parseMarkdownDocument allows opacity in scoped custom css', (t) => {
 css: |
   .prompt-answer { opacity: 0.65; }
 ---
--* Question
-- Answer`,
+~ Question
+⏺ Answer`,
     ),
   );
 
@@ -623,8 +621,8 @@ css: |
     column-gap: 1.5rem;
   }
 ---
--* Question
-- Answer`,
+~ Question
+⏺ Answer`,
     ),
   );
 

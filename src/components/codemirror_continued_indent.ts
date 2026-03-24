@@ -85,24 +85,19 @@ function maybeConsumePromptListPrefix(
   columns: number,
   tabSize: number,
 ): { consumed: boolean; offset: number; columns: number } {
-  if (text[offset] !== '-') {
+  const marker = text[offset];
+  if (marker !== '~' && marker !== '⏺') {
     return { consumed: false, offset, columns };
   }
-
-  const marker = text[offset + 1];
-  if (marker !== '*' && marker !== '⏺') {
-    return { consumed: false, offset, columns };
-  }
-
-  const spacer = text[offset + 2];
+  const spacer = text[offset + marker.length];
   if (spacer !== ' ' && spacer !== '\t') {
     return { consumed: false, offset, columns };
   }
 
   return {
     consumed: true,
-    offset: offset + 3,
-    columns: advanceColumns(columns + 2, spacer, tabSize),
+    offset: offset + marker.length + 1,
+    columns: advanceColumns(columns + marker.length, spacer, tabSize),
   };
 }
 

@@ -38,7 +38,7 @@ You can also use Input as an alternative frontend for any public repo -- just re
 
 #### Inline AI Features
 
-- Inline AI chat - start a line with %, then press \`Enter\`
+- Inline AI chat - start a line with ~, then press \`Enter\`
 - Branching completions - write your query in \\{braces}, press \`Tab\`
 - Full-context completions - write your query in \\{braces} with text after, press \`Shift-Tab\` at the closing brace
 
