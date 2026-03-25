@@ -1133,12 +1133,14 @@ export function App() {
     if (route.name !== 'reponew') return;
     if (editingBackend !== 'repo' || currentRepoDocPath) return;
     const instId = activeInstalledRepoInstallationId ?? getInstallationId();
-    const repoName = selectedRepo ?? getSelectedRepo()?.full_name ?? null;
+    const owner = safeDecodeURIComponent(route.params.owner);
+    const repo = safeDecodeURIComponent(route.params.repo);
+    const repoName = buildRepoFullName(owner, repo);
     if (!instId || !repoName) return;
     const path = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
     localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'title'), editTitle);
     localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'content'), editContentRef.current);
-  }, [route, editingBackend, currentRepoDocPath, activeInstalledRepoInstallationId, selectedRepo, editTitle]);
+  }, [route, editingBackend, currentRepoDocPath, activeInstalledRepoInstallationId, editTitle]);
 
   const startGitHubSignIn = useCallback(
     (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
@@ -2635,6 +2637,9 @@ export function App() {
             setRepoSidebarFiles([]);
           }
           setCurrentDocumentSavedContent(null);
+          setHasUnsavedChanges(false);
+          setEditTitle(UNSAVED_FILE_LABEL);
+          setNextEditContent('', { origin: 'external' });
           setPreviewVisible(defaultPreviewVisible());
           const titleDraftKey = repoNewDraftKey(instId, repoName, path, 'title');
           const contentDraftKey = repoNewDraftKey(instId, repoName, path, 'content');
