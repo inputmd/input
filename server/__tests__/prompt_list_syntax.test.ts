@@ -21,6 +21,26 @@ test('matchPromptListLine parses chevron-prefixed prompt question markers', (t) 
   });
 });
 
+test('matchPromptListLine parses star-prefixed prompt comment markers', (t) => {
+  t.deepEqual(matchPromptListLine('✻ Internal note'), {
+    indent: '',
+    marker: '✻',
+    kind: 'comment',
+    content: 'Internal note',
+    markerEnd: 2,
+  });
+});
+
+test('matchPromptListLine parses percent-prefixed prompt comment markers', (t) => {
+  t.deepEqual(matchPromptListLine('% Internal note'), {
+    indent: '',
+    marker: '%',
+    kind: 'comment',
+    content: 'Internal note',
+    markerEnd: 2,
+  });
+});
+
 test('matchPromptListLine parses prompt answer markers', (t) => {
   t.deepEqual(matchPromptListLine('⏺ Solomonoff induction is a theoretical framework.'), {
     indent: '',

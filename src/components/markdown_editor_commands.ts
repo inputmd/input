@@ -30,7 +30,7 @@ interface BracePromptEnterController {
 }
 
 interface PromptListItem {
-  kind: 'question' | 'answer';
+  kind: 'question' | 'answer' | 'comment';
   indent: string;
   indentWidth: number;
   lineNumber: number;
@@ -282,6 +282,7 @@ function buildPromptListTurns(items: PromptListItem[]): { turns: PromptListTurn[
 
   for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
     const item = items[itemIndex];
+    if (item.kind === 'comment') continue;
 
     if (item.kind === 'question') {
       while (
@@ -620,6 +621,33 @@ export function insertNewlineContinuePromptAnswer(view: EditorView): boolean {
 
   const item = thread.block.items[thread.itemIndex];
   if (item.kind !== 'answer' || line.number !== item.lastLineNumber) return false;
+
+  const insert = `${state.lineBreak}${item.indent}~ `;
+  view.dispatch(
+    state.update({
+      changes: { from: range.from, to: range.to, insert },
+      selection: EditorSelection.cursor(range.from + insert.length),
+      scrollIntoView: true,
+      userEvent: 'input',
+    }),
+  );
+  return true;
+}
+
+export function insertNewlineContinuePromptComment(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty) return false;
+  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
+    return false;
+
+  const line = state.doc.lineAt(range.from);
+  if (range.from !== line.to) return false;
+  const thread = findPromptListBlockAt(state, line.number);
+  if (!thread) return false;
+
+  const item = thread.block.items[thread.itemIndex];
+  if (item.kind !== 'comment' || line.number !== item.lastLineNumber) return false;
 
   const insert = `${state.lineBreak}${item.indent}~ `;
   view.dispatch(

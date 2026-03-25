@@ -137,21 +137,24 @@ class PromptListHintWidget extends WidgetType {
 
 function buildPromptListDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
-  let activePromptKind: 'question' | 'answer' | null = null;
+  let activePromptKind: 'question' | 'answer' | 'comment' | null = null;
   let activePromptIndent = '';
 
   for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber += 1) {
     const line = view.state.doc.line(lineNumber);
     const match = matchPromptListLine(line.text);
     if (!match) {
-      if (activePromptKind === 'answer' && /^\s*$/.test(line.text)) continue;
-      if (activePromptKind === 'answer' && isPromptListAnswerContinuationLine(line.text, activePromptIndent)) {
+      if ((activePromptKind === 'answer' || activePromptKind === 'comment') && /^\s*$/.test(line.text)) continue;
+      if (
+        (activePromptKind === 'answer' || activePromptKind === 'comment') &&
+        isPromptListAnswerContinuationLine(line.text, activePromptIndent)
+      ) {
         builder.add(
           line.from,
           line.from,
           Decoration.line({
             attributes: {
-              class: 'cm-prompt-answer-continuation',
+              class: activePromptKind === 'answer' ? 'cm-prompt-answer-continuation' : 'cm-prompt-comment-continuation',
             },
           }),
         );
@@ -166,7 +169,14 @@ function buildPromptListDecorations(view: EditorView): DecorationSet {
     activePromptKind = match.kind;
     activePromptIndent = match.indent;
 
-    const classes = ['cm-prompt-list-item', match.kind === 'question' ? 'cm-prompt-question' : 'cm-prompt-answer'];
+    const classes = [
+      'cm-prompt-list-item',
+      match.kind === 'question'
+        ? 'cm-prompt-question'
+        : match.kind === 'answer'
+          ? 'cm-prompt-answer'
+          : 'cm-prompt-comment',
+    ];
 
     builder.add(
       line.from,

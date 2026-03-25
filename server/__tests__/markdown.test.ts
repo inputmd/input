@@ -196,6 +196,17 @@ test('marked renders chevron-prefixed user messages as prompt questions', (t) =>
   );
 });
 
+test('marked renders comment-prefixed rows inside prompt lists', (t) => {
+  const html = marked.parse('✻ Keep the answer concise\n~ Continue\n⏺ Sure.');
+
+  t.true(typeof html === 'string');
+  t.true(
+    html.includes(
+      '<ul class="prompt-list"><li class="prompt-comment">Keep the answer concise</li><li class="prompt-question">Continue</li><li class="prompt-answer">Sure.</li></ul>',
+    ),
+  );
+});
+
 test('marked renders placeholders for empty prompt question and answer rows', (t) => {
   const html = marked.parse('~ \n⏺ ');
 

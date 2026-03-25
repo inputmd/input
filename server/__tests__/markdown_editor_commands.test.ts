@@ -23,6 +23,7 @@ import {
   getPromptListRequest,
   insertNewlineContinueLooseListItem,
   insertNewlineContinuePromptAnswer,
+  insertNewlineContinuePromptComment,
   insertNewlineExitBlockquote,
   insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
@@ -344,6 +345,18 @@ test('insertNewlineContinuePromptAnswer ignores non-answer or non-terminal posit
   t.false(insertNewlineContinuePromptAnswer(midLineView));
 });
 
+test('insertNewlineContinuePromptComment creates a tilde prompt row after a comment', (t) => {
+  const view = makeMockView('✻ Keep the answer concise', EditorSelection.cursor('✻ Keep the answer concise'.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  const handled = insertNewlineContinuePromptComment(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '✻ Keep the answer concise\n~ ');
+  t.is(view.state.selection.main.head, '✻ Keep the answer concise\n~ '.length);
+});
+
 test('insertNewlineExitPromptQuestion clears an empty trailing prompt question at document end', (t) => {
   const doc = '~ Question\n⏺ Answer\n~ ';
   const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
@@ -495,6 +508,30 @@ test('getPromptListRequest includes prior prompt-list history and local multilin
 
 test('getPromptListRequest treats prior chevron-prefixed messages as user turns', (t) => {
   const doc = ['❯ First question', '⏺ First answer', '~ Follow-up question'].join('\n');
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(doc.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'Follow-up question',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'First question' },
+      { role: 'assistant', content: 'First answer' },
+      { role: 'user', content: 'Follow-up question' },
+    ],
+    answerIndent: '',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n⏺ ',
+    answerFrom: `${doc}\n⏺ `.length,
+  });
+});
+
+test('getPromptListRequest ignores prior prompt-list comments', (t) => {
+  const doc = ['~ First question', '⏺ First answer', '✻ Keep it concise', '~ Follow-up question'].join('\n');
   const state = EditorState.create({
     doc,
     selection: EditorSelection.cursor(doc.length),

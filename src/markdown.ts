@@ -24,8 +24,8 @@ let promptListConversationDuplicateCounts = new Map<string, number>();
 interface PromptListToken extends Tokens.Generic {
   type: 'promptList';
   items: Array<{
-    kind: 'question' | 'answer';
-    className: 'prompt-question' | 'prompt-answer';
+    kind: 'question' | 'answer' | 'comment';
+    className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
     sourceText: string;
     depth: number;
     renderAsBlock: boolean;
@@ -36,7 +36,7 @@ interface PromptListToken extends Tokens.Generic {
 type PromptListRenderNode =
   | {
       type: 'item';
-      className: 'prompt-question' | 'prompt-answer';
+      className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
       contentHtml: string;
     }
   | {
@@ -248,7 +248,7 @@ marked.use({
       level: 'block',
       start(this: TokenizerThis, src: string) {
         if (promptListContainerDepth(this) > 0) return undefined;
-        const match = /(?:^|\n)(?:[ \t]*)(?:~|❯|⏺)[ \t]+/u.exec(src);
+        const match = /(?:^|\n)(?:[ \t]*)(?:~|❯|⏺|✻|%)[ \t]+/u.exec(src);
         return match ? match.index + (match[0].startsWith('\n') ? 1 : 0) : undefined;
       },
       tokenizer(this: TokenizerThis, src: string) {
@@ -267,7 +267,12 @@ marked.use({
 
           items.push({
             kind: item.match.kind,
-            className: item.match.kind === 'question' ? 'prompt-question' : 'prompt-answer',
+            className:
+              item.match.kind === 'question'
+                ? 'prompt-question'
+                : item.match.kind === 'answer'
+                  ? 'prompt-answer'
+                  : 'prompt-comment',
             sourceText: content,
             depth: depths[index] ?? 0,
             renderAsBlock,
@@ -694,7 +699,11 @@ function promptListDepths(indents: string[]): number[] {
 }
 
 function buildPromptListTree(
-  items: Array<{ className: 'prompt-question' | 'prompt-answer'; contentHtml: string; depth: number }>,
+  items: Array<{
+    className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
+    contentHtml: string;
+    depth: number;
+  }>,
 ): PromptListRenderNode[] {
   const root: PromptListRenderNode[] = [];
   const stack: PromptListRenderNode[][] = [root];

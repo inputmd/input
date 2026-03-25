@@ -88,6 +88,8 @@ test('promptListHintLabelForText returns question hint labels', (t) => {
   t.is(promptListHintLabelForText('~ '), 'Type to ask AI');
   t.is(promptListHintLabelForText('~ Explain Solomonoff induction'), null);
   t.is(promptListHintLabelForText('❯ '), null);
+  t.is(promptListHintLabelForText('✻ '), null);
+  t.is(promptListHintLabelForText('% '), null);
 });
 
 test('promptListHintLabelForText returns answering hint for blank answers while streaming', (t) => {

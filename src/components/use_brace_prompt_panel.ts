@@ -281,7 +281,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       raw
         .trim()
         .replace(/^[-*]\s+/, '')
-        .replace(/^[~❯⏺]\s+/u, '')
+        .replace(/^[~❯⏺✻%]\s+/u, '')
         .replace(/^\d+[.)]\s+/, '')
         .trim();
 

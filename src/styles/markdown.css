@@ -274,7 +274,8 @@
 }
 
 .rendered-markdown li.prompt-question,
-.rendered-markdown li.prompt-answer {
+.rendered-markdown li.prompt-answer,
+.rendered-markdown li.prompt-comment {
   list-style: none;
   margin-top: 0;
 }
@@ -306,14 +307,18 @@
 .rendered-markdown li.prompt-list-branch > ul > li:first-child > .prompt-question,
 .rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-question,
 .rendered-markdown li.prompt-list-branch > ul > li:first-child > .prompt-answer,
-.rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-answer {
+.rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-answer,
+.rendered-markdown li.prompt-list-branch > ul > li:first-child > .prompt-comment,
+.rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-comment {
   border-top: 0;
 }
 
 .rendered-markdown li.prompt-list-branch > ul > li:last-child > .prompt-question,
 .rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-question,
 .rendered-markdown li.prompt-list-branch > ul > li:last-child > .prompt-answer,
-.rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-answer {
+.rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-answer,
+.rendered-markdown li.prompt-list-branch > ul > li:last-child > .prompt-comment,
+.rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-comment {
   border-bottom: 0;
 }
 
@@ -329,6 +334,20 @@
   border-radius: 0;
   background: color-mix(in srgb, var(--bg-elevated) 38%, transparent);
   color: inherit;
+}
+
+.rendered-markdown li.prompt-comment {
+  display: block;
+  width: auto;
+  max-width: none;
+  box-sizing: border-box;
+  padding: 0.72em 1.15em;
+  border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+  border-top: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--bg-elevated) 22%, transparent);
+  color: var(--text-secondary);
+  font-size: 0.96em;
 }
 
 .rendered-markdown ul.prompt-list > li.prompt-list-branch + li.prompt-answer,
@@ -355,7 +374,9 @@
 .rendered-markdown ul.prompt-list > li:first-child > .prompt-question,
 .rendered-markdown ul.prompt-list > li:first-child.prompt-question,
 .rendered-markdown ul.prompt-list > li:first-child > .prompt-answer,
-.rendered-markdown ul.prompt-list > li:first-child.prompt-answer {
+.rendered-markdown ul.prompt-list > li:first-child.prompt-answer,
+.rendered-markdown ul.prompt-list > li:first-child > .prompt-comment,
+.rendered-markdown ul.prompt-list > li:first-child.prompt-comment {
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
 }
@@ -363,7 +384,9 @@
 .rendered-markdown ul.prompt-list > li:last-child > .prompt-question,
 .rendered-markdown ul.prompt-list > li:last-child.prompt-question,
 .rendered-markdown ul.prompt-list > li:last-child > .prompt-answer,
-.rendered-markdown ul.prompt-list > li:last-child.prompt-answer {
+.rendered-markdown ul.prompt-list > li:last-child.prompt-answer,
+.rendered-markdown ul.prompt-list > li:last-child > .prompt-comment,
+.rendered-markdown ul.prompt-list > li:last-child.prompt-comment {
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }

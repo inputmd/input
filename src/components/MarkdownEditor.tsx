@@ -40,6 +40,7 @@ import {
   getPromptListRequest,
   insertNewlineContinueLooseListItem,
   insertNewlineContinuePromptAnswer,
+  insertNewlineContinuePromptComment,
   insertNewlineExitBlockquote,
   insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
@@ -361,6 +362,7 @@ export function MarkdownEditor({
             },
             { key: 'Enter', run: insertNewlineExitPromptQuestion },
             { key: 'Enter', run: insertNewlineContinuePromptAnswer },
+            { key: 'Enter', run: insertNewlineContinuePromptComment },
             {
               key: 'Escape',
               run: () => {

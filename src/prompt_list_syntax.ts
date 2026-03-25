@@ -1,4 +1,4 @@
-export type PromptListItemKind = 'question' | 'answer';
+export type PromptListItemKind = 'question' | 'answer' | 'comment';
 
 export interface PromptListLineMatch {
   indent: string;
@@ -20,7 +20,13 @@ export interface ParsedPromptListBlock {
   endLineIndexExclusive: number;
 }
 
-const PROMPT_LIST_LINE_RE = /^([ \t]*)(~|❯|⏺)([ \t]+)(.*)$/u;
+const PROMPT_LIST_LINE_RE = /^([ \t]*)(~|❯|⏺|✻|%)([ \t]+)(.*)$/u;
+
+function promptListItemKindForMarker(marker: string): PromptListItemKind {
+  if (marker === '⏺') return 'answer';
+  if (marker === '✻' || marker === '%') return 'comment';
+  return 'question';
+}
 
 export function matchPromptListLine(text: string): PromptListLineMatch | null {
   const match = PROMPT_LIST_LINE_RE.exec(text);
@@ -29,7 +35,7 @@ export function matchPromptListLine(text: string): PromptListLineMatch | null {
   return {
     indent: match[1],
     marker: match[2],
-    kind: match[2] === '⏺' ? 'answer' : 'question',
+    kind: promptListItemKindForMarker(match[2]),
     content: match[4],
     markerEnd: match[1].length + match[2].length + match[3].length,
   };
