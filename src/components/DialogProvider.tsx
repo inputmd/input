@@ -1,5 +1,7 @@
 import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { ChevronDown } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 import { createContext } from 'preact';
 import { useCallback, useContext, useRef, useState } from 'preact/hooks';
@@ -40,6 +42,7 @@ interface DiffChoiceDialogOptions extends DiffConfirmDialogOptions {
   secondaryActionIntent?: ConfirmDialogIntent;
   primaryActionLabel: string;
   primaryActionIntent?: ConfirmDialogIntent;
+  primaryActionInSecondaryMenu?: boolean;
 }
 
 const DialogContext = createContext<DialogContextValue | null>(null);
@@ -74,6 +77,7 @@ type DialogState =
         secondaryActionIntent: ConfirmDialogIntent;
         primaryActionIntent: ConfirmDialogIntent;
         cancelLabel: string;
+        primaryActionInSecondaryMenu: boolean;
       };
     }
   | { type: 'prompt'; message: string; defaultValue: string; resolve: (value: string | null) => void };
@@ -144,6 +148,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
             primaryActionLabel: options.primaryActionLabel,
             secondaryActionIntent: options.secondaryActionIntent ?? 'default',
             primaryActionIntent: options.primaryActionIntent ?? 'default',
+            primaryActionInSecondaryMenu: options.primaryActionInSecondaryMenu ?? false,
           },
         });
       });
@@ -314,28 +319,80 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                     {dialog.options.tertiaryActionLabel}
                   </button>
                 ) : null}
-                <button
-                  ref={confirmSecondaryActionRef}
-                  class={dialogActionClassName(dialog.options.secondaryActionIntent)}
-                  type="button"
-                  onClick={() => {
-                    dialog.resolve('secondary');
-                    close();
-                  }}
-                >
-                  {dialog.options.secondaryActionLabel}
-                </button>
-                <button
-                  ref={confirmActionRef}
-                  class={dialogActionClassName(dialog.options.primaryActionIntent)}
-                  type="button"
-                  onClick={() => {
-                    dialog.resolve('primary');
-                    close();
-                  }}
-                >
-                  {dialog.options.primaryActionLabel}
-                </button>
+                {dialog.options.primaryActionInSecondaryMenu ? (
+                  <div
+                    class="toolbar-split-button-group dialog-split-button-group"
+                    role="group"
+                    aria-label="More actions"
+                  >
+                    <button
+                      ref={confirmSecondaryActionRef}
+                      class={`toolbar-split-button-main ${dialogActionClassName(dialog.options.secondaryActionIntent) ?? ''}`.trim()}
+                      type="button"
+                      onClick={() => {
+                        dialog.resolve('secondary');
+                        close();
+                      }}
+                    >
+                      {dialog.options.secondaryActionLabel}
+                    </button>
+                    <DropdownMenu.Root>
+                      <DropdownMenu.Trigger asChild>
+                        <button
+                          ref={confirmActionRef}
+                          type="button"
+                          class={`toolbar-split-button-toggle ${dialogActionClassName(dialog.options.secondaryActionIntent) ?? ''}`.trim()}
+                          aria-label={`More options for ${dialog.options.secondaryActionLabel}`}
+                          title={`More options for ${dialog.options.secondaryActionLabel}`}
+                        >
+                          <ChevronDown size={14} aria-hidden="true" />
+                        </button>
+                      </DropdownMenu.Trigger>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content
+                          class="user-menu-content github-signin-menu-content"
+                          sideOffset={6}
+                          align="end"
+                        >
+                          <DropdownMenu.Item
+                            class="user-menu-item"
+                            onSelect={() => {
+                              dialog.resolve('primary');
+                              close();
+                            }}
+                          >
+                            {dialog.options.primaryActionLabel}
+                          </DropdownMenu.Item>
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      ref={confirmSecondaryActionRef}
+                      class={dialogActionClassName(dialog.options.secondaryActionIntent)}
+                      type="button"
+                      onClick={() => {
+                        dialog.resolve('secondary');
+                        close();
+                      }}
+                    >
+                      {dialog.options.secondaryActionLabel}
+                    </button>
+                    <button
+                      ref={confirmActionRef}
+                      class={dialogActionClassName(dialog.options.primaryActionIntent)}
+                      type="button"
+                      onClick={() => {
+                        dialog.resolve('primary');
+                        close();
+                      }}
+                    >
+                      {dialog.options.primaryActionLabel}
+                    </button>
+                  </>
+                )}
               </div>
             </DialogPrimitive.Content>
           </DialogPrimitive.Portal>

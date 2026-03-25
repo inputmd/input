@@ -713,7 +713,7 @@
   outline: none;
   cursor: pointer;
   user-select: none;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .user-menu-subtrigger[data-state="open"] {

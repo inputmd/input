@@ -68,7 +68,16 @@
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
+}
+
+.dialog-split-button-group {
+  flex: 0 0 auto;
+}
+
+.dialog-actions .dialog-split-button-group > button {
+  margin: 0;
 }
 
 .dialog-diff-frame {

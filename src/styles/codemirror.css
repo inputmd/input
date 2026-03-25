@@ -118,7 +118,7 @@
 
 .doc-editor .cm-prompt-list-hint {
   color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
-  font-style: italic;
+  font-style: normal;
   pointer-events: none;
   user-select: none;
 }
