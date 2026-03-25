@@ -35,11 +35,25 @@ import {
   simpleGlobMatch,
 } from '../reader_ai_tools.ts';
 
+function loadBloomFilterOrThrow(): Uint8Array {
+  const bloomData = new Uint8Array(readFileSync(bloomPath));
+  const lfsPointerPrefix = new TextEncoder().encode('version https://git-lfs.github.com/spec/v1');
+  const looksLikeLfsPointer =
+    bloomData.length >= lfsPointerPrefix.length && lfsPointerPrefix.every((byte, index) => bloomData[index] === byte);
+  if (looksLikeLfsPointer || bloomData.length < 1024) {
+    throw new Error(
+      'shared/dictionary.bloom is not materialized. It looks like a Git LFS pointer, not the real bloom filter. Run `git lfs pull` (or otherwise materialize the LFS object) before running reader_ai_tools tests.',
+    );
+  }
+  return bloomData;
+}
+
 // Load the bloom filter for dictionary-backed boundary detection in tests.
-// This must succeed — dictionary-dependent tests (photosynthesis, NVIDIA, etc.)
-// will silently produce wrong results without it.
+// This must succeed with the real bloom data, not an LFS pointer, or
+// dictionary-dependent tests (photosynthesis, NVIDIA, etc.) will produce
+// misleading failures.
 const bloomPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'shared', 'dictionary.bloom');
-initDictionaryFromBuffer(new Uint8Array(readFileSync(bloomPath)));
+initDictionaryFromBuffer(loadBloomFilterOrThrow());
 
 // ── Helper ──
 

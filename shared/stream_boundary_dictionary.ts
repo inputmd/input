@@ -9,9 +9,23 @@
 
 const BLOOM_BITS = 18831720;
 const BLOOM_K = 7;
+const MIN_MATERIALIZED_BLOOM_BYTES = 1024;
 
 let bloomFilter: Uint8Array | null = null;
 let bloomFilterPromise: Promise<void> | null = null;
+
+function isLikelyGitLfsPointer(data: Uint8Array): boolean {
+  const prefix = new TextEncoder().encode('version https://git-lfs.github.com/spec/v1');
+  return data.length >= prefix.length && prefix.every((byte, index) => data[index] === byte);
+}
+
+function assertMaterializedBloomFilter(data: Uint8Array): void {
+  if (isLikelyGitLfsPointer(data) || data.length < MIN_MATERIALIZED_BLOOM_BYTES) {
+    throw new Error(
+      'shared/dictionary.bloom is not materialized. It looks like a Git LFS pointer or truncated bloom filter. Run `git lfs pull` before starting the server.',
+    );
+  }
+}
 
 /**
  * Initialise the bloom filter. Call once at startup.
@@ -32,9 +46,11 @@ export async function initDictionary(): Promise<void> {
       const path = await import('node:path');
       const dir = path.dirname(url.fileURLToPath(import.meta.url));
       bloomFilter = new Uint8Array(fs.readFileSync(path.join(dir, 'dictionary.bloom')));
+      assertMaterializedBloomFilter(bloomFilter);
     } catch {
       const res = await fetch(new URL('./dictionary.bloom', import.meta.url).href);
       bloomFilter = new Uint8Array(await res.arrayBuffer());
+      assertMaterializedBloomFilter(bloomFilter);
     }
   })();
 
@@ -48,6 +64,7 @@ export async function initDictionary(): Promise<void> {
 
 /** Initialise from a pre-loaded buffer (tests / custom loaders). */
 export function initDictionaryFromBuffer(data: Uint8Array): void {
+  assertMaterializedBloomFilter(data);
   bloomFilter = data;
   bloomFilterPromise = Promise.resolve();
 }

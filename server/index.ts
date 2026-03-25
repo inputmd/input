@@ -16,8 +16,12 @@ import { startSessionCleanup } from './session';
 import { serveIndexHtml, serveStatic } from './static_files';
 import { extractSubdomain } from './subdomain';
 
-// Eagerly load the stream boundary dictionary (non-blocking).
-initDictionary().catch((err) => console.warn('[dictionary] Failed to load bloom filter:', err));
+try {
+  await initDictionary();
+} catch (err) {
+  console.error('[dictionary] Failed to load bloom filter:', err);
+  process.exit(1);
+}
 
 function normalizeReturnTo(raw: string | null): string {
   if (!raw) return '/workspaces';
