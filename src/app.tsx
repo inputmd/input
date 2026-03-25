@@ -1832,7 +1832,7 @@ export function App() {
     }
 
     consumeInstallState(actualState);
-    setWorkspaceNotice('GitHub App installation setup complete. Review your installation details below.');
+    setWorkspaceNotice('Installation updated!');
 
     navigate(routePath.workspaces(), { replace: true, state: null });
     return true;
