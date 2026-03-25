@@ -55,6 +55,8 @@ https://github.com/settings/apps/new:
 Copy the application ID, application slug, and a generated private key into
 `.env`.
 
+On the **Optional features** page, opt out of "User-to-server token expiration".
+
 Set `CLIENT_PORT` in `.env` if you want to run the Vite dev server on a
 different port. The API server CORS allowlist uses this value.
 

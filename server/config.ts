@@ -7,7 +7,7 @@ export const APP_URL = appUrlRaw ? appUrlRaw.replace(/\/+$/, '') : '';
 export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? '';
 export const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET ?? '';
 export const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
-export const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
+export const SESSION_TTL_SECONDS = 14 * 24 * 60 * 60; // 2 weeks
 export const SESSION_MAX_LIFETIME_SECONDS = 14 * 24 * 60 * 60; // 2 weeks
 export const DATABASE_PATH = process.env.DATABASE_PATH ?? './.data/input.db';
 
