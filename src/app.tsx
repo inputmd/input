@@ -1762,7 +1762,7 @@ export function App() {
 
     try {
       const session = await getAuthSession();
-      if (!session.authenticated) {
+      if (!session.authenticated || !session.user) {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
@@ -1774,6 +1774,8 @@ export function App() {
         }
         return true;
       }
+      setUser(session.user);
+      resetReaderAiModelsForAuth(true);
       const nextSessionState = await createInstallationSession(id);
       applyInstallationSessionState(nextSessionState);
     } catch (err) {
@@ -1799,7 +1801,14 @@ export function App() {
 
     navigate(routePath.workspaces(), { replace: true, state: null });
     return true;
-  }, [applyInstallationSessionState, navigate, showError, showRateLimitToastIfNeeded, startGitHubSignIn]);
+  }, [
+    applyInstallationSessionState,
+    navigate,
+    resetReaderAiModelsForAuth,
+    showError,
+    showRateLimitToastIfNeeded,
+    startGitHubSignIn,
+  ]);
 
   const onConnectInstallation = useCallback(async () => {
     try {
