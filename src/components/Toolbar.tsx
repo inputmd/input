@@ -534,21 +534,23 @@ export function Toolbar({
                         'My Workspaces'
                       ) : (
                         <>
-                          {selectedInstallation?.accountAvatarUrl ? (
-                            <img
-                              class="repo-menu-trigger-avatar"
-                              src={selectedInstallation.accountAvatarUrl}
-                              alt=""
-                              aria-hidden="true"
-                              width={18}
-                              height={18}
-                            />
-                          ) : (
-                            <span
-                              class="repo-menu-trigger-avatar repo-menu-trigger-avatar--placeholder"
-                              aria-hidden="true"
-                            />
-                          )}
+                          {selectedInstallation ? (
+                            selectedInstallation.accountAvatarUrl ? (
+                              <img
+                                class="repo-menu-trigger-avatar"
+                                src={selectedInstallation.accountAvatarUrl}
+                                alt=""
+                                aria-hidden="true"
+                                width={18}
+                                height={18}
+                              />
+                            ) : (
+                              <span
+                                class="repo-menu-trigger-avatar repo-menu-trigger-avatar--placeholder"
+                                aria-hidden="true"
+                              />
+                            )
+                          ) : null}
                           <span class="repo-menu-current-name">
                             {selectedInstallation?.accountLogin ??
                               selectedInstallation?.installationId ??

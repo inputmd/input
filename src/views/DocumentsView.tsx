@@ -100,7 +100,7 @@ export function DocumentsView({
         </button>
       </div>
       {!loading && visibleGists.length === 0 ? (
-        <div class="empty-state">
+        <div class="empty-state workspaces-empty-state">
           <p>No gists yet.</p>
           <p>Create a new gist to get started.</p>
           {!embedded ? (

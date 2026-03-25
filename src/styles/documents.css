@@ -367,6 +367,10 @@
 
 .workspaces-empty-state {
   margin-top: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--toolbar-bg) 28%, transparent);
+  color: color-mix(in srgb, var(--text) 76%, var(--text-secondary) 24%);
 }
 
 .workspaces-empty-state-actions {

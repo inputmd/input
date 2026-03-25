@@ -5,7 +5,7 @@ import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { DocumentsView } from './DocumentsView';
 
-const CONNECT_REPOS_LABEL = 'Connect Repos';
+const CONNECT_REPOS_LABEL = 'Install';
 
 interface WorkspacesViewProps {
   installationId: string | null;
@@ -203,7 +203,7 @@ export function WorkspacesView({
         </div>
       ) : (
         <div class="empty-state workspaces-empty-state">
-          <p>No connected repos yet.</p>
+          <p>This app must be installed on a GitHub repo.</p>
           <p>
             <a href="https://github.com/new" target="_blank" rel="noopener noreferrer">
               Create a repo
