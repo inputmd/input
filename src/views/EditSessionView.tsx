@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { parseMarkdownDocument } from '../markdown';
 import type { WikiLinkResolver } from '../wiki_links';
 import { EditView, type EditViewProps } from './EditView';
@@ -76,23 +76,14 @@ export function EditSessionView({
   liveContentRef.current = liveContent;
 
   useEffect(() => {
-    setLiveContent((currentContent) => {
-      if (contentRevision < liveContentRevision) return currentContent;
-      if (contentRevision === liveContentRevision && content !== currentContent) return currentContent;
-      return content;
-    });
-    setLiveContentOrigin((currentOrigin) => {
-      if (contentRevision < liveContentRevision) return currentOrigin;
-      if (contentRevision === liveContentRevision && content !== liveContentRef.current) return currentOrigin;
-      return contentOrigin;
-    });
-    setLiveContentRevision((currentRevision) => Math.max(currentRevision, contentRevision));
-    setLiveContentSelection((currentSelection) => {
-      if (contentRevision < liveContentRevision) return currentSelection;
-      if (contentRevision === liveContentRevision && content !== liveContentRef.current) return currentSelection;
-      return contentSelection;
-    });
-  }, [content, contentOrigin, contentRevision, contentSelection, liveContent, liveContentRevision]);
+    // App-level typing updates are intentionally deferred, so ignore stale user-edits echoes
+    // while the editor's live content is already ahead.
+    if (contentOrigin === 'userEdits' && content !== liveContentRef.current) return;
+    setLiveContent(content);
+    setLiveContentOrigin(contentOrigin);
+    setLiveContentRevision(contentRevision);
+    setLiveContentSelection(contentSelection);
+  }, [content, contentOrigin, contentRevision, contentSelection]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -101,27 +92,17 @@ export function EditSessionView({
     return () => window.clearTimeout(timeoutId);
   }, [liveContent]);
 
-  const previewDocument = useMemo(
-    () =>
-      markdown
-        ? parseMarkdownDocument(
-            showLoggedOutNewDocPreviewDescription && deferredLiveContent.trim().length === 0
-              ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION
-              : deferredLiveContent,
-            {
-              resolveImageSrc: resolvePreviewImageSrc,
-              resolveWikiLinkMeta: previewWikiLinkResolver,
-            },
-          )
-        : { html: '', customCss: null, customCssScope: null, frontMatterError: null, cssWarning: null },
-    [
-      deferredLiveContent,
-      markdown,
-      previewWikiLinkResolver,
-      resolvePreviewImageSrc,
-      showLoggedOutNewDocPreviewDescription,
-    ],
-  );
+  const previewDocument = markdown
+    ? parseMarkdownDocument(
+        showLoggedOutNewDocPreviewDescription && deferredLiveContent.trim().length === 0
+          ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION
+          : deferredLiveContent,
+        {
+          resolveImageSrc: resolvePreviewImageSrc,
+          resolveWikiLinkMeta: previewWikiLinkResolver,
+        },
+      )
+    : { html: '', customCss: null, customCssScope: null, frontMatterError: null, cssWarning: null };
 
   const handleContentChange = (update: { content: string; origin: 'userEdits'; revision: number }) => {
     setLiveContent(update.content);

@@ -518,23 +518,6 @@ export function MarkdownEditor({
     if (contentOrigin === 'streaming') return;
     if (streamingCursorPositionRef.current != null && contentOrigin === 'external') return;
 
-    if (contentOrigin === 'external' && hasPendingLocalEditsRef.current) {
-      console.warn('Dirty-write guard: external editor sync is overwriting newer local edits.', {
-        scrollStorageKey,
-        contentRevision,
-        latestLocalRevision: latestLocalRevisionRef.current,
-      });
-      return;
-    }
-
-    if (contentOrigin === 'appEdits' && hasPendingLocalEditsRef.current) {
-      console.warn('appEdits overwriting local edits.', {
-        scrollStorageKey,
-        contentRevision,
-        latestLocalRevision: latestLocalRevisionRef.current,
-      });
-    }
-
     const transaction = buildExternalContentSyncTransaction(view.state, content, contentSelection);
     if (!transaction) return;
     view.dispatch(transaction);

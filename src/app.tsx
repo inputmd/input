@@ -835,6 +835,8 @@ export function App() {
   const editContentRef = useRef(editContent);
   const editContentSnapshotTimerRef = useRef<number | null>(null);
   const hydratedLocalDraftKeysRef = useRef(new Set<string>());
+  const externalEditSessionIdRef = useRef(0);
+  const hasTypedInExternalEditSessionRef = useRef(false);
   currentFileNameRef.current = currentFileName;
   const cancelEditContentSnapshot = useCallback(() => {
     if (editContentSnapshotTimerRef.current == null) return;
@@ -876,6 +878,14 @@ export function App() {
     [cancelEditContentSnapshot],
   );
   useEffect(() => cancelEditContentSnapshot, [cancelEditContentSnapshot]);
+  const beginExternalEditSession = useCallback(() => {
+    externalEditSessionIdRef.current += 1;
+    hasTypedInExternalEditSessionRef.current = false;
+    return externalEditSessionIdRef.current;
+  }, []);
+  const canApplyExternalEditSession = useCallback((sessionId: number) => {
+    return sessionId === externalEditSessionIdRef.current && !hasTypedInExternalEditSessionRef.current;
+  }, []);
   const shouldHydrateLocalDraftForRoute = useCallback((draftKey: string) => {
     if (!hydratedLocalDraftKeysRef.current.has(draftKey)) {
       hydratedLocalDraftKeysRef.current.add(draftKey);
@@ -2093,6 +2103,7 @@ export function App() {
       binary: boolean;
       decoded: string;
       forEdit: boolean;
+      editSessionId?: number;
       suppressBinaryEditAlert?: boolean;
       binaryUrl: string;
       onBinaryEditRedirect: () => void;
@@ -2100,6 +2111,9 @@ export function App() {
       knownMarkdownPaths: string[];
     }): boolean => {
       if (opts.forEdit) {
+        if (opts.editSessionId != null && !canApplyExternalEditSession(opts.editSessionId)) {
+          return true;
+        }
         if (opts.binary) {
           if (!opts.suppressBinaryEditAlert) {
             void showAlert(
@@ -2140,6 +2154,7 @@ export function App() {
       return false;
     },
     [
+      canApplyExternalEditSession,
       showAlert,
       setNextEditContent,
       setCurrentDocumentSavedContent,
@@ -2156,7 +2171,7 @@ export function App() {
       repo: string,
       path: string,
       forEdit: boolean,
-      options?: { suppressError?: boolean },
+      options?: { suppressError?: boolean; editSessionId?: number },
     ): Promise<boolean> => {
       const instId = activeInstalledRepoInstallationId ?? getInstallationId();
       const repoName = buildRepoFullName(owner, repo);
@@ -2174,6 +2189,10 @@ export function App() {
           if (markdownDirectoryIndex) contents = await getRepoContents(instId, repoName, markdownDirectoryIndex);
         }
         if (!isRepoFile(contents)) throw new Error('Expected a file');
+        if (forEdit && options?.editSessionId != null && !canApplyExternalEditSession(options.editSessionId)) {
+          setViewPhase(null);
+          return true;
+        }
         const contentBytes = contents.content ? decodeBase64ToBytes(contents.content) : new Uint8Array();
         const binary = isLikelyBinaryBytes(contentBytes);
         const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
@@ -2216,6 +2235,7 @@ export function App() {
           binary,
           decoded,
           forEdit,
+          editSessionId: options?.editSessionId,
           suppressBinaryEditAlert: options?.suppressError,
           binaryUrl: repoRawFileUrl(instId, repoName, contents.path),
           onBinaryEditRedirect: () => {
@@ -2257,6 +2277,7 @@ export function App() {
       activeView,
       currentFileName,
       showRateLimitToastIfNeeded,
+      canApplyExternalEditSession,
     ],
   );
 
@@ -2335,13 +2356,23 @@ export function App() {
   );
 
   const loadEditorSharedRepoFile = useCallback(
-    async (owner: string, repo: string, path: string, forEdit: boolean, options?: { suppressError?: boolean }) => {
+    async (
+      owner: string,
+      repo: string,
+      path: string,
+      forEdit: boolean,
+      options?: { suppressError?: boolean; editSessionId?: number },
+    ) => {
       const shouldShowLoading = !(activeView === 'content' || activeView === 'edit') || currentFileName === null;
       if (shouldShowLoading) {
         setViewPhase('loading');
       }
       try {
         const shared = await getEditorSharedRepoFile(owner, repo, path);
+        if (forEdit && options?.editSessionId != null && !canApplyExternalEditSession(options.editSessionId)) {
+          setViewPhase(null);
+          return true;
+        }
         const contentBytes = decodeBase64ToBytes(shared.content);
         const binary = isLikelyBinaryBytes(contentBytes);
         const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
@@ -2369,6 +2400,7 @@ export function App() {
           binary,
           decoded,
           forEdit,
+          editSessionId: options?.editSessionId,
           suppressBinaryEditAlert: options?.suppressError,
           binaryUrl: blobUrl,
           onBinaryEditRedirect: () => {
@@ -2404,6 +2436,7 @@ export function App() {
       presentLoadedFileContent,
       showError,
       showRateLimitToastIfNeeded,
+      canApplyExternalEditSession,
     ],
   );
 
@@ -2608,6 +2641,7 @@ export function App() {
           await loadSharedRepoFile({ token: safeDecodeURIComponent(r.params.token) });
           return;
         case 'reponew': {
+          beginExternalEditSession();
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
           const path = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
@@ -2657,6 +2691,7 @@ export function App() {
           return;
         }
         case 'repoedit': {
+          const editSessionId = beginExternalEditSession();
           if (routeKeyFromRoute(r) === postSaveVerificationRef.current?.routeKey) {
             setViewPhase(null);
             return;
@@ -2665,16 +2700,20 @@ export function App() {
           const repo = safeDecodeURIComponent(r.params.repo);
           const path = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
           setDraftMode(false);
-          const loadedInstalled = await loadRepoFile(owner, repo, path, true, { suppressError: true });
+          const loadedInstalled = await loadRepoFile(owner, repo, path, true, {
+            suppressError: true,
+            editSessionId,
+          });
           if (loadedInstalled) return;
           if (!isAuthenticated) {
             showError('Sign in with GitHub to edit this document.');
             return;
           }
-          await loadEditorSharedRepoFile(owner, repo, path, true);
+          await loadEditorSharedRepoFile(owner, repo, path, true, { editSessionId });
           return;
         }
         case 'new': {
+          beginExternalEditSession();
           if (activeView === 'edit') {
             localStorage.removeItem(DRAFT_TITLE_KEY);
             localStorage.removeItem(DRAFT_CONTENT_KEY);
@@ -2706,6 +2745,7 @@ export function App() {
           return;
         }
         case 'edit': {
+          const editSessionId = beginExternalEditSession();
           if (routeKeyFromRoute(r) === postSaveVerificationRef.current?.routeKey) {
             setViewPhase(null);
             return;
@@ -2728,6 +2768,10 @@ export function App() {
             setViewPhase('loading');
             try {
               const gist = currentGistId === r.params.id && gistFiles ? null : await getGist(r.params.id);
+              if (!canApplyExternalEditSession(editSessionId)) {
+                setViewPhase(null);
+                return;
+              }
               if (gist) {
                 setGistFiles(gist.files);
                 setCurrentGistCreatedAt(gist.created_at);
@@ -2789,6 +2833,10 @@ export function App() {
                   navigate(routePath.gistView(r.params.id, cacheFile.filename));
                   return;
                 }
+                if (!canApplyExternalEditSession(editSessionId)) {
+                  setViewPhase(null);
+                  return;
+                }
 
                 setGistFiles((prev) => {
                   if (!prev) return prev;
@@ -2831,6 +2879,10 @@ export function App() {
           setViewPhase('loading');
           try {
             const gist = await getGist(r.params.id);
+            if (!canApplyExternalEditSession(editSessionId)) {
+              setViewPhase(null);
+              return;
+            }
             setGistFiles(gist.files);
             setCurrentGistCreatedAt(gist.created_at);
             setCurrentGistUpdatedAt(gist.updated_at);
@@ -2860,6 +2912,10 @@ export function App() {
                 }
                 void showAlert(`Failed to load full file content. ${full.error}`);
                 navigate(routePath.gistView(gist.id, file.filename));
+                return;
+              }
+              if (!canApplyExternalEditSession(editSessionId)) {
+                setViewPhase(null);
                 return;
               }
               editableContent = full.content;
@@ -2939,6 +2995,8 @@ export function App() {
       setCurrentDocumentSavedContent,
       setHasUnsavedChanges,
       activeInstalledRepoInstallationId,
+      beginExternalEditSession,
+      canApplyExternalEditSession,
       shouldHydrateLocalDraftForRoute,
     ],
   );
@@ -7002,6 +7060,7 @@ export function App() {
   const onEditContentChange = useCallback(
     (update: { content: string; origin: 'userEdits'; revision: number }) => {
       if (readerAiEditLocked) return;
+      hasTypedInExternalEditSessionRef.current = true;
       editContentRef.current = update.content;
       pendingGistDraftDirtyRef.current = draftMode && editingBackend === 'gist' && currentGistId === null;
       scheduleEditContentSnapshot(update);
