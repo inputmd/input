@@ -832,6 +832,7 @@ export function App() {
   const pendingGistDraftDirtyRef = useRef(false);
   const editContentRef = useRef(editContent);
   const editContentSnapshotTimerRef = useRef<number | null>(null);
+  const hydratedLocalDraftKeysRef = useRef(new Set<string>());
   currentFileNameRef.current = currentFileName;
   const cancelEditContentSnapshot = useCallback(() => {
     if (editContentSnapshotTimerRef.current == null) return;
@@ -873,6 +874,14 @@ export function App() {
     [cancelEditContentSnapshot],
   );
   useEffect(() => cancelEditContentSnapshot, [cancelEditContentSnapshot]);
+  const shouldHydrateLocalDraftForRoute = useCallback((draftKey: string) => {
+    if (!hydratedLocalDraftKeysRef.current.has(draftKey)) {
+      hydratedLocalDraftKeysRef.current.add(draftKey);
+      return true;
+    }
+    console.warn('Blocked repeated local draft hydration after first mount.', { draftKey });
+    return false;
+  }, []);
   const applyInstallationSessionState = useCallback(
     (sessionState: { installationId?: string | null; installations?: LinkedInstallation[] }) => {
       const nextInstallationId = sessionState.installationId ?? null;
@@ -2617,11 +2626,18 @@ export function App() {
           }
           setCurrentDocumentSavedContent(null);
           setPreviewVisible(defaultPreviewVisible());
-          setEditTitle(localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'title')) || UNSAVED_FILE_LABEL);
-          const persistedRepoNewContent =
-            localStorage.getItem(repoNewDraftKey(instId, repoName, path, 'content')) ?? '';
-          setNextEditContent(persistedRepoNewContent);
-          setHasUnsavedChanges(Boolean(persistedRepoNewContent));
+          const titleDraftKey = repoNewDraftKey(instId, repoName, path, 'title');
+          const contentDraftKey = repoNewDraftKey(instId, repoName, path, 'content');
+          const shouldHydrateTitle = shouldHydrateLocalDraftForRoute(titleDraftKey);
+          const shouldHydrateContent = shouldHydrateLocalDraftForRoute(contentDraftKey);
+          if (shouldHydrateTitle) {
+            setEditTitle(localStorage.getItem(titleDraftKey) || UNSAVED_FILE_LABEL);
+          }
+          if (shouldHydrateContent) {
+            const persistedRepoNewContent = localStorage.getItem(contentDraftKey) ?? '';
+            setNextEditContent(persistedRepoNewContent);
+            setHasUnsavedChanges(Boolean(persistedRepoNewContent));
+          }
           setViewPhase(null);
           return;
         }
@@ -2643,7 +2659,7 @@ export function App() {
           await loadEditorSharedRepoFile(owner, repo, path, true);
           return;
         }
-        case 'new':
+        case 'new': {
           if (activeView === 'edit') {
             localStorage.removeItem(DRAFT_TITLE_KEY);
             localStorage.removeItem(DRAFT_CONTENT_KEY);
@@ -2662,11 +2678,18 @@ export function App() {
           setRepoSidebarFiles([]);
           setCurrentDocumentSavedContent(null);
           setPreviewVisible(defaultPreviewVisible());
-          setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || UNSAVED_FILE_LABEL);
-          setNextEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
+          const shouldHydrateDraftTitle = shouldHydrateLocalDraftForRoute(DRAFT_TITLE_KEY);
+          const shouldHydrateDraftContent = shouldHydrateLocalDraftForRoute(DRAFT_CONTENT_KEY);
+          if (shouldHydrateDraftTitle) {
+            setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || UNSAVED_FILE_LABEL);
+          }
+          if (shouldHydrateDraftContent) {
+            setNextEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
+          }
           setViewPhase(null);
           if (activeView === 'edit') focusEditorSoon();
           return;
+        }
         case 'edit': {
           if (routeKeyFromRoute(r) === postSaveVerificationRef.current?.routeKey) {
             setViewPhase(null);
@@ -2901,6 +2924,7 @@ export function App() {
       setCurrentDocumentSavedContent,
       setHasUnsavedChanges,
       activeInstalledRepoInstallationId,
+      shouldHydrateLocalDraftForRoute,
     ],
   );
 
