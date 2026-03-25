@@ -76,6 +76,7 @@ export function TextEditor({
   const streamingCursorPositionRef = useRef<number | null>(null);
   const streamingCursorFollowingRef = useRef(false);
   const ignoreNextStreamingScrollEventRef = useRef(false);
+  const hasPendingLocalEditsRef = useRef(false);
   const detectedLanguage = detectedLanguageForFileName(fileName, { includeMarkdown: false });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQueryState] = useState('');
@@ -209,6 +210,7 @@ export function TextEditor({
       const doc = update.state.doc.toString();
       const revision = latestLocalRevisionRef.current + 1;
       latestLocalRevisionRef.current = revision;
+      hasPendingLocalEditsRef.current = true;
       onContentChangeRef.current({ content: doc, origin: 'local', revision });
     };
 
@@ -369,6 +371,9 @@ export function TextEditor({
     if (!view) return;
     const currentDoc = view.state.doc.toString();
     if (content === currentDoc) {
+      if (contentOrigin !== 'local') {
+        hasPendingLocalEditsRef.current = false;
+      }
       if (pendingScrollRestoreKeyRef.current === scrollStorageKey) pendingScrollRestoreKeyRef.current = null;
       return;
     }
@@ -385,9 +390,19 @@ export function TextEditor({
       return;
     }
 
+    if (contentOrigin === 'external' && hasPendingLocalEditsRef.current) {
+      console.warn('Dirty-write guard: external editor sync is overwriting newer local edits.', {
+        scrollStorageKey,
+        contentRevision,
+        latestLocalRevision: latestLocalRevisionRef.current,
+      });
+      return;
+    }
+
     const transaction = buildExternalContentSyncTransaction(view.state, content, contentSelection);
     if (!transaction) return;
     view.dispatch(transaction);
+    hasPendingLocalEditsRef.current = false;
 
     if (pendingScrollRestoreKeyRef.current === scrollStorageKey) {
       pendingScrollRestoreKeyRef.current = null;
@@ -411,6 +426,7 @@ export function TextEditor({
 
     currentScrollStorageKeyRef.current = scrollStorageKey;
     pendingScrollRestoreKeyRef.current = scrollStorageKey;
+    hasPendingLocalEditsRef.current = false;
 
     restoreScrollPositionRef.current?.();
   }, [scrollStorageKey]);
