@@ -185,6 +185,17 @@ test('marked renders prompt question and answer lines as list items inside a sin
   );
 });
 
+test('marked renders chevron-prefixed user messages as prompt questions', (t) => {
+  const html = marked.parse('❯ Continue the conversation\n⏺ Here is the next answer.');
+
+  t.true(typeof html === 'string');
+  t.true(
+    html.includes(
+      '<ul class="prompt-list"><li class="prompt-question">Continue the conversation</li><li class="prompt-answer">Here is the next answer.</li></ul>',
+    ),
+  );
+});
+
 test('marked renders placeholders for empty prompt question and answer rows', (t) => {
   const html = marked.parse('~ \n⏺ ');
 

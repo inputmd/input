@@ -11,6 +11,16 @@ test('matchPromptListLine parses prompt question markers', (t) => {
   });
 });
 
+test('matchPromptListLine parses chevron-prefixed prompt question markers', (t) => {
+  t.deepEqual(matchPromptListLine('❯ Continue the conversation'), {
+    indent: '',
+    marker: '❯',
+    kind: 'question',
+    content: 'Continue the conversation',
+    markerEnd: 2,
+  });
+});
+
 test('matchPromptListLine parses prompt answer markers', (t) => {
   t.deepEqual(matchPromptListLine('⏺ Solomonoff induction is a theoretical framework.'), {
     indent: '',

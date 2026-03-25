@@ -525,7 +525,7 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
   if (range.from !== line.to) return null;
 
   const match = matchPromptListLine(line.text);
-  if (!match || match.kind !== 'question') return null;
+  if (!match || match.kind !== 'question' || match.marker !== '~') return null;
 
   const prompt = match.content.trim();
   if (!prompt) return null;
@@ -592,7 +592,7 @@ export function insertNewlineExitPromptQuestion(view: EditorView): boolean {
   if (range.from !== line.to) return false;
 
   const match = matchPromptListLine(line.text);
-  if (!match || match.kind !== 'question' || match.content.trim()) return false;
+  if (!match || match.kind !== 'question' || match.marker !== '~' || match.content.trim()) return false;
 
   const insert = state.lineBreak;
   view.dispatch(

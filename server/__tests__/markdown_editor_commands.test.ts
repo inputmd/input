@@ -493,6 +493,30 @@ test('getPromptListRequest includes prior prompt-list history and local multilin
   });
 });
 
+test('getPromptListRequest treats prior chevron-prefixed messages as user turns', (t) => {
+  const doc = ['❯ First question', '⏺ First answer', '~ Follow-up question'].join('\n');
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(doc.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'Follow-up question',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'First question' },
+      { role: 'assistant', content: 'First answer' },
+      { role: 'user', content: 'Follow-up question' },
+    ],
+    answerIndent: '',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n⏺ ',
+    answerFrom: `${doc}\n⏺ `.length,
+  });
+});
+
 test('getPromptListRequest keeps prompt-list history across a single blank line between turns', (t) => {
   const doc = ['~ First question', '⏺ First answer', '  ', '~ Follow-up question'].join('\n');
   const state = EditorState.create({
@@ -719,6 +743,16 @@ test('getPromptListRequest ignores non-question prompt list lines and non-termin
 
   t.is(getPromptListRequest(nonTerminal), null);
   t.is(getPromptListRequest(answerLine), null);
+});
+
+test('getPromptListRequest does not trigger AI for chevron-prefixed user lines', (t) => {
+  const state = EditorState.create({
+    doc: '❯ Continue the conversation',
+    selection: EditorSelection.cursor('❯ Continue the conversation'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(getPromptListRequest(state), null);
 });
 
 test('prompt question Enter binding wins over markdown Enter handling for multiline answers', (t) => {

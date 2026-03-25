@@ -248,7 +248,7 @@ marked.use({
       level: 'block',
       start(this: TokenizerThis, src: string) {
         if (promptListContainerDepth(this) > 0) return undefined;
-        const match = /(?:^|\n)(?:[ \t]*)(?:~|⏺)[ \t]+/u.exec(src);
+        const match = /(?:^|\n)(?:[ \t]*)(?:~|❯|⏺)[ \t]+/u.exec(src);
         return match ? match.index + (match[0].startsWith('\n') ? 1 : 0) : undefined;
       },
       tokenizer(this: TokenizerThis, src: string) {

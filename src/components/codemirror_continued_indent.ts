@@ -86,7 +86,7 @@ function maybeConsumePromptListPrefix(
   tabSize: number,
 ): { consumed: boolean; offset: number; columns: number } {
   const marker = text[offset];
-  if (marker !== '~' && marker !== '⏺') {
+  if (marker !== '~' && marker !== '❯' && marker !== '⏺') {
     return { consumed: false, offset, columns };
   }
   const spacer = text[offset + marker.length];

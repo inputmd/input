@@ -212,7 +212,7 @@ const promptListLineClassExtension = ViewPlugin.fromClass(
 export function promptListHintLabelForText(text: string, answering = false): string | null {
   const match = matchPromptListLine(text);
   if (!match) return null;
-  if (match.kind === 'question') return match.content.trim() ? null : 'Type to ask AI';
+  if (match.kind === 'question') return match.marker === '~' && !match.content.trim() ? 'Type to ask AI' : null;
   if (match.kind === 'answer' && answering && !match.content.trim()) return 'Answering... (Esc to cancel)';
   return null;
 }
