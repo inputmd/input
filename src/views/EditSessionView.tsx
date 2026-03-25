@@ -83,14 +83,21 @@ export function EditSessionView({
     setLiveContentOrigin(contentOrigin);
     setLiveContentRevision(contentRevision);
     setLiveContentSelection(contentSelection);
+    if (contentOrigin !== 'userEdits') {
+      setDeferredLiveContent(content);
+    }
   }, [content, contentOrigin, contentRevision, contentSelection]);
 
   useEffect(() => {
+    if (liveContentOrigin !== 'userEdits') {
+      setDeferredLiveContent(liveContent);
+      return;
+    }
     const timeoutId = window.setTimeout(() => {
       setDeferredLiveContent(liveContent);
     }, 150);
     return () => window.clearTimeout(timeoutId);
-  }, [liveContent]);
+  }, [liveContent, liveContentOrigin]);
 
   const previewDocument = markdown
     ? parseMarkdownDocument(

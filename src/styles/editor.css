@@ -113,7 +113,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  background: var(--bg);
 }
 
 .editor-loading-overlay .editor-loading-spinner {

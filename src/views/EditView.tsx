@@ -515,7 +515,7 @@ export function EditView({
             readOnly={readOnly || locked || loading}
           />
         )}
-        {markdown && previewVisible && canRenderPreview && (
+        {markdown && previewVisible && canRenderPreview && !loading && (
           <>
             <div
               class="editor-splitter"
@@ -547,7 +547,7 @@ export function EditView({
           </>
         )}
       </div>
-      {markdown && previewVisible && !canRenderPreview && (
+      {markdown && previewVisible && !canRenderPreview && !loading && (
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane" ref={mobilePreviewPaneRef}>
