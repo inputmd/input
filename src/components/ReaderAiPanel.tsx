@@ -21,6 +21,8 @@ interface ReaderAiPanelProps {
   modelsError: string | null;
   selectedModel: string;
   onSelectModel: (modelId: string) => void;
+  localCodexEnabled?: boolean;
+  onEnableLocalCodex?: () => void;
   showLoginForMoreModels?: boolean;
   messages: ReaderAiMessage[];
   sending: boolean;
@@ -105,6 +107,8 @@ export function ReaderAiPanel({
   modelsError,
   selectedModel,
   onSelectModel,
+  localCodexEnabled = false,
+  onEnableLocalCodex,
   showLoginForMoreModels = false,
   messages,
   sending,
@@ -325,6 +329,8 @@ export function ReaderAiPanel({
         modelsError={modelsError}
         selectedModel={selectedModel}
         onSelectModel={handleSelectModel}
+        localCodexEnabled={localCodexEnabled}
+        onEnableLocalCodex={onEnableLocalCodex}
         disabled={sending}
         triggerClassName="reader-ai-model-trigger reader-ai-model-trigger--composer"
         showLoginForMoreModels={showLoginForMoreModels}

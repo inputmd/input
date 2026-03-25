@@ -8,6 +8,8 @@ interface ReaderAiModelSelectorProps {
   modelsError: string | null;
   selectedModel: string;
   onSelectModel: (modelId: string) => void;
+  localCodexEnabled?: boolean;
+  onEnableLocalCodex?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
@@ -45,6 +47,8 @@ export function ReaderAiModelSelector({
   modelsError,
   selectedModel,
   onSelectModel,
+  localCodexEnabled = false,
+  onEnableLocalCodex,
   open,
   onOpenChange,
   disabled = false,
@@ -66,7 +70,10 @@ export function ReaderAiModelSelector({
   const featuredModels = freeModels.filter((model) => readerAiModelPriorityRank(model) !== -1);
   const unverifiedModels = freeModels.filter((model) => readerAiModelPriorityRank(model) === -1);
   const hasRecommendedSection = localModels.length > 0 || paidModels.length > 0 || featuredModels.length > 0;
-  const modelSelectDisabled = disabled || modelsLoading || models.length === 0;
+  const canOptIntoLocalCodex = !localCodexEnabled && Boolean(onEnableLocalCodex);
+  const shouldShowLocalCodexSection = localCodexEnabled || localModels.length > 0;
+  const canOpenMenuWithoutModels = canOptIntoLocalCodex || shouldShowLocalCodexSection;
+  const modelSelectDisabled = disabled || modelsLoading || (models.length === 0 && !canOpenMenuWithoutModels);
   const selectedModelEntry = selectedReaderAiModel(models, selectedModel);
   const shouldShowFreeBadge =
     showFreeBadge &&
@@ -113,20 +120,6 @@ export function ReaderAiModelSelector({
                 </>
               ) : null}
 
-              {localModels.length > 0 ? (
-                <>
-                  {paidModels.length > 0 ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-                    Via local Codex server
-                  </DropdownMenu.Item>
-                  {localModels.map((model) => (
-                    <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
-                      {displayModelName(model)}
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </>
-              ) : null}
-
               {showLoggedOutHeading ? (
                 <>
                   {paidModels.length > 0 || localModels.length > 0 ? (
@@ -155,6 +148,42 @@ export function ReaderAiModelSelector({
                 </>
               ) : null}
 
+              {shouldShowLocalCodexSection ? (
+                <>
+                  {paidModels.length > 0 || featuredModels.length > 0 ? (
+                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
+                  ) : null}
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                    Via local Codex server
+                  </DropdownMenu.Item>
+                  {localModels.length > 0 ? (
+                    localModels.map((model) => (
+                      <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
+                        {displayModelName(model)}
+                      </DropdownMenu.RadioItem>
+                    ))
+                  ) : (
+                    <DropdownMenu.Item class="reader-ai-model-menu-item" disabled>
+                      No local Codex models available
+                    </DropdownMenu.Item>
+                  )}
+                </>
+              ) : null}
+
+              {!localCodexEnabled && onEnableLocalCodex ? (
+                <>
+                  {paidModels.length > 0 || featuredModels.length > 0 || localModels.length > 0 ? (
+                    <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
+                  ) : null}
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading reader-ai-model-menu-heading--plain" disabled>
+                    Local Codex
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item class="reader-ai-model-menu-item" onSelect={onEnableLocalCodex}>
+                    Enable local Codex models
+                  </DropdownMenu.Item>
+                </>
+              ) : null}
+
               {unverifiedModels.length > 0 ? (
                 <>
                   {hasRecommendedSection ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
@@ -170,9 +199,30 @@ export function ReaderAiModelSelector({
               ) : null}
             </DropdownMenu.RadioGroup>
           ) : (
-            <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
-              {modelsError ?? (modelsLoading ? 'Loading free models...' : 'No free model available.')}
-            </DropdownMenu.Item>
+            <>
+              <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                {modelsError ?? (modelsLoading ? 'Loading free models...' : 'No free model available.')}
+              </DropdownMenu.Item>
+              {shouldShowLocalCodexSection ? (
+                <>
+                  <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
+                    Via local Codex server
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item class="reader-ai-model-menu-item" disabled>
+                    No local Codex models available
+                  </DropdownMenu.Item>
+                </>
+              ) : null}
+              {canOptIntoLocalCodex ? (
+                <>
+                  <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
+                  <DropdownMenu.Item class="reader-ai-model-menu-item" onSelect={onEnableLocalCodex}>
+                    Enable local Codex models
+                  </DropdownMenu.Item>
+                </>
+              ) : null}
+            </>
           )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

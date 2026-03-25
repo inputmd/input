@@ -74,6 +74,29 @@ interface ReaderAiStreamOptions {
 const LOCAL_CODEX_MODEL_PREFIX = 'codex_local::';
 const LOCAL_CODEX_BRIDGE_DEFAULT_URL = 'http://127.0.0.1:8788';
 const LOCAL_CODEX_BRIDGE_STORAGE_KEY = 'input.localCodexBridgeUrl';
+const LOCAL_CODEX_ENABLED_STORAGE_KEY = 'input.localCodexEnabled';
+
+export function localCodexEnabledByPreference(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(LOCAL_CODEX_ENABLED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setLocalCodexEnabledByPreference(enabled: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (enabled) {
+      window.localStorage.setItem(LOCAL_CODEX_ENABLED_STORAGE_KEY, 'true');
+      return;
+    }
+    window.localStorage.removeItem(LOCAL_CODEX_ENABLED_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 function getLocalCodexBridgeBaseUrl(): string {
   if (typeof window === 'undefined') return LOCAL_CODEX_BRIDGE_DEFAULT_URL;
@@ -151,8 +174,9 @@ export function readerAiModelPriorityRank(model: ReaderAiModel): number {
 }
 
 export async function listReaderAiModels(): Promise<ReaderAiModel[]> {
+  const localCodexEnabled = localCodexEnabledByPreference();
   const [local, cloud] = await Promise.allSettled([
-    listLocalCodexModels(),
+    localCodexEnabled ? listLocalCodexModels() : Promise.resolve([]),
     (async () => {
       const res = await fetch('/api/ai/models', { credentials: 'same-origin' });
       if (!res.ok) throw await responseToApiError(res);

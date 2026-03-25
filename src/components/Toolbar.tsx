@@ -124,6 +124,8 @@ interface ToolbarProps {
   aiModelsError: string | null;
   selectedAiModel: string;
   onSelectAiModel: (modelId: string) => void;
+  localCodexEnabled?: boolean;
+  onEnableLocalCodex?: () => void;
   showAiLoginPrompt?: boolean;
   showCancel: boolean;
   onCancel: () => void;
@@ -204,6 +206,8 @@ export function Toolbar({
   aiModelsError,
   selectedAiModel,
   onSelectAiModel,
+  localCodexEnabled = false,
+  onEnableLocalCodex,
   showAiLoginPrompt = false,
   showCancel,
   onCancel,
@@ -878,6 +882,8 @@ export function Toolbar({
                   modelsError={aiModelsError}
                   selectedModel={selectedAiModel}
                   onSelectModel={onSelectAiModel}
+                  localCodexEnabled={localCodexEnabled}
+                  onEnableLocalCodex={onEnableLocalCodex}
                   open={modelSelectorOpen}
                   onOpenChange={setModelSelectorOpen}
                   disabled={aiDisabled}

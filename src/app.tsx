@@ -133,9 +133,11 @@ import {
   deleteReaderAiProjectSession,
   formatReaderAiModelDisplayName,
   listReaderAiModels,
+  localCodexEnabledByPreference,
   type ReaderAiModel,
   readerAiModelPriorityRank,
   resetReaderAiProjectSession,
+  setLocalCodexEnabledByPreference,
   updateReaderAiProjectSessionFile,
 } from './reader_ai';
 import {
@@ -705,6 +707,7 @@ export function App() {
   const [readerAiModels, setReaderAiModels] = useState<ReaderAiModel[]>([]);
   const [readerAiModelsLoading, setReaderAiModelsLoading] = useState(false);
   const [readerAiModelsError, setReaderAiModelsError] = useState<string | null>(null);
+  const [localCodexEnabled, setLocalCodexEnabled] = useState(() => localCodexEnabledByPreference());
   const [readerAiConfigured, setReaderAiConfigured] = useState(true);
   const [readerAiSelectedModel, setReaderAiSelectedModel] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
@@ -3308,6 +3311,12 @@ export function App() {
       setReaderAiModelsLoading(false);
     }
   }, []);
+
+  const enableLocalCodexModels = useCallback(() => {
+    setLocalCodexEnabledByPreference(true);
+    setLocalCodexEnabled(true);
+    void loadReaderAiModels();
+  }, [loadReaderAiModels]);
 
   useEffect(() => {
     const prevHistoryKey = readerAiPrevHistoryKeyRef.current;
@@ -7324,6 +7333,8 @@ export function App() {
         aiModelsError={readerAiModelsError}
         selectedAiModel={readerAiSelectedModel}
         onSelectAiModel={setReaderAiSelectedModel}
+        localCodexEnabled={localCodexEnabled}
+        onEnableLocalCodex={enableLocalCodexModels}
         showAiLoginPrompt={!user}
         showCancel={showEditorCancel}
         onCancel={onCancel}
@@ -7423,6 +7434,8 @@ export function App() {
               modelsError={readerAiModelsError}
               selectedModel={readerAiSelectedModel}
               onSelectModel={setReaderAiSelectedModel}
+              localCodexEnabled={localCodexEnabled}
+              onEnableLocalCodex={enableLocalCodexModels}
               showLoginForMoreModels={!user}
               messages={readerAiMessages}
               sending={readerAiSending}
