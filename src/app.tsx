@@ -1106,9 +1106,26 @@ export function App() {
       : 'Showing local version while GitHub catches up';
   }, [isScratchDocument, postSaveVerification, shouldPreserveVerifiedContent]);
 
+  const hasEffectiveUnsavedChanges = useMemo(() => {
+    if (!hasUnsavedChanges) return false;
+    if (activeView !== 'edit') return true;
+    if (isScratchDocument) return editContent.trim().length > 0;
+    if (currentDocumentSavedContent === null) return editContent.trim().length > 0;
+    return editContent !== currentDocumentSavedContent || hasRestorableDocumentDraft;
+  }, [
+    activeView,
+    currentDocumentSavedContent,
+    editContent,
+    hasRestorableDocumentDraft,
+    hasUnsavedChanges,
+    isScratchDocument,
+  ]);
+
   useEffect(() => {
-    setNavigationPrompt(activeView === 'edit' && hasUnsavedChanges ? 'You have unsaved changes. Discard?' : null);
-  }, [activeView, hasUnsavedChanges, setNavigationPrompt]);
+    setNavigationPrompt(
+      activeView === 'edit' && hasEffectiveUnsavedChanges ? 'You have unsaved changes. Discard?' : null,
+    );
+  }, [activeView, hasEffectiveUnsavedChanges, setNavigationPrompt]);
 
   const clearOAuthRedirectGuard = useCallback(() => {
     try {
@@ -4575,7 +4592,11 @@ export function App() {
       return;
     }
     const currentEditContent = editContentRef.current;
-    if (activeView === 'edit' && (hasUnsavedChanges || isScratchDocument) && currentEditContent.trim().length > 0) {
+    if (
+      activeView === 'edit' &&
+      (hasEffectiveUnsavedChanges || isScratchDocument) &&
+      currentEditContent.trim().length > 0
+    ) {
       const leave = await showConfirm('Leave the editor? You have unsaved changes.', {
         title: 'Unsaved changes',
         defaultFocus: 'cancel',
@@ -4600,7 +4621,7 @@ export function App() {
     else navigate(routePath.workspaces());
   }, [
     activeView,
-    hasUnsavedChanges,
+    hasEffectiveUnsavedChanges,
     isScratchDocument,
     readerAiEditLocked,
     pendingImageUploads,
@@ -4616,6 +4637,7 @@ export function App() {
     openInstalledRepo,
     navigate,
     routeState,
+    hasUnsavedChanges,
   ]);
 
   const onShareLink = useCallback(async () => {
@@ -5553,7 +5575,7 @@ export function App() {
         showFailureToast('Wait for image uploads to finish before switching files.');
         return;
       }
-      if (activeView === 'edit' && hasUnsavedChanges) {
+      if (activeView === 'edit' && hasEffectiveUnsavedChanges) {
         const action = await showConfirm('You have unsaved changes. Discard and switch files?');
         if (action) navigateToSidebarFile(filePath);
         return;
@@ -5564,7 +5586,7 @@ export function App() {
       activeView,
       readerAiEditLocked,
       pendingImageUploads,
-      hasUnsavedChanges,
+      hasEffectiveUnsavedChanges,
       navigateToSidebarFile,
       showConfirm,
       showFailureToast,
@@ -5581,7 +5603,7 @@ export function App() {
       showFailureToast('Wait for image uploads to finish before clearing the current file.');
       return;
     }
-    if (activeView === 'edit' && hasUnsavedChanges) {
+    if (activeView === 'edit' && hasEffectiveUnsavedChanges) {
       const discard = await showConfirm('You have unsaved changes. Discard them and stop editing this file?');
       if (!discard) return;
     }
@@ -5602,7 +5624,7 @@ export function App() {
     clearRenderedContent,
     currentFileName,
     currentRepoDocPath,
-    hasUnsavedChanges,
+    hasEffectiveUnsavedChanges,
     readerAiEditLocked,
     pendingImageUploads,
     showConfirm,
@@ -5699,7 +5721,7 @@ export function App() {
         return;
       }
 
-      if (activeView === 'edit' && hasUnsavedChanges) {
+      if (activeView === 'edit' && hasEffectiveUnsavedChanges) {
         const saveFirst = await showConfirm('You have unsaved changes. Save before creating another file?');
         if (saveFirst) {
           const saved = await commitAndStayInEdit();
@@ -5747,7 +5769,7 @@ export function App() {
       route,
       readerAiEditLocked,
       pendingImageUploads,
-      hasUnsavedChanges,
+      hasEffectiveUnsavedChanges,
       currentFileName,
       currentGistId,
       selectedRepoRef,
@@ -5895,7 +5917,7 @@ export function App() {
             : null;
       if (!target) return;
 
-      if (activeView === 'edit' && hasUnsavedChanges) {
+      if (activeView === 'edit' && hasEffectiveUnsavedChanges) {
         const saveFirst = await showConfirm('You have unsaved changes. Save before editing another file?');
         if (saveFirst) {
           await onSave();
@@ -5916,7 +5938,7 @@ export function App() {
       activeView,
       readerAiEditLocked,
       currentFileName,
-      hasUnsavedChanges,
+      hasEffectiveUnsavedChanges,
       onSave,
       navigate,
       discardCurrentDocumentChanges,
@@ -6232,7 +6254,7 @@ export function App() {
   const handleBeforeRenameFile = useCallback(
     async (path: string): Promise<boolean> => {
       if (!isMarkdownFileName(path)) return true;
-      if (activeView !== 'edit' || !hasUnsavedChanges) return true;
+      if (activeView !== 'edit' || !hasEffectiveUnsavedChanges) return true;
 
       const currentEditingPath = editingBackend === 'repo' ? currentRepoDocPath : currentFileName;
       if (currentEditingPath !== path) return true;
@@ -6247,7 +6269,7 @@ export function App() {
       await onSave();
       return true;
     },
-    [activeView, hasUnsavedChanges, editingBackend, currentRepoDocPath, currentFileName, showConfirm, onSave],
+    [activeView, hasEffectiveUnsavedChanges, editingBackend, currentRepoDocPath, currentFileName, showConfirm, onSave],
   );
 
   const handleRenameFolder = useCallback(
@@ -6952,7 +6974,7 @@ export function App() {
       const nextFile = sidebarFiles[nextIndex];
       if (!nextFile) return;
 
-      if (activeView === 'edit' && hasUnsavedChanges) {
+      if (activeView === 'edit' && hasEffectiveUnsavedChanges) {
         const shouldSave = await showConfirm('Save this document before switching files?', {
           title: 'Unsaved changes',
           confirmLabel: 'Save',
@@ -6967,7 +6989,7 @@ export function App() {
     },
     [
       activeView,
-      hasUnsavedChanges,
+      hasEffectiveUnsavedChanges,
       navigateToSidebarFile,
       onSave,
       showConfirm,
