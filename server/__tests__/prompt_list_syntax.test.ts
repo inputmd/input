@@ -89,3 +89,64 @@ test('parsePromptListBlock treats two blank lines before the next prompt item as
   t.is(block?.items.length, 2);
   t.is(block?.endLineIndexExclusive, 2);
 });
+
+test('parsePromptListBlock lets chevron-prefixed questions continue with a single-space indent', (t) => {
+  const block = parsePromptListBlock(['❯ one', ' continued', '⏺ answer'], 0);
+
+  t.truthy(block);
+  t.deepEqual(
+    block?.items.map((item) => ({ kind: item.match.kind, content: item.content })),
+    [
+      { kind: 'question', content: 'one\ncontinued' },
+      { kind: 'answer', content: 'answer' },
+    ],
+  );
+});
+
+test('parsePromptListBlock lets chevron-prefixed questions continue across contiguous unindented text lines', (t) => {
+  const block = parsePromptListBlock(['❯ one', 'continued', ' more', '⏺ answer'], 0);
+
+  t.truthy(block);
+  t.deepEqual(
+    block?.items.map((item) => ({ kind: item.match.kind, content: item.content })),
+    [
+      { kind: 'question', content: 'one\ncontinued\nmore' },
+      { kind: 'answer', content: 'answer' },
+    ],
+  );
+});
+
+test('parsePromptListBlock keeps tilde-prefixed questions on the two-space continuation rule', (t) => {
+  const block = parsePromptListBlock(['~ one', ' continued', '⏺ answer'], 0);
+
+  t.truthy(block);
+  t.deepEqual(
+    block?.items.map((item) => ({ kind: item.match.kind, content: item.content })),
+    [{ kind: 'question', content: 'one' }],
+  );
+  t.is(block?.endLineIndexExclusive, 1);
+});
+
+test('parsePromptListBlock resumes chevron-prefixed questions after a blank line with a two-space indent', (t) => {
+  const block = parsePromptListBlock(['❯ one', '', '  continued', '⏺ answer'], 0);
+
+  t.truthy(block);
+  t.deepEqual(
+    block?.items.map((item) => ({ kind: item.match.kind, content: item.content })),
+    [
+      { kind: 'question', content: 'one\n\ncontinued' },
+      { kind: 'answer', content: 'answer' },
+    ],
+  );
+});
+
+test('parsePromptListBlock does not resume chevron-prefixed questions after a blank line with unindented text', (t) => {
+  const block = parsePromptListBlock(['❯ one', '', 'continued', '⏺ answer'], 0);
+
+  t.truthy(block);
+  t.deepEqual(
+    block?.items.map((item) => ({ kind: item.match.kind, content: item.content })),
+    [{ kind: 'question', content: 'one' }],
+  );
+  t.is(block?.endLineIndexExclusive, 1);
+});

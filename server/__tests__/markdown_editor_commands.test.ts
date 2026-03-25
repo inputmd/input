@@ -530,6 +530,56 @@ test('getPromptListRequest treats prior chevron-prefixed messages as user turns'
   });
 });
 
+test('getPromptListRequest keeps single-space chevron continuations in prior user turns', (t) => {
+  const doc = ['❯ First question', ' continued detail', '⏺ First answer', '~ Follow-up question'].join('\n');
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(doc.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'Follow-up question',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'First question\ncontinued detail' },
+      { role: 'assistant', content: 'First answer' },
+      { role: 'user', content: 'Follow-up question' },
+    ],
+    answerIndent: '',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n⏺ ',
+    answerFrom: `${doc}\n⏺ `.length,
+  });
+});
+
+test('getPromptListRequest keeps contiguous unindented chevron continuations in prior user turns', (t) => {
+  const doc = ['❯ First question', 'continued detail', ' more detail', '⏺ First answer', '~ Follow-up question'].join(
+    '\n',
+  );
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(doc.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListRequest(state), {
+    prompt: 'Follow-up question',
+    documentContent: doc,
+    messages: [
+      { role: 'user', content: 'First question\ncontinued detail\nmore detail' },
+      { role: 'assistant', content: 'First answer' },
+      { role: 'user', content: 'Follow-up question' },
+    ],
+    answerIndent: '',
+    insertFrom: doc.length,
+    insertTo: doc.length,
+    insertedPrefix: '\n⏺ ',
+    answerFrom: `${doc}\n⏺ `.length,
+  });
+});
+
 test('getPromptListRequest ignores prior prompt-list comments', (t) => {
   const doc = ['~ First question', '⏺ First answer', '✻ Keep it concise', '~ Follow-up question'].join('\n');
   const state = EditorState.create({

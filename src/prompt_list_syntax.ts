@@ -41,12 +41,32 @@ export function matchPromptListLine(text: string): PromptListLineMatch | null {
   };
 }
 
-export function isPromptListContinuationLine(text: string, indent: string): boolean {
-  return text.startsWith(`${indent}  `) || text.startsWith(`${indent}\t`);
+function promptListContinuationIndent(marker: string): string {
+  return marker === '❯' ? ' ' : '  ';
 }
 
-export function stripPromptListContinuationIndent(text: string, indent: string): string {
-  if (text.startsWith(`${indent}  `)) return text.slice(`${indent}  `.length);
+export function isPromptListContinuationLine(
+  text: string,
+  indent: string,
+  marker: string,
+  allowChevronBareText = false,
+): boolean {
+  if (allowChevronBareText && marker === '❯' && text.length > indent.length && !/^\s*$/.test(text)) {
+    return true;
+  }
+  return text.startsWith(`${indent}${promptListContinuationIndent(marker)}`) || text.startsWith(`${indent}\t`);
+}
+
+export function stripPromptListContinuationIndent(text: string, indent: string, marker: string): string {
+  if (marker === '❯') {
+    if (text.startsWith(`${indent} `)) return text.slice(`${indent} `.length);
+    if (text.startsWith(`${indent}\t`)) return text.slice(`${indent}\t`.length);
+    if (text.startsWith(indent)) return text.slice(indent.length);
+    return text;
+  }
+
+  const continuationIndent = `${indent}${promptListContinuationIndent(marker)}`;
+  if (text.startsWith(continuationIndent)) return text.slice(continuationIndent.length);
   if (text.startsWith(`${indent}\t`)) return text.slice(`${indent}\t`.length);
   return text;
 }
@@ -55,14 +75,15 @@ function isPromptListBlockConstruct(text: string): boolean {
   return /^(?:[-+*][ \t]|\d+\.[ \t]|>[ \t]?|#{1,6}[ \t]|```|~~~)/u.test(text);
 }
 
-export function stripPromptListResumedContinuationIndent(text: string, indent: string): string {
-  const threeSpaceIndent = `${indent}   `;
-  const fourSpaceIndent = `${indent}    `;
-  if (text.startsWith(threeSpaceIndent) && !text.startsWith(fourSpaceIndent)) {
-    const candidate = text.slice(threeSpaceIndent.length);
+export function stripPromptListResumedContinuationIndent(text: string, indent: string, marker: string): string {
+  const continuationIndent = promptListContinuationIndent(marker);
+  const resumedIndent = `${indent}${continuationIndent} `;
+  const nextResumedIndent = `${resumedIndent} `;
+  if (text.startsWith(resumedIndent) && !text.startsWith(nextResumedIndent)) {
+    const candidate = text.slice(resumedIndent.length);
     if (!isPromptListBlockConstruct(candidate)) return candidate;
   }
-  return stripPromptListContinuationIndent(text, indent);
+  return stripPromptListContinuationIndent(text, indent, marker);
 }
 
 export function parsePromptListBlock(lines: string[], startLineIndex: number): ParsedPromptListBlock | null {
@@ -103,18 +124,18 @@ export function parsePromptListBlock(lines: string[], startLineIndex: number): P
           }
           break;
         }
-        if (!isPromptListContinuationLine(resumedLine, match.indent)) break;
+        if (!isPromptListContinuationLine(resumedLine, match.indent, match.marker)) break;
 
         contentLines.push(...Array.from({ length: scanIndex - nextIndex }, () => ''));
-        contentLines.push(stripPromptListResumedContinuationIndent(resumedLine, match.indent));
+        contentLines.push(stripPromptListResumedContinuationIndent(resumedLine, match.indent, match.marker));
         endLineIndex = scanIndex;
         nextIndex = scanIndex + 1;
         continue;
       }
 
-      if (!isPromptListContinuationLine(line, match.indent)) break;
+      if (!isPromptListContinuationLine(line, match.indent, match.marker, true)) break;
 
-      contentLines.push(stripPromptListContinuationIndent(line, match.indent));
+      contentLines.push(stripPromptListContinuationIndent(line, match.indent, match.marker));
       endLineIndex = nextIndex;
       nextIndex += 1;
     }
