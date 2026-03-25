@@ -251,7 +251,7 @@
 }
 
 .rendered-markdown ul.prompt-list,
-.rendered-markdown ul.prompt-list ul {
+.rendered-markdown li.prompt-list-branch > ul {
   padding-left: 0;
   list-style: none;
 }

@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import { nameToEmoji } from 'gemoji';
-import type { RendererThis, Token, TokenizerThis, Tokens } from 'marked';
-import { marked } from 'marked';
+import type { Token, Tokens } from 'marked';
+import { marked, type RendererThis, Tokenizer, type TokenizerThis } from 'marked';
 import { parseCriticMarkupAt } from './criticmarkup.ts';
 import { parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
@@ -51,6 +51,14 @@ interface CriticMarkupToken extends Tokens.Generic {
   oldTokens?: Token[];
   newTokens?: Token[];
   text?: string;
+}
+
+interface PromptListAwareLexerState {
+  promptListContainerDepth?: number;
+}
+
+function promptListContainerDepth(thisRef: TokenizerThis): number {
+  return (thisRef.lexer.state as typeof thisRef.lexer.state & PromptListAwareLexerState).promptListContainerDepth ?? 0;
 }
 
 function wikiSlug(raw: string): string {
@@ -184,6 +192,24 @@ function deriveSuperscriptLinkLabel(text: string, href: string): string {
 
 marked.use({
   tokenizer: {
+    list(this: TokenizerThis, src: string) {
+      const state = this.lexer.state as PromptListAwareLexerState;
+      state.promptListContainerDepth = (state.promptListContainerDepth ?? 0) + 1;
+      try {
+        return Tokenizer.prototype.list.call(this, src);
+      } finally {
+        state.promptListContainerDepth -= 1;
+      }
+    },
+    blockquote(this: TokenizerThis, src: string) {
+      const state = this.lexer.state as PromptListAwareLexerState;
+      state.promptListContainerDepth = (state.promptListContainerDepth ?? 0) + 1;
+      try {
+        return Tokenizer.prototype.blockquote.call(this, src);
+      } finally {
+        state.promptListContainerDepth -= 1;
+      }
+    },
     // Disable setext headings (`text` followed by `---`/`===`) so lone dashes stay literal content.
     lheading() {
       return undefined;
@@ -220,11 +246,13 @@ marked.use({
     {
       name: 'promptList',
       level: 'block',
-      start(src: string) {
+      start(this: TokenizerThis, src: string) {
+        if (promptListContainerDepth(this) > 0) return undefined;
         const match = /(?:^|\n)(?:[ \t]*)(?:~|⏺)[ \t]+/u.exec(src);
         return match ? match.index + (match[0].startsWith('\n') ? 1 : 0) : undefined;
       },
       tokenizer(this: TokenizerThis, src: string) {
+        if (promptListContainerDepth(this) > 0) return undefined;
         const sourceLines = src.split('\n');
         const normalizedLines = sourceLines.map((line) => line.replace(/\r$/, ''));
         const block = parsePromptListBlock(normalizedLines, 0);

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import test from 'ava';
 import { JSDOM } from 'jsdom';
 import { marked } from 'marked';
@@ -202,6 +203,23 @@ test('marked keeps liquid-style template tag lines out of prompt lists', (t) => 
   t.false(html.includes('prompt-list-conversation'));
 });
 
+test('marked does not treat tilde content inside markdown list items as prompt-list syntax', (t) => {
+  const html = marked.parse('- ~ Enter to generate a first response, or to replace the existing response');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<li>~ Enter to generate a first response, or to replace the existing response</li>'));
+  t.false(html.includes('prompt-list'));
+});
+
+test('marked does not treat tilde content inside blockquotes as prompt-list syntax', (t) => {
+  const html = marked.parse('> ~ Enter to generate a first response');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<blockquote>'));
+  t.true(html.includes('<p>~ Enter to generate a first response</p>'));
+  t.false(html.includes('prompt-list'));
+});
+
 test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('~ Ask about **Solomonoff induction**'));
 
@@ -217,6 +235,30 @@ test('parseMarkdownToHtml keeps liquid-style template tag lines out of prompt li
 
   t.true(html.includes('<p>{% TODO %}</p>'));
   t.false(html.includes('prompt-list-conversation'));
+});
+
+test('parseMarkdownToHtml does not treat tilde content inside markdown list items as prompt-list syntax', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml('- ~ Enter to generate a first response, or to replace the existing response'),
+  );
+
+  t.true(html.includes('<li>~ Enter to generate a first response, or to replace the existing response</li>'));
+  t.false(html.includes('prompt-list-conversation'));
+});
+
+test('parseMarkdownToHtml does not treat tilde content inside blockquotes as prompt-list syntax', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('> ~ Enter to generate a first response'));
+
+  t.true(html.includes('<blockquote>'));
+  t.true(html.includes('<p>~ Enter to generate a first response</p>'));
+  t.false(html.includes('prompt-list-conversation'));
+});
+
+test('prompt-list styles do not strip ordinary nested markdown lists inside prompt answers', (t) => {
+  const css = readFileSync(new URL('../../src/styles/markdown.css', import.meta.url), 'utf8');
+
+  t.false(css.includes('.rendered-markdown ul.prompt-list ul {'));
+  t.true(css.includes('.rendered-markdown li.prompt-list-branch > ul {'));
 });
 
 test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t) => {
