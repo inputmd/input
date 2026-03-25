@@ -51,7 +51,7 @@ export interface EditViewProps {
   fileName?: string | null;
   markdown?: boolean;
   content: string;
-  contentOrigin?: 'local' | 'external' | 'streaming';
+  contentOrigin?: 'userEdits' | 'external' | 'streaming' | 'appEdits';
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   previewHtml: string;
@@ -64,7 +64,7 @@ export interface EditViewProps {
   scrollStorageKey?: string | null;
   loading?: boolean;
   onTogglePreview: () => void;
-  onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
+  onContentChange: (update: { content: string; origin: 'userEdits'; revision: number }) => void;
   onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
   onBracePromptStream?: (
     request: BracePromptRequest,

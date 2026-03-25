@@ -17,7 +17,7 @@ interface EditSessionViewProps
     | 'previewCssWarning'
   > {
   content: string;
-  contentOrigin?: 'local' | 'external' | 'streaming';
+  contentOrigin?: 'userEdits' | 'external' | 'streaming' | 'appEdits';
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   resolvePreviewImageSrc: (src: string) => string | null;
@@ -64,7 +64,9 @@ export function EditSessionView({
   ...rest
 }: EditSessionViewProps) {
   const [liveContent, setLiveContent] = useState(content);
-  const [liveContentOrigin, setLiveContentOrigin] = useState<'local' | 'external' | 'streaming'>(contentOrigin);
+  const [liveContentOrigin, setLiveContentOrigin] = useState<'userEdits' | 'external' | 'streaming' | 'appEdits'>(
+    contentOrigin,
+  );
   const [liveContentRevision, setLiveContentRevision] = useState(contentRevision);
   const [liveContentSelection, setLiveContentSelection] = useState<{ anchor: number; head: number } | null>(
     contentSelection,
@@ -119,7 +121,7 @@ export function EditSessionView({
     ],
   );
 
-  const handleContentChange = (update: { content: string; origin: 'local'; revision: number }) => {
+  const handleContentChange = (update: { content: string; origin: 'userEdits'; revision: number }) => {
     setLiveContent(update.content);
     setLiveContentOrigin(update.origin);
     setLiveContentRevision(update.revision);

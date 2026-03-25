@@ -758,7 +758,9 @@ export function App() {
   const [editingBackend, setEditingBackend] = useState<'gist' | 'repo' | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
-  const [editContentOrigin, setEditContentOrigin] = useState<'local' | 'external' | 'streaming'>('external');
+  const [editContentOrigin, setEditContentOrigin] = useState<'userEdits' | 'external' | 'streaming' | 'appEdits'>(
+    'appEdits',
+  );
   const [editContentRevision, setEditContentRevision] = useState(0);
   const [draftMode, setDraftMode] = useState(false);
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
@@ -845,7 +847,7 @@ export function App() {
       editContentSnapshotTimerRef.current = window.setTimeout(() => {
         editContentSnapshotTimerRef.current = null;
         setEditContent((previousContent) => (previousContent === update.content ? previousContent : update.content));
-        setEditContentOrigin('local');
+        setEditContentOrigin('userEdits');
         setEditContentRevision((previousRevision) => Math.max(previousRevision, update.revision));
         setEditContentSelection(null);
       }, EDIT_CONTENT_SNAPSHOT_DELAY_MS);
@@ -855,8 +857,8 @@ export function App() {
   const setNextEditContent = useCallback(
     (
       nextContent: string | ((previousContent: string) => string),
-      options?: {
-        origin?: 'local' | 'external' | 'streaming';
+      options: {
+        origin: 'userEdits' | 'external' | 'streaming' | 'appEdits';
         revision?: number;
         selection?: { anchor: number; head: number } | null;
       },
@@ -867,7 +869,7 @@ export function App() {
         editContentRef.current = resolvedContent;
         return resolvedContent;
       });
-      setEditContentOrigin(options?.origin ?? 'external');
+      setEditContentOrigin(options.origin);
       setEditContentRevision((previousRevision) => options?.revision ?? previousRevision + 1);
       setEditContentSelection(options?.selection ?? null);
     },
@@ -1556,16 +1558,21 @@ export function App() {
           `Add image ${upload.imageName}`,
           upload.contentB64,
         );
-        setNextEditContent((prev) => {
-          let next = replaceFirst(prev, upload.uploadingToken, upload.finalMarkdown);
-          next = replaceFirst(next, upload.failedToken, upload.finalMarkdown);
-          return next;
-        });
+        setNextEditContent(
+          (prev) => {
+            let next = replaceFirst(prev, upload.uploadingToken, upload.finalMarkdown);
+            next = replaceFirst(next, upload.failedToken, upload.finalMarkdown);
+            return next;
+          },
+          { origin: 'appEdits' },
+        );
         setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
         setHasUnsavedChanges(true);
         showSuccessToast(upload.resized ? 'Image resized and uploaded' : 'Image uploaded');
       } catch (err) {
-        setNextEditContent((prev) => replaceFirst(prev, upload.uploadingToken, upload.failedToken));
+        setNextEditContent((prev) => replaceFirst(prev, upload.uploadingToken, upload.failedToken), {
+          origin: 'appEdits',
+        });
         setFailedImageUpload(upload);
         if (isRateLimitError(err)) {
           showFailureToast(rateLimitToastMessage(err));
@@ -1588,11 +1595,14 @@ export function App() {
   const onRetryFailedImageUpload = useCallback(() => {
     if (!failedImageUpload) return;
     let replaced = false;
-    setNextEditContent((prev) => {
-      const next = replaceFirst(prev, failedImageUpload.failedToken, failedImageUpload.uploadingToken);
-      replaced = next !== prev;
-      return next;
-    });
+    setNextEditContent(
+      (prev) => {
+        const next = replaceFirst(prev, failedImageUpload.failedToken, failedImageUpload.uploadingToken);
+        replaced = next !== prev;
+        return next;
+      },
+      { origin: 'appEdits' },
+    );
     if (!replaced) {
       showFailureToast('Could not find failed upload placeholder in the editor.');
       return;
@@ -1603,7 +1613,7 @@ export function App() {
 
   const onRemoveFailedImageUploadPlaceholder = useCallback(() => {
     if (!failedImageUpload) return;
-    setNextEditContent((prev) => replaceFirst(prev, failedImageUpload.failedToken, ''));
+    setNextEditContent((prev) => replaceFirst(prev, failedImageUpload.failedToken, ''), { origin: 'appEdits' });
     setFailedImageUpload(null);
     setHasUnsavedChanges(true);
   }, [failedImageUpload, setNextEditContent, setHasUnsavedChanges]);
@@ -1614,7 +1624,7 @@ export function App() {
       const currentContent = view.state.doc.toString();
       const nextContent = `${currentContent.slice(0, from)}${insertedText}${currentContent.slice(to)}`;
       const nextHead = from + insertedText.length;
-      setNextEditContent(nextContent, { selection: { anchor: nextHead, head: nextHead } });
+      setNextEditContent(nextContent, { origin: 'appEdits', selection: { anchor: nextHead, head: nextHead } });
     },
     [setNextEditContent],
   );
@@ -1688,7 +1698,7 @@ export function App() {
             setFailedImageUpload((prev) => (prev?.id === upload.id ? null : prev));
             await runPendingImageUpload(upload);
           } catch (err) {
-            setNextEditContent((prev) => replaceFirst(prev, uploadingToken, failedToken));
+            setNextEditContent((prev) => replaceFirst(prev, uploadingToken, failedToken), { origin: 'appEdits' });
             const message = err instanceof Error ? err.message : 'Upload failed';
             showFailureToast(`Image upload failed: ${message}`);
           }
@@ -2101,7 +2111,7 @@ export function App() {
         }
         setEditingBackend('repo');
         setEditTitle(opts.name.replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-        setNextEditContent(opts.decoded);
+        setNextEditContent(opts.decoded, { origin: 'external' });
         setCurrentDocumentSavedContent(opts.decoded);
         setHasUnsavedChanges(false);
         return false;
@@ -2635,7 +2645,7 @@ export function App() {
           }
           if (shouldHydrateContent) {
             const persistedRepoNewContent = localStorage.getItem(contentDraftKey) ?? '';
-            setNextEditContent(persistedRepoNewContent);
+            setNextEditContent(persistedRepoNewContent, { origin: 'external' });
             setHasUnsavedChanges(Boolean(persistedRepoNewContent));
           }
           setViewPhase(null);
@@ -2684,7 +2694,7 @@ export function App() {
             setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || UNSAVED_FILE_LABEL);
           }
           if (shouldHydrateDraftContent) {
-            setNextEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '');
+            setNextEditContent(localStorage.getItem(DRAFT_CONTENT_KEY) ?? '', { origin: 'external' });
           }
           setViewPhase(null);
           if (activeView === 'edit') focusEditorSoon();
@@ -2726,7 +2736,7 @@ export function App() {
               setRepoFiles([]);
               setRepoSidebarFiles([]);
               setEditTitle(persistedNewGistFile?.title || pendingNewGistFile?.title || UNSAVED_FILE_LABEL);
-              setNextEditContent(persistedNewGistFile?.content ?? '');
+              setNextEditContent(persistedNewGistFile?.content ?? '', { origin: 'external' });
               setCurrentDocumentSavedContent('');
               setHasUnsavedChanges(Boolean(persistedNewGistFile?.content));
               setViewPhase(null);
@@ -2792,7 +2802,7 @@ export function App() {
                 setRepoFiles([]);
                 setRepoSidebarFiles([]);
                 setEditTitle(fileNameFromPath(cacheFile.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-                setNextEditContent(full.content);
+                setNextEditContent(full.content, { origin: 'external' });
                 setCurrentDocumentSavedContent(full.content);
                 setHasUnsavedChanges(false);
                 setViewPhase(null);
@@ -2806,7 +2816,7 @@ export function App() {
               setRepoFiles([]);
               setRepoSidebarFiles([]);
               setEditTitle(fileNameFromPath(cacheFile.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-              setNextEditContent(cacheFile.content ?? '');
+              setNextEditContent(cacheFile.content ?? '', { origin: 'external' });
               setCurrentDocumentSavedContent(cacheFile.content ?? '');
               setHasUnsavedChanges(false);
               setViewPhase(null);
@@ -2864,7 +2874,7 @@ export function App() {
             setRepoFiles([]);
             setRepoSidebarFiles([]);
             setEditTitle(fileNameFromPath(file.filename).replace(/\.(?:md(?:own|wn)?|markdown)$/i, ''));
-            setNextEditContent(editableContent);
+            setNextEditContent(editableContent, { origin: 'external' });
             setCurrentDocumentSavedContent(editableContent);
             setHasUnsavedChanges(false);
             setViewPhase(null);
@@ -3928,7 +3938,7 @@ export function App() {
           if (typeof nextContent !== 'string') {
             throw new Error('No staged document content to apply');
           }
-          setNextEditContent(nextContent);
+          setNextEditContent(nextContent, { origin: 'appEdits' });
           setHasUserTypedUnsavedChanges(false);
           setHasUnsavedChanges(true);
           if (!canCommitToGist && !canCommitToRepo) {
@@ -4378,6 +4388,7 @@ export function App() {
         });
         if (streamedAnswer.length === 0) {
           setNextEditContent(documentContent, {
+            origin: 'appEdits',
             selection: { anchor: insertFrom, head: insertFrom },
           });
         }
@@ -4742,7 +4753,7 @@ export function App() {
   const applyDraftContentToEditor = useCallback(
     (content: string) => {
       if (activeView !== 'edit') return;
-      setNextEditContent(content);
+      setNextEditContent(content, { origin: 'appEdits' });
       setHasUserTypedUnsavedChanges(false);
       setHasUnsavedChanges(content !== currentDocumentSavedContent);
     },
@@ -5374,7 +5385,7 @@ export function App() {
     const pendingRestore = parsePendingDraftRestore(routeState);
     if (!pendingRestore || pendingRestore.documentDraftKey !== currentDocumentDraftKey) return;
     if (editContentRef.current !== pendingRestore.content) {
-      setNextEditContent(pendingRestore.content);
+      setNextEditContent(pendingRestore.content, { origin: 'appEdits' });
     }
     setHasUserTypedUnsavedChanges(false);
     setHasUnsavedChanges(pendingRestore.content !== currentDocumentSavedContent);
@@ -5508,7 +5519,7 @@ export function App() {
     setCurrentFileName(null);
     setEditingBackend(null);
     setEditTitle('');
-    setNextEditContent('');
+    setNextEditContent('', { origin: 'appEdits' });
     clearRenderedContent();
     setViewPhase(null);
   }, [
@@ -6984,7 +6995,7 @@ export function App() {
     setLightboxImage(null);
   }, []);
   const onEditContentChange = useCallback(
-    (update: { content: string; origin: 'local'; revision: number }) => {
+    (update: { content: string; origin: 'userEdits'; revision: number }) => {
       if (readerAiEditLocked) return;
       editContentRef.current = update.content;
       pendingGistDraftDirtyRef.current = draftMode && editingBackend === 'gist' && currentGistId === null;

@@ -55,10 +55,10 @@ import {
 
 interface MarkdownEditorProps {
   content: string;
-  contentOrigin?: 'local' | 'external' | 'streaming';
+  contentOrigin?: 'userEdits' | 'external' | 'streaming' | 'appEdits';
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
-  onContentChange: (update: { content: string; origin: 'local'; revision: number }) => void;
+  onContentChange: (update: { content: string; origin: 'userEdits'; revision: number }) => void;
   onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
   onBracePromptStream?: BracePromptStreamFn;
   onPromptListSubmit?: (request: PromptListRequest) => void;
@@ -271,7 +271,7 @@ export function MarkdownEditor({
       const revision = latestLocalRevisionRef.current + 1;
       latestLocalRevisionRef.current = revision;
       hasPendingLocalEditsRef.current = true;
-      onContentChangeRef.current({ content: doc, origin: 'local', revision });
+      onContentChangeRef.current({ content: doc, origin: 'userEdits', revision });
     };
 
     const state = EditorState.create({
@@ -510,13 +510,13 @@ export function MarkdownEditor({
     if (bracePrompt.isActive()) bracePrompt.close();
     const currentDoc = view.state.doc.toString();
     if (content === currentDoc) {
-      if (contentOrigin !== 'local') {
+      if (contentOrigin !== 'userEdits') {
         hasPendingLocalEditsRef.current = false;
       }
       if (pendingScrollRestoreKeyRef.current === scrollStorageKey) pendingScrollRestoreKeyRef.current = null;
       return;
     }
-    if (contentOrigin === 'local' && contentRevision <= latestLocalRevisionRef.current) return;
+    if (contentOrigin === 'userEdits' && contentRevision <= latestLocalRevisionRef.current) return;
     if (contentOrigin === 'streaming') return;
     if (streamingCursorPositionRef.current != null && contentOrigin === 'external') return;
 
