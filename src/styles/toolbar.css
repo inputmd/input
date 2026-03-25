@@ -607,9 +607,16 @@
 
 @media (max-width: 900px) {
   .toolbar-toggle-controls .preview-toggle-btn-model {
-    max-width: min(66px, 20vw);
-    padding: 0 6px;
-    gap: 4px;
+    justify-content: center;
+    min-width: 35px;
+    width: 35px;
+    max-width: 35px;
+    padding: 0 2px;
+    gap: 0;
+  }
+
+  .toolbar-toggle-controls .preview-toggle-btn-model .reader-ai-model-trigger-content {
+    display: none;
   }
 }
 
