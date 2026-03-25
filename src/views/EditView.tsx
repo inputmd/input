@@ -79,6 +79,7 @@ export interface EditViewProps {
   onPreviewImageClick?: (image: HTMLImageElement) => void;
   onEditorPaste?: (event: ClipboardEvent, view: EditorView) => void;
   onEditorReady?: (controller: EditorController | null) => void;
+  onEligibleSelectionChange?: (eligible: boolean) => void;
   saving: boolean;
   canSave: boolean;
   hasUserTypedUnsavedChanges?: boolean;
@@ -122,6 +123,7 @@ export function EditView({
   onPreviewImageClick,
   onEditorPaste,
   onEditorReady,
+  onEligibleSelectionChange,
   saving,
   canSave,
   hasUserTypedUnsavedChanges = false,
@@ -493,6 +495,7 @@ export function EditView({
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={onEditorReady}
+            onEligibleSelectionChange={onEligibleSelectionChange}
             onInlinePromptSubmit={onInlinePromptSubmit}
             onBracePromptStream={onBracePromptStream}
             onPromptListSubmit={onPromptListSubmit}
@@ -512,6 +515,7 @@ export function EditView({
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={onEditorReady}
+            onEligibleSelectionChange={onEligibleSelectionChange}
             readOnly={readOnly || locked || loading}
           />
         )}

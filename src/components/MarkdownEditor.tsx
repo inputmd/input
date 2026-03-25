@@ -70,6 +70,7 @@ interface MarkdownEditorProps {
   placeholder?: string;
   scrollStorageKey?: string | null;
   onEditorReady?: (controller: EditorController | null) => void;
+  onEligibleSelectionChange?: (eligible: boolean) => void;
   class?: string;
 }
 
@@ -89,6 +90,7 @@ export function MarkdownEditor({
   placeholder = 'Write here, or use ~ to prompt...',
   scrollStorageKey = null,
   onEditorReady,
+  onEligibleSelectionChange,
   class: className,
 }: MarkdownEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
@@ -137,8 +139,19 @@ export function MarkdownEditor({
   onPasteRef.current = onPaste;
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
+  const onEligibleSelectionChangeRef = useRef(onEligibleSelectionChange);
+  onEligibleSelectionChangeRef.current = onEligibleSelectionChange;
 
   const latestLocalRevisionRef = useRef(0);
+
+  const reportEligibleSelection = (view: EditorView) => {
+    const selection = view.state.selection.main;
+    const eligible =
+      !selection.empty &&
+      selection.to - selection.from <= 5000 &&
+      view.state.sliceDoc(selection.from, selection.to).trim().length > 0;
+    onEligibleSelectionChangeRef.current?.(eligible);
+  };
 
   const bracePrompt = useBracePromptPanel({
     rootRef,
@@ -255,6 +268,9 @@ export function MarkdownEditor({
     if (!containerRef.current) return;
 
     const onUpdate = (update: ViewUpdate) => {
+      if (update.selectionSet || update.docChanged) {
+        reportEligibleSelection(update.view);
+      }
       if (
         update.docChanged ||
         update.selectionSet ||
@@ -424,6 +440,13 @@ export function MarkdownEditor({
         view.dispatch(transaction);
         return true;
       },
+      getSelectionText: (maxChars) => {
+        const selection = view.state.selection.main;
+        if (selection.empty) return null;
+        const selected = view.state.sliceDoc(selection.from, selection.to);
+        if (typeof maxChars === 'number' && selected.length > maxChars) return null;
+        return selected;
+      },
       startStreamingCursorTracking: (position) => {
         const clampedPosition = clampPosition(view, position);
         streamingCursorPositionRef.current = clampedPosition;
@@ -446,6 +469,7 @@ export function MarkdownEditor({
       },
     };
     onEditorReadyRef.current?.(editorControllerRef.current);
+    reportEligibleSelection(view);
 
     restoreScrollPositionRef.current = () => {
       if (streamingCursorPositionRef.current != null) return;
@@ -494,6 +518,7 @@ export function MarkdownEditor({
       streamingCursorPositionRef.current = null;
       streamingCursorFollowingRef.current = false;
       ignoreNextStreamingScrollEventRef.current = false;
+      onEligibleSelectionChangeRef.current?.(false);
       onEditorReadyRef.current?.(null);
       view.destroy();
       viewRef.current = null;

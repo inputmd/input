@@ -44,6 +44,7 @@ interface ReaderAiPanelProps {
   onClear: () => void;
   repoModeAvailable: boolean;
   repoModeEnabled: boolean;
+  selectionModeEnabled?: boolean;
   repoModeLoading: boolean;
   repoModeFileCount: number;
   repoModeDisabledReason: string | null;
@@ -130,6 +131,7 @@ export function ReaderAiPanel({
   onClear,
   repoModeAvailable,
   repoModeEnabled,
+  selectionModeEnabled = false,
   repoModeLoading,
   repoModeFileCount,
   repoModeDisabledReason,
@@ -166,7 +168,11 @@ export function ReaderAiPanel({
       break;
     }
   }
-  const composerPlaceholder = repoModeEnabled ? 'Ask about this project...' : 'Ask about this document...';
+  const composerPlaceholder = repoModeEnabled
+    ? 'Ask about this project...'
+    : selectionModeEnabled
+      ? 'Ask about this selection...'
+      : 'Ask about this document...';
   const isAssistantThinking =
     sending &&
     messageCount > 0 &&
@@ -439,7 +445,9 @@ export function ReaderAiPanel({
                   type="button"
                   class="reader-ai-summarize-btn"
                   disabled={composerInputDisabled}
-                  onClick={() => void onSend('Summarize this document.')}
+                  onClick={() =>
+                    void onSend(selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.')
+                  }
                 >
                   Summarize
                 </button>
@@ -447,7 +455,13 @@ export function ReaderAiPanel({
                   type="button"
                   class="reader-ai-summarize-btn"
                   disabled={composerInputDisabled}
-                  onClick={() => void onSend('Identify any questions raised by this document.')}
+                  onClick={() =>
+                    void onSend(
+                      selectionModeEnabled
+                        ? 'Identify any questions raised by this selection.'
+                        : 'Identify any questions raised by this document.',
+                    )
+                  }
                 >
                   Identify questions
                 </button>

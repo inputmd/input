@@ -15,6 +15,7 @@ export interface ExternalEditorChange {
 
 export interface EditorController {
   applyExternalChange: (change: ExternalEditorChange) => boolean;
+  getSelectionText: (maxChars?: number) => string | null;
   startStreamingCursorTracking: (position: number) => void;
   updateStreamingCursorTracking: (position: number) => void;
   stopStreamingCursorTracking: () => void;

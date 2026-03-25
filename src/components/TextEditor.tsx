@@ -45,6 +45,7 @@ interface TextEditorProps {
   placeholder?: string;
   scrollStorageKey?: string | null;
   onEditorReady?: (controller: EditorController | null) => void;
+  onEligibleSelectionChange?: (eligible: boolean) => void;
   class?: string;
 }
 
@@ -59,6 +60,7 @@ export function TextEditor({
   placeholder = 'Write your text here...',
   scrollStorageKey = null,
   onEditorReady,
+  onEligibleSelectionChange,
   class: className,
 }: TextEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
@@ -94,8 +96,19 @@ export function TextEditor({
   onContentChangeRef.current = onContentChange;
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
+  const onEligibleSelectionChangeRef = useRef(onEligibleSelectionChange);
+  onEligibleSelectionChangeRef.current = onEligibleSelectionChange;
 
   const latestLocalRevisionRef = useRef(0);
+
+  const reportEligibleSelection = (view: EditorView) => {
+    const selection = view.state.selection.main;
+    const eligible =
+      !selection.empty &&
+      selection.to - selection.from <= 5000 &&
+      view.state.sliceDoc(selection.from, selection.to).trim().length > 0;
+    onEligibleSelectionChangeRef.current?.(eligible);
+  };
 
   const clampPosition = (view: EditorView, position: number): number => {
     return Math.max(0, Math.min(position, view.state.doc.length));
@@ -203,6 +216,9 @@ export function TextEditor({
     if (!containerRef.current) return;
 
     const onUpdate = (update: ViewUpdate) => {
+      if (update.selectionSet || update.docChanged) {
+        reportEligibleSelection(update.view);
+      }
       if (!update.docChanged) return;
       if (update.transactions.every((tr) => isExternalSyncTransaction(tr))) return;
       const doc = update.state.doc.toString();
@@ -281,6 +297,13 @@ export function TextEditor({
         view.dispatch(transaction);
         return true;
       },
+      getSelectionText: (maxChars) => {
+        const selection = view.state.selection.main;
+        if (selection.empty) return null;
+        const selected = view.state.sliceDoc(selection.from, selection.to);
+        if (typeof maxChars === 'number' && selected.length > maxChars) return null;
+        return selected;
+      },
       startStreamingCursorTracking: (position) => {
         const clampedPosition = clampPosition(view, position);
         streamingCursorPositionRef.current = clampedPosition;
@@ -303,6 +326,7 @@ export function TextEditor({
       },
     };
     onEditorReadyRef.current?.(editorControllerRef.current);
+    reportEligibleSelection(view);
 
     restoreScrollPositionRef.current = () => {
       if (streamingCursorPositionRef.current != null) {
@@ -354,6 +378,7 @@ export function TextEditor({
       streamingCursorPositionRef.current = null;
       streamingCursorFollowingRef.current = false;
       ignoreNextStreamingScrollEventRef.current = false;
+      onEligibleSelectionChangeRef.current?.(false);
       onEditorReadyRef.current?.(null);
       view.destroy();
       viewRef.current = null;

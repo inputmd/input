@@ -10,6 +10,7 @@ const READER_AI_HISTORY_MAX_APPLIED_CHANGES = 100;
 export interface ReaderAiHistoryEntry {
   messages: ReaderAiMessage[];
   summary?: string;
+  scope?: { kind: 'document' } | { kind: 'selection'; source: string };
   toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>;
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
   stagedChangesInvalid?: boolean;
@@ -136,6 +137,7 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
         const entry = value as {
           messages?: unknown;
           summary?: unknown;
+          scope?: unknown;
           toolLog?: unknown;
           stagedChanges?: unknown;
           stagedFileContents?: unknown;
@@ -145,6 +147,15 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
           messages: normalizeReaderAiMessages(entry.messages),
         };
         if (typeof entry.summary === 'string' && entry.summary) parsed.summary = entry.summary;
+        if (entry.scope && typeof entry.scope === 'object') {
+          const kind = (entry.scope as { kind?: unknown }).kind;
+          const source = (entry.scope as { source?: unknown }).source;
+          if (kind === 'document') {
+            parsed.scope = { kind: 'document' };
+          } else if (kind === 'selection' && typeof source === 'string' && source.length > 0) {
+            parsed.scope = { kind: 'selection', source };
+          }
+        }
         if (Array.isArray(entry.toolLog) && entry.toolLog.length > 0)
           parsed.toolLog = entry.toolLog as ReaderAiHistoryEntry['toolLog'];
         const normalizedStagedChanges = normalizePersistedStagedChanges(entry.stagedChanges);
@@ -186,6 +197,7 @@ export function persistReaderAiMessagesToHistory(
   historyKey: string,
   messages: ReaderAiMessage[],
   summary?: string,
+  scope?: ReaderAiHistoryEntry['scope'],
   toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>,
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>,
   stagedFileContents?: Record<string, string>,
@@ -201,6 +213,7 @@ export function persistReaderAiMessagesToHistory(
   }
   const entry: ReaderAiHistoryEntry = { messages: normalizedMessages };
   if (summary) entry.summary = summary;
+  if (scope) entry.scope = scope;
   if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;
   if (stagedChanges && stagedChanges.length > 0) entry.stagedChanges = stagedChanges;
   if (stagedFileContents && Object.keys(stagedFileContents).length > 0) entry.stagedFileContents = stagedFileContents;

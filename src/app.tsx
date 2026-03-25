@@ -373,6 +373,10 @@ function trimReaderAiSource(source: string): string {
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
 }
 
+const READER_AI_SELECTION_MAX_CHARS = 5000;
+
+type ReaderAiConversationScope = { kind: 'document' } | { kind: 'selection'; source: string };
+
 function stripLeadingFrontMatter(source: string): string {
   const normalized = source.replace(/^\uFEFF/, '').replace(/^(?:[ \t]*\r?\n)+/, '');
   const frontMatter = parseMarkdownFrontMatterBlock(normalized);
@@ -728,6 +732,8 @@ export function App() {
   });
   const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
   const [readerAiSummary, setReaderAiSummary] = useState<string>('');
+  const [readerAiConversationScope, setReaderAiConversationScope] = useState<ReaderAiConversationScope | null>(null);
+  const [readerAiHasEligibleSelection, setReaderAiHasEligibleSelection] = useState(false);
   const [readerAiSending, setReaderAiSending] = useState(false);
   const [contentSourceViewVisible, setContentSourceViewVisible] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
@@ -3354,6 +3360,8 @@ export function App() {
         const loaded = loadReaderAiEntryFromHistory(readerAiHistoryDocumentKey);
         setReaderAiMessages(loaded.messages);
         setReaderAiSummary(loaded.summary ?? '');
+        setReaderAiConversationScope(loaded.scope ?? null);
+        setReaderAiHasEligibleSelection(false);
         setReaderAiToolLog(loaded.toolLog ?? []);
         setReaderAiStagedChanges(loaded.stagedChanges ?? []);
         setReaderAiStagedChangesInvalid(loaded.stagedChangesInvalid === true);
@@ -3376,6 +3384,8 @@ export function App() {
     setReaderAiStagedFileContents({});
     setReaderAiMessages([]);
     setReaderAiSummary('');
+    setReaderAiConversationScope(null);
+    setReaderAiHasEligibleSelection(false);
     setReaderAiError(null);
   }, [readerAiHistoryEligible, readerAiHistoryDocumentKey]);
 
@@ -3389,6 +3399,7 @@ export function App() {
       readerAiHistoryDocumentKey,
       readerAiMessages,
       readerAiSummary || undefined,
+      readerAiConversationScope ?? undefined,
       readerAiToolLog.length > 0 ? readerAiToolLog : undefined,
       readerAiStagedChanges.length > 0 ? readerAiStagedChanges : undefined,
       Object.keys(readerAiStagedFileContents).length > 0 ? readerAiStagedFileContents : undefined,
@@ -3398,6 +3409,7 @@ export function App() {
     readerAiHistoryEligible,
     readerAiMessages,
     readerAiSummary,
+    readerAiConversationScope,
     readerAiHistoryDocumentKey,
     readerAiToolLog,
     readerAiStagedChanges,
@@ -3615,14 +3627,32 @@ export function App() {
       const model = readerAiSelectedModel;
       // Read editContent from a ref to avoid recreating this callback on every keystroke.
       const currentEditContent = editContentRef.current;
-      const source = trimReaderAiSource(
+      const documentSource = trimReaderAiSource(
         stripCriticMarkupComments(activeView === 'edit' ? currentEditContent : readerAiSource),
       );
       if (!model) return false;
       const assistantEdited = options?.edited === true;
+      const nextConversationScope =
+        readerAiConversationScope ??
+        (() => {
+          if (readerAiRepoMode || activeView !== 'edit') return { kind: 'document' } as ReaderAiConversationScope;
+          const selection = editViewControllerRef.current?.getSelectionText(READER_AI_SELECTION_MAX_CHARS);
+          if (!selection) return { kind: 'document' } as ReaderAiConversationScope;
+          const sanitizedSelection = stripCriticMarkupComments(selection);
+          if (!sanitizedSelection.trim()) return { kind: 'document' } as ReaderAiConversationScope;
+          return {
+            kind: 'selection',
+            source: sanitizedSelection,
+          } satisfies ReaderAiConversationScope;
+        })();
+      const source =
+        !readerAiRepoMode && nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
       readerAiAbortRef.current?.abort();
       const controller = new AbortController();
       readerAiAbortRef.current = controller;
+      if (readerAiConversationScope === null) {
+        setReaderAiConversationScope(nextConversationScope);
+      }
       setReaderAiMessages([
         ...baseMessages,
         assistantEdited ? { role: 'assistant', content: '', edited: true } : { role: 'assistant', content: '' },
@@ -3925,6 +3955,7 @@ export function App() {
       readerAiSelectedModel,
       readerAiSource,
       readerAiSummary,
+      readerAiConversationScope,
       readerAiRepoMode,
       readerAiProjectId,
       currentRepoDocPath,
@@ -3973,6 +4004,7 @@ export function App() {
     if (readerAiHistoryDocumentKey) clearReaderAiMessagesFromHistory(readerAiHistoryDocumentKey);
     setReaderAiMessages([]);
     setReaderAiSummary('');
+    setReaderAiConversationScope(null);
 
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
@@ -6831,6 +6863,7 @@ export function App() {
             onEditorReady={(controller) => {
               editViewControllerRef.current = controller;
             }}
+            onEligibleSelectionChange={setReaderAiHasEligibleSelection}
             resolvePreviewImageSrc={(src) =>
               resolveMarkdownImageSrc(src, editingBackend === 'repo' ? currentRepoDocPath : null)
             }
@@ -7507,6 +7540,11 @@ export function App() {
               onClear={onReaderAiClear}
               repoModeAvailable={repoModeAvailable}
               repoModeEnabled={readerAiRepoMode}
+              selectionModeEnabled={
+                !readerAiRepoMode &&
+                (readerAiConversationScope?.kind === 'selection' ||
+                  (readerAiConversationScope === null && readerAiHasEligibleSelection))
+              }
               repoModeLoading={readerAiRepoModeLoading}
               repoModeFileCount={repoModeFileCount}
               repoModeDisabledReason={repoModeToggleDisabledReason}
