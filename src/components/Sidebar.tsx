@@ -453,7 +453,7 @@ export function Sidebar({
 
   useEffect(() => {
     if (!renamingTarget) return;
-    setRenameValue(renamingTarget.kind === 'file' ? fileNameFromPath(renamingTarget.path) : renamingTarget.path);
+    setRenameValue(fileNameFromPath(renamingTarget.path));
     renameInputRef.current?.focus();
   }, [renamingTarget]);
 
