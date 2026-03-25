@@ -1,9 +1,105 @@
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-LightItalic.otf") format("opentype");
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-RegularItalic.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-MediumItalic.otf") format("opentype");
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-Semibold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-SemiboldItalic.otf") format("opentype");
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-BoldItalic.otf") format("opentype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-Heavy.otf") format("opentype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono Web";
+  src: url("/SFMono-HeavyItalic.otf") format("opentype");
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   --font-ui:
     "Schibsted Grotesk", "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
     sans-serif;
   --font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-mono: "SF Mono", "Source Code Pro", Monaco, Menlo, Consolas, "Courier New", monospace;
+  --font-mono: "SF Mono Web", "SF Mono", "Fira Mono", Monaco, Menlo, Consolas, "Courier New", monospace;
   --bg: #0d1117;
   --text: #e6edf3;
   --text-secondary: #8b949e;
@@ -26,7 +122,7 @@
   --danger-bg: #490202;
   --danger-border: #f85149;
   --sidebar-renaming-row-bg: #10151b;
-  --editor-font-size: 14.5px;
+  --editor-font-size: 15px;
   --reader-markdown-font-size: 15.5px;
   --reader-preformatted-font-size: 14px;
   --reader-metadata-font-size: 0.94em;
@@ -86,7 +182,7 @@
   --danger-bg: #ffebe9;
   --danger-border: #cf222e;
   --sidebar-renaming-row-bg: #e2e5eb;
-  --editor-font-size: 14.5px;
+  --editor-font-size: 15px;
   --reader-markdown-font-size: 15.5px;
   --reader-preformatted-font-size: 14px;
   --cyan-mix: color-mix(in srgb, var(--text) 60%, var(--ansi-cyan));
