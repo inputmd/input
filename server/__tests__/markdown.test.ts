@@ -230,6 +230,13 @@ test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt
   );
 });
 
+test('parseMarkdownToHtml does not render a conversation header for a single prompt-list message', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('~ Ask about **Solomonoff induction**'));
+
+  t.false(html.includes('prompt-list-conversation'));
+  t.false(html.includes('Conversation with 1 message'));
+});
+
 test('parseMarkdownToHtml keeps liquid-style template tag lines out of prompt lists', (t) => {
   const html = withDom(() => parseMarkdownToHtml('{% TODO %}'));
 

@@ -305,6 +305,9 @@ marked.use({
         );
         const itemsHtml = renderPromptListTree(promptListTree);
         const itemCount = promptListToken.items.length;
+        if (itemCount <= 1) {
+          return `<ul class="prompt-list">${itemsHtml}</ul>`;
+        }
         const caption = `Conversation with ${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
         const firstQuestion =
           promptListToken.items.find((item) => item.kind === 'question')?.sourceText ??
