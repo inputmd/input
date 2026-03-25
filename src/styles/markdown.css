@@ -540,15 +540,6 @@
   color: var(--missing-link-color);
 }
 
-.rendered-markdown .bracketed-text,
-.rendered-markdown .brace-prompt,
-.markdown-link-preview-body .brace-prompt {
-  text-decoration-line: underline;
-  text-decoration-style: dotted;
-  text-decoration-color: var(--bracketed-text-underline-color);
-  text-underline-offset: 0.16em;
-}
-
 .markdown-link-preview-popover {
   position: fixed;
   z-index: 60;
