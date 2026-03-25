@@ -331,13 +331,21 @@
 .toolbar-save-status {
   display: inline-flex;
   align-items: center;
-  min-height: 35px;
-  padding: 0 10px;
+  min-height: 31px;
+  padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--border) 72%, var(--text-secondary) 28%);
   border-radius: 999px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
+}
+
+.toolbar-save-status--plain {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  margin-right: 6px;
 }
 
 .toolbar-save-status--warning {

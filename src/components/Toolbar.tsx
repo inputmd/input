@@ -133,6 +133,7 @@ interface ToolbarProps {
   onSave: () => void;
   onSaveAndExit: () => void;
   saveStatusText?: string | null;
+  saveStatusPlain?: boolean;
   saveStatusTone?: 'pending' | 'warning';
   onSignInWithGitHub: (options?: { includeGists?: boolean }) => void;
   navigate: (route: string, options?: { replace?: boolean; state?: unknown }) => void;
@@ -212,6 +213,7 @@ export function Toolbar({
   onSave,
   onSaveAndExit,
   saveStatusText = null,
+  saveStatusPlain = false,
   saveStatusTone = 'pending',
   onSignInWithGitHub,
   navigate,
@@ -751,7 +753,7 @@ export function Toolbar({
         <div class="action-buttons">
           {saveStatusText ? (
             <div
-              class={`toolbar-save-status${saveStatusTone === 'warning' ? ' toolbar-save-status--warning' : ''}`}
+              class={`toolbar-save-status${saveStatusTone === 'warning' ? ' toolbar-save-status--warning' : ''}${saveStatusPlain ? ' toolbar-save-status--plain' : ''}`}
               role="status"
               aria-live="polite"
             >

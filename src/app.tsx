@@ -181,6 +181,7 @@ const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
 const DEFAULT_SCRATCH_FILENAME = 'untitled.md';
 const UNSAVED_FILE_LABEL = 'Unsaved file';
+const UNSAVED_STATUS_TEXT = 'Unsaved';
 const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft_v2';
 const GIST_NEW_FILE_DRAFT_KEY_PREFIX = 'gist_new_file_draft_v1';
 const DEFAULT_SIDEBAR_WIDTH_PX = 220;
@@ -1073,7 +1074,7 @@ export function App() {
   }, [clearMarkdownLinkPreviewCache]);
 
   const saveStatusText = useMemo(() => {
-    if (isScratchDocument) return UNSAVED_FILE_LABEL;
+    if (isScratchDocument) return UNSAVED_STATUS_TEXT;
     if (!shouldPreserveVerifiedContent || !postSaveVerification) return null;
     return postSaveVerification.status === 'verifying'
       ? 'Verifying saved version...'
@@ -7233,6 +7234,7 @@ export function App() {
         onSave={onSave}
         onSaveAndExit={onSaveAndExit}
         saveStatusText={saveStatusText}
+        saveStatusPlain={isScratchDocument}
         saveStatusTone={saveStatusTone}
         onSignInWithGitHub={handleSignInWithGitHub}
       />
