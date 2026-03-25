@@ -147,6 +147,7 @@ import {
   persistReaderAiMessagesToHistory,
 } from './reader_ai_history';
 import { matchRoute, type Route, routePath } from './routing';
+import { clearStoredScrollPositions } from './scroll_positions';
 import { isSubdomainMode } from './subdomain';
 import {
   decodeBase64ToBytes,
@@ -6898,6 +6899,25 @@ export function App() {
     if (route.name === 'sharetoken') return `share:${route.params.token}`;
     return 'none';
   }, [currentGistId, currentRouteRepoRef, publicRepoRef, repoAccessMode, route, selectedRepo]);
+  const scrollWorkspaceKey = useMemo(() => {
+    if (currentGistId) return `gist:${currentGistId}`;
+    if (repoAccessMode === 'installed' && selectedRepo) return `repo:${selectedRepo.toLowerCase()}`;
+    if (repoAccessMode === 'shared' && currentRouteRepoRef)
+      return `shared:${currentRouteRepoRef.owner.toLowerCase()}/${currentRouteRepoRef.repo.toLowerCase()}`;
+    if (repoAccessMode === 'public' && publicRepoRef)
+      return `public:${publicRepoRef.owner.toLowerCase()}/${publicRepoRef.repo.toLowerCase()}`;
+    if (route.name === 'sharefile')
+      return `share:${route.params.owner.toLowerCase()}/${route.params.repo.toLowerCase()}`;
+    return null;
+  }, [currentGistId, currentRouteRepoRef, publicRepoRef, repoAccessMode, route, selectedRepo]);
+  const previousScrollWorkspaceKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const previousWorkspaceKey = previousScrollWorkspaceKeyRef.current;
+    previousScrollWorkspaceKeyRef.current = scrollWorkspaceKey;
+    if (!previousWorkspaceKey || !scrollWorkspaceKey || previousWorkspaceKey === scrollWorkspaceKey) return;
+    clearStoredScrollPositions();
+  }, [scrollWorkspaceKey]);
 
   // Keep the sidebar visible during intra-view loading. `activeView` can become "loading"
   // while fetching file contents, which would otherwise unmount the sidebar briefly.

@@ -48,3 +48,9 @@ export function setStoredScrollPosition(key: string, value: number): void {
   scrollPositions.set(key, Math.max(0, value));
   persistScrollPositions();
 }
+
+export function clearStoredScrollPositions(): void {
+  loadScrollPositions();
+  scrollPositions.clear();
+  persistScrollPositions();
+}
