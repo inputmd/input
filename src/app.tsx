@@ -2403,6 +2403,9 @@ export function App() {
           sha: shared.sha,
         };
         setRepoAccessMode('shared');
+        setSelectedRepo(null);
+        setSelectedRepoPrivate(null);
+        setSelectedRepoInstallationId(null);
         setPublicRepoRef(null);
         setSharedRepoInstallationId(shared.installationId);
         setRepoFiles([sharedFile]);
@@ -2481,6 +2484,9 @@ export function App() {
           sha: shared.sha,
         };
         setRepoAccessMode(null);
+        setSelectedRepo(null);
+        setSelectedRepoPrivate(null);
+        setSelectedRepoInstallationId(null);
         setPublicRepoRef(null);
         setSharedRepoInstallationId(null);
         setRepoFiles([sharedFile]);
@@ -7151,7 +7157,7 @@ export function App() {
   const showHeaderEdit =
     activeView === 'content' &&
     isEditableTextFilePath(currentFileName) &&
-    (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode !== 'public' && repoAccessMode !== null));
+    (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showHeaderSourceToggle =
     activeView === 'content' &&
     repoAccessMode === 'public' &&
