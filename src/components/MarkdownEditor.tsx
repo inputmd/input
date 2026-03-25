@@ -264,9 +264,7 @@ export function MarkdownEditor({
         bracePrompt.syncValidity(update.view);
       }
       if (!update.docChanged) return;
-      for (const tr of update.transactions) {
-        if (isExternalSyncTransaction(tr)) return;
-      }
+      if (update.transactions.every((tr) => isExternalSyncTransaction(tr))) return;
       const doc = update.state.doc.toString();
       const revision = latestLocalRevisionRef.current + 1;
       latestLocalRevisionRef.current = revision;
@@ -527,6 +525,14 @@ export function MarkdownEditor({
         latestLocalRevision: latestLocalRevisionRef.current,
       });
       return;
+    }
+
+    if (contentOrigin === 'appEdits' && hasPendingLocalEditsRef.current) {
+      console.warn('appEdits overwriting local edits.', {
+        scrollStorageKey,
+        contentRevision,
+        latestLocalRevision: latestLocalRevisionRef.current,
+      });
     }
 
     const transaction = buildExternalContentSyncTransaction(view.state, content, contentSelection);

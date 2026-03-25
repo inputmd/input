@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseMarkdownDocument } from '../markdown';
 import type { WikiLinkResolver } from '../wiki_links';
 import { EditView, type EditViewProps } from './EditView';
@@ -72,6 +72,8 @@ export function EditSessionView({
     contentSelection,
   );
   const [deferredLiveContent, setDeferredLiveContent] = useState(content);
+  const liveContentRef = useRef(liveContent);
+  liveContentRef.current = liveContent;
 
   useEffect(() => {
     setLiveContent((currentContent) => {
@@ -81,13 +83,13 @@ export function EditSessionView({
     });
     setLiveContentOrigin((currentOrigin) => {
       if (contentRevision < liveContentRevision) return currentOrigin;
-      if (contentRevision === liveContentRevision && content !== liveContent) return currentOrigin;
+      if (contentRevision === liveContentRevision && content !== liveContentRef.current) return currentOrigin;
       return contentOrigin;
     });
     setLiveContentRevision((currentRevision) => Math.max(currentRevision, contentRevision));
     setLiveContentSelection((currentSelection) => {
       if (contentRevision < liveContentRevision) return currentSelection;
-      if (contentRevision === liveContentRevision && content !== liveContent) return currentSelection;
+      if (contentRevision === liveContentRevision && content !== liveContentRef.current) return currentSelection;
       return contentSelection;
     });
   }, [content, contentOrigin, contentRevision, contentSelection, liveContent, liveContentRevision]);
