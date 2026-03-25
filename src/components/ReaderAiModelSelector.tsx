@@ -109,7 +109,7 @@ export function ReaderAiModelSelector({
             <DropdownMenu.RadioGroup value={selectedModel} onValueChange={onSelectModel}>
               {paidModels.length > 0 ? (
                 <>
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading reader-ai-model-menu-heading--plain" disabled>
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Recommended models
                   </DropdownMenu.Item>
                   {paidModels.map((model) => (
@@ -125,7 +125,7 @@ export function ReaderAiModelSelector({
                   {paidModels.length > 0 || localModels.length > 0 ? (
                     <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
                   ) : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading reader-ai-model-menu-heading--plain" disabled>
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Log in for more models
                   </DropdownMenu.Item>
                   <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
@@ -137,7 +137,7 @@ export function ReaderAiModelSelector({
                   {paidModels.length > 0 || localModels.length > 0 ? (
                     <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
                   ) : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading reader-ai-model-menu-heading--plain" disabled>
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Recommended free models
                   </DropdownMenu.Item>
                   {featuredModels.map((model) => (
@@ -163,8 +163,11 @@ export function ReaderAiModelSelector({
                       </DropdownMenu.RadioItem>
                     ))
                   ) : (
-                    <DropdownMenu.Item class="reader-ai-model-menu-item" disabled>
-                      No local Codex models available
+                    <DropdownMenu.Item
+                      class="reader-ai-model-menu-item reader-ai-model-menu-item--unavailable"
+                      disabled
+                    >
+                      Codex app-server not found
                     </DropdownMenu.Item>
                   )}
                 </>
@@ -175,7 +178,7 @@ export function ReaderAiModelSelector({
                   {paidModels.length > 0 || featuredModels.length > 0 || localModels.length > 0 ? (
                     <DropdownMenu.Separator class="reader-ai-model-menu-separator" />
                   ) : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading reader-ai-model-menu-heading--plain" disabled>
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Local Codex
                   </DropdownMenu.Item>
                   <DropdownMenu.Item class="reader-ai-model-menu-item" onSelect={onEnableLocalCodex}>
@@ -187,7 +190,7 @@ export function ReaderAiModelSelector({
               {unverifiedModels.length > 0 ? (
                 <>
                   {hasRecommendedSection ? <DropdownMenu.Separator class="reader-ai-model-menu-separator" /> : null}
-                  <DropdownMenu.Item class="reader-ai-model-menu-heading reader-ai-model-menu-heading--plain" disabled>
+                  <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Unverified free models
                   </DropdownMenu.Item>
                   {unverifiedModels.map((model) => (
@@ -209,8 +212,8 @@ export function ReaderAiModelSelector({
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Via local Codex server
                   </DropdownMenu.Item>
-                  <DropdownMenu.Item class="reader-ai-model-menu-item" disabled>
-                    No local Codex models available
+                  <DropdownMenu.Item class="reader-ai-model-menu-item reader-ai-model-menu-item--unavailable" disabled>
+                    Codex app-server not found
                   </DropdownMenu.Item>
                 </>
               ) : null}
