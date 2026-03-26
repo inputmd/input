@@ -37,7 +37,7 @@ You can ask AI to help you complete sentences or paragraphs. Give it instruction
 There are opportunities, but also risks, of artificial intelligence. {Add three examples}
 ```
 
-*Middle-out completion* includes the rest of the paragraph as context. To trigger middle-out completion, press Shift-Tab:
+Full-context completion includes the rest of the paragraph following the braces. To use this style of completion, press Shift-Tab:
 
 ```
 First, gather eggs, milk, and butter. {Now what?} Now you have a cake!
