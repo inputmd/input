@@ -62,8 +62,14 @@ included in further lines below the current one.
 ```
 
 You can change the AI used to respond to prompts by selecting it from the
-sidebar. By default, we have selected a few of the best free models on
-OpenRouter (e.g. NVIDIA Nemotron Super 120B, a Haiku-level model).
+sidebar.
+
+## Models
+
+By default, we have curated a few of the best free models on
+OpenRouter (e.g. NVIDIA Nemotron Super, a Haiku-level model).
+
+If you log in, you can also access a short list of paid models using a demo OpenRouter key on our server.
 
 ## Custom CSS and Fonts
 
