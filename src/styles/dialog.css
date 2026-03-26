@@ -359,6 +359,7 @@
   color: var(--text);
   font-size: 14px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  cursor: pointer;
 }
 
 .toast-root--success {

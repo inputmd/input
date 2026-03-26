@@ -48,6 +48,9 @@ function ToastHost({
           key={t.id}
           class={`toast-root${t.variant === 'success' ? ' toast-root--success' : ''}${t.variant === 'failure' ? ' toast-root--failure' : ''}${t.variant === 'loading' ? ' toast-root--loading' : ''}`}
           duration={t.duration}
+          onClick={() => {
+            removeToast(t.id);
+          }}
           onOpenChange={(open: boolean) => {
             if (!open) removeToast(t.id);
           }}
