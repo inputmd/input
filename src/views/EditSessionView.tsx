@@ -109,7 +109,7 @@ export function EditSessionView({
           resolveWikiLinkMeta: previewWikiLinkResolver,
         },
       )
-    : { html: '', customCss: null, customCssScope: null, frontMatterError: null, cssWarning: null };
+    : { html: '', customCss: null, customCssScope: null, frontMatterError: null, cssWarning: null, syncBlocks: [] };
 
   const handleContentChange = (update: { content: string; origin: 'userEdits'; revision: number }) => {
     setLiveContent(update.content);
@@ -132,6 +132,7 @@ export function EditSessionView({
       previewCustomCssScope={previewDocument.customCssScope}
       previewFrontMatterError={previewDocument.frontMatterError}
       previewCssWarning={previewDocument.cssWarning}
+      previewSyncBlocks={previewDocument.syncBlocks}
       onContentChange={handleContentChange}
     />
   );

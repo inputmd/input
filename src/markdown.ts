@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import { nameToEmoji } from 'gemoji';
 import type { Token, Tokens } from 'marked';
-import { marked, type RendererThis, Tokenizer, type TokenizerThis } from 'marked';
+import { marked, Renderer, type RendererThis, Tokenizer, type TokenizerThis } from 'marked';
 import { parseCriticMarkupAt } from './criticmarkup.ts';
 import { parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
@@ -51,6 +51,17 @@ interface CriticMarkupToken extends Tokens.Generic {
   oldTokens?: Token[];
   newTokens?: Token[];
   text?: string;
+}
+
+export interface MarkdownSyncBlock {
+  id: string;
+  from: number;
+  to: number;
+  type: string;
+}
+
+interface MarkdownSyncToken extends Tokens.Generic {
+  syncId?: string;
 }
 
 interface PromptListAwareLexerState {
@@ -105,6 +116,10 @@ function normalizeWikiTargetPath(raw: string): string {
 
 function escapeHtmlAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function markdownSyncAttr(token: { syncId?: string } | null | undefined): string {
+  return token?.syncId ? ` data-sync-id="${escapeHtmlAttr(token.syncId)}"` : '';
 }
 
 function parseEmojiShortcode(raw: string): string | null {
@@ -240,7 +255,7 @@ marked.use({
         };
       },
       renderer(token) {
-        return `<p>${escapeHtmlAttr((token as Tokens.Generic & { text?: string }).text ?? '')}</p>\n`;
+        return `<p${markdownSyncAttr(token as MarkdownSyncToken)}>${escapeHtmlAttr((token as Tokens.Generic & { text?: string }).text ?? '')}</p>\n`;
       },
     },
     {
@@ -322,7 +337,7 @@ marked.use({
         const duplicateIndex = promptListConversationDuplicateCounts.get(promptHash) ?? 0;
         promptListConversationDuplicateCounts.set(promptHash, duplicateIndex + 1);
         const promptListId = `${promptHash}-${duplicateIndex}`;
-        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}"><div class="prompt-list-header"><div class="prompt-list-caption" role="button" tabindex="0" aria-expanded="true">${caption}</div></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
+        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}"${markdownSyncAttr(promptListToken as PromptListToken & { syncId?: string })}><div class="prompt-list-header"><div class="prompt-list-caption" role="button" tabindex="0" aria-expanded="true">${caption}</div></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
       },
     },
     {
@@ -585,11 +600,13 @@ export interface ParsedMarkdownDocument {
   customCssScope: string | null;
   frontMatterError: string | null;
   cssWarning: string | null;
+  syncBlocks: MarkdownSyncBlock[];
 }
 
 interface ExtractedFootnotes {
   markdown: string;
   definitions: Map<string, string>;
+  outputToOriginal: number[];
 }
 
 interface FootnoteReferences {
@@ -598,16 +615,31 @@ interface FootnoteReferences {
 }
 
 function extractFootnotes(markdown: string): ExtractedFootnotes {
-  const lines = markdown.split(/\r?\n/);
+  const rawLines = markdown.split(/\r?\n/);
+  let lineCursor = 0;
+  const lines = rawLines.map((text, index) => {
+    const lineStart = lineCursor;
+    const lineEnd = lineStart + text.length;
+    const newlineLength =
+      index < rawLines.length - 1 ? (markdown.startsWith('\r\n', lineEnd) ? 2 : markdown[lineEnd] ? 1 : 0) : 0;
+    lineCursor = lineEnd + newlineLength;
+    return {
+      text,
+      lineStart,
+      lineEnd,
+      nextLineStart: lineCursor,
+    };
+  });
   const definitions = new Map<string, string>();
-  const body: string[] = [];
+  const body: typeof lines = [];
+  const outputToOriginal: number[] = [0];
 
   let inFence = false;
   let fenceMarker = '';
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const fenceMatch = /^ {0,3}(```+|~~~+)/.exec(line);
+    const fenceMatch = /^ {0,3}(```+|~~~+)/.exec(line.text);
     if (fenceMatch) {
       const marker = fenceMatch[1];
       const markerChar = marker[0];
@@ -627,7 +659,7 @@ function extractFootnotes(markdown: string): ExtractedFootnotes {
       continue;
     }
 
-    const definitionMatch = /^ {0,3}\[\^([^\]\s]+)\]:[ \t]?(.*)$/.exec(line);
+    const definitionMatch = /^ {0,3}\[\^([^\]\s]+)\]:[ \t]?(.*)$/.exec(line.text);
     if (!definitionMatch) {
       body.push(line);
       continue;
@@ -639,13 +671,13 @@ function extractFootnotes(markdown: string): ExtractedFootnotes {
     let lookahead = index + 1;
     while (lookahead < lines.length) {
       const continuation = lines[lookahead];
-      if (/^\s*$/.test(continuation)) {
+      if (/^\s*$/.test(continuation.text)) {
         contentLines.push('');
         lookahead += 1;
         continue;
       }
-      if (/^(?: {2,}|\t)/.test(continuation)) {
-        contentLines.push(continuation.replace(/^(?: {1,4}|\t)/, ''));
+      if (/^(?: {2,}|\t)/.test(continuation.text)) {
+        contentLines.push(continuation.text.replace(/^(?: {1,4}|\t)/, ''));
         lookahead += 1;
         continue;
       }
@@ -656,7 +688,34 @@ function extractFootnotes(markdown: string): ExtractedFootnotes {
     index = lookahead - 1;
   }
 
-  return { markdown: body.join('\n'), definitions };
+  const parts: string[] = [];
+  let outputLength = 0;
+
+  const appendText = (text: string, from: number, to: number) => {
+    if (!text) return;
+    if (outputLength === 0) outputToOriginal[0] = from;
+    for (let index = 0; index < text.length; index += 1) {
+      outputToOriginal[outputLength + index] = from + index;
+    }
+    outputLength += text.length;
+    outputToOriginal[outputLength] = to;
+    parts.push(text);
+  };
+
+  const appendNewline = (from: number, to: number) => {
+    if (outputLength === 0) outputToOriginal[0] = from;
+    parts.push('\n');
+    outputLength += 1;
+    outputToOriginal[outputLength] = to;
+  };
+
+  for (let index = 0; index < body.length; index += 1) {
+    const line = body[index];
+    appendText(line.text, line.lineStart, line.lineEnd);
+    if (index < body.length - 1) appendNewline(line.lineEnd, body[index + 1].lineStart);
+  }
+
+  return { markdown: parts.join(''), definitions, outputToOriginal };
 }
 
 function footnoteId(raw: string): string {
@@ -1427,16 +1486,27 @@ function sanitizeMarkdownCustomCss(
 
 function extractMarkdownDocument(text: string): {
   markdown: string;
+  markdownOffset: number;
   customCss: string | null;
   customCssScope: string | null;
   frontMatterError: string | null;
   cssWarning: string | null;
 } {
   const normalized = text.replace(/^\uFEFF/, '');
-  const candidate = normalized.replace(/^(?:[ \t]*\r?\n)+/, '');
+  const normalizedOffset = text.length - normalized.length;
+  const leadingWhitespaceMatch = /^(?:[ \t]*\r?\n)+/.exec(normalized);
+  const leadingWhitespaceOffset = leadingWhitespaceMatch?.[0].length ?? 0;
+  const candidate = normalized.slice(leadingWhitespaceOffset);
   const frontMatter = parseMarkdownFrontMatterBlock(candidate);
   if (!frontMatter) {
-    return { markdown: candidate, customCss: null, customCssScope: null, frontMatterError: null, cssWarning: null };
+    return {
+      markdown: candidate,
+      markdownOffset: normalizedOffset + leadingWhitespaceOffset,
+      customCss: null,
+      customCssScope: null,
+      frontMatterError: null,
+      cssWarning: null,
+    };
   }
   if (frontMatter.error) {
     console.error('[markdown-frontmatter] Could not parse front matter', {
@@ -1444,6 +1514,7 @@ function extractMarkdownDocument(text: string): {
     });
     return {
       markdown: candidate,
+      markdownOffset: normalizedOffset + leadingWhitespaceOffset,
       customCss: null,
       customCssScope: null,
       frontMatterError: frontMatter.error,
@@ -1458,6 +1529,7 @@ function extractMarkdownDocument(text: string): {
     });
     return {
       markdown: candidate,
+      markdownOffset: normalizedOffset + leadingWhitespaceOffset,
       customCss: null,
       customCssScope: null,
       frontMatterError: parsedFrontMatter.error,
@@ -1466,8 +1538,11 @@ function extractMarkdownDocument(text: string): {
   }
 
   const sanitizedCss = parsedFrontMatter.css ? sanitizeMarkdownCustomCss(parsedFrontMatter.css) : null;
+  const contentOffsetMatch = /^---(?:\r?\n)[\s\S]*?(?:\r?\n)(?:---|\.\.\.)(?:\r?\n|$)/.exec(candidate);
+  const markdownOffset = normalizedOffset + leadingWhitespaceOffset + (contentOffsetMatch?.[0].length ?? 0);
   return {
     markdown: frontMatter.content,
+    markdownOffset,
     customCss: sanitizedCss?.css ?? null,
     customCssScope: sanitizedCss?.scope ?? null,
     frontMatterError: null,
@@ -1816,15 +1891,149 @@ function parseMarkedHtml(markdown: string, options: { breaks: boolean; resetProm
   return marked.parse(markdown, { gfm: true, breaks: options.breaks }) as string;
 }
 
+function isMarkdownSyncableToken(token: Token): token is MarkdownSyncToken {
+  return (
+    token.type === 'heading' ||
+    token.type === 'paragraph' ||
+    token.type === 'blockquote' ||
+    token.type === 'list' ||
+    token.type === 'table' ||
+    token.type === 'code' ||
+    token.type === 'hr' ||
+    token.type === 'promptList' ||
+    token.type === 'templateTagLine'
+  );
+}
+
+function buildMarkdownSyncBlocks(
+  markdown: string,
+  tokens: Token[],
+  offset = 0,
+  outputToOriginal?: number[],
+): MarkdownSyncBlock[] {
+  const syncBlocks: MarkdownSyncBlock[] = [];
+  let searchStart = 0;
+  let syncIndex = 0;
+
+  for (const token of tokens) {
+    if (typeof token.raw !== 'string') continue;
+    const tokenIndex = markdown.indexOf(token.raw, searchStart);
+    const from = tokenIndex >= 0 ? tokenIndex : searchStart;
+    const to = from + token.raw.length;
+    searchStart = Math.max(searchStart, to);
+
+    if (!isMarkdownSyncableToken(token)) continue;
+    const id = `md-sync-${syncIndex++}`;
+    const mappedFrom = outputToOriginal?.[Math.max(0, Math.min(from, outputToOriginal.length - 1))] ?? from;
+    const mappedTo = outputToOriginal?.[Math.max(0, Math.min(to, outputToOriginal.length - 1))] ?? to;
+    syncBlocks.push({
+      id,
+      from: offset + mappedFrom,
+      to: offset + mappedTo,
+      type: token.type,
+    });
+  }
+
+  return syncBlocks;
+}
+
+function createMarkdownSyncRenderer(): Renderer {
+  const renderer = new Renderer();
+
+  renderer.code = ({ text, lang, escaped, ...token }: Tokens.Code) => {
+    const language = (lang || '').match(/^\S*/)?.[0];
+    const code = `${text.replace(/\n$/, '')}\n`;
+    if (language) {
+      return `<pre${markdownSyncAttr(token as MarkdownSyncToken)}><code class="language-${escapeHtmlAttr(language)}">${escaped ? code : escapeHtmlAttr(code)}</code></pre>\n`;
+    }
+    return `<pre${markdownSyncAttr(token as MarkdownSyncToken)}><code>${escaped ? code : escapeHtmlAttr(code)}</code></pre>\n`;
+  };
+
+  renderer.blockquote = function (token: Tokens.Blockquote) {
+    return `<blockquote${markdownSyncAttr(token as MarkdownSyncToken)}>\n${this.parser.parse(token.tokens)}</blockquote>\n`;
+  };
+
+  renderer.heading = function (token: Tokens.Heading) {
+    return `<h${token.depth}${markdownSyncAttr(token as MarkdownSyncToken)}>${this.parser.parseInline(token.tokens)}</h${token.depth}>\n`;
+  };
+
+  renderer.hr = (token: Tokens.Hr) => `<hr${markdownSyncAttr(token as MarkdownSyncToken)}>\n`;
+
+  renderer.list = function (token: Tokens.List) {
+    const body = token.items.map((item) => this.listitem(item)).join('');
+    const tagName = token.ordered ? 'ol' : 'ul';
+    const startAttr = token.ordered && token.start !== 1 ? ` start="${token.start}"` : '';
+    return `<${tagName}${markdownSyncAttr(token as MarkdownSyncToken)}${startAttr}>\n${body}</${tagName}>\n`;
+  };
+
+  renderer.paragraph = function (token: Tokens.Paragraph) {
+    return `<p${markdownSyncAttr(token as MarkdownSyncToken)}>${this.parser.parseInline(token.tokens)}</p>\n`;
+  };
+
+  renderer.table = function (token: Tokens.Table) {
+    let header = '';
+    let body = '';
+    for (const cell of token.header) header += this.tablecell(cell);
+    const headerRow = this.tablerow({ text: header });
+    for (const row of token.rows) {
+      let cells = '';
+      for (const cell of row) cells += this.tablecell(cell);
+      body += this.tablerow({ text: cells });
+    }
+    const bodyHtml = body ? `<tbody>${body}</tbody>` : '';
+    return `<table${markdownSyncAttr(token as MarkdownSyncToken)}>\n<thead>\n${headerRow}</thead>\n${bodyHtml}</table>\n`;
+  };
+
+  return renderer;
+}
+
+function parseMarkedHtmlWithSync(
+  markdown: string,
+  options: { breaks: boolean; resetPromptListIds?: boolean; syncOffset?: number; outputToOriginal?: number[] },
+): { html: string; syncBlocks: MarkdownSyncBlock[] } {
+  if (options.resetPromptListIds) promptListConversationDuplicateCounts = new Map<string, number>();
+
+  const topLevelTokens = marked.lexer(markdown, { gfm: true, breaks: options.breaks }) as Token[];
+  const syncBlocks = buildMarkdownSyncBlocks(
+    markdown,
+    topLevelTokens,
+    options.syncOffset ?? 0,
+    options.outputToOriginal,
+  );
+  const syncableTopLevelTokens = topLevelTokens.filter(isMarkdownSyncableToken);
+  const syncQueue = syncableTopLevelTokens.map((token, index) => ({
+    id: syncBlocks[index]?.id ?? '',
+    raw: token.raw,
+    type: token.type,
+  }));
+  let queueIndex = 0;
+
+  const html = marked.parse(markdown, {
+    gfm: true,
+    breaks: options.breaks,
+    renderer: createMarkdownSyncRenderer(),
+    walkTokens(token) {
+      const next = syncQueue[queueIndex];
+      if (!next || token.type !== next.type || token.raw !== next.raw) return;
+      (token as MarkdownSyncToken).syncId = next.id;
+      queueIndex += 1;
+    },
+  }) as string;
+
+  return { html, syncBlocks };
+}
+
 export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptions): ParsedMarkdownDocument {
   const extracted = extractMarkdownDocument(text);
   const extractedFootnotes = extractFootnotes(extracted.markdown);
-  const raw = parseMarkedHtml(extractedFootnotes.markdown, {
+  const rendered = parseMarkedHtmlWithSync(extractedFootnotes.markdown, {
     breaks: options?.breaks ?? false,
     resetPromptListIds: true,
+    syncOffset: extracted.markdownOffset,
+    outputToOriginal: extractedFootnotes.outputToOriginal,
   });
-  const sanitized = sanitizeHtml(raw, {
-    ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path', 'data-prompt-list-id'],
+  const sanitized = sanitizeHtml(rendered.html, {
+    ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path', 'data-prompt-list-id', 'data-sync-id'],
   });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
@@ -1899,6 +2108,7 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
     customCssScope: extracted.customCssScope,
     frontMatterError: extracted.frontMatterError,
     cssWarning: extracted.cssWarning,
+    syncBlocks: rendered.syncBlocks,
   };
 }
 

@@ -1,5 +1,6 @@
 import type { EditorView } from '@codemirror/view';
-import { ExternalLink } from 'lucide-react';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import { ArrowUpDown, ExternalLink, LockOpen } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { BracePromptRequest, InlinePromptRequest } from '../components/codemirror_inline_prompt';
@@ -7,9 +8,16 @@ import type { EditorController } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
 import type { PromptListRequest } from '../components/markdown_editor_commands';
 import { TextEditor } from '../components/TextEditor';
+import type { MarkdownSyncBlock } from '../markdown';
 import { syncPromptListCollapsedStateFromUrl, togglePromptListCollapsedStateInUrl } from '../prompt_list_state';
+import { getStoredScrollPosition } from '../scroll_positions';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
+
+const PREVIEW_SCROLL_LOCK_STORAGE_KEY = 'input_preview_scroll_locked_v1';
+const PREVIEW_RESTORE_SELECTOR = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th';
+const PREVIEW_SYNC_SELECTOR = '[data-sync-id]';
+const SCROLL_SYNC_ANCHOR_RATIO = 0.3;
 
 interface MarkdownLinkPreview {
   title: string;
@@ -47,6 +55,111 @@ function isMissingWikiLink(anchor: HTMLAnchorElement): boolean {
   return anchor.classList.contains('missing-wikilink');
 }
 
+function shouldAttemptPreviewScrollRestore({
+  markdown,
+  previewVisible,
+  canRenderPreview,
+  loading,
+  scrollStorageKey,
+}: {
+  markdown: boolean;
+  previewVisible: boolean;
+  canRenderPreview: boolean;
+  loading: boolean;
+  scrollStorageKey: string | null;
+}): boolean {
+  if (typeof window === 'undefined') return false;
+  if (!markdown || !previewVisible || !canRenderPreview || loading || !scrollStorageKey) return false;
+  return (getStoredScrollPosition(scrollStorageKey) ?? 0) > 0;
+}
+
+function normalizePreviewAnchorText(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/!\[([^\]]*)\]\(([^)]*)\)/g, ' $1 ')
+    .replace(/\[([^\]]+)\]\(([^)]*)\)/g, ' $1 ')
+    .replace(/\[\[([^\]]+)\]\]/g, ' $1 ')
+    .replace(/`([^`]*)`/g, ' $1 ')
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^\s{0,3}(?:#{1,6}\s+|>\s+|\d+[.)]\s+|[-+*]\s+|\[[ xX]\]\s+)/, '')
+        .replace(/^\s{0,3}```.*$/, '')
+        .trim(),
+    )
+    .join(' ')
+    .replace(/[*_~>#`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function findPreviewRestoreTarget(root: HTMLElement, anchorText: string): HTMLElement | null {
+  const anchor = normalizePreviewAnchorText(anchorText);
+  if (!anchor) return null;
+
+  const anchorPrefix = anchor.slice(0, Math.min(anchor.length, 96));
+  let bestElement: HTMLElement | null = null;
+  let bestScore = -1;
+
+  root.querySelectorAll<HTMLElement>(PREVIEW_RESTORE_SELECTOR).forEach((element) => {
+    const text = normalizePreviewAnchorText(element.textContent ?? '');
+    if (!text) return;
+
+    let score = -1;
+    if (text === anchor) {
+      score = 4000;
+    } else if (text.startsWith(anchor)) {
+      score = 3000 - Math.abs(text.length - anchor.length);
+    } else if (anchor.startsWith(text) && text.length >= Math.min(32, anchor.length)) {
+      score = 2500 - Math.abs(text.length - anchor.length);
+    } else {
+      const exactIndex = text.indexOf(anchor);
+      if (exactIndex >= 0) {
+        score = 2000 - exactIndex;
+      } else if (anchorPrefix.length >= 12) {
+        const prefixIndex = text.indexOf(anchorPrefix);
+        if (prefixIndex >= 0) score = 1000 - prefixIndex;
+      }
+    }
+
+    if (score < 0) return;
+    if (score > bestScore) {
+      bestScore = score;
+      bestElement = element;
+    }
+  });
+
+  return bestElement;
+}
+
+function maxScrollTop(node: { scrollHeight: number; clientHeight: number }): number {
+  return Math.max(0, node.scrollHeight - node.clientHeight);
+}
+
+function clampScrollTop(scrollTop: number, max: number): number {
+  return Math.min(max, Math.max(0, scrollTop));
+}
+
+function findSyncBlockForPosition(blocks: MarkdownSyncBlock[], position: number): MarkdownSyncBlock | null {
+  let previous: MarkdownSyncBlock | null = null;
+  for (const block of blocks) {
+    if (position < block.from) return previous ?? block;
+    if (position <= block.to) return block;
+    previous = block;
+  }
+  return previous;
+}
+
+function findSyncBlockById(blocks: MarkdownSyncBlock[], id: string): MarkdownSyncBlock | null {
+  return blocks.find((block) => block.id === id) ?? null;
+}
+
+function blockProgress(block: MarkdownSyncBlock, position: number): number {
+  const length = Math.max(1, block.to - block.from);
+  return Math.max(0, Math.min(1, (position - block.from) / length));
+}
+
 export interface EditViewProps {
   fileName?: string | null;
   markdown?: boolean;
@@ -59,6 +172,7 @@ export interface EditViewProps {
   previewCustomCssScope?: string | null;
   previewFrontMatterError?: string | null;
   previewCssWarning?: string | null;
+  previewSyncBlocks?: MarkdownSyncBlock[];
   previewVisible: boolean;
   canRenderPreview: boolean;
   scrollStorageKey?: string | null;
@@ -107,6 +221,7 @@ export function EditView({
   previewCustomCssScope = null,
   previewFrontMatterError = null,
   previewCssWarning = null,
+  previewSyncBlocks = [],
   previewVisible,
   canRenderPreview,
   scrollStorageKey = null,
@@ -138,13 +253,42 @@ export function EditView({
   const previewPaneRef = useRef<HTMLDivElement | null>(null);
   const mobilePreviewPaneRef = useRef<HTMLDivElement | null>(null);
   const renderedMarkdownRef = useRef<HTMLDivElement | null>(null);
+  const editorControllerRef = useRef<EditorController | null>(null);
+  const editorToPreviewScrollFrameRef = useRef<number | null>(null);
+  const previewToEditorScrollFrameRef = useRef<number | null>(null);
+  const ignorePreviewScrollFrameRef = useRef<number | null>(null);
+  const ignoreEditorScrollFrameRef = useRef<number | null>(null);
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
   const hoverDelayTimerRef = useRef<number | null>(null);
+  const previewRestoreFrameRef = useRef<number | null>(null);
+  const previewScrollTooltipCloseTimeoutRef = useRef<number | null>(null);
+  const previewSyncElementsRef = useRef<HTMLElement[]>([]);
+  const previewSyncElementByIdRef = useRef<Map<string, HTMLElement>>(new Map());
   const pointerDownRef = useRef(false);
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
   const [splitPercent, setSplitPercent] = useState(52);
+  const [previewScrollLocked, setPreviewScrollLocked] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const raw = window.localStorage.getItem(PREVIEW_SCROLL_LOCK_STORAGE_KEY);
+      return raw !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const [previewRestorePending, setPreviewRestorePending] = useState(() =>
+    shouldAttemptPreviewScrollRestore({
+      markdown,
+      previewVisible,
+      canRenderPreview,
+      loading,
+      scrollStorageKey,
+    }),
+  );
+  const [previewScrollTooltipOpen, setPreviewScrollTooltipOpen] = useState(false);
+  const lastPreviewRestoreKeyRef = useRef<string | null>(null);
   const [preview, setPreview] = useState<LinkPreviewState>({
     visible: false,
     loading: false,
@@ -179,11 +323,403 @@ export function EditView({
     setPreview((prev) => (prev.visible || prev.loading ? { ...prev, visible: false, loading: false } : prev));
   }, [clearHoverDelay]);
 
+  const openPreviewScrollTooltip = useCallback(() => {
+    if (previewScrollTooltipCloseTimeoutRef.current != null) {
+      window.clearTimeout(previewScrollTooltipCloseTimeoutRef.current);
+      previewScrollTooltipCloseTimeoutRef.current = null;
+    }
+    setPreviewScrollTooltipOpen(true);
+  }, []);
+
+  const closePreviewScrollTooltipSoon = useCallback(() => {
+    if (previewScrollTooltipCloseTimeoutRef.current != null) {
+      window.clearTimeout(previewScrollTooltipCloseTimeoutRef.current);
+    }
+    previewScrollTooltipCloseTimeoutRef.current = window.setTimeout(() => {
+      previewScrollTooltipCloseTimeoutRef.current = null;
+      setPreviewScrollTooltipOpen(false);
+    }, 120);
+  }, []);
+
+  const getEditorScrollMetrics = useCallback(() => {
+    const workspace = splitRef.current;
+    const editorScroller = workspace?.querySelector<HTMLElement>('.doc-editor .cm-scroller') ?? null;
+    const editorUsesOwnScroll =
+      editorScroller !== null && editorScroller.scrollHeight > editorScroller.clientHeight + 1;
+    const max =
+      editorUsesOwnScroll && editorScroller
+        ? maxScrollTop(editorScroller)
+        : Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const top = editorUsesOwnScroll && editorScroller ? editorScroller.scrollTop : window.scrollY;
+    return { editorScroller, editorUsesOwnScroll, max, top };
+  }, []);
+
+  const ignoreNextPreviewScrollRef = useRef(false);
+  const ignoreNextEditorScrollRef = useRef(false);
+
+  const schedulePreviewScrollIgnoreReset = useCallback(() => {
+    if (ignorePreviewScrollFrameRef.current != null) {
+      window.cancelAnimationFrame(ignorePreviewScrollFrameRef.current);
+    }
+    ignorePreviewScrollFrameRef.current = window.requestAnimationFrame(() => {
+      ignorePreviewScrollFrameRef.current = null;
+      ignoreNextPreviewScrollRef.current = false;
+    });
+  }, []);
+
+  const scheduleEditorScrollIgnoreReset = useCallback(() => {
+    if (ignoreEditorScrollFrameRef.current != null) {
+      window.cancelAnimationFrame(ignoreEditorScrollFrameRef.current);
+    }
+    ignoreEditorScrollFrameRef.current = window.requestAnimationFrame(() => {
+      ignoreEditorScrollFrameRef.current = null;
+      ignoreNextEditorScrollRef.current = false;
+    });
+  }, []);
+
+  const setPreviewScrollTop = useCallback(
+    (scrollTop: number) => {
+      const pane = previewPaneRef.current;
+      if (!pane) return;
+      const nextScrollTop = clampScrollTop(scrollTop, maxScrollTop(pane));
+      if (Math.abs(pane.scrollTop - nextScrollTop) < 1) return;
+      ignoreNextPreviewScrollRef.current = true;
+      schedulePreviewScrollIgnoreReset();
+      pane.scrollTop = nextScrollTop;
+    },
+    [schedulePreviewScrollIgnoreReset],
+  );
+
+  const setEditorScrollTop = useCallback(
+    (scrollTop: number) => {
+      const { editorScroller, editorUsesOwnScroll, max } = getEditorScrollMetrics();
+      const nextScrollTop = clampScrollTop(scrollTop, max);
+      if (editorUsesOwnScroll && editorScroller) {
+        if (Math.abs(editorScroller.scrollTop - nextScrollTop) < 1) return;
+        ignoreNextEditorScrollRef.current = true;
+        scheduleEditorScrollIgnoreReset();
+        editorScroller.scrollTop = nextScrollTop;
+        return;
+      }
+      if (Math.abs(window.scrollY - nextScrollTop) < 1) return;
+      ignoreNextEditorScrollRef.current = true;
+      scheduleEditorScrollIgnoreReset();
+      window.scrollTo({ top: nextScrollTop, behavior: 'auto' });
+    },
+    [getEditorScrollMetrics, scheduleEditorScrollIgnoreReset],
+  );
+
+  const getPreviewSyncAnchor = useCallback((): { id: string; progress: number } | null => {
+    const pane = previewPaneRef.current;
+    if (!pane) return null;
+    const anchorY = pane.scrollTop + pane.clientHeight * SCROLL_SYNC_ANCHOR_RATIO;
+
+    let bestElement: HTMLElement | null = null;
+    let bestTop = 0;
+    let bestHeight = 1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    const paneRect = pane.getBoundingClientRect();
+
+    for (const element of previewSyncElementsRef.current) {
+      const id = element.dataset.syncId;
+      if (!id) continue;
+      const rect = element.getBoundingClientRect();
+      const top = rect.top - paneRect.top + pane.scrollTop;
+      const height = Math.max(1, rect.height);
+      const bottom = top + height;
+      const distance = anchorY < top ? top - anchorY : anchorY > bottom ? anchorY - bottom : 0;
+      if (distance >= bestDistance) continue;
+      bestDistance = distance;
+      bestElement = element;
+      bestTop = top;
+      bestHeight = height;
+    }
+
+    if (!bestElement?.dataset.syncId) return null;
+    return {
+      id: bestElement.dataset.syncId,
+      progress: Math.max(0, Math.min(1, (anchorY - bestTop) / bestHeight)),
+    };
+  }, []);
+
+  const scrollPreviewToSyncTarget = useCallback(
+    (id: string, progress: number): boolean => {
+      const pane = previewPaneRef.current;
+      const target = previewSyncElementByIdRef.current.get(id);
+      if (!pane || !target) return false;
+
+      const paneRect = pane.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      const top = rect.top - paneRect.top + pane.scrollTop;
+      const nextScrollTop = top + Math.max(1, rect.height) * progress - pane.clientHeight * SCROLL_SYNC_ANCHOR_RATIO;
+      setPreviewScrollTop(nextScrollTop);
+      return true;
+    },
+    [setPreviewScrollTop],
+  );
+
+  const scrollEditorToSyncTarget = useCallback(
+    (position: number): boolean => {
+      const controller = editorControllerRef.current;
+      if (!controller) return false;
+      ignoreNextEditorScrollRef.current = true;
+      scheduleEditorScrollIgnoreReset();
+      controller.scrollToPosition(position, SCROLL_SYNC_ANCHOR_RATIO);
+      return true;
+    },
+    [scheduleEditorScrollIgnoreReset],
+  );
+
+  const syncPreviewToEditorScroll = useCallback(() => {
+    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
+    const pane = previewPaneRef.current;
+    if (!pane) return;
+
+    const controller = editorControllerRef.current;
+    if (controller && previewSyncBlocks.length > 0 && previewSyncElementByIdRef.current.size > 0) {
+      const position = controller.getViewportAnchorPosition(SCROLL_SYNC_ANCHOR_RATIO);
+      const block = findSyncBlockForPosition(previewSyncBlocks, position);
+      if (block && scrollPreviewToSyncTarget(block.id, blockProgress(block, position))) return;
+    }
+
+    const previewMax = maxScrollTop(pane);
+    if (previewMax <= 0) {
+      setPreviewScrollTop(0);
+      return;
+    }
+
+    const { top: sourceTop, max: sourceMax } = getEditorScrollMetrics();
+    const progress = sourceMax <= 0 ? 0 : Math.max(0, Math.min(1, sourceTop / sourceMax));
+    setPreviewScrollTop(progress * previewMax);
+  }, [
+    canRenderPreview,
+    getEditorScrollMetrics,
+    loading,
+    markdown,
+    previewScrollLocked,
+    previewSyncBlocks,
+    previewVisible,
+    scrollPreviewToSyncTarget,
+    setPreviewScrollTop,
+  ]);
+
+  const requestPreviewScrollSync = useCallback(() => {
+    if (editorToPreviewScrollFrameRef.current != null) return;
+    editorToPreviewScrollFrameRef.current = window.requestAnimationFrame(() => {
+      editorToPreviewScrollFrameRef.current = null;
+      syncPreviewToEditorScroll();
+    });
+  }, [syncPreviewToEditorScroll]);
+
+  const syncEditorToPreviewScroll = useCallback(() => {
+    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
+    const pane = previewPaneRef.current;
+    if (!pane) return;
+
+    if (previewSyncBlocks.length > 0) {
+      const anchor = getPreviewSyncAnchor();
+      const block = anchor ? findSyncBlockById(previewSyncBlocks, anchor.id) : null;
+      if (anchor && block) {
+        const targetPosition = Math.round(block.from + (block.to - block.from) * anchor.progress);
+        if (scrollEditorToSyncTarget(targetPosition)) return;
+      }
+    }
+
+    const previewMax = maxScrollTop(pane);
+    const { max: editorMax } = getEditorScrollMetrics();
+    const progress = previewMax <= 0 ? 0 : Math.max(0, Math.min(1, pane.scrollTop / previewMax));
+    setEditorScrollTop(progress * editorMax);
+  }, [
+    canRenderPreview,
+    getPreviewSyncAnchor,
+    getEditorScrollMetrics,
+    loading,
+    markdown,
+    previewScrollLocked,
+    previewSyncBlocks,
+    previewVisible,
+    scrollEditorToSyncTarget,
+    setEditorScrollTop,
+  ]);
+
+  const requestEditorScrollSync = useCallback(() => {
+    if (previewToEditorScrollFrameRef.current != null) return;
+    previewToEditorScrollFrameRef.current = window.requestAnimationFrame(() => {
+      previewToEditorScrollFrameRef.current = null;
+      syncEditorToPreviewScroll();
+    });
+  }, [syncEditorToPreviewScroll]);
+
   useEffect(() => {
     return () => {
       clearHoverDelay();
     };
   }, [clearHoverDelay]);
+
+  useEffect(() => {
+    return () => {
+      if (previewScrollTooltipCloseTimeoutRef.current != null) {
+        window.clearTimeout(previewScrollTooltipCloseTimeoutRef.current);
+        previewScrollTooltipCloseTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(PREVIEW_SCROLL_LOCK_STORAGE_KEY, previewScrollLocked ? 'true' : 'false');
+    } catch {
+      // Best-effort only.
+    }
+  }, [previewScrollLocked]);
+
+  useEffect(() => {
+    if (!scrollStorageKey) {
+      lastPreviewRestoreKeyRef.current = null;
+      return;
+    }
+    if (lastPreviewRestoreKeyRef.current === scrollStorageKey) return;
+    setPreviewRestorePending(
+      shouldAttemptPreviewScrollRestore({
+        markdown,
+        previewVisible,
+        canRenderPreview,
+        loading,
+        scrollStorageKey,
+      }),
+    );
+  }, [canRenderPreview, loading, markdown, previewVisible, scrollStorageKey]);
+
+  useEffect(() => {
+    if (!previewRestorePending) return;
+    lastPreviewRestoreKeyRef.current = scrollStorageKey;
+  }, [previewRestorePending, scrollStorageKey]);
+
+  useEffect(() => {
+    if (!previewRestorePending) return;
+    const pane = previewPaneRef.current;
+    const root = renderedMarkdownRef.current;
+    const controller = editorControllerRef.current;
+    if (!pane || !root || !controller) return;
+
+    let cancelled = false;
+    const runAlignment = () => {
+      previewRestoreFrameRef.current = window.requestAnimationFrame(() => {
+        previewRestoreFrameRef.current = window.requestAnimationFrame(() => {
+          previewRestoreFrameRef.current = null;
+          if (cancelled) return;
+          const topVisibleText = controller.getTopVisibleText(240);
+          const target = topVisibleText ? findPreviewRestoreTarget(root, topVisibleText) : null;
+          if (target) {
+            pane.scrollTop = Math.max(0, target.offsetTop - 8);
+          }
+          setPreviewRestorePending(false);
+        });
+      });
+    };
+
+    runAlignment();
+    return () => {
+      cancelled = true;
+      if (previewRestoreFrameRef.current != null) {
+        window.cancelAnimationFrame(previewRestoreFrameRef.current);
+        previewRestoreFrameRef.current = null;
+      }
+    };
+  }, [previewRestorePending]);
+
+  useEffect(() => {
+    const root = renderedMarkdownRef.current;
+    if (!markdown || !previewVisible || !previewHtml || !root) {
+      previewSyncElementsRef.current = [];
+      previewSyncElementByIdRef.current = new Map();
+      return;
+    }
+
+    const elements = Array.from(root.querySelectorAll<HTMLElement>(PREVIEW_SYNC_SELECTOR)).filter((element) =>
+      Boolean(element.dataset.syncId),
+    );
+    previewSyncElementsRef.current = elements;
+    const elementEntries: Array<[string, HTMLElement]> = [];
+    for (const element of elements) {
+      const id = element.dataset.syncId;
+      if (!id) continue;
+      elementEntries.push([id, element]);
+    }
+    previewSyncElementByIdRef.current = new Map(elementEntries);
+  }, [markdown, previewHtml, previewVisible]);
+
+  useEffect(() => {
+    if (!markdown || !previewVisible || !canRenderPreview || loading) return;
+    if (!previewScrollLocked) return;
+    const pane = previewPaneRef.current;
+    if (!pane) return;
+    const { editorScroller, editorUsesOwnScroll } = getEditorScrollMetrics();
+
+    const requestEditorDrivenSync = () => {
+      if (ignoreNextEditorScrollRef.current) return;
+      requestPreviewScrollSync();
+    };
+    const requestPreviewDrivenSync = () => {
+      if (ignoreNextPreviewScrollRef.current) return;
+      requestEditorScrollSync();
+    };
+
+    requestPreviewScrollSync();
+    if (editorUsesOwnScroll && editorScroller) {
+      editorScroller.addEventListener('scroll', requestEditorDrivenSync, { passive: true });
+    } else {
+      window.addEventListener('scroll', requestEditorDrivenSync, { passive: true });
+    }
+    pane.addEventListener('scroll', requestPreviewDrivenSync, { passive: true });
+    window.addEventListener('resize', requestPreviewScrollSync);
+
+    const resizeObserver = new ResizeObserver(requestPreviewScrollSync);
+    resizeObserver.observe(pane);
+    if (editorScroller) resizeObserver.observe(editorScroller);
+
+    return () => {
+      if (editorUsesOwnScroll && editorScroller) {
+        editorScroller.removeEventListener('scroll', requestEditorDrivenSync);
+      } else {
+        window.removeEventListener('scroll', requestEditorDrivenSync);
+      }
+      pane.removeEventListener('scroll', requestPreviewDrivenSync);
+      window.removeEventListener('resize', requestPreviewScrollSync);
+      resizeObserver.disconnect();
+    };
+  }, [
+    canRenderPreview,
+    getEditorScrollMetrics,
+    loading,
+    markdown,
+    previewScrollLocked,
+    previewVisible,
+    requestEditorScrollSync,
+    requestPreviewScrollSync,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (editorToPreviewScrollFrameRef.current != null) {
+        window.cancelAnimationFrame(editorToPreviewScrollFrameRef.current);
+        editorToPreviewScrollFrameRef.current = null;
+      }
+      if (previewToEditorScrollFrameRef.current != null) {
+        window.cancelAnimationFrame(previewToEditorScrollFrameRef.current);
+        previewToEditorScrollFrameRef.current = null;
+      }
+      if (ignorePreviewScrollFrameRef.current != null) {
+        window.cancelAnimationFrame(ignorePreviewScrollFrameRef.current);
+        ignorePreviewScrollFrameRef.current = null;
+      }
+      if (ignoreEditorScrollFrameRef.current != null) {
+        window.cancelAnimationFrame(ignoreEditorScrollFrameRef.current);
+        ignoreEditorScrollFrameRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const markdownRoot = renderedMarkdownRef.current;
@@ -458,6 +994,15 @@ export function EditView({
     }
   };
 
+  const handleEditorReady = useCallback(
+    (controller: EditorController | null) => {
+      editorControllerRef.current = controller;
+      onEditorReady?.(controller);
+    },
+    [onEditorReady],
+  );
+  const showModelStatusIndicator = locked;
+
   return (
     <div class="edit-view" data-has-user-typed-unsaved-changes={hasUserTypedUnsavedChanges ? 'true' : 'false'}>
       {imageUploadIssue ? (
@@ -494,7 +1039,7 @@ export function EditView({
             contentSelection={contentSelection}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
-            onEditorReady={onEditorReady}
+            onEditorReady={handleEditorReady}
             onEligibleSelectionChange={onEligibleSelectionChange}
             onInlinePromptSubmit={onInlinePromptSubmit}
             onBracePromptStream={onBracePromptStream}
@@ -514,20 +1059,57 @@ export function EditView({
             contentSelection={contentSelection}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
-            onEditorReady={onEditorReady}
+            onEditorReady={handleEditorReady}
             onEligibleSelectionChange={onEligibleSelectionChange}
             readOnly={readOnly || locked || loading}
           />
         )}
         {markdown && previewVisible && canRenderPreview && !loading && (
           <>
+            <Tooltip.Provider delayDuration={150}>
+              <Tooltip.Root open={previewScrollTooltipOpen} onOpenChange={setPreviewScrollTooltipOpen}>
+                <Tooltip.Trigger asChild>
+                  <button
+                    type="button"
+                    class={`editor-preview-scroll-toggle${previewScrollLocked ? ' is-locked' : ' is-unlocked'}${showModelStatusIndicator ? ' is-model-status-below' : ''}`}
+                    aria-pressed={previewScrollLocked}
+                    aria-label={previewScrollLocked ? 'Lock preview scroll' : 'Unlock preview scroll'}
+                    onMouseEnter={openPreviewScrollTooltip}
+                    onMouseLeave={closePreviewScrollTooltipSoon}
+                    onClick={() => setPreviewScrollLocked((locked) => !locked)}
+                  >
+                    {previewScrollLocked ? (
+                      <ArrowUpDown size={14} aria-hidden="true" />
+                    ) : (
+                      <LockOpen size={14} aria-hidden="true" />
+                    )}
+                  </button>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    class="editor-preview-scroll-toggle-tooltip"
+                    side="left"
+                    align="center"
+                    sideOffset={8}
+                    onMouseEnter={openPreviewScrollTooltip}
+                    onMouseLeave={closePreviewScrollTooltipSoon}
+                  >
+                    {previewScrollLocked ? 'Scroll sync on' : 'Scroll sync off'}
+                    <Tooltip.Arrow class="editor-preview-scroll-toggle-tooltip-arrow" />
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            </Tooltip.Provider>
             <div
               class="editor-splitter"
               role="separator"
               aria-orientation="vertical"
               onPointerDown={onSplitPointerDown}
             />
-            <div class="editor-preview-pane" ref={previewPaneRef}>
+            <div
+              class={`editor-preview-pane${previewRestorePending ? ' is-restoring-preview' : ''}`}
+              ref={previewPaneRef}
+            >
               {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
               {!previewFrontMatterError && previewCssWarning ? (
                 <div class="editor-preview-alert">{previewCssWarning}</div>

@@ -16,6 +16,9 @@ export interface ExternalEditorChange {
 export interface EditorController {
   applyExternalChange: (change: ExternalEditorChange) => boolean;
   getSelectionText: (maxChars?: number) => string | null;
+  getTopVisibleText: (maxChars?: number) => string | null;
+  getViewportAnchorPosition: (anchorRatio?: number) => number;
+  scrollToPosition: (position: number, anchorRatio?: number) => void;
   startStreamingCursorTracking: (position: number) => void;
   updateStreamingCursorTracking: (position: number) => void;
   stopStreamingCursorTracking: () => void;

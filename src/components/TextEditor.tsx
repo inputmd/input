@@ -74,6 +74,7 @@ export function TextEditor({
   class: className,
 }: TextEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
+  const SEARCH_SCROLL_MARGIN_PX = 80;
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -124,6 +125,39 @@ export function TextEditor({
     return Math.max(0, Math.min(position, view.state.doc.length));
   };
 
+  const getTopVisibleText = (view: EditorView, maxChars = 240): string | null => {
+    const viewportTop = editorUsesOwnScroll(view)
+      ? view.scrollDOM.scrollTop
+      : Math.max(0, -view.scrollDOM.getBoundingClientRect().top);
+    let position = clampPosition(view, view.lineBlockAtHeight(Math.max(0, viewportTop + 4)).from);
+    let combined = '';
+    let scannedLines = 0;
+    let capturedLines = 0;
+
+    while (position < view.state.doc.length && scannedLines < 8 && capturedLines < 3 && combined.length < maxChars) {
+      const line = view.state.doc.lineAt(position);
+      const text = line.text.trim();
+      if (text.length > 0) {
+        combined += `${combined ? '\n' : ''}${text}`;
+        capturedLines += 1;
+      }
+      scannedLines += 1;
+      position = line.to + 1;
+    }
+
+    const trimmed = combined.trim();
+    if (!trimmed) return null;
+    return trimmed.slice(0, maxChars);
+  };
+
+  const getViewportAnchorPosition = (view: EditorView, anchorRatio = 0.3): number => {
+    const clampedRatio = Math.min(1, Math.max(0, anchorRatio));
+    const viewportTop = editorUsesOwnScroll(view)
+      ? view.scrollDOM.scrollTop + view.scrollDOM.clientHeight * clampedRatio
+      : Math.max(0, -view.scrollDOM.getBoundingClientRect().top) + window.innerHeight * clampedRatio;
+    return clampPosition(view, view.lineBlockAtHeight(Math.max(0, viewportTop)).from);
+  };
+
   const applySearchQuery = (view: EditorView, query: string, caseSensitive: boolean, replace = '') => {
     const next = new SearchQuery({ search: query, caseSensitive, replace });
     if (!getSearchQuery(view.state).eq(next)) {
@@ -165,6 +199,19 @@ export function TextEditor({
     if (targetTop < minVisibleTop) {
       window.scrollTo({ top: Math.max(0, targetTop - STREAMING_CURSOR_VIEWPORT_MARGIN_PX) });
     }
+  };
+
+  const scrollPositionToViewportAnchor = (view: EditorView, position: number, anchorRatio = 0.3) => {
+    const clampedRatio = Math.min(1, Math.max(0, anchorRatio));
+    const clampedPosition = clampPosition(view, position);
+    if (editorUsesOwnScroll(view)) {
+      const block = view.lineBlockAt(clampedPosition);
+      view.scrollDOM.scrollTop = Math.max(0, block.top - view.scrollDOM.clientHeight * clampedRatio);
+      return;
+    }
+    const coords = view.coordsAtPos(clampedPosition);
+    if (!coords) return;
+    window.scrollTo({ top: Math.max(0, coords.top + window.scrollY - window.innerHeight * clampedRatio) });
   };
 
   const isPositionNearViewport = (view: EditorView, position: number): boolean => {
@@ -250,7 +297,10 @@ export function TextEditor({
         indentOnInput(),
         syntaxHighlighting(appCodeMirrorHighlighter, { fallback: true }),
         bracketMatching(),
-        search({ createPanel: () => createHiddenSearchPanel() }),
+        search({
+          createPanel: () => createHiddenSearchPanel(),
+          scrollToMatch: (range) => EditorView.scrollIntoView(range, { yMargin: SEARCH_SCROLL_MARGIN_PX }),
+        }),
         highlightSelectionMatches(),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
@@ -315,6 +365,11 @@ export function TextEditor({
         const selected = view.state.sliceDoc(selection.from, selection.to);
         if (typeof maxChars === 'number' && selected.length > maxChars) return null;
         return selected;
+      },
+      getTopVisibleText: (maxChars) => getTopVisibleText(view, maxChars),
+      getViewportAnchorPosition: (anchorRatio) => getViewportAnchorPosition(view, anchorRatio),
+      scrollToPosition: (position, anchorRatio) => {
+        scrollPositionToViewportAnchor(view, position, anchorRatio);
       },
       startStreamingCursorTracking: (position) => {
         const clampedPosition = clampPosition(view, position);
