@@ -200,10 +200,14 @@ export function MarkdownEditor({
 
   const getViewportAnchorPosition = (view: EditorView, anchorRatio = 0.3): number => {
     const clampedRatio = Math.min(1, Math.max(0, anchorRatio));
-    const viewportTop = editorUsesOwnScroll(view)
+    const anchorY = editorUsesOwnScroll(view)
       ? view.scrollDOM.scrollTop + view.scrollDOM.clientHeight * clampedRatio
       : Math.max(0, -view.scrollDOM.getBoundingClientRect().top) + window.innerHeight * clampedRatio;
-    return clampPosition(view, view.lineBlockAtHeight(Math.max(0, viewportTop)).from);
+    const lineBlock = view.lineBlockAtHeight(Math.max(0, anchorY));
+    const blockHeight = Math.max(1, lineBlock.height);
+    const fraction = Math.max(0, Math.min(1, (anchorY - lineBlock.top) / blockHeight));
+    const lineLength = lineBlock.to - lineBlock.from;
+    return clampPosition(view, lineBlock.from + Math.round(fraction * lineLength));
   };
 
   const clampPosition = (view: EditorView, position: number): number => {
