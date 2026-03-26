@@ -393,11 +393,13 @@ export function TextEditor({
     const view = viewRef.current;
     if (!view) return;
     const currentDoc = view.state.doc.toString();
+    const selection = view.state.selection.main;
     if (content === currentDoc) {
-      if (contentOrigin !== 'userEdits') {
-        hasPendingLocalEditsRef.current = false;
-      }
+      hasPendingLocalEditsRef.current = false;
       if (pendingScrollRestoreKeyRef.current === scrollStorageKey) pendingScrollRestoreKeyRef.current = null;
+      return;
+    }
+    if (hasPendingLocalEditsRef.current) {
       return;
     }
 
@@ -412,6 +414,22 @@ export function TextEditor({
     if (streamingCursorPositionRef.current != null && contentOrigin === 'external') {
       return;
     }
+
+    console.warn('[editor-sync] applying external content while docs differ', {
+      contentOrigin,
+      contentRevision,
+      latestLocalRevision: latestLocalRevisionRef.current,
+      currentDocLength: currentDoc.length,
+      incomingLength: content.length,
+      selection: {
+        anchor: selection.anchor,
+        head: selection.head,
+        from: selection.from,
+        to: selection.to,
+      },
+      currentAroundCaret: currentDoc.slice(Math.max(0, selection.head - 20), selection.head + 20),
+      incomingAroundCaret: content.slice(Math.max(0, selection.head - 20), selection.head + 20),
+    });
 
     const transaction = buildExternalContentSyncTransaction(view.state, content, contentSelection);
     if (!transaction) return;

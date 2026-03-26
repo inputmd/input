@@ -103,6 +103,13 @@ export function buildExternalContentSyncTransaction(
   if (currentDoc === content) return null;
 
   const prevSel = state.selection.main;
+  if (selection == null) {
+    console.warn('[editor-sync] whole-doc replace without explicit selection', {
+      prevHead: prevSel.head,
+      oldLength: currentDoc.length,
+      newLength: content.length,
+    });
+  }
   return buildExternalEditorChangeTransaction(state, {
     from: 0,
     to: currentDoc.length,
