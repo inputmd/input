@@ -1,10 +1,12 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
 import {
+  closeSearchPanel,
   findNext,
   findPrevious,
   getSearchQuery,
   highlightSelectionMatches,
+  openSearchPanel,
   replaceAll,
   replaceNext,
   SearchQuery,
@@ -18,6 +20,7 @@ import {
   highlightActiveLine,
   highlightSpecialChars,
   keymap,
+  type Panel,
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
@@ -47,6 +50,13 @@ interface TextEditorProps {
   onEditorReady?: (controller: EditorController | null) => void;
   onEligibleSelectionChange?: (eligible: boolean) => void;
   class?: string;
+}
+
+function createHiddenSearchPanel(): Panel {
+  const dom = document.createElement('div');
+  dom.hidden = true;
+  dom.setAttribute('aria-hidden', 'true');
+  return { dom };
 }
 
 export function TextEditor({
@@ -130,6 +140,7 @@ export function TextEditor({
 
   const closeSearch = () => {
     setSearchOpen(false);
+    if (viewRef.current) closeSearchPanel(viewRef.current);
     viewRef.current?.focus();
   };
 
@@ -195,6 +206,7 @@ export function TextEditor({
   };
 
   openSearchRef.current = (view: EditorView) => {
+    openSearchPanel(view);
     const selection = view.state.selection.main;
     const selectedText =
       !selection.empty && selection.to - selection.from <= 200 ? view.state.sliceDoc(selection.from, selection.to) : '';
@@ -238,7 +250,7 @@ export function TextEditor({
         indentOnInput(),
         syntaxHighlighting(appCodeMirrorHighlighter, { fallback: true }),
         bracketMatching(),
-        search(),
+        search({ createPanel: () => createHiddenSearchPanel() }),
         highlightSelectionMatches(),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),

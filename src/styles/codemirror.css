@@ -395,6 +395,21 @@
   backdrop-filter: blur(8px);
 }
 
+.doc-editor-shell .codemirror-find-panel {
+  position: fixed;
+  top: calc(var(--toolbar-height) + 8px);
+  left: 12px;
+  right: 12px;
+  z-index: 10;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--bg) 68%, transparent);
+}
+
+.app-body--with-reader-ai .doc-editor-shell .codemirror-find-panel {
+  right: calc(var(--reader-ai-width, 360px) + 12px);
+}
+
 .content-code-view-wrap .codemirror-find-panel {
   margin-bottom: 10px;
   border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
@@ -547,13 +562,7 @@
 }
 
 .cm-searchMatch {
-  background: color-mix(in srgb, var(--selection-bg) 40%, transparent);
-  outline: 1px solid color-mix(in srgb, var(--selection-bg) 60%, transparent);
-}
-
-.cm-searchMatch.cm-searchMatch-selected {
-  background: var(--selection-bg);
-  outline-color: var(--selection-bg);
+  background: color-mix(in srgb, var(--focus-border) 52%, transparent);
 }
 
 /* CodeMirror syntax highlighting */

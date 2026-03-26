@@ -2,10 +2,12 @@ import { autocompletion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@codemirror/commands';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
 import {
+  closeSearchPanel,
   findNext,
   findPrevious,
   getSearchQuery,
   highlightSelectionMatches,
+  openSearchPanel,
   replaceAll,
   replaceNext,
   SearchQuery,
@@ -19,6 +21,7 @@ import {
   highlightActiveLine,
   highlightSpecialChars,
   keymap,
+  type Panel,
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
@@ -72,6 +75,13 @@ interface MarkdownEditorProps {
   onEditorReady?: (controller: EditorController | null) => void;
   onEligibleSelectionChange?: (eligible: boolean) => void;
   class?: string;
+}
+
+function createHiddenSearchPanel(): Panel {
+  const dom = document.createElement('div');
+  dom.hidden = true;
+  dom.setAttribute('aria-hidden', 'true');
+  return { dom };
 }
 
 export function MarkdownEditor({
@@ -182,6 +192,7 @@ export function MarkdownEditor({
 
   const closeSearch = () => {
     setSearchOpen(false);
+    if (viewRef.current) closeSearchPanel(viewRef.current);
     viewRef.current?.focus();
   };
 
@@ -247,6 +258,7 @@ export function MarkdownEditor({
   };
 
   openSearchRef.current = (view: EditorView) => {
+    openSearchPanel(view);
     const selection = view.state.selection.main;
     const selectedText =
       !selection.empty && selection.to - selection.from <= 200 ? view.state.sliceDoc(selection.from, selection.to) : '';
@@ -306,7 +318,7 @@ export function MarkdownEditor({
           ],
         }),
         markdownEditorLanguageSupport(),
-        search(),
+        search({ createPanel: () => createHiddenSearchPanel() }),
         highlightSelectionMatches(),
         promptListAnsweringCompartment.current.of(promptListAnsweringFacet.of(inlinePromptActive)),
         bracePromptPreviewCompartment.current.of([]),
