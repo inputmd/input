@@ -141,23 +141,42 @@ function clampScrollTop(scrollTop: number, max: number): number {
   return Math.min(max, Math.max(0, scrollTop));
 }
 
-function findSyncBlockForPosition(blocks: MarkdownSyncBlock[], position: number): MarkdownSyncBlock | null {
+interface SyncBlockHit {
+  block: MarkdownSyncBlock;
+  progress: number;
+  /** Non-null when position is in a gap between two blocks. */
+  nextBlock: MarkdownSyncBlock | null;
+  /** 0–1 fraction through the gap between `block` and `nextBlock`. */
+  gapFraction: number;
+}
+
+function findSyncBlockForPosition(blocks: MarkdownSyncBlock[], position: number): SyncBlockHit | null {
   let previous: MarkdownSyncBlock | null = null;
   for (const block of blocks) {
-    if (position < block.from) return previous ?? block;
-    if (position <= block.to) return block;
+    if (position < block.from) {
+      if (previous) {
+        // Position is in a gap between `previous` and `block`.
+        const gapLength = Math.max(1, block.from - previous.to);
+        const gapFraction = Math.max(0, Math.min(1, (position - previous.to) / gapLength));
+        return { block: previous, progress: 1, nextBlock: block, gapFraction };
+      }
+      // Before the first block — treat as start of that block.
+      return { block, progress: 0, nextBlock: null, gapFraction: 0 };
+    }
+    if (position <= block.to) {
+      const length = Math.max(1, block.to - block.from);
+      return { block, progress: Math.max(0, Math.min(1, (position - block.from) / length)), nextBlock: null, gapFraction: 0 };
+    }
     previous = block;
   }
-  return previous;
+  if (previous) {
+    return { block: previous, progress: 1, nextBlock: null, gapFraction: 0 };
+  }
+  return null;
 }
 
 function findSyncBlockById(blocks: MarkdownSyncBlock[], id: string): MarkdownSyncBlock | null {
   return blocks.find((block) => block.id === id) ?? null;
-}
-
-function blockProgress(block: MarkdownSyncBlock, position: number): number {
-  const length = Math.max(1, block.to - block.from);
-  return Math.max(0, Math.min(1, (position - block.from) / length));
 }
 
 export interface EditViewProps {
@@ -442,20 +461,44 @@ export function EditView({
     };
   }, []);
 
-  const scrollPreviewToSyncTarget = useCallback(
-    (id: string, progress: number): boolean => {
+  const getPreviewSyncElementTop = useCallback(
+    (id: string): { top: number; height: number } | null => {
       const pane = previewPaneRef.current;
       const target = previewSyncElementByIdRef.current.get(id);
-      if (!pane || !target) return false;
-
+      if (!pane || !target) return null;
       const paneRect = pane.getBoundingClientRect();
       const rect = target.getBoundingClientRect();
-      const top = rect.top - paneRect.top + pane.scrollTop;
-      const nextScrollTop = top + Math.max(1, rect.height) * progress - pane.clientHeight * SCROLL_SYNC_ANCHOR_RATIO;
+      return { top: rect.top - paneRect.top + pane.scrollTop, height: Math.max(1, rect.height) };
+    },
+    [],
+  );
+
+  const scrollPreviewToSyncHit = useCallback(
+    (hit: SyncBlockHit): boolean => {
+      const pane = previewPaneRef.current;
+      if (!pane) return false;
+
+      const primary = getPreviewSyncElementTop(hit.block.id);
+      if (!primary) return false;
+
+      const anchorOffset = pane.clientHeight * SCROLL_SYNC_ANCHOR_RATIO;
+
+      if (hit.nextBlock && hit.gapFraction > 0) {
+        const next = getPreviewSyncElementTop(hit.nextBlock.id);
+        if (next) {
+          const fromY = primary.top + primary.height;
+          const toY = next.top;
+          const interpolatedY = fromY + (toY - fromY) * hit.gapFraction;
+          setPreviewScrollTop(interpolatedY - anchorOffset);
+          return true;
+        }
+      }
+
+      const nextScrollTop = primary.top + primary.height * hit.progress - anchorOffset;
       setPreviewScrollTop(nextScrollTop);
       return true;
     },
-    [setPreviewScrollTop],
+    [getPreviewSyncElementTop, setPreviewScrollTop],
   );
 
   const scrollEditorToSyncTarget = useCallback(
@@ -478,8 +521,8 @@ export function EditView({
     const controller = editorControllerRef.current;
     if (controller && previewSyncBlocks.length > 0 && previewSyncElementByIdRef.current.size > 0) {
       const position = controller.getViewportAnchorPosition(SCROLL_SYNC_ANCHOR_RATIO);
-      const block = findSyncBlockForPosition(previewSyncBlocks, position);
-      if (block && scrollPreviewToSyncTarget(block.id, blockProgress(block, position))) return;
+      const hit = findSyncBlockForPosition(previewSyncBlocks, position);
+      if (hit && scrollPreviewToSyncHit(hit)) return;
     }
 
     const previewMax = maxScrollTop(pane);
@@ -499,7 +542,7 @@ export function EditView({
     previewScrollLocked,
     previewSyncBlocks,
     previewVisible,
-    scrollPreviewToSyncTarget,
+    scrollPreviewToSyncHit,
     setPreviewScrollTop,
   ]);
 
