@@ -136,7 +136,11 @@ GitHub usernames listed in `editors` can open that document through Input
 and save changes back to the repo. Editors are blocked from changing or
 removing the `editors` field.
 
-## Getting started
+## Syncing
+
+If you'd like to work with local files and an Input workspcae, you can use any of a number of services that sync GitHub repositories to your filesystem in realtime, like Stash: https://github.com/telepath-computer/stash
+
+## Developing
 
 See [DEVELOPING.md](/Users/selkie/Development/input/DEVELOPING.md) for local
 setup, environment variables, development workflow, and deployment notes.
