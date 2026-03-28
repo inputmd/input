@@ -854,6 +854,11 @@ export function App() {
   const [readerAiAppliedChanges, setReaderAiAppliedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>
   >([]);
+  const [readerAiUndoState, setReaderAiUndoState] = useState<{
+    path: string;
+    content: string;
+    revision: number;
+  } | null>(null);
   const [readerAiStagedChangesInvalid, setReaderAiStagedChangesInvalid] = useState(false);
   const [readerAiStagedFileContents, setReaderAiStagedFileContents] = useState<Record<string, string>>({});
   const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
@@ -4294,6 +4299,7 @@ export function App() {
     setReaderAiSelectedChangeIds(new Set());
     setReaderAiSelectedHunkIdsByChangeId({});
     setReaderAiAppliedChanges([]);
+    setReaderAiUndoState(null);
     setReaderAiStagedChangesInvalid(false);
     setReaderAiStagedFileContents({});
     setReaderAiDocumentEditedContent(null);
@@ -4352,9 +4358,20 @@ export function App() {
           if (typeof nextContent !== 'string') {
             throw new Error('No staged document content to apply');
           }
+          const previousContent = editContentRef.current;
+          const previousRevision = editContentRevision;
           setNextEditContent(nextContent, { origin: 'appEdits' });
           setHasUserTypedUnsavedChanges(false);
           setHasUnsavedChanges(true);
+          if (currentPath) {
+            setReaderAiUndoState({
+              path: currentPath,
+              content: previousContent,
+              revision: previousRevision,
+            });
+          } else {
+            setReaderAiUndoState(null);
+          }
           if (!canCommitToGist && !canCommitToRepo) {
             if (currentPath) recordAppliedChanges([currentPath]);
             setReaderAiStagedChanges([]);
@@ -4445,6 +4462,7 @@ export function App() {
       readerAiProjectId,
       activeView,
       currentEditingDocPath,
+      editContentRevision,
       user,
       isGistContext,
       currentGistId,
@@ -4460,6 +4478,48 @@ export function App() {
       setHasUserTypedUnsavedChanges,
     ],
   );
+
+  const onReaderAiIgnoreChanges = useCallback(() => {
+    setReaderAiStagedChanges([]);
+    setReaderAiSelectedChangeIds(new Set());
+    setReaderAiSelectedHunkIdsByChangeId({});
+    setReaderAiStagedChangesInvalid(false);
+    setReaderAiStagedFileContents({});
+    setReaderAiDocumentEditedContent(null);
+    setReaderAiUndoState(null);
+    setReaderAiError(null);
+  }, []);
+
+  const canUndoReaderAiApply =
+    readerAiUndoState !== null &&
+    activeView === 'edit' &&
+    currentEditingDocPath === readerAiUndoState.path &&
+    editContentRevision === readerAiUndoState.revision + 1;
+
+  const onReaderAiUndoApply = useCallback(() => {
+    if (!readerAiUndoState) return;
+    if (activeView !== 'edit' || currentEditingDocPath !== readerAiUndoState.path) {
+      setReaderAiUndoState(null);
+      return;
+    }
+    if (editContentRevision !== readerAiUndoState.revision + 1) {
+      setReaderAiUndoState(null);
+      return;
+    }
+    setNextEditContent(readerAiUndoState.content, { origin: 'appEdits', revision: readerAiUndoState.revision });
+    setHasUserTypedUnsavedChanges(false);
+    setHasUnsavedChanges(readerAiUndoState.content !== currentDocumentSavedContent);
+    setReaderAiUndoState(null);
+  }, [
+    activeView,
+    currentDocumentSavedContent,
+    currentEditingDocPath,
+    editContentRevision,
+    readerAiUndoState,
+    setNextEditContent,
+    setHasUnsavedChanges,
+    setHasUserTypedUnsavedChanges,
+  ]);
 
   const onReaderAiRetryLastMessage = useCallback(async () => {
     if (readerAiSending) return;
@@ -7921,6 +7981,7 @@ export function App() {
       scheduleEditContentSnapshot(update);
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
+      setReaderAiUndoState(null);
     },
     [
       currentGistId,
@@ -7928,6 +7989,7 @@ export function App() {
       editingBackend,
       readerAiEditLocked,
       scheduleEditContentSnapshot,
+      setReaderAiUndoState,
       setHasUnsavedChanges,
       setHasUserTypedUnsavedChanges,
     ],
@@ -8101,6 +8163,7 @@ export function App() {
     !readerAiStagedChangesInvalid &&
     activeView === 'edit' &&
     (canApplyFromInlineDocumentEdit || hasCurrentEditingSelectedStagedContent);
+  const isEditorProposalWorkflow = canApplyWithoutSaving;
   const readerAiStagedChangesDisabledHint = readerAiStagedChangesInvalid
     ? 'Staged changes are invalid. Regenerate the diff to apply changes.'
     : !canApplyAndCommit &&
@@ -8320,8 +8383,12 @@ export function App() {
               stagedChangesDisabledHint={readerAiStagedChangesDisabledHint}
               canApplyWithoutSaving={canApplyWithoutSaving}
               canApplyAndCommit={canApplyAndCommit}
+              editorProposalMode={isEditorProposalWorkflow}
+              canUndoEditorApply={canUndoReaderAiApply}
               onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
               onApplyAndCommit={(msg) => void onReaderAiApplyChanges('commit', msg)}
+              onIgnoreAll={onReaderAiIgnoreChanges}
+              onUndoEditorApply={onReaderAiUndoApply}
               onToggleChangeSelection={(changeId, selected) =>
                 setReaderAiSelectedChangeIds((prev) => {
                   const next = new Set(prev);

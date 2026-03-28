@@ -46,6 +46,8 @@ export function StagedChangesSection({
   defaultCommitMessage,
   applying,
   streaming,
+  editorProposalMode,
+  canUndoEditorApply,
   selectedChangeIds,
   selectedHunkIds,
   canApplyWithoutSaving,
@@ -57,11 +59,14 @@ export function StagedChangesSection({
   onRejectHunk,
   onApplyWithoutSaving,
   onApplyAndCommit,
+  onUndoEditorApply,
 }: {
   changes: ReaderAiStagedChange[];
   defaultCommitMessage: string;
   applying: boolean;
   streaming?: boolean;
+  editorProposalMode?: boolean;
+  canUndoEditorApply?: boolean;
   selectedChangeIds?: Set<string>;
   selectedHunkIds?: Record<string, Set<string>>;
   canApplyWithoutSaving?: boolean;
@@ -73,6 +78,7 @@ export function StagedChangesSection({
   onRejectHunk?: (changeId: string, hunkId: string) => void;
   onApplyWithoutSaving?: () => void;
   onApplyAndCommit?: (commitMessage?: string) => void;
+  onUndoEditorApply?: () => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     () => new Set(changes.filter((change) => shouldExpandChangeByDefault(change)).map((change) => change.path)),
@@ -233,7 +239,7 @@ export function StagedChangesSection({
         </div>
       ) : canApply ? (
         <div class="reader-ai-staged-changes-footer">
-          {canApplyAndCommit ? (
+          {canApplyAndCommit && !editorProposalMode ? (
             <input
               type="text"
               class="reader-ai-staged-changes-commit-input"
@@ -251,7 +257,39 @@ export function StagedChangesSection({
           ) : null}
           {canApplyWithoutSaving || canApplyAndCommit ? (
             <div class="reader-ai-staged-changes-actions">
-              {canApplyWithoutSaving ? (
+              {editorProposalMode ? (
+                <>
+                  {canUndoEditorApply ? (
+                    <button
+                      type="button"
+                      class="reader-ai-staged-changes-secondary"
+                      onClick={() => onUndoEditorApply?.()}
+                      disabled={applying}
+                    >
+                      Undo
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      class="reader-ai-staged-changes-secondary"
+                      onClick={() => changes.forEach((change) => change.id && onRejectChange?.(change.id))}
+                      disabled={applying}
+                    >
+                      Ignore
+                    </button>
+                  )}
+                  {canApplyWithoutSaving ? (
+                    <button
+                      type="button"
+                      class="reader-ai-staged-changes-apply"
+                      onClick={() => onApplyWithoutSaving?.()}
+                      disabled={applying}
+                    >
+                      {applying ? 'Applying…' : 'Apply'}
+                    </button>
+                  ) : null}
+                </>
+              ) : canApplyWithoutSaving ? (
                 <button
                   type="button"
                   class="reader-ai-staged-changes-apply"

@@ -36,8 +36,12 @@ interface ReaderAiPanelProps {
   stagedChangesDisabledHint?: string;
   canApplyWithoutSaving: boolean;
   canApplyAndCommit: boolean;
+  editorProposalMode?: boolean;
+  canUndoEditorApply?: boolean;
   onApplyWithoutSaving: () => void;
   onApplyAndCommit: (commitMessage?: string) => void;
+  onUndoEditorApply?: () => void;
+  onIgnoreAll?: () => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
   selectedChangeIds?: Set<string>;
@@ -130,8 +134,12 @@ export function ReaderAiPanel({
   stagedChangesDisabledHint,
   canApplyWithoutSaving,
   canApplyAndCommit,
+  editorProposalMode = false,
+  canUndoEditorApply = false,
   onApplyWithoutSaving,
   onApplyAndCommit,
+  onUndoEditorApply,
+  onIgnoreAll,
   onToggleChangeSelection,
   onToggleHunkSelection,
   selectedChangeIds,
@@ -624,9 +632,13 @@ export function ReaderAiPanel({
             applying={applyingChanges}
             canApplyWithoutSaving={canApplyWithoutSaving}
             canApplyAndCommit={canApplyAndCommit}
+            editorProposalMode={editorProposalMode}
+            canUndoEditorApply={canUndoEditorApply}
             disabledHint={stagedChangesDisabledHint}
             onApplyWithoutSaving={onApplyWithoutSaving}
             onApplyAndCommit={onApplyAndCommit}
+            onUndoEditorApply={onUndoEditorApply}
+            onIgnoreAll={onIgnoreAll}
             onToggleChangeSelection={onToggleChangeSelection}
             onToggleHunkSelection={onToggleHunkSelection}
             selectedChangeIds={selectedChangeIds}

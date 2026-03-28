@@ -949,6 +949,30 @@
   cursor: default;
 }
 
+.reader-ai-staged-changes-secondary {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.reader-ai-staged-changes-secondary:hover:not(:disabled) {
+  background: var(--btn-hover);
+}
+
+.reader-ai-staged-changes-secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .reader-ai-staged-change {
   border-bottom: 1px solid var(--border);
 }
