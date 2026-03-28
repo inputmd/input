@@ -43,7 +43,6 @@ function SideBySideDiffModal({ changes, onClose }: { changes: ReaderAiStagedChan
 
 export function StagedChangesSection({
   changes,
-  defaultCommitMessage,
   applying,
   streaming,
   title,
@@ -53,19 +52,15 @@ export function StagedChangesSection({
   selectedChangeIds,
   selectedHunkIds,
   canApplyWithoutSaving,
-  canApplyAndCommit,
-  disabledHint,
   onIgnoreAll,
   onToggleChangeSelection,
   onToggleHunkSelection,
   onRejectChange,
   onRejectHunk,
   onApplyWithoutSaving,
-  onApplyAndCommit,
   onUndoEditorApply,
 }: {
   changes: ReaderAiStagedChange[];
-  defaultCommitMessage: string;
   applying: boolean;
   streaming?: boolean;
   title?: string;
@@ -75,23 +70,20 @@ export function StagedChangesSection({
   selectedChangeIds?: Set<string>;
   selectedHunkIds?: Record<string, Set<string>>;
   canApplyWithoutSaving?: boolean;
-  canApplyAndCommit?: boolean;
-  disabledHint?: string;
   onIgnoreAll?: () => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
   onRejectChange?: (changeId: string) => void;
   onRejectHunk?: (changeId: string, hunkId: string) => void;
   onApplyWithoutSaving?: () => void;
-  onApplyAndCommit?: (commitMessage?: string) => void;
   onUndoEditorApply?: () => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     () => new Set(changes.filter((change) => shouldExpandChangeByDefault(change)).map((change) => change.path)),
   );
-  const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
   const [popoutOpen, setPopoutOpen] = useState(false);
-  const canApply = canApplyWithoutSaving || canApplyAndCommit;
+  const canApply = canApplyWithoutSaving;
+  const showFooter = canApply || Boolean(editorProposalMode && canUndoEditorApply);
 
   useEffect(() => {
     setExpandedPaths((prev) => {
@@ -102,10 +94,6 @@ export function StagedChangesSection({
       return next;
     });
   }, [changes]);
-
-  useEffect(() => {
-    setCommitMessage(defaultCommitMessage);
-  }, [defaultCommitMessage]);
 
   if (changes.length === 0) return null;
 
@@ -248,86 +236,54 @@ export function StagedChangesSection({
         <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
           Reviewing live proposals. Apply actions unlock when streaming finishes.
         </div>
-      ) : canApply ? (
+      ) : showFooter ? (
         <div class="reader-ai-staged-changes-footer">
-          {canApplyAndCommit && !editorProposalMode ? (
-            <input
-              type="text"
-              class="reader-ai-staged-changes-commit-input"
-              placeholder="Commit message (optional)"
-              value={commitMessage}
-              onInput={(e) => setCommitMessage(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !applying) {
-                  e.preventDefault();
-                  onApplyAndCommit?.(commitMessage.trim() || undefined);
-                }
-              }}
-              disabled={applying}
-            />
-          ) : null}
-          {canApplyWithoutSaving || canApplyAndCommit ? (
-            <div class="reader-ai-staged-changes-actions">
-              {editorProposalMode ? (
-                <>
-                  {canUndoEditorApply ? (
-                    <button
-                      type="button"
-                      class="reader-ai-staged-changes-secondary"
-                      onClick={() => onUndoEditorApply?.()}
-                      disabled={applying}
-                    >
-                      Undo
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      class="reader-ai-staged-changes-secondary"
-                      onClick={() => onIgnoreAll?.()}
-                      disabled={applying}
-                    >
-                      Ignore
-                    </button>
-                  )}
-                  {canApplyWithoutSaving ? (
-                    <button
-                      type="button"
-                      class="reader-ai-staged-changes-apply"
-                      onClick={() => onApplyWithoutSaving?.()}
-                      disabled={applying}
-                    >
-                      {applying ? 'Applying…' : 'Apply'}
-                    </button>
-                  ) : null}
-                </>
-              ) : canApplyWithoutSaving ? (
-                <button
-                  type="button"
-                  class="reader-ai-staged-changes-apply"
-                  onClick={() => onApplyWithoutSaving?.()}
-                  disabled={applying}
-                >
-                  {applying && !canApplyAndCommit ? 'Applying…' : 'Apply without saving'}
-                </button>
-              ) : null}
-              {canApplyAndCommit ? (
-                <button
-                  type="button"
-                  class="reader-ai-staged-changes-apply"
-                  onClick={() => onApplyAndCommit?.(commitMessage.trim() || undefined)}
-                  disabled={applying}
-                >
-                  {applying ? 'Committing…' : 'Apply and commit'}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          <div class="reader-ai-staged-changes-actions">
+            {editorProposalMode ? (
+              <>
+                {canUndoEditorApply ? (
+                  <button
+                    type="button"
+                    class="reader-ai-staged-changes-secondary"
+                    onClick={() => onUndoEditorApply?.()}
+                    disabled={applying}
+                  >
+                    Undo
+                  </button>
+                ) : canApplyWithoutSaving ? (
+                  <button
+                    type="button"
+                    class="reader-ai-staged-changes-secondary"
+                    onClick={() => onIgnoreAll?.()}
+                    disabled={applying}
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+                {canApplyWithoutSaving ? (
+                  <button
+                    type="button"
+                    class="reader-ai-staged-changes-apply"
+                    onClick={() => onApplyWithoutSaving?.()}
+                    disabled={applying}
+                  >
+                    {applying ? 'Applying…' : 'Apply'}
+                  </button>
+                ) : null}
+              </>
+            ) : canApplyWithoutSaving ? (
+              <button
+                type="button"
+                class="reader-ai-staged-changes-apply"
+                onClick={() => onApplyWithoutSaving?.()}
+                disabled={applying}
+              >
+                {applying ? 'Applying…' : 'Apply without saving'}
+              </button>
+            ) : null}
+          </div>
         </div>
-      ) : (
-        <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
-          {disabledHint ?? 'Read-only — no write access'}
-        </div>
-      )}
+      ) : null}
       {popoutOpen ? <SideBySideDiffModal changes={changes} onClose={() => setPopoutOpen(false)} /> : null}
     </div>
   );

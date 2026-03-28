@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact';
+import { findUnifiedDiffReplacementPair } from './diff_viewer_utils.ts';
 
 export interface DiffChangeEntry {
   path: string;
@@ -61,20 +62,20 @@ export function UnifiedDiffView({ diff }: { diff: string }) {
   const renderedLines: ComponentChildren[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const next = lines[i + 1];
-    const isPair = line.startsWith('-') && next?.startsWith('+') && !line.startsWith('---') && !next.startsWith('+++');
-    if (isPair) {
+    const pairIndex = findUnifiedDiffReplacementPair(lines, i);
+    if (pairIndex !== null) {
+      const pairLine = lines[pairIndex] ?? '';
       renderedLines.push(
         <div key={`${i}-del`} class="reader-ai-diff-line reader-ai-diff-line--del">
-          {renderDiffContent(line, 'reader-ai-diff-inline-change--del', next)}
+          {renderDiffContent(line, 'reader-ai-diff-inline-change--del', pairLine)}
         </div>,
       );
       renderedLines.push(
-        <div key={`${i + 1}-add`} class="reader-ai-diff-line reader-ai-diff-line--add">
-          {renderDiffContent(next, 'reader-ai-diff-inline-change--add', line)}
+        <div key={`${pairIndex}-add`} class="reader-ai-diff-line reader-ai-diff-line--add">
+          {renderDiffContent(pairLine, 'reader-ai-diff-inline-change--add', line)}
         </div>,
       );
-      i++;
+      i = pairIndex;
       continue;
     }
 
@@ -110,10 +111,11 @@ function buildSideBySideRows(diff: string): SideBySideRow[] {
       continue;
     }
     if (line.startsWith('-')) {
-      const next = lines[i + 1];
-      if (next?.startsWith('+') && !next.startsWith('+++')) {
-        rows.push({ left: line.slice(1), right: next.slice(1), kind: 'replace' });
-        i++;
+      const pairIndex = findUnifiedDiffReplacementPair(lines, i);
+      if (pairIndex !== null) {
+        const pairLine = lines[pairIndex] ?? '';
+        rows.push({ left: line.slice(1), right: pairLine.slice(1), kind: 'replace' });
+        i = pairIndex;
         continue;
       }
       rows.push({ left: line.slice(1), right: null, kind: 'del' });

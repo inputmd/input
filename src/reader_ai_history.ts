@@ -20,6 +20,7 @@ export interface ReaderAiHistoryEntry {
     taskId?: string;
   }>;
   editProposals?: ReaderAiEditProposal[];
+  proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>;
   stagedChanges?: ReaderAiStagedChange[];
   stagedChangesInvalid?: boolean;
   stagedFileContents?: Record<string, string>;
@@ -218,6 +219,18 @@ function normalizePersistedEditProposals(value: unknown): ReaderAiEditProposal[]
     .filter((proposal): proposal is ReaderAiEditProposal => proposal !== null);
 }
 
+function normalizePersistedProposalStatuses(
+  value: unknown,
+): NonNullable<ReaderAiHistoryEntry['proposalStatusesByToolCallId']> {
+  if (!value || typeof value !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, 'accepted' | 'rejected' | 'ignored'] =>
+        typeof entry[0] === 'string' && (entry[1] === 'accepted' || entry[1] === 'rejected' || entry[1] === 'ignored'),
+    ),
+  );
+}
+
 function normalizePersistedAppliedChanges(value: unknown): NonNullable<ReaderAiHistoryEntry['appliedChanges']> {
   if (!Array.isArray(value)) return [];
   const applied: NonNullable<ReaderAiHistoryEntry['appliedChanges']> = [];
@@ -297,6 +310,10 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
             );
         const editProposals = normalizePersistedEditProposals((entry as { editProposals?: unknown }).editProposals);
         if (editProposals.length > 0) parsed.editProposals = editProposals;
+        const proposalStatuses = normalizePersistedProposalStatuses(
+          (entry as { proposalStatusesByToolCallId?: unknown }).proposalStatusesByToolCallId,
+        );
+        if (Object.keys(proposalStatuses).length > 0) parsed.proposalStatusesByToolCallId = proposalStatuses;
         const normalizedStagedChanges = normalizePersistedStagedChanges(entry.stagedChanges);
         if (normalizedStagedChanges.changes.length > 0) parsed.stagedChanges = normalizedStagedChanges.changes;
         if (normalizedStagedChanges.invalid) parsed.stagedChangesInvalid = true;
@@ -345,6 +362,7 @@ export function persistReaderAiMessagesToHistory(
     taskId?: string;
   }>,
   editProposals?: ReaderAiEditProposal[],
+  proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>,
   stagedChanges?: ReaderAiStagedChange[],
   stagedFileContents?: Record<string, string>,
   appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>,
@@ -362,6 +380,8 @@ export function persistReaderAiMessagesToHistory(
   if (scope) entry.scope = scope;
   if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;
   if (editProposals && editProposals.length > 0) entry.editProposals = editProposals;
+  if (proposalStatusesByToolCallId && Object.keys(proposalStatusesByToolCallId).length > 0)
+    entry.proposalStatusesByToolCallId = proposalStatusesByToolCallId;
   if (stagedChanges && stagedChanges.length > 0) entry.stagedChanges = stagedChanges;
   if (stagedFileContents && Object.keys(stagedFileContents).length > 0) entry.stagedFileContents = stagedFileContents;
   if (appliedChanges && appliedChanges.length > 0)

@@ -65,14 +65,14 @@
 }
 
 .dialog-input:focus {
-  border-color: var(--border);
+  border-color: var(--field-focus-border);
 }
 
 .dialog-content input:focus,
 .dialog-content input:focus-visible,
 .dialog-content select:focus,
 .dialog-content select:focus-visible {
-  outline: 2px solid var(--focus-border);
+  outline: 2px solid var(--field-focus-border);
   outline-offset: 2px;
   box-shadow: none;
 }

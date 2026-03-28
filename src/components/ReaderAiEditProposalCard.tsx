@@ -1,13 +1,7 @@
-import { CheckSquare2, ChevronDown, ChevronRight, Pencil, Square } from 'lucide-react';
+import { CheckSquare2, ChevronDown, ChevronRight, Square } from 'lucide-react';
 import { useState } from 'preact/hooks';
 import type { ReaderAiEditProposal, ReaderAiStagedHunk } from '../reader_ai';
 import { UnifiedDiffView } from './DiffViewer';
-
-const DEFAULT_EXPANDED_CHANGE_LINE_LIMIT = 80;
-
-function shouldExpandChangeByDefault(proposal: ReaderAiEditProposal): boolean {
-  return proposal.change.diff.split('\n').length <= DEFAULT_EXPANDED_CHANGE_LINE_LIMIT;
-}
 
 function typeLabel(type: string): string {
   if (type === 'create') return 'new';
@@ -29,26 +23,27 @@ export function ReaderAiEditProposalCard({
   proposal,
   onAccept,
   onReject,
-  onEdit,
   onToggleHunkSelection,
 }: {
   proposal: ReaderAiEditProposal;
   onAccept?: (proposalId: string) => void;
   onReject?: (proposalId: string) => void;
-  onEdit?: (proposalId: string) => void;
   onToggleHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(() => shouldExpandChangeByDefault(proposal));
+  const [expanded, setExpanded] = useState(false);
   const accepted = proposal.status !== 'rejected';
   const selectedHunkIds = new Set(proposal.selectedHunkIds ?? proposal.change.hunks?.map((hunk) => hunk.id) ?? []);
 
   return (
     <div class={`reader-ai-edit-proposal${accepted ? '' : ' reader-ai-edit-proposal--rejected'}`}>
       <div class="reader-ai-edit-proposal-header-row">
-        <button
-          type="button"
+        <a
+          href="#"
           class="reader-ai-edit-proposal-header"
-          onClick={() => setExpanded((current) => !current)}
+          onClick={(event) => {
+            event.preventDefault();
+            setExpanded((current) => !current);
+          }}
           aria-expanded={expanded}
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -56,32 +51,21 @@ export function ReaderAiEditProposalCard({
             {typeLabel(proposal.change.type)}
           </span>
           <span class="reader-ai-staged-change-path">{proposal.change.path}</span>
-        </button>
+        </a>
         <div class="reader-ai-edit-proposal-actions">
-          {proposal.change.type !== 'delete' ? (
-            <button
-              type="button"
-              class="reader-ai-edit-proposal-action"
-              onClick={() => onEdit?.(proposal.id)}
-              title="Open this file in the editor"
-            >
-              <Pencil size={13} aria-hidden="true" />
-              Edit
-            </button>
-          ) : null}
           <button
             type="button"
             class={`reader-ai-edit-proposal-action${accepted ? ' reader-ai-edit-proposal-action--active' : ''}`}
             onClick={() => onAccept?.(proposal.id)}
           >
-            Accept
+            Include
           </button>
           <button
             type="button"
             class={`reader-ai-edit-proposal-action${accepted ? '' : ' reader-ai-edit-proposal-action--danger'}`}
             onClick={() => onReject?.(proposal.id)}
           >
-            Reject
+            Exclude
           </button>
         </div>
       </div>
@@ -116,7 +100,6 @@ export function ReaderAiEditProposalCard({
           <UnifiedDiffView diff={proposal.change.diff} />
         </>
       ) : null}
-      <div class="reader-ai-edit-proposal-status">{accepted ? 'Accepted for apply' : 'Rejected'}</div>
     </div>
   );
 }

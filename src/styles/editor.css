@@ -401,3 +401,9 @@
   color: inherit;
   white-space: pre-wrap;
 }
+
+.cm-editor .cm-editor-diff-preview-content--deleted {
+  color: color-mix(in srgb, var(--danger-border) 78%, var(--text));
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger-border) 55%, transparent);
+}

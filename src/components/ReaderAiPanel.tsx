@@ -30,22 +30,18 @@ interface ReaderAiPanelProps {
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
   editProposals: ReaderAiEditProposal[];
+  proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>;
   stagedChanges: ReaderAiStagedChange[];
   stagedChangesStreaming?: boolean;
-  suggestedCommitMessage: string;
   applyingChanges: boolean;
-  stagedChangesDisabledHint?: string;
   canApplyWithoutSaving: boolean;
-  canApplyAndCommit: boolean;
   editorProposalMode?: boolean;
   canUndoEditorApply?: boolean;
   onApplyWithoutSaving: () => void;
-  onApplyAndCommit: (commitMessage?: string) => void;
   onUndoEditorApply?: () => void;
   onIgnoreAll?: () => void;
   onAcceptProposal?: (proposalId: string) => void;
   onRejectProposal?: (proposalId: string) => void;
-  onEditProposal?: (proposalId: string) => void;
   onToggleProposalHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
@@ -126,22 +122,18 @@ export function ReaderAiPanel({
   toolStatus,
   toolLog,
   editProposals,
+  proposalStatusesByToolCallId,
   stagedChanges,
   stagedChangesStreaming = false,
-  suggestedCommitMessage,
   applyingChanges,
-  stagedChangesDisabledHint,
   canApplyWithoutSaving,
-  canApplyAndCommit,
   editorProposalMode = false,
   canUndoEditorApply = false,
   onApplyWithoutSaving,
-  onApplyAndCommit,
   onUndoEditorApply,
   onIgnoreAll,
   onAcceptProposal,
   onRejectProposal,
-  onEditProposal,
   onToggleProposalHunkSelection,
   onToggleChangeSelection,
   onToggleHunkSelection,
@@ -604,9 +596,10 @@ export function ReaderAiPanel({
                   value={editingDraft}
                   onInput={(event) => setEditingDraft(event.currentTarget.value)}
                   onKeyDown={(event) => {
-                    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                    if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
                       event.preventDefault();
                       void applyEdit();
+                      return;
                     }
                     if (event.key === 'Escape') {
                       event.preventDefault();
@@ -627,9 +620,9 @@ export function ReaderAiPanel({
                     entries={toolLog}
                     live={sending}
                     proposals={editProposals}
+                    proposalStatusesByToolCallId={proposalStatusesByToolCallId}
                     onAcceptProposal={onAcceptProposal}
                     onRejectProposal={onRejectProposal}
-                    onEditProposal={onEditProposal}
                     onToggleProposalHunkSelection={onToggleProposalHunkSelection}
                   />
                 ) : null}
@@ -647,9 +640,9 @@ export function ReaderAiPanel({
                 entries={toolLog}
                 live={sending}
                 proposals={editProposals}
+                proposalStatusesByToolCallId={proposalStatusesByToolCallId}
                 onAcceptProposal={onAcceptProposal}
                 onRejectProposal={onRejectProposal}
-                onEditProposal={onEditProposal}
                 onToggleProposalHunkSelection={onToggleProposalHunkSelection}
               />
             ) : null}
@@ -662,17 +655,13 @@ export function ReaderAiPanel({
           <StagedChangesSection
             changes={stagedChanges}
             streaming={stagedChangesStreaming}
-            title={editProposals.length > 0 ? 'Accepted proposals' : undefined}
-            defaultCommitMessage={suggestedCommitMessage}
+            title={editProposals.length > 0 ? 'Proposed changes' : undefined}
             applying={applyingChanges}
             canApplyWithoutSaving={canApplyWithoutSaving}
-            canApplyAndCommit={canApplyAndCommit}
             editorProposalMode={editorProposalMode}
             canUndoEditorApply={canUndoEditorApply}
-            disabledHint={stagedChangesDisabledHint}
             reviewControls={false}
             onApplyWithoutSaving={onApplyWithoutSaving}
-            onApplyAndCommit={onApplyAndCommit}
             onUndoEditorApply={onUndoEditorApply}
             onIgnoreAll={onIgnoreAll}
             onToggleChangeSelection={onToggleChangeSelection}

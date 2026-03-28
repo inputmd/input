@@ -34,17 +34,17 @@ export function ToolLogSection({
   entries,
   live,
   proposals,
+  proposalStatusesByToolCallId,
   onAcceptProposal,
   onRejectProposal,
-  onEditProposal,
   onToggleProposalHunkSelection,
 }: {
   entries: ReaderAiToolLogEntry[];
   live?: boolean;
   proposals?: ReaderAiEditProposal[];
+  proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>;
   onAcceptProposal?: (proposalId: string) => void;
   onRejectProposal?: (proposalId: string) => void;
-  onEditProposal?: (proposalId: string) => void;
   onToggleProposalHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -53,8 +53,8 @@ export function ToolLogSection({
 
   const activityCount = entries.length;
   const summary = live
-    ? `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}…`
-    : `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}`;
+    ? `${activityCount} tool call${activityCount === 1 ? '' : 's'}…`
+    : `${activityCount} tool call${activityCount === 1 ? '' : 's'}`;
 
   // Auto-expand while live
   const isExpanded = live || expanded || (proposals?.length ?? 0) > 0;
@@ -110,12 +110,52 @@ export function ToolLogSection({
     });
   };
 
+  const proposalStatusLabel = (entryId?: string): string | null => {
+    if (!entryId) return null;
+    const status = proposalStatusesByToolCallId?.[entryId];
+    if (status === 'accepted') return 'Accepted';
+    if (status === 'rejected') return 'Rejected';
+    if (status === 'ignored') return 'Ignored';
+    return null;
+  };
+
+  const proposalStatusClassName = (entryId?: string): string | null => {
+    if (!entryId) return null;
+    const status = proposalStatusesByToolCallId?.[entryId];
+    if (status === 'accepted') return 'reader-ai-tool-log-status-note--accepted';
+    if (status === 'rejected') return 'reader-ai-tool-log-status-note--rejected';
+    if (status === 'ignored') return 'reader-ai-tool-log-status-note--ignored';
+    return null;
+  };
+
+  const entryPrimaryText = (entry: ReaderAiToolLogEntry): string => {
+    if (entry.type === 'result' && entry.name === 'propose_edit_document' && entry.detail) return entry.detail;
+    return TOOL_LABELS[entry.name] ?? entry.name;
+  };
+
+  const entrySecondaryText = (entry: ReaderAiToolLogEntry, maxLength: number): string | null => {
+    if (entry.type === 'result' && entry.name === 'propose_edit_document') return null;
+    if (!entry.detail) return null;
+    return entry.detail.length > maxLength ? `${entry.detail.slice(0, maxLength)}…` : entry.detail;
+  };
+
+  const showProposalStatusNote = (entry: ReaderAiToolLogEntry): boolean =>
+    entry.type === 'call' && entry.name === 'propose_edit_document';
+
   return (
     <div class="reader-ai-tool-log">
-      <button type="button" class="reader-ai-tool-log-toggle" onClick={() => setExpanded(!expanded)}>
+      <a
+        href="#"
+        class="reader-ai-tool-log-toggle"
+        aria-expanded={isExpanded}
+        onClick={(event) => {
+          event.preventDefault();
+          setExpanded(!expanded);
+        }}
+      >
         {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <span>{summary}</span>
-      </button>
+      </a>
       {isExpanded ? (
         <div class="reader-ai-tool-log-entries">
           {grouped.generalEntries.map((entry, i) => (
@@ -123,13 +163,18 @@ export function ToolLogSection({
               <div
                 class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
                   entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
-                }`}
+                }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
               >
-                <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
-                {entry.detail ? (
-                  <span class="reader-ai-tool-log-detail">
-                    {entry.detail.length > 90 ? `${entry.detail.slice(0, 90)}…` : entry.detail}
+                <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
+                {showProposalStatusNote(entry) ? (
+                  <span
+                    class={`reader-ai-tool-log-status-note${proposalStatusClassName(entry.id) ? ` ${proposalStatusClassName(entry.id)}` : ''}`}
+                  >
+                    {proposalStatusLabel(entry.id)}
                   </span>
+                ) : null}
+                {entrySecondaryText(entry, 90) ? (
+                  <span class="reader-ai-tool-log-detail">{entrySecondaryText(entry, 90)}</span>
                 ) : null}
               </div>
               {entry.type === 'result' && entry.id
@@ -139,7 +184,6 @@ export function ToolLogSection({
                       proposal={proposal}
                       onAccept={onAcceptProposal}
                       onReject={onRejectProposal}
-                      onEdit={onEditProposal}
                       onToggleHunkSelection={onToggleProposalHunkSelection}
                     />
                   ))
@@ -164,13 +208,18 @@ export function ToolLogSection({
                         <div
                           class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
                             entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
-                          }`}
+                          }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
                         >
-                          <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
-                          {entry.detail ? (
-                            <span class="reader-ai-tool-log-detail">
-                              {entry.detail.length > 120 ? `${entry.detail.slice(0, 120)}…` : entry.detail}
+                          <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
+                          {showProposalStatusNote(entry) ? (
+                            <span
+                              class={`reader-ai-tool-log-status-note${proposalStatusClassName(entry.id) ? ` ${proposalStatusClassName(entry.id)}` : ''}`}
+                            >
+                              {proposalStatusLabel(entry.id)}
                             </span>
+                          ) : null}
+                          {entrySecondaryText(entry, 120) ? (
+                            <span class="reader-ai-tool-log-detail">{entrySecondaryText(entry, 120)}</span>
                           ) : null}
                         </div>
                         {entry.type === 'result' && entry.id
@@ -180,7 +229,6 @@ export function ToolLogSection({
                                 proposal={proposal}
                                 onAccept={onAcceptProposal}
                                 onReject={onRejectProposal}
-                                onEdit={onEditProposal}
                                 onToggleHunkSelection={onToggleProposalHunkSelection}
                               />
                             ))

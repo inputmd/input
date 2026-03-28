@@ -1,12 +1,5 @@
-import { type Extension, RangeSetBuilder } from '@codemirror/state';
-import {
-  Decoration,
-  type DecorationSet,
-  type EditorView,
-  ViewPlugin,
-  type ViewUpdate,
-  WidgetType,
-} from '@codemirror/view';
+import { type Extension, RangeSetBuilder, StateField } from '@codemirror/state';
+import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 import type { ReaderAiStagedHunk } from '../reader_ai';
 
 export interface EditorDiffPreviewBlock {
@@ -157,17 +150,20 @@ function previewLineClass(kind: NonNullable<EditorDiffPreviewBlock['kind']>): st
   return 'cm-editor-diff-preview-line cm-editor-diff-preview-line--replace';
 }
 
-function buildEditorDiffPreviewDecorations(view: EditorView, preview: EditorDiffPreview | null): DecorationSet {
+function buildEditorDiffPreviewDecorations(
+  state: EditorView['state'],
+  preview: EditorDiffPreview | null,
+): DecorationSet {
   if (!preview || !Array.isArray(preview.blocks) || preview.blocks.length === 0) return Decoration.none;
   const builder = new RangeSetBuilder<Decoration>();
-  const docLength = view.state.doc.length;
+  const docLength = state.doc.length;
 
   for (const rawBlock of preview.blocks) {
     const from = Math.max(0, Math.min(docLength, Math.floor(rawBlock.from)));
     const to = Math.max(from, Math.min(docLength, Math.floor(rawBlock.to)));
     const insert = rawBlock.insert ?? '';
     const kind = normalizeKind(rawBlock);
-    const line = view.state.doc.lineAt(from);
+    const line = state.doc.lineAt(from);
 
     builder.add(
       line.from,
@@ -194,9 +190,8 @@ function buildEditorDiffPreviewDecorations(view: EditorView, preview: EditorDiff
       builder.add(
         to,
         to,
-        Decoration.widget({
+        Decoration.replace({
           widget: new DiffPreviewWidget(insert, kind, rawBlock.label, rawBlock.deletedText),
-          side: 1,
           block: true,
         }),
       );
@@ -204,9 +199,36 @@ function buildEditorDiffPreviewDecorations(view: EditorView, preview: EditorDiff
       builder.add(
         to,
         to,
-        Decoration.widget({
+        Decoration.replace({
           widget: new DiffPreviewWidget('', kind, rawBlock.label, rawBlock.deletedText),
-          side: 1,
+          block: true,
+        }),
+      );
+    }
+  }
+
+  return builder.finish();
+}
+
+function buildEditorDiffPreviewAtomicRanges(
+  state: EditorView['state'],
+  preview: EditorDiffPreview | null,
+): DecorationSet {
+  if (!preview || !Array.isArray(preview.blocks) || preview.blocks.length === 0) return Decoration.none;
+  const builder = new RangeSetBuilder<Decoration>();
+  const docLength = state.doc.length;
+
+  for (const rawBlock of preview.blocks) {
+    const from = Math.max(0, Math.min(docLength, Math.floor(rawBlock.from)));
+    const to = Math.max(from, Math.min(docLength, Math.floor(rawBlock.to)));
+    const insert = rawBlock.insert ?? '';
+    const kind = normalizeKind(rawBlock);
+
+    if (insert.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0)) {
+      builder.add(
+        to,
+        to,
+        Decoration.replace({
           block: true,
         }),
       );
@@ -217,22 +239,27 @@ function buildEditorDiffPreviewDecorations(view: EditorView, preview: EditorDiff
 }
 
 export function editorDiffPreviewExtension(preview: EditorDiffPreview | null): Extension {
-  return ViewPlugin.fromClass(
-    class {
-      decorations: DecorationSet;
-
-      constructor(view: EditorView) {
-        this.decorations = buildEditorDiffPreviewDecorations(view, preview);
-      }
-
-      update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged) {
-          this.decorations = buildEditorDiffPreviewDecorations(update.view, preview);
-        }
-      }
+  const decorations = StateField.define<DecorationSet>({
+    create(state) {
+      return buildEditorDiffPreviewDecorations(state, preview);
     },
-    {
-      decorations: (value) => value.decorations,
+    update(value, tr) {
+      if (tr.docChanged) return buildEditorDiffPreviewDecorations(tr.state, preview);
+      return value;
     },
-  );
+    provide: (field) => EditorView.decorations.from(field),
+  });
+
+  const atomicRanges = StateField.define<DecorationSet>({
+    create(state) {
+      return buildEditorDiffPreviewAtomicRanges(state, preview);
+    },
+    update(value, tr) {
+      if (tr.docChanged) return buildEditorDiffPreviewAtomicRanges(tr.state, preview);
+      return value;
+    },
+    provide: (field) => EditorView.atomicRanges.of((view) => view.state.field(field)),
+  });
+
+  return [decorations, atomicRanges];
 }

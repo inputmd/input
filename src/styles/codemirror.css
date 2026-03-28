@@ -578,7 +578,7 @@
 }
 
 .codemirror-find-panel__field:focus-within {
-  border-color: var(--focus-border);
+  border-color: var(--field-focus-border);
 }
 
 .codemirror-find-panel__field input {
