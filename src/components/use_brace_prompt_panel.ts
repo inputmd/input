@@ -19,6 +19,10 @@ export interface BracePromptPanelState {
   top: number;
   left: number;
   maxWidth: number;
+  /** When true the panel opens above the cursor instead of below. Locked on first render. */
+  flipped: boolean;
+  /** Cursor-top offset relative to root, used to recompute `top` when flipped. */
+  cursorTop: number;
 }
 
 interface BracePromptPreviewState {
@@ -122,7 +126,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
   }, []);
 
   const computeLayout = useCallback(
-    (view: EditorView, position: number): { top: number; left: number; maxWidth: number } | null => {
+    (view: EditorView, position: number): { top: number; left: number; maxWidth: number; cursorTop: number } | null => {
       const root = rootRef.current;
       if (!root) return null;
       const coords = view.coordsAtPos(clampPosition(view, position));
@@ -137,6 +141,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       const left = Math.max(12, contentRight - panelWidth);
       return {
         top: Math.max(12, coords.bottom - rootRect.top + 8),
+        cursorTop: coords.top - rootRect.top,
         left,
         maxWidth: availableWidth,
       };
@@ -199,7 +204,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
         close();
         return;
       }
-      setPanelState({ ...currentPanel, ...layout });
+      setPanelState({ ...currentPanel, ...layout, flipped: currentPanel.flipped });
     },
     [close, computeLayout, setPanelState],
   );
@@ -275,6 +280,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       loading: true,
       error: null,
       ...layout,
+      flipped: basePanel?.flipped ?? false,
     });
 
     const normalizeBracePromptOption = (raw: string): string =>
@@ -411,6 +417,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
             selectedIndex: 0,
             loading: false,
             error: null,
+            flipped: false,
             ...layout,
           }),
           loading: false,
@@ -527,6 +534,15 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     return true;
   };
 
+  const setFlipped = useCallback(
+    (flipped: boolean) => {
+      const currentPanel = panelRef.current;
+      if (!currentPanel || currentPanel.flipped === flipped) return;
+      setPanelState({ ...currentPanel, flipped });
+    },
+    [setPanelState],
+  );
+
   const isActive = useCallback((): boolean => panelRef.current != null, []);
   const getPanel = useCallback((): BracePromptPanelState | null => panelRef.current, []);
   const loadMore = (view: EditorView): boolean => {
@@ -586,6 +602,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     acceptSelection,
     loadMore,
     scheduleHoverPreview,
+    setFlipped,
     syncLayout,
     syncValidity,
     isActive,

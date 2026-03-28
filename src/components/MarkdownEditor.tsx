@@ -25,7 +25,7 @@ import {
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
@@ -106,6 +106,7 @@ export function MarkdownEditor({
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
   const SEARCH_SCROLL_MARGIN_PX = 80;
   const rootRef = useRef<HTMLDivElement>(null);
+  const bracePromptPanelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -764,6 +765,20 @@ export function MarkdownEditor({
     replaceAll(view);
   };
 
+  // Measure the brace-prompt panel after first render and flip above cursor if it overflows.
+  // Direction is locked for the lifetime of the panel (won't re-flip as options stream in).
+  useLayoutEffect(() => {
+    const panel = bracePrompt.panel;
+    const el = bracePromptPanelRef.current;
+    const root = rootRef.current;
+    if (!panel || !el || !root || panel.flipped) return;
+    const rootRect = root.getBoundingClientRect();
+    const panelRect = el.getBoundingClientRect();
+    if (panelRect.bottom > rootRect.bottom && panelRect.bottom > window.innerHeight) {
+      bracePrompt.setFlipped(true);
+    }
+  }, [bracePrompt.panel?.request.from, bracePrompt.panel?.request.to, bracePrompt.panel?.flipped]);
+
   return (
     <div ref={rootRef} class={`doc-editor-shell${className ? ` ${className}` : ''}`}>
       {searchOpen ? (
@@ -816,12 +831,20 @@ export function MarkdownEditor({
       <div ref={containerRef} class="doc-editor-shell__editor" />
       {bracePrompt.panel ? (
         <div
+          ref={bracePromptPanelRef}
           class="brace-prompt-panel"
-          style={{
-            top: `${bracePrompt.panel.top}px`,
-            left: `${bracePrompt.panel.left}px`,
-            maxWidth: `${bracePrompt.panel.maxWidth}px`,
-          }}
+          style={bracePrompt.panel.flipped
+            ? {
+                bottom: `calc(100% - ${bracePrompt.panel.cursorTop - 8}px)`,
+                left: `${bracePrompt.panel.left}px`,
+                maxWidth: `${bracePrompt.panel.maxWidth}px`,
+              }
+            : {
+                top: `${bracePrompt.panel.top}px`,
+                left: `${bracePrompt.panel.left}px`,
+                maxWidth: `${bracePrompt.panel.maxWidth}px`,
+              }
+          }
           role="listbox"
           aria-label="AI completions"
         >
