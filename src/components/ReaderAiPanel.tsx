@@ -3,7 +3,8 @@ import { ArrowRight, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-reac
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
-import type { ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
+import type { ReaderAiEditProposal, ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
+import { EditProposalCard } from './ReaderAiEditProposal';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
@@ -29,6 +30,9 @@ interface ReaderAiPanelProps {
   sending: boolean;
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
+  editProposals: ReaderAiEditProposal[];
+  onAcceptProposal: (editId: string) => void;
+  onRejectProposal: (editId: string) => void;
   stagedChanges: ReaderAiStagedChange[];
   suggestedCommitMessage: string;
   applyingChanges: boolean;
@@ -116,6 +120,9 @@ export function ReaderAiPanel({
   sending,
   toolStatus,
   toolLog,
+  editProposals,
+  onAcceptProposal,
+  onRejectProposal,
   stagedChanges,
   suggestedCommitMessage,
   applyingChanges,
@@ -180,14 +187,14 @@ export function ReaderAiPanel({
     messages[messageCount - 1].role === 'assistant' &&
     messages[messageCount - 1].content.trim().length === 0;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length and stagedChanges.length trigger scroll on new activity
+  // biome-ignore lint/correctness/useExhaustiveDependencies: length deps trigger scroll on new activity
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
     const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
     if (distanceFromBottom > 80) return;
     root.scrollTop = root.scrollHeight;
-  }, [messageCount, sending, toolLog.length, stagedChanges.length]);
+  }, [messageCount, sending, toolLog.length, stagedChanges.length, editProposals.length]);
 
   useEffect(() => {
     if (editingIndex === null) return;
@@ -580,6 +587,17 @@ export function ReaderAiPanel({
             ) : null}
           </>
         ) : null}
+        {editProposals.length > 0
+          ? editProposals.map((proposal) => (
+              <EditProposalCard
+                key={proposal.editId}
+                proposal={proposal}
+                onAccept={() => onAcceptProposal(proposal.editId)}
+                onReject={() => onRejectProposal(proposal.editId)}
+                disabled={sending}
+              />
+            ))
+          : null}
         {!sending && suggestProjectMode ? (
           <div class="reader-ai-suggest-project-mode" role="status" aria-live="polite">
             <div class="reader-ai-suggest-project-mode-copy">

@@ -2998,20 +2998,56 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
       // Run sync tools first
       for (const { tc } of syncCalls) {
+        const isEditTool =
+          tc.name === 'propose_edit_file' ||
+          tc.name === 'propose_edit_document' ||
+          tc.name === 'propose_create_file' ||
+          tc.name === 'propose_delete_file';
+
+        const docDiffBefore = documentEditState.stagedDiff;
+
         const toolResult = executeSyncToolCall(tc);
 
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
         writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
 
-        // Emit staged changes incrementally after each edit tool so the client
-        // can show diffs in real-time as the AI builds up proposals.
-        if (
-          tc.name === 'propose_edit_file' ||
-          tc.name === 'propose_edit_document' ||
-          tc.name === 'propose_create_file' ||
-          tc.name === 'propose_delete_file'
-        ) {
+        if (isEditTool) {
+          // Emit per-edit proposal event for inline review
+          const isErrorResult = toolResult.startsWith('(') && toolResult.endsWith(')');
+          if (!isErrorResult) {
+            // Determine the path affected by this tool call
+            let editPath: string | undefined;
+            try {
+              const editArgs = tc.arguments ? (JSON.parse(tc.arguments) as Record<string, unknown>) : {};
+              if (typeof editArgs.path === 'string') editPath = editArgs.path;
+            } catch {
+              // ignore parse errors; path is optional for document mode
+            }
+            if (stagedChanges) {
+              const targetPath = editPath;
+              const change = targetPath
+                ? stagedChanges.getChanges().find((c) => c.path === targetPath)
+                : stagedChanges.getChanges().at(-1);
+              if (change) {
+                writeSseEvent('edit_proposal', {
+                  edit_id: tc.id,
+                  tool_call_id: tc.id,
+                  path: change.path,
+                  type: change.type,
+                  diff: change.diff,
+                });
+              }
+            } else if (documentEditState.stagedDiff && documentEditState.stagedDiff !== docDiffBefore) {
+              writeSseEvent('edit_proposal', {
+                edit_id: tc.id,
+                tool_call_id: tc.id,
+                path: currentDocPath || 'current-document.md',
+                type: 'edit',
+                diff: documentEditState.stagedDiff,
+              });
+            }
+          }
           emitStagedChangesIfAny();
         }
       }

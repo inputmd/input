@@ -52,12 +52,22 @@ export interface ReaderAiTaskProgressEvent {
   detail?: string;
 }
 
+export interface ReaderAiEditProposal {
+  editId: string;
+  toolCallId: string;
+  path: string;
+  type: 'edit' | 'create' | 'delete';
+  diff: string;
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
 interface ReaderAiStreamOptions {
   onDelta: (delta: string) => void;
   onSummary?: (summary: string) => void;
   onToolCall?: (event: ReaderAiToolCallEvent) => void;
   onToolResult?: (event: ReaderAiToolResultEvent) => void;
   onTaskProgress?: (event: ReaderAiTaskProgressEvent) => void;
+  onEditProposal?: (proposal: Omit<ReaderAiEditProposal, 'status'>) => void;
   onStagedChanges?: (
     changes: ReaderAiStagedChange[],
     suggestedCommitMessage?: string,
@@ -455,6 +465,34 @@ export async function askReaderAiStream(
               options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview });
           } catch {
             // Ignore malformed tool_result event.
+          }
+        }
+      } else if (eventType === 'edit_proposal') {
+        if (options.onEditProposal) {
+          try {
+            const parsed = JSON.parse(data) as {
+              edit_id?: string;
+              tool_call_id?: string;
+              path?: string;
+              type?: string;
+              diff?: string;
+            };
+            if (
+              typeof parsed.edit_id === 'string' &&
+              typeof parsed.path === 'string' &&
+              typeof parsed.diff === 'string' &&
+              (parsed.type === 'edit' || parsed.type === 'create' || parsed.type === 'delete')
+            ) {
+              options.onEditProposal({
+                editId: parsed.edit_id,
+                toolCallId: parsed.tool_call_id ?? parsed.edit_id,
+                path: parsed.path,
+                type: parsed.type,
+                diff: parsed.diff,
+              });
+            }
+          } catch {
+            // Ignore malformed edit_proposal event.
           }
         }
       } else if (eventType === 'task_progress') {

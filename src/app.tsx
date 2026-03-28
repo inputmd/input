@@ -136,6 +136,7 @@ import {
   formatReaderAiModelDisplayName,
   listReaderAiModels,
   localCodexEnabledByPreference,
+  type ReaderAiEditProposal,
   type ReaderAiModel,
   readerAiModelPriorityRank,
   resetReaderAiProjectSession,
@@ -785,6 +786,7 @@ export function App() {
   const [readerAiAppliedChanges, setReaderAiAppliedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>
   >([]);
+  const [readerAiEditProposals, setReaderAiEditProposals] = useState<ReaderAiEditProposal[]>([]);
   const [readerAiStagedChangesInvalid, setReaderAiStagedChangesInvalid] = useState(false);
   const [readerAiStagedFileContents, setReaderAiStagedFileContents] = useState<Record<string, string>>({});
   const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
@@ -3468,6 +3470,7 @@ export function App() {
     setReaderAiSending(false);
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
+    setReaderAiEditProposals([]);
     setReaderAiStagedChanges([]);
     setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
@@ -3751,6 +3754,7 @@ export function App() {
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
+      setReaderAiEditProposals([]);
       setReaderAiDocumentEditedContent(null);
       setReaderAiError(null);
       setReaderAiSuggestProjectMode(false);
@@ -3889,6 +3893,20 @@ export function App() {
               const detail = event.detail ? `${phaseLabel}: ${event.detail}` : phaseLabel;
               setReaderAiToolStatus(detail);
               setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail }]);
+            },
+            onEditProposal: (proposal) => {
+              logReceiveStart('edit_proposal');
+              setReaderAiEditProposals((prev) => {
+                // Update existing proposal for the same path (accumulating edits)
+                // or add a new one
+                const existing = prev.find((p) => p.editId === proposal.editId);
+                if (existing) {
+                  return prev.map((p) =>
+                    p.editId === proposal.editId ? { ...p, diff: proposal.diff, type: proposal.type } : p,
+                  );
+                }
+                return [...prev, { ...proposal, status: 'pending' as const }];
+              });
             },
             onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
               logReceiveStart('staged_changes');
@@ -4098,6 +4116,7 @@ export function App() {
 
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
+    setReaderAiEditProposals([]);
     setReaderAiStagedChanges([]);
     setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
@@ -8096,6 +8115,17 @@ export function App() {
               sending={readerAiSending}
               toolStatus={readerAiToolStatus}
               toolLog={readerAiToolLog}
+              editProposals={readerAiEditProposals}
+              onAcceptProposal={(editId) =>
+                setReaderAiEditProposals((prev) =>
+                  prev.map((p) => (p.editId === editId ? { ...p, status: 'accepted' } : p)),
+                )
+              }
+              onRejectProposal={(editId) =>
+                setReaderAiEditProposals((prev) =>
+                  prev.map((p) => (p.editId === editId ? { ...p, status: 'rejected' } : p)),
+                )
+              }
               stagedChanges={readerAiStagedChanges}
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}

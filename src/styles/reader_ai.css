@@ -739,6 +739,113 @@
   font-size: 11px;
 }
 
+/* ── Edit proposals (per-hunk inline review) ── */
+
+.reader-ai-edit-proposal {
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 4px;
+  margin: 4px 0;
+  overflow: hidden;
+}
+
+.reader-ai-edit-proposal--accepted {
+  border-color: color-mix(in srgb, #2aa198 45%, transparent);
+}
+
+.reader-ai-edit-proposal--rejected {
+  border-color: color-mix(in srgb, #dc322f 35%, transparent);
+  opacity: 0.6;
+}
+
+.reader-ai-edit-proposal-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+}
+
+.reader-ai-edit-proposal-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.reader-ai-edit-proposal-toggle:hover {
+  color: var(--text);
+}
+
+.reader-ai-edit-proposal-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+}
+
+.reader-ai-edit-proposal-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.reader-ai-edit-proposal-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.reader-ai-edit-proposal-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--btn-hover);
+}
+
+.reader-ai-edit-proposal-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.reader-ai-edit-proposal-btn--accept:hover:not(:disabled) {
+  color: #2aa198;
+  border-color: #2aa198;
+}
+
+.reader-ai-edit-proposal-btn--reject:hover:not(:disabled) {
+  color: #dc322f;
+  border-color: #dc322f;
+}
+
+.reader-ai-edit-proposal-status-label {
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+.reader-ai-edit-proposal-diff {
+  border-top: 1px solid var(--border);
+}
+
 /* ── Staged changes ── */
 
 .reader-ai-staged-changes {
