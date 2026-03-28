@@ -25,9 +25,11 @@ import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from '
 import {
   createAppJwt,
   encodePathPreserveSlashes,
+  forceUpdateBranchRefAtomicallyWithInstallationToken,
+  getRepoBranchStateWithInstallationToken,
   getRepoInstallationId,
-  githubFetchGraphqlWithInstallationToken,
   githubFetchWithInstallationToken,
+  githubGraphqlWithInstallationToken,
 } from './github_client';
 import { json, readJson, requireEnv, requireString } from './http_helpers';
 import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
@@ -1666,55 +1668,86 @@ async function handleListRecentCommits(ctx: RouteContext): Promise<void> {
   const requestedPerPage = Number(ctx.url.searchParams.get('per_page') || '20');
   const perPage = Number.isFinite(requestedPerPage) ? Math.min(20, Math.max(1, Math.floor(requestedPerPage))) : 20;
 
-  const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
-  const repoData = (await repoRes.json().catch(() => null)) as { default_branch?: string; message?: string } | null;
-  if (!repoRes.ok || typeof repoData?.default_branch !== 'string' || !repoData.default_branch) {
-    if (repoRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(ctx.res, repoRes, repoData?.message ?? 'Failed to load repository metadata', repoPath);
-    return;
-  }
-  copyGitHubRateLimitHeaders(ctx.res, repoRes);
-
-  const branch = repoData.default_branch;
-  const commitsPath = `${repoPath}/commits?sha=${encodeURIComponent(branch)}&per_page=${perPage}&page=1`;
-  const commitsRes = await githubFetchWithInstallationToken(installationId, commitsPath);
-  const commitsData = (await commitsRes.json().catch(() => null)) as GitHubCommitListItem[] | GitHubApiError | null;
-  if (!commitsRes.ok || !Array.isArray(commitsData)) {
-    if (commitsRes.status === 401) throw new ClientError('Unauthorized', 401);
-    const err = commitsData as GitHubApiError | null;
-    if (isEmptyGitRepositoryError(commitsRes.status, err?.message ?? '')) {
-      copyGitHubRateLimitHeaders(ctx.res, commitsRes);
-      json(ctx.res, 200, {
-        branch,
-        headSha: null,
-        commits: [],
-        pageSize: perPage,
-        hasMore: false,
-      });
-      return;
+  const recentCommitsQuery = `
+    query RecentCommits($owner: String!, $repo: String!, $perPage: Int!) {
+      repository(owner: $owner, name: $repo) {
+        defaultBranchRef {
+          name
+          target {
+            ... on Commit {
+              history(first: $perPage) {
+                nodes {
+                  oid
+                  message
+                  committedDate
+                  url
+                  parents(first: 10) {
+                    totalCount
+                  }
+                  author {
+                    name
+                    date
+                  }
+                  committer {
+                    date
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
-    respondGitHubError(ctx.res, commitsRes, err?.message ?? 'Failed to load recent commits', commitsPath);
-    return;
+  `;
+  const recentCommitsPayload = await githubFetchGraphqlWithInstallationToken<{
+    repository?: {
+      defaultBranchRef?: {
+        name?: string | null;
+        target?: {
+          history?: {
+            nodes?: Array<{
+              oid?: string | null;
+              message?: string | null;
+              committedDate?: string | null;
+              url?: string | null;
+              parents?: { totalCount?: number | null } | null;
+              author?: { name?: string | null; date?: string | null } | null;
+              committer?: { date?: string | null } | null;
+            } | null> | null;
+          } | null;
+        } | null;
+      } | null;
+    } | null;
+  }>(installationId, recentCommitsQuery, { owner, repo, perPage });
+  const graphqlMessage =
+    recentCommitsPayload.errors
+      ?.map((entry) => entry.message)
+      .filter((message): message is string => typeof message === 'string' && message.trim().length > 0)
+      .join('; ') ?? '';
+  const branch = recentCommitsPayload.data?.repository?.defaultBranchRef?.name?.trim() ?? '';
+  if (!branch) {
+    if (/could not resolve to a repository|not found/i.test(graphqlMessage)) {
+      throw new ClientError('Repository not found', 404);
+    }
+    throw new ClientError(graphqlMessage || 'Failed to load repository metadata', 502);
   }
-  copyGitHubRateLimitHeaders(ctx.res, commitsRes);
-
-  const commits = commitsData
+  const commitNodes = recentCommitsPayload.data?.repository?.defaultBranchRef?.target?.history?.nodes ?? [];
+  const commits = commitNodes
     .map((commit, index) => {
-      const sha = typeof commit.sha === 'string' ? commit.sha : '';
+      const sha = typeof commit?.oid === 'string' ? commit.oid : '';
       if (!sha) return null;
-      const message = typeof commit.commit?.message === 'string' ? commit.commit.message : '';
+      const message = typeof commit?.message === 'string' ? commit.message : '';
       const summary = message.split('\n', 1)[0] ?? '';
       return {
         sha,
         shortSha: sha.slice(0, 7),
         summary,
         message,
-        authoredAt: typeof commit.commit?.author?.date === 'string' ? commit.commit.author.date : null,
-        committedAt: typeof commit.commit?.committer?.date === 'string' ? commit.commit.committer.date : null,
-        authorName: typeof commit.commit?.author?.name === 'string' ? commit.commit.author.name : null,
-        parentCount: Array.isArray(commit.parents) ? commit.parents.length : 0,
-        htmlUrl: typeof commit.html_url === 'string' ? commit.html_url : null,
+        authoredAt: typeof commit?.author?.date === 'string' ? commit.author.date : null,
+        committedAt: typeof commit?.committer?.date === 'string' ? commit.committer.date : null,
+        authorName: typeof commit?.author?.name === 'string' ? commit.author.name : null,
+        parentCount: typeof commit?.parents?.totalCount === 'number' ? commit.parents.totalCount : 0,
+        htmlUrl: typeof commit?.url === 'string' ? commit.url : null,
         isHead: index === 0,
       };
     })
@@ -1797,43 +1830,11 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
   }
 
   const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
-  const repoData = (await repoRes.json().catch(() => null)) as { default_branch?: string; message?: string } | null;
-  if (!repoRes.ok || typeof repoData?.default_branch !== 'string' || !repoData.default_branch) {
-    if (repoRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(ctx.res, repoRes, repoData?.message ?? 'Failed to load repository metadata', repoPath);
-    return;
-  }
-  const branch = repoData.default_branch;
-
-  const refPath = `${repoPath}/git/ref/heads/${encodeURIComponent(branch)}`;
-  const refRes = await githubFetchWithInstallationToken(installationId, refPath);
-  const refData = (await refRes.json().catch(() => null)) as { object?: { sha?: string }; message?: string } | null;
-  if (!refRes.ok || typeof refData?.object?.sha !== 'string') {
-    if (refRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(ctx.res, refRes, refData?.message ?? 'Failed to load branch ref', refPath);
-    return;
-  }
-  const headSha = refData.object.sha;
-
-  const commitPath = `${repoPath}/git/commits/${encodeURIComponent(headSha)}`;
-  const commitRes = await githubFetchWithInstallationToken(installationId, commitPath);
-  const commitData = (await commitRes.json().catch(() => null)) as { tree?: { sha?: string }; message?: string } | null;
-  if (!commitRes.ok || typeof commitData?.tree?.sha !== 'string') {
-    if (commitRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(ctx.res, commitRes, commitData?.message ?? 'Failed to load HEAD commit', commitPath);
-    return;
-  }
-  const baseTreeSha = commitData.tree.sha;
-
-  const treePath = `${repoPath}/git/trees/${encodeURIComponent(baseTreeSha)}?recursive=1`;
-  const treeRes = await githubFetchWithInstallationToken(installationId, treePath);
-  const treeData = (await treeRes.json().catch(() => null)) as { tree?: GitTreeEntry[]; message?: string } | null;
-  if (!treeRes.ok || !Array.isArray(treeData?.tree)) {
-    if (treeRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(ctx.res, treeRes, treeData?.message ?? 'Failed to load repository tree', treePath);
-    return;
-  }
+  const branchState = await fetchRepositoryBranchState(installationId, owner, repo);
+  const branch = branchState.defaultBranch;
+  const headSha = branchState.headSha;
+  const baseTreeSha = branchState.baseTreeSha;
+  const treeData = { tree: branchState.tree } as const;
 
   const blobsByPath = new Map<string, GitBlobTreeEntry>();
   for (const entry of treeData.tree as Array<GitTreeEntry & { mode?: string }>) {
@@ -1920,25 +1921,17 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
     respondGitHubError(ctx.res, createCommitRes, createdCommit?.message ?? 'Failed to create commit', createCommitPath);
     return;
   }
-
-  const updateRefPath = `${repoPath}/git/refs/heads/${encodeURIComponent(branch)}`;
-  const updateRefRes = await githubFetchWithInstallationToken(installationId, updateRefPath, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sha: createdCommit.sha, force: false }),
-  });
-  if (!updateRefRes.ok) {
-    const err = (await updateRefRes.json().catch(() => null)) as GitHubApiError | null;
-    if (updateRefRes.status === 401) throw new ClientError('Unauthorized', 401);
-    if (updateRefRes.status === 409 || updateRefRes.status === 422) {
+  try {
+    await updateBranchRefAtomically(installationId, branchState.repositoryId, branch, headSha, createdCommit.sha, false);
+  } catch (err) {
+    if (err instanceof ClientError && err.status === 409) {
       json(ctx.res, 409, {
         error: 'Repository changed while applying git batch update. Please retry.',
         code: 'repo_ref_conflict',
       });
       return;
     }
-    respondGitHubError(ctx.res, updateRefRes, err?.message ?? 'Failed to update branch ref', updateRefPath);
-    return;
+    throw err;
   }
 
   json(ctx.res, 200, {
@@ -2474,35 +2467,8 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
       }
 
       try {
-        const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-        const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
-        const repoData = (await repoRes.json().catch(() => null)) as { default_branch?: string } | null;
-        const branch = typeof repoData?.default_branch === 'string' ? repoData.default_branch : '';
-        if (!branch) throw new Error('Failed to load repository metadata');
-
-        const refPath = `${repoPath}/git/ref/heads/${encodeURIComponent(branch)}`;
-        const refRes = await githubFetchWithInstallationToken(installationId, refPath);
-        const refData = (await refRes.json().catch(() => null)) as { object?: { sha?: string } } | null;
-        const headSha = typeof refData?.object?.sha === 'string' ? refData.object.sha : '';
-        if (!headSha) throw new Error('Failed to load branch ref');
-
-        const commitPath = `${repoPath}/git/commits/${encodeURIComponent(headSha)}`;
-        const commitRes = await githubFetchWithInstallationToken(installationId, commitPath);
-        const commitData = (await commitRes.json().catch(() => null)) as { tree?: { sha?: string } } | null;
-        const baseTreeSha = typeof commitData?.tree?.sha === 'string' ? commitData.tree.sha : '';
-        if (!baseTreeSha) throw new Error('Failed to load HEAD commit');
-
-        const treePath = `${repoPath}/git/trees/${encodeURIComponent(baseTreeSha)}?recursive=1`;
-        const treeRes = await githubFetchWithInstallationToken(installationId, treePath);
-        const treeData = (await treeRes.json().catch(() => null)) as { tree?: GitTreeEntry[] } | null;
-        if (!Array.isArray(treeData?.tree)) throw new Error('Failed to load repository tree');
-
-        const blobsByPath = new Map<string, GitBlobTreeEntry>();
-        for (const entry of treeData.tree as Array<GitTreeEntry & { mode?: string }>) {
-          if (entry.type !== 'blob') continue;
-          if (typeof entry.mode !== 'string') continue;
-          blobsByPath.set(entry.path, { ...entry, type: 'blob', mode: entry.mode });
-        }
+        const branchState = await loadRepoBranchState(installationId, owner, repo);
+        const { branch, headSha, baseTreeSha, blobsByPath } = branchState;
 
         const treeMutations: Array<{ path: string; mode: string; type: 'blob'; sha?: null; content?: string }> = [];
         const applyablePaths: string[] = [];
@@ -2585,6 +2551,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
           return;
         }
 
+        const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
         const createTreePath = `${repoPath}/git/trees`;
         const createTreeRes = await githubFetchWithInstallationToken(installationId, createTreePath, {
           method: 'POST',
@@ -2603,12 +2570,26 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
         const createdCommit = (await createCommitRes.json().catch(() => null)) as { sha?: string } | null;
         if (typeof createdCommit?.sha !== 'string') throw new Error('Failed to create commit');
 
-        const updateRefPath = `${repoPath}/git/refs/heads/${encodeURIComponent(branch)}`;
-        await githubFetchWithInstallationToken(installationId, updateRefPath, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sha: createdCommit.sha, force: false }),
-        });
+        const updateResult = await updateBranchRefAtomically(
+          installationId,
+          branchState.repositoryId,
+          branch,
+          headSha,
+          createdCommit.sha,
+          false,
+        );
+        if (updateResult.conflict) {
+          failed.push(
+            ...candidateChanges
+              .filter((change) => !failed.some((entry) => entry.path === change.path))
+              .map((change) => ({
+                path: change.path,
+                error: 'Repository changed while applying staged changes. Reload and try again.',
+              })),
+          );
+          json(ctx.res, 200, { applied, failed });
+          return;
+        }
 
         applied.push(...applyablePaths);
       } catch (err) {
