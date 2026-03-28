@@ -787,6 +787,11 @@ export function App() {
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>
   >([]);
   const [readerAiEditProposals, setReaderAiEditProposals] = useState<ReaderAiEditProposal[]>([]);
+  const [readerAiStreamingToolCall, setReaderAiStreamingToolCall] = useState<{
+    id: string;
+    name: string;
+    argumentsSoFar: string;
+  } | null>(null);
   const [readerAiStagedChangesInvalid, setReaderAiStagedChangesInvalid] = useState(false);
   const [readerAiStagedFileContents, setReaderAiStagedFileContents] = useState<Record<string, string>>({});
   const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
@@ -3471,6 +3476,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiEditProposals([]);
+    setReaderAiStreamingToolCall(null);
     setReaderAiStagedChanges([]);
     setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
@@ -3755,6 +3761,7 @@ export function App() {
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
       setReaderAiEditProposals([]);
+      setReaderAiStreamingToolCall(null);
       setReaderAiDocumentEditedContent(null);
       setReaderAiError(null);
       setReaderAiSuggestProjectMode(false);
@@ -3874,6 +3881,7 @@ export function App() {
             onToolResult: (event) => {
               logReceiveStart('tool_result');
               setReaderAiToolStatus(null);
+              setReaderAiStreamingToolCall(null);
               setReaderAiToolLog((log) => [...log, { type: 'result', name: event.name, detail: event.preview }]);
             },
             onTaskProgress: (event) => {
@@ -3894,8 +3902,16 @@ export function App() {
               setReaderAiToolStatus(detail);
               setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail }]);
             },
+            onToolCallDelta: (event) => {
+              setReaderAiStreamingToolCall({
+                id: event.id,
+                name: event.name,
+                argumentsSoFar: event.argumentsSoFar,
+              });
+            },
             onEditProposal: (proposal) => {
               logReceiveStart('edit_proposal');
+              setReaderAiStreamingToolCall(null);
               setReaderAiEditProposals((prev) => {
                 // Update existing proposal for the same path (accumulating edits)
                 // or add a new one
@@ -4117,6 +4133,7 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiEditProposals([]);
+    setReaderAiStreamingToolCall(null);
     setReaderAiStagedChanges([]);
     setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
@@ -8116,6 +8133,7 @@ export function App() {
               toolStatus={readerAiToolStatus}
               toolLog={readerAiToolLog}
               editProposals={readerAiEditProposals}
+              streamingToolCall={readerAiStreamingToolCall}
               onAcceptProposal={(editId) =>
                 setReaderAiEditProposals((prev) =>
                   prev.map((p) => (p.editId === editId ? { ...p, status: 'accepted' } : p)),

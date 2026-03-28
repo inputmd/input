@@ -7,6 +7,7 @@ import type { ReaderAiEditProposal, ReaderAiModel, ReaderAiStagedChange } from '
 import { EditProposalCard } from './ReaderAiEditProposal';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
+import { StreamingDiffPreview } from './ReaderAiStreamingDiff';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
 
 export type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
@@ -33,6 +34,7 @@ interface ReaderAiPanelProps {
   editProposals: ReaderAiEditProposal[];
   onAcceptProposal: (editId: string) => void;
   onRejectProposal: (editId: string) => void;
+  streamingToolCall: { id: string; name: string; argumentsSoFar: string } | null;
   stagedChanges: ReaderAiStagedChange[];
   suggestedCommitMessage: string;
   applyingChanges: boolean;
@@ -123,6 +125,7 @@ export function ReaderAiPanel({
   editProposals,
   onAcceptProposal,
   onRejectProposal,
+  streamingToolCall,
   stagedChanges,
   suggestedCommitMessage,
   applyingChanges,
@@ -586,6 +589,13 @@ export function ReaderAiPanel({
               <div class="reader-ai-tool-status">{toolStatus}</div>
             ) : null}
           </>
+        ) : null}
+        {sending && streamingToolCall ? (
+          <StreamingDiffPreview
+            toolCallId={streamingToolCall.id}
+            name={streamingToolCall.name}
+            argumentsSoFar={streamingToolCall.argumentsSoFar}
+          />
         ) : null}
         {editProposals.length > 0
           ? editProposals.map((proposal) => (

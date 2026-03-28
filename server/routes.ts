@@ -2937,9 +2937,22 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     for (let iteration = 0; iteration < READER_AI_MAX_TOOL_ITERATIONS; iteration++) {
       writeSseEvent('turn_start', { iteration });
       let result: ReaderAiStreamParseResult;
+      const editToolNames = new Set([
+        'propose_edit_file',
+        'propose_edit_document',
+        'propose_create_file',
+        'propose_delete_file',
+      ]);
       try {
         result = await parseReaderAiUpstreamStream(currentBody, writeSseDelta, {
           repairBoundaries: getReaderAiModelSource(model, paidReaderAiModelIds) === 'free',
+          onToolCallDelta: (_index, id, name, argsDelta, argsSoFar) => {
+            if (!editToolNames.has(name)) return;
+            // Throttle: only emit every ~200 chars of accumulated args to avoid
+            // flooding the SSE connection with tiny deltas
+            if (argsSoFar.length % 200 > argsDelta.length && argsSoFar.length > 200) return;
+            writeSseEvent('tool_call_delta', { id, name, arguments_delta: argsDelta, arguments_so_far: argsSoFar });
+          },
         });
       } catch (streamErr) {
         await currentBody.cancel().catch(() => {});

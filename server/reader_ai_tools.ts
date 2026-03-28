@@ -109,6 +109,7 @@ export interface ReaderAiStreamParseResult {
 
 interface ReaderAiStreamParseOptions {
   repairBoundaries?: boolean;
+  onToolCallDelta?: (index: number, id: string, name: string, argumentsDelta: string, argumentsSoFar: string) => void;
 }
 
 function joinStructuredContentSegments(segments: string[]): string {
@@ -1441,7 +1442,10 @@ export async function parseReaderAiUpstreamStream(
               const acc = accumulators.get(idx)!;
               if (tc.id) acc.id = tc.id;
               if (tc.function?.name) acc.name += tc.function.name;
-              if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+              if (tc.function?.arguments) {
+                acc.arguments += tc.function.arguments;
+                options.onToolCallDelta?.(idx, acc.id, acc.name, tc.function.arguments, acc.arguments);
+              }
             }
           }
         } catch {

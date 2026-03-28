@@ -61,6 +61,13 @@ export interface ReaderAiEditProposal {
   status: 'pending' | 'accepted' | 'rejected';
 }
 
+export interface ReaderAiToolCallDeltaEvent {
+  id: string;
+  name: string;
+  argumentsDelta: string;
+  argumentsSoFar: string;
+}
+
 interface ReaderAiStreamOptions {
   onDelta: (delta: string) => void;
   onSummary?: (summary: string) => void;
@@ -68,6 +75,7 @@ interface ReaderAiStreamOptions {
   onToolResult?: (event: ReaderAiToolResultEvent) => void;
   onTaskProgress?: (event: ReaderAiTaskProgressEvent) => void;
   onEditProposal?: (proposal: Omit<ReaderAiEditProposal, 'status'>) => void;
+  onToolCallDelta?: (event: ReaderAiToolCallDeltaEvent) => void;
   onStagedChanges?: (
     changes: ReaderAiStagedChange[],
     suggestedCommitMessage?: string,
@@ -465,6 +473,27 @@ export async function askReaderAiStream(
               options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview });
           } catch {
             // Ignore malformed tool_result event.
+          }
+        }
+      } else if (eventType === 'tool_call_delta') {
+        if (options.onToolCallDelta) {
+          try {
+            const parsed = JSON.parse(data) as {
+              id?: string;
+              name?: string;
+              arguments_delta?: string;
+              arguments_so_far?: string;
+            };
+            if (typeof parsed.id === 'string' && typeof parsed.name === 'string') {
+              options.onToolCallDelta({
+                id: parsed.id,
+                name: parsed.name,
+                argumentsDelta: typeof parsed.arguments_delta === 'string' ? parsed.arguments_delta : '',
+                argumentsSoFar: typeof parsed.arguments_so_far === 'string' ? parsed.arguments_so_far : '',
+              });
+            }
+          } catch {
+            // Ignore malformed tool_call_delta event.
           }
         }
       } else if (eventType === 'edit_proposal') {
