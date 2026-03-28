@@ -333,6 +333,12 @@ export async function deleteReaderAiProjectSession(projectId: string, modelId?: 
 export interface ReaderAiApplyResult {
   applied: string[];
   failed: Array<{ path: string; error: string }>;
+  conflict?: {
+    path: string;
+    currentContent: string | null;
+    currentSha?: string;
+    currentVersion?: string;
+  };
 }
 
 type ReaderAiApplyContext =
@@ -373,6 +379,12 @@ export async function applyReaderAiChanges(
   const data = (await res.json()) as {
     applied?: string[];
     failed?: Array<{ path?: string; error?: string }>;
+    conflict?: {
+      path?: string;
+      current_content?: string | null;
+      current_sha?: string;
+      current_version?: string;
+    };
   };
   return {
     applied: Array.isArray(data.applied) ? data.applied.filter((path): path is string => typeof path === 'string') : [],
@@ -384,6 +396,20 @@ export async function applyReaderAiChanges(
           }))
           .filter((entry) => entry.path.length > 0)
       : [],
+    conflict:
+      data.conflict && typeof data.conflict.path === 'string' && data.conflict.path.length > 0
+        ? {
+            path: data.conflict.path,
+            currentContent:
+              data.conflict.current_content === null || typeof data.conflict.current_content === 'string'
+                ? (data.conflict.current_content ?? null)
+                : null,
+            ...(typeof data.conflict.current_sha === 'string' ? { currentSha: data.conflict.current_sha } : {}),
+            ...(typeof data.conflict.current_version === 'string'
+              ? { currentVersion: data.conflict.current_version }
+              : {}),
+          }
+        : undefined,
   };
 }
 

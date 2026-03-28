@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
@@ -145,6 +145,20 @@ interface RepoContentsFileData {
   name?: string;
   content?: string;
   encoding?: string;
+}
+
+interface ReaderAiApplyConflictEntry {
+  path: string;
+  reason: 'document_changed';
+  message: string;
+  current_content?: string;
+  current_sha?: string;
+  expected_version?: string | null;
+  current_version?: string | null;
+}
+
+function readerAiContentVersion(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
 }
 
 interface ReaderAiModelEntry {
@@ -1520,7 +1534,7 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
   ctx.res.end(body);
 }
 
-type GitTreeEntry = { path: string; type: string; sha: string; size?: number };
+type GitTreeEntry = { path: string; type: string; sha: string; size?: number; url?: string };
 type GitBlobTreeEntry = GitTreeEntry & { mode: string; type: 'blob' };
 interface GitHubCommitListItem {
   sha?: string;
@@ -2364,7 +2378,24 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
     const type = typeof (entry as { type?: unknown }).type === 'string' ? (entry as { type: string }).type : '';
     if (!path) throw new ClientError('Change path is required', 400);
     if (type !== 'edit' && type !== 'create' && type !== 'delete') throw new ClientError('Invalid change type', 400);
-    return { path, type } as { path: string; type: 'edit' | 'create' | 'delete' };
+    const originalContentRaw = (entry as { originalContent?: unknown }).originalContent;
+    const originalContent =
+      originalContentRaw === null || typeof originalContentRaw === 'string'
+        ? (originalContentRaw ?? null)
+        : undefined;
+    const expectedVersion =
+      originalContent === null || typeof originalContent === 'string' ? readerAiContentVersion(originalContent ?? '') : null;
+    return {
+      path,
+      type,
+      ...(originalContent !== undefined ? { originalContent } : {}),
+      ...(expectedVersion ? { expectedVersion } : {}),
+    } as {
+      path: string;
+      type: 'edit' | 'create' | 'delete';
+      originalContent?: string | null;
+      expectedVersion?: string;
+    };
   });
 
   const fileContents = new Map(
@@ -2375,12 +2406,47 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
 
   const applied: string[] = [];
   const failed: Array<{ path: string; error: string }> = [];
+  let conflict: ReaderAiApplyConflictEntry | undefined;
 
   if (kind === 'gist') {
     const gistId = typeof context?.gist_id === 'string' ? context.gist_id : '';
     if (!gistId) throw new ClientError('context.gist_id is required', 400);
+    const gistRes = await githubFetchWithUserToken(session, `/gists/${encodeURIComponent(gistId)}`, {
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    const gistData = (await gistRes.json().catch(() => null)) as {
+      updated_at?: string;
+      files?: Record<string, { content?: string | null } | null>;
+      message?: string;
+    } | null;
+    if (!gistRes.ok) {
+      respondGitHubError(ctx.res, gistRes, gistData?.message ?? 'GitHub API error', `/gists/${encodeURIComponent(gistId)}`);
+      return;
+    }
+    const gistUpdatedAt = typeof gistData?.updated_at === 'string' ? gistData.updated_at : null;
+    const gistFiles = gistData?.files && typeof gistData.files === 'object' ? gistData.files : {};
     const gistUpdates: Record<string, { content: string } | null> = {};
     for (const change of changes) {
+      const currentContent =
+        change.type === 'create'
+          ? null
+          : typeof gistFiles?.[change.path]?.content === 'string'
+            ? (gistFiles[change.path] as { content: string }).content
+            : null;
+      const currentVersion = readerAiContentVersion(currentContent ?? '');
+      if (change.expectedVersion && change.expectedVersion !== currentVersion) {
+        conflict = {
+          path: change.path,
+          reason: 'document_changed',
+          message: 'The document changed after the AI generated this edit.',
+          ...(typeof currentContent === 'string' ? { current_content: currentContent } : {}),
+          ...(gistUpdatedAt ? { current_sha: gistUpdatedAt } : {}),
+          expected_version: change.expectedVersion,
+          current_version: currentVersion,
+        };
+        json(ctx.res, 200, { applied, failed, conflict });
+        return;
+      }
       if (change.type === 'delete') {
         gistUpdates[change.path] = null;
         continue;
@@ -2402,7 +2468,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
         return;
       applied.push(...Object.keys(gistUpdates));
     }
-    json(ctx.res, 200, { applied, failed });
+    json(ctx.res, 200, { applied, failed, ...(conflict ? { conflict } : {}) });
     return;
   }
 
@@ -2476,6 +2542,33 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
 
         for (const change of candidateChanges) {
           const existing = blobsByPath.get(change.normalizedPath);
+          if (change.expectedVersion) {
+            let currentContent: string | null = null;
+            if (existing) {
+              const blobRes = await githubFetchWithInstallationToken(installationId, existing.url);
+              const blobData = (await blobRes.json().catch(() => null)) as { content?: string; encoding?: string } | null;
+              if (blobRes.ok && typeof blobData?.content === 'string') {
+                currentContent =
+                  blobData.encoding === 'base64'
+                    ? Buffer.from(blobData.content.replace(/\n/g, ''), 'base64').toString('utf8')
+                    : blobData.content;
+              }
+            }
+            const currentVersion = readerAiContentVersion(currentContent ?? '');
+            if (currentVersion !== change.expectedVersion) {
+              conflict = {
+                path: change.path,
+                reason: 'document_changed',
+                message: 'The file changed after the AI generated this edit.',
+                ...(typeof currentContent === 'string' ? { current_content: currentContent } : {}),
+                ...(existing?.sha ? { current_sha: existing.sha } : {}),
+                expected_version: change.expectedVersion,
+                current_version: currentVersion,
+              };
+              json(ctx.res, 200, { applied, failed, conflict });
+              return;
+            }
+          }
           if (change.type === 'delete') {
             if (!existing) {
               failed.push({ path: change.path, error: 'File not found' });
@@ -2521,7 +2614,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
         }
 
         if (treeMutations.length === 0) {
-          json(ctx.res, 200, { applied, failed });
+          json(ctx.res, 200, { applied, failed, ...(conflict ? { conflict } : {}) });
           return;
         }
 
@@ -2578,10 +2671,37 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
             const message = await readGitHubErrorMessage(getRes);
             throw new Error(message);
           }
-          const data = (await getRes.json().catch(() => null)) as { type?: string; sha?: string } | null;
+          const data = (await getRes.json().catch(() => null)) as {
+            type?: string;
+            sha?: string;
+            content?: string;
+            encoding?: string;
+          } | null;
           if (!data || data.type !== 'file' || typeof data.sha !== 'string') {
             failed.push({ path: change.path, error: 'Expected a file' });
             continue;
+          }
+          const currentContent =
+            typeof data.content === 'string'
+              ? data.encoding === 'base64'
+                ? Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
+                : data.content
+              : null;
+          if (change.expectedVersion) {
+            const currentVersion = readerAiContentVersion(currentContent ?? '');
+            if (currentVersion !== change.expectedVersion) {
+              conflict = {
+                path: change.path,
+                reason: 'document_changed',
+                message: 'The file changed after the AI generated this edit.',
+                ...(typeof currentContent === 'string' ? { current_content: currentContent } : {}),
+                current_sha: data.sha,
+                expected_version: change.expectedVersion,
+                current_version: currentVersion,
+              };
+              json(ctx.res, 200, { applied, failed, conflict });
+              return;
+            }
           }
           const delRes = await githubFetchWithInstallationToken(installationId, contentsPath, {
             method: 'DELETE',
@@ -2605,8 +2725,37 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
         if (change.type === 'edit') {
           const getRes = await githubFetchWithInstallationToken(installationId, contentsPath);
           if (getRes.ok) {
-            const data = (await getRes.json().catch(() => null)) as { type?: string; sha?: string } | null;
-            if (data?.type === 'file' && typeof data.sha === 'string') sha = data.sha;
+            const data = (await getRes.json().catch(() => null)) as {
+              type?: string;
+              sha?: string;
+              content?: string;
+              encoding?: string;
+            } | null;
+            if (data?.type === 'file' && typeof data.sha === 'string') {
+              sha = data.sha;
+              if (change.expectedVersion) {
+                const currentContent =
+                  typeof data.content === 'string'
+                    ? data.encoding === 'base64'
+                      ? Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
+                      : data.content
+                    : null;
+                const currentVersion = readerAiContentVersion(currentContent ?? '');
+                if (currentVersion !== change.expectedVersion) {
+                  conflict = {
+                    path: change.path,
+                    reason: 'document_changed',
+                    message: 'The file changed after the AI generated this edit.',
+                    ...(typeof currentContent === 'string' ? { current_content: currentContent } : {}),
+                    current_sha: data.sha,
+                    expected_version: change.expectedVersion,
+                    current_version: currentVersion,
+                  };
+                  json(ctx.res, 200, { applied, failed, conflict });
+                  return;
+                }
+              }
+            }
           }
         }
         const putRes = await githubFetchWithInstallationToken(installationId, contentsPath, {
@@ -2629,7 +2778,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
       }
     }
 
-    json(ctx.res, 200, { applied, failed });
+    json(ctx.res, 200, { applied, failed, ...(conflict ? { conflict } : {}) });
     return;
   }
 
