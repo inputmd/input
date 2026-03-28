@@ -23,6 +23,7 @@ export interface SidebarFile {
   active: boolean;
   editable: boolean;
   deemphasized: boolean;
+  virtual?: boolean;
   size?: number;
 }
 
@@ -64,6 +65,7 @@ interface SidebarFileNode {
   active: boolean;
   editable: boolean;
   deemphasized: boolean;
+  virtual: boolean;
   size?: number;
 }
 
@@ -233,6 +235,7 @@ function buildTree(files: SidebarFile[]): SidebarFolderNode {
       active: file.active,
       editable: file.editable,
       deemphasized: file.deemphasized || isHiddenFolderPath(file.path),
+      virtual: file.virtual === true,
       size: file.size,
     });
   }
@@ -996,14 +999,16 @@ export function Sidebar({
         aria-current={file.active ? 'true' : undefined}
         draggable={!readOnly && file.editable && !isRenaming && !isRenamePending && !isMoving}
         style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
-        onClick={() => !file.active && onSelectFile(file.path)}
+        onClick={() => {
+          if (!file.active && !file.virtual) onSelectFile(file.path);
+        }}
         onFocus={() => {
           setCreateAtRoot(false);
           setFocusedPath(file.path);
           setCreateContextPath(file.path);
         }}
         onDblClick={() => {
-          if (!readOnly && file.editable) void startRename({ kind: 'file', path: file.path });
+          if (!readOnly && file.editable && !file.virtual) void startRename({ kind: 'file', path: file.path });
         }}
         onDragStart={(e) => {
           if (readOnly || !file.editable || isRenaming) {
@@ -1022,8 +1027,8 @@ export function Sidebar({
           if (isRenaming) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            if (!file.active) onSelectFile(file.path);
-          } else if (!readOnly && file.editable && e.key === 'F2') {
+            if (!file.active && !file.virtual) onSelectFile(file.path);
+          } else if (!readOnly && file.editable && !file.virtual && e.key === 'F2') {
             e.preventDefault();
             void startRename({ kind: 'file', path: file.path });
           }
@@ -1066,8 +1071,8 @@ export function Sidebar({
       </div>
     );
 
-    const showFileModifyActions = !readOnly;
-    const showEditAction = !readOnly && file.editable;
+    const showFileModifyActions = !readOnly && !file.virtual;
+    const showEditAction = !readOnly && file.editable && !file.virtual;
     const showViewOnlyContext = readOnly && canViewOnGitHub;
     if (!showFileModifyActions && !showViewOnlyContext) {
       return <div key={`file:${file.path}`}>{fileRow}</div>;

@@ -14,7 +14,7 @@ import { ImageLightbox } from './components/ImageLightbox';
 import type { PromptListRequest } from './components/markdown_editor_commands';
 import { normalizeBlockquotePaste } from './components/markdown_editor_commands';
 import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel';
-import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
+import { Sidebar, type SidebarFile, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
@@ -149,6 +149,18 @@ import {
 } from './reader_ai_history';
 import { READER_AI_SELECTION_MAX_CHARS } from './reader_ai_limits';
 import { matchRoute, type Route, routePath } from './routing';
+import {
+  buildRepoNewDraftPath,
+  buildScratchFilePath,
+  clearPersistedNewGistFileDraft,
+  DEFAULT_SCRATCH_FILENAME,
+  mergeScratchRouteState,
+  resolveActiveScratchFile,
+  resolveNewGistFileDraft,
+  resolveRepoNewDraftPath,
+  resolveRepoNewFilePath,
+  writePersistedNewGistFileDraft,
+} from './scratch_files';
 import { clearStoredScrollPositions } from './scroll_positions';
 import { isSubdomainMode } from './subdomain';
 import {
@@ -185,11 +197,9 @@ const DESKTOP_MEDIA_QUERY = '(min-width: 769px)';
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
-const DEFAULT_SCRATCH_FILENAME = 'untitled.md';
 const UNSAVED_FILE_LABEL = 'Unsaved file';
 const UNSAVED_STATUS_TEXT = 'Unsaved';
 const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft_v2';
-const GIST_NEW_FILE_DRAFT_KEY_PREFIX = 'gist_new_file_draft_v1';
 const DEFAULT_SIDEBAR_WIDTH_PX = 220;
 const MIN_SIDEBAR_WIDTH_PX = 180;
 const MAX_SIDEBAR_WIDTH_PX = 420;
@@ -308,61 +318,6 @@ function repoNewDraftKey(
   field: 'title' | 'content',
 ): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${path}:${field}`;
-}
-
-function resolveRepoNewDraftPath(route: Route): string | null {
-  if (route.name !== 'reponew') return null;
-  return safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
-}
-
-function resolveRepoNewFilePath(route: Route, value: string, options?: { literal?: boolean }): string {
-  const filename = options?.literal
-    ? sanitizeScratchFileNameInput(value) || DEFAULT_SCRATCH_FILENAME
-    : sanitizeTitleToFileName(value);
-  const draftPath = resolveRepoNewDraftPath(route);
-  if (!draftPath) return filename;
-  const folder = parentFolderPath(draftPath);
-  return folder ? `${folder}/${filename}` : filename;
-}
-
-function gistNewFileDraftKey(gistId: string, field: 'active' | 'title' | 'content' | 'filename'): string {
-  return `${GIST_NEW_FILE_DRAFT_KEY_PREFIX}:${gistId}:${field}`;
-}
-
-function readPersistedNewGistFileDraft(gistId: string): PersistedNewGistFileDraft | null {
-  try {
-    if (localStorage.getItem(gistNewFileDraftKey(gistId, 'active')) !== '1') return null;
-    return {
-      title: localStorage.getItem(gistNewFileDraftKey(gistId, 'title')) || UNSAVED_FILE_LABEL,
-      content: localStorage.getItem(gistNewFileDraftKey(gistId, 'content')) ?? '',
-      filename: localStorage.getItem(gistNewFileDraftKey(gistId, 'filename')) || DEFAULT_SCRATCH_FILENAME,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writePersistedNewGistFileDraft(gistId: string, draft: PersistedNewGistFileDraft): void {
-  try {
-    localStorage.setItem(gistNewFileDraftKey(gistId, 'active'), '1');
-    localStorage.setItem(gistNewFileDraftKey(gistId, 'title'), draft.title);
-    localStorage.setItem(gistNewFileDraftKey(gistId, 'content'), draft.content);
-    localStorage.setItem(gistNewFileDraftKey(gistId, 'filename'), draft.filename);
-  } catch {
-    // Best effort only.
-  }
-}
-
-function clearPersistedNewGistFileDraft(gistId: string | null): void {
-  if (!gistId) return;
-  try {
-    localStorage.removeItem(gistNewFileDraftKey(gistId, 'active'));
-    localStorage.removeItem(gistNewFileDraftKey(gistId, 'title'));
-    localStorage.removeItem(gistNewFileDraftKey(gistId, 'content'));
-    localStorage.removeItem(gistNewFileDraftKey(gistId, 'filename'));
-  } catch {
-    // Best effort only.
-  }
 }
 
 function upsertRepoFile(files: RepoDocFile[], next: RepoDocFile): RepoDocFile[] {
@@ -630,19 +585,9 @@ interface PendingDraftRestoreState {
   saveAfterRestore?: boolean;
 }
 
-interface PendingNewGistFileState {
-  title?: string;
-}
-
 interface PendingForkRepoDraftState {
   title: string;
   content: string;
-}
-
-interface PersistedNewGistFileDraft {
-  title: string;
-  content: string;
-  filename: string;
 }
 
 type CommitResult =
@@ -687,15 +632,6 @@ function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | nu
   return { documentDraftKey, content, saveAfterRestore: saveAfterRestore === true };
 }
 
-function parsePendingNewGistFileState(state: unknown): PendingNewGistFileState | null {
-  if (!state || typeof state !== 'object') return null;
-  const newGistFile = (state as { newGistFile?: unknown }).newGistFile;
-  if (!newGistFile || typeof newGistFile !== 'object') return null;
-  const title = (newGistFile as { title?: unknown }).title;
-  if (title !== undefined && typeof title !== 'string') return null;
-  return { title };
-}
-
 function parsePendingForkRepoDraftState(state: unknown): PendingForkRepoDraftState | null {
   if (!state || typeof state !== 'object') return null;
   const forkRepoDraft = (state as { forkRepoDraft?: unknown }).forkRepoDraft;
@@ -710,6 +646,20 @@ function parseScratchReturnPathState(state: unknown): string | null {
   if (!state || typeof state !== 'object') return null;
   const returnToPath = (state as { returnToPath?: unknown }).returnToPath;
   return typeof returnToPath === 'string' && returnToPath.length > 0 ? returnToPath : null;
+}
+
+function withScratchSidebarFile(files: SidebarFile[], scratchPath: string | null): SidebarFile[] {
+  if (!scratchPath) return files;
+  const nextFiles = files.filter((file) => file.path !== scratchPath);
+  nextFiles.push({
+    path: scratchPath,
+    active: true,
+    editable: true,
+    deemphasized: false,
+    virtual: true,
+  });
+  nextFiles.sort((a, b) => a.path.localeCompare(b.path));
+  return nextFiles;
 }
 
 export function App() {
@@ -1078,6 +1028,19 @@ export function App() {
         (editingBackend === 'gist' && currentFileName === null)),
     [activeView, editingBackend, currentRepoDocPath, currentFileName],
   );
+  const activeScratchFile = useMemo(
+    () =>
+      resolveActiveScratchFile({
+        editingBackend,
+        route,
+        routeState,
+        currentRepoDocPath,
+        currentGistId,
+        currentFileName,
+        unsavedFileLabel: UNSAVED_FILE_LABEL,
+      }),
+    [currentFileName, currentGistId, currentRepoDocPath, editingBackend, route, routeState],
+  );
   const currentDocumentLabel =
     currentFileName ?? currentRepoDocPath ?? (isScratchDocument ? UNSAVED_FILE_LABEL : 'this document');
   const readerAiEditEligible =
@@ -1240,13 +1203,17 @@ export function App() {
 
   const persistNewGistFileDraft = useCallback(() => {
     if (activeView !== 'edit' || editingBackend !== 'gist' || !currentGistId || currentFileName !== null) return;
-    const persisted = readPersistedNewGistFileDraft(currentGistId);
+    const persisted =
+      activeScratchFile?.backend === 'gist' && activeScratchFile.gistId === currentGistId
+        ? activeScratchFile.draft
+        : resolveNewGistFileDraft(currentGistId, routeState, { defaultTitle: UNSAVED_FILE_LABEL });
     writePersistedNewGistFileDraft(currentGistId, {
       title: editTitle || persisted?.title || UNSAVED_FILE_LABEL,
       content: editContentRef.current,
       filename: persisted?.filename || DEFAULT_SCRATCH_FILENAME,
+      parentPath: persisted?.parentPath || '',
     });
-  }, [activeView, currentFileName, currentGistId, editTitle, editingBackend]);
+  }, [activeScratchFile, activeView, currentFileName, currentGistId, editTitle, editingBackend, routeState]);
 
   const persistRepoNewDraft = useCallback(() => {
     if (route.name !== 'reponew') return;
@@ -2909,9 +2876,8 @@ export function App() {
           setDraftMode(false);
           setRepoAccessMode(null);
           setPublicRepoRef(null);
-          const pendingNewGistFile = parsePendingNewGistFileState(routeState);
-          const persistedNewGistFile = !r.params.filename ? readPersistedNewGistFileDraft(r.params.id) : null;
-          if (pendingNewGistFile || persistedNewGistFile) {
+          const newGistFileDraft = !r.params.filename ? resolveNewGistFileDraft(r.params.id, routeState) : null;
+          if (newGistFileDraft) {
             setViewPhase('loading');
             try {
               const gist = currentGistId === r.params.id && gistFiles ? null : await getGist(r.params.id);
@@ -2931,10 +2897,10 @@ export function App() {
               setCurrentRepoDocSha(null);
               setRepoFiles([]);
               setRepoSidebarFiles([]);
-              setEditTitle(persistedNewGistFile?.title || pendingNewGistFile?.title || UNSAVED_FILE_LABEL);
-              setNextEditContent(persistedNewGistFile?.content ?? '', { origin: 'external' });
+              setEditTitle(newGistFileDraft.title);
+              setNextEditContent(newGistFileDraft.content, { origin: 'external' });
               setCurrentDocumentSavedContent('');
-              setHasUnsavedChanges(Boolean(persistedNewGistFile?.content));
+              setHasUnsavedChanges(Boolean(newGistFileDraft.content));
               setViewPhase(null);
               if (activeView === 'edit') focusEditorSoon();
             } catch (err) {
@@ -5130,8 +5096,7 @@ export function App() {
       let scratchFilename: string | null = null;
 
       if (editingBackend === 'repo' && currentRepoDocPath === null) {
-        const draftPath = resolveRepoNewDraftPath(route);
-        const folderPath = draftPath ? parentFolderPath(draftPath) : '';
+        const folderPath = activeScratchFile?.backend === 'repo' ? activeScratchFile.parentPath : '';
         scratchFilename = await requestScratchFileName(
           DEFAULT_SCRATCH_FILENAME,
           new Set(repoSidebarFiles.map((file) => file.path)),
@@ -5139,17 +5104,19 @@ export function App() {
         );
         if (!scratchFilename) return null;
       } else if (editingBackend === 'gist' && currentFileName === null) {
+        const gistScratchDraft = activeScratchFile?.backend === 'gist' ? activeScratchFile.draft : null;
         if (currentGistId) {
-          const persisted = readPersistedNewGistFileDraft(currentGistId);
           scratchFilename = await requestScratchFileName(
-            persisted?.filename || DEFAULT_SCRATCH_FILENAME,
+            gistScratchDraft?.filename || DEFAULT_SCRATCH_FILENAME,
             new Set(Object.keys(gistFiles ?? {})),
+            gistScratchDraft?.parentPath || '',
           );
           if (!scratchFilename) return null;
           writePersistedNewGistFileDraft(currentGistId, {
-            title: persisted?.title || editTitle || UNSAVED_FILE_LABEL,
+            title: gistScratchDraft?.title || editTitle || UNSAVED_FILE_LABEL,
             content,
             filename: scratchFilename,
+            parentPath: gistScratchDraft?.parentPath || '',
           });
         } else {
           scratchFilename = await requestScratchFileName(DEFAULT_SCRATCH_FILENAME);
@@ -5303,7 +5270,8 @@ export function App() {
             };
           }
         } else if (editingBackend === 'repo' && repoName && instId) {
-          const draftPath = resolveRepoNewDraftPath(route);
+          const draftPath =
+            activeScratchFile?.backend === 'repo' ? activeScratchFile.draftPath : resolveRepoNewDraftPath(route);
           const path = scratchFilename
             ? resolveRepoNewFilePath(route, scratchFilename, { literal: true })
             : resolveRepoNewFilePath(route, title);
@@ -5367,7 +5335,12 @@ export function App() {
           }
         } else {
           let gist: GistDetail;
-          const filename = currentFileName ?? scratchFilename ?? sanitizeTitleToFileName(title);
+          const gistScratchDraft = activeScratchFile?.backend === 'gist' ? activeScratchFile.draft : null;
+          const filename =
+            currentFileName ??
+            (scratchFilename
+              ? buildScratchFilePath(gistScratchDraft?.parentPath, scratchFilename)
+              : sanitizeTitleToFileName(title));
           const created = currentGistId === null;
           if (currentGistId) {
             gist = await updateGist(currentGistId, content, filename);
@@ -5457,6 +5430,7 @@ export function App() {
       repoSidebarFiles,
       repoFiles,
       route,
+      activeScratchFile,
       requestScratchFileName,
       selectedRepoRef,
       showAlert,
@@ -5955,11 +5929,14 @@ export function App() {
           title: UNSAVED_FILE_LABEL,
           content: '',
           filename: DEFAULT_SCRATCH_FILENAME,
+          parentPath: normalizedParentPath,
         });
         navigate(routePath.gistEdit(currentGistId), {
           state: {
             newGistFile: {
               title: UNSAVED_FILE_LABEL,
+              filename: DEFAULT_SCRATCH_FILENAME,
+              parentPath: normalizedParentPath,
             },
             returnToPath,
           },
@@ -6620,6 +6597,68 @@ export function App() {
         : fileNameFromPath(filePath);
       if (nextPath === filePath) return;
 
+      if (activeScratchFile?.backend === 'repo' && filePath === activeScratchFile.filePath && selectedRepoRef) {
+        const confirmed = await showConfirm(`Move this file to "${nextPath}"?`, {
+          title: 'Move file',
+          confirmLabel: 'Move',
+          defaultFocus: 'action',
+        });
+        if (!confirmed) return;
+
+        const currentDraftPath = activeScratchFile.draftPath;
+        const nextDraftPath = buildRepoNewDraftPath(targetFolderPath);
+        const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+        const repoName = selectedRepo ?? buildRepoFullName(selectedRepoRef.owner, selectedRepoRef.repo);
+        if (instId && repoName && currentDraftPath) {
+          try {
+            localStorage.setItem(repoNewDraftKey(instId, repoName, nextDraftPath, 'title'), editTitle);
+            localStorage.setItem(repoNewDraftKey(instId, repoName, nextDraftPath, 'content'), editContentRef.current);
+            if (currentDraftPath !== nextDraftPath) {
+              localStorage.removeItem(repoNewDraftKey(instId, repoName, currentDraftPath, 'title'));
+              localStorage.removeItem(repoNewDraftKey(instId, repoName, currentDraftPath, 'content'));
+            }
+          } catch {
+            // Best effort only; the in-memory draft remains active.
+          }
+        }
+        navigate(routePath.repoNew(selectedRepoRef.owner, selectedRepoRef.repo, nextDraftPath), {
+          replace: true,
+          state: routeState,
+        });
+        return;
+      }
+
+      if (activeScratchFile?.backend === 'gist' && filePath === activeScratchFile.filePath) {
+        const confirmed = await showConfirm(`Move this file to "${nextPath}"?`, {
+          title: 'Move file',
+          confirmLabel: 'Move',
+          defaultFocus: 'action',
+        });
+        if (!confirmed) return;
+
+        const nextDraft = {
+          ...(activeScratchFile.draft ?? {
+            title: UNSAVED_FILE_LABEL,
+            content: '',
+            filename: activeScratchFile.filename,
+            parentPath: activeScratchFile.parentPath,
+          }),
+          title: editTitle || activeScratchFile.draft?.title || UNSAVED_FILE_LABEL,
+          content: editContentRef.current,
+          parentPath: targetFolderPath,
+        };
+        writePersistedNewGistFileDraft(activeScratchFile.gistId, nextDraft);
+        navigate(routePath.gistEdit(activeScratchFile.gistId), {
+          replace: true,
+          state: mergeScratchRouteState(routeState, {
+            title: nextDraft.title,
+            filename: nextDraft.filename,
+            parentPath: nextDraft.parentPath,
+          }),
+        });
+        return;
+      }
+
       const canRename = await handleBeforeRenameFile(filePath);
       if (!canRename) return;
 
@@ -6632,7 +6671,18 @@ export function App() {
 
       await handleRenameFile(filePath, nextPath);
     },
-    [handleBeforeRenameFile, handleRenameFile, showConfirm],
+    [
+      activeInstalledRepoInstallationId,
+      activeScratchFile,
+      editTitle,
+      handleBeforeRenameFile,
+      handleRenameFile,
+      navigate,
+      routeState,
+      selectedRepo,
+      selectedRepoRef,
+      showConfirm,
+    ],
   );
 
   const handleMoveFolder = useCallback(
@@ -7338,46 +7388,34 @@ export function App() {
     }
   };
 
-  const sidebarFiles = useMemo(() => {
+  const scratchSidebarPath = activeScratchFile?.filePath ?? null;
+  const sidebarSourceFiles = useMemo(() => {
     if (gistFiles) {
-      const files = Object.keys(gistFiles)
-        .map((path) => ({
-          path,
-          active: path === currentFileName,
-          editable: isEditableTextFilePath(path),
-          deemphasized: !isSidebarTextFileName(path),
-          size: gistFiles[path]?.size,
-        }))
-        .sort((a, b) => a.path.localeCompare(b.path));
-      if (sidebarFileFilter === 'markdown') return files.filter((file) => isMarkdownFileName(file.path));
-      if (sidebarFileFilter === 'text') return files.filter((file) => isSidebarTextListPath(file.path));
-      return files;
-    }
-    const sourceFiles = repoSidebarFiles;
-    if (sourceFiles.length > 0) {
-      const files = sourceFiles.map((f) => ({
-        path: f.path,
-        active: f.path === currentRepoDocPath,
-        editable: isEditableTextFilePath(f.path),
-        deemphasized: !isSidebarTextFileName(f.path),
-        size: f.size,
+      const files = Object.keys(gistFiles).map((path) => ({
+        path,
+        active: path === currentFileName,
+        editable: isEditableTextFilePath(path),
+        deemphasized: !isSidebarTextFileName(path),
+        size: gistFiles[path]?.size,
       }));
-      if (sidebarFileFilter === 'markdown') return files.filter((file) => isMarkdownFileName(file.path));
-      if (sidebarFileFilter === 'text') return files.filter((file) => isSidebarTextListPath(file.path));
-      return files;
+      return withScratchSidebarFile(files, scratchSidebarPath);
     }
-    return [];
-  }, [gistFiles, currentFileName, repoSidebarFiles, currentRepoDocPath, sidebarFileFilter]);
+    const files = repoSidebarFiles.map((f) => ({
+      path: f.path,
+      active: f.path === currentRepoDocPath,
+      editable: isEditableTextFilePath(f.path),
+      deemphasized: !isSidebarTextFileName(f.path),
+      size: f.size,
+    }));
+    return withScratchSidebarFile(files, scratchSidebarPath);
+  }, [gistFiles, currentFileName, repoSidebarFiles, currentRepoDocPath, scratchSidebarPath]);
+  const sidebarFiles = useMemo(() => {
+    if (sidebarFileFilter === 'markdown') return sidebarSourceFiles.filter((file) => isMarkdownFileName(file.path));
+    if (sidebarFileFilter === 'text') return sidebarSourceFiles.filter((file) => isSidebarTextListPath(file.path));
+    return sidebarSourceFiles;
+  }, [sidebarFileFilter, sidebarSourceFiles]);
   const sidebarFileCounts = useMemo(() => {
-    if (gistFiles) {
-      const allPaths = Object.keys(gistFiles).filter(isVisibleSidebarFilePath);
-      return {
-        markdown: allPaths.filter((path) => isMarkdownFileName(path)).length,
-        text: allPaths.filter((path) => isSidebarTextFileName(path)).length,
-        total: allPaths.length,
-      };
-    }
-    const sourceFiles = repoSidebarFiles.filter((file) => isVisibleSidebarFilePath(file.path));
+    const sourceFiles = sidebarSourceFiles.filter((file) => isVisibleSidebarFilePath(file.path));
     if (sourceFiles.length > 0) {
       return {
         markdown: sourceFiles.filter((file) => isMarkdownFileName(file.path)).length,
@@ -7386,7 +7424,7 @@ export function App() {
       };
     }
     return { markdown: 0, text: 0, total: 0 };
-  }, [gistFiles, repoSidebarFiles]);
+  }, [sidebarSourceFiles]);
   const sidebarWorkspaceKey = useMemo(() => {
     if (currentGistId) return `gist:${currentGistId}`;
     if (repoAccessMode === 'installed' && selectedRepo) return `repo:${selectedRepo}`;
