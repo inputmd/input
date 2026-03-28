@@ -86,11 +86,23 @@ export interface PublicRepoRef {
   repo: string;
 }
 
-export function parseRepoFullName(fullName: string | null | undefined): PublicRepoRef | null {
-  if (!fullName) return null;
-  const [owner, repo] = fullName.split('/');
+const GITHUB_OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+const GITHUB_REPO_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+export function parseGitHubRepoFullNameInput(value: string | null | undefined): PublicRepoRef | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  const parts = trimmed.split('/');
+  if (parts.length !== 2) return null;
+
+  const [owner, repo] = parts;
   if (!owner || !repo) return null;
+  if (!GITHUB_OWNER_PATTERN.test(owner) || !GITHUB_REPO_NAME_PATTERN.test(repo)) return null;
   return { owner, repo };
+}
+
+export function parseRepoFullName(fullName: string | null | undefined): PublicRepoRef | null {
+  return parseGitHubRepoFullNameInput(fullName);
 }
 
 export function buildRepoFullName(owner: string, repo: string): string {

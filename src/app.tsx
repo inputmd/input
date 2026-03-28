@@ -169,6 +169,7 @@ import {
   createWikiLinkResolver,
   findMarkdownDirectoryIndexPath,
   type PublicRepoRef,
+  parseGitHubRepoFullNameInput,
   parseRepoFullName,
   pickPreferredRepoMarkdownFile,
 } from './wiki_links';
@@ -207,9 +208,61 @@ const DRAFT_PERSIST_DELAY_MS = 250;
 const INPUT_GITHUB_REPO_FULL_NAME = 'inputmd/input';
 const INPUT_GITHUB_SOURCE_PATH = 'README.md';
 const EDIT_CONTENT_SNAPSHOT_DELAY_MS = 250;
+const RECENT_REPOS_STORAGE_KEY = 'recent_repos_v1';
+const MAX_RECENT_REPOS = 10;
+
+interface RecentRepoVisit {
+  fullName: string;
+  installationId: string | null;
+  source: 'installed' | 'public';
+}
 
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
+}
+
+function isRecentRepoVisit(value: unknown): value is RecentRepoVisit {
+  if (!value || typeof value !== 'object') return false;
+  const fullName = (value as { fullName?: unknown }).fullName;
+  const installationId = (value as { installationId?: unknown }).installationId;
+  const source = (value as { source?: unknown }).source;
+  return (
+    typeof fullName === 'string' &&
+    fullName.length > 0 &&
+    (typeof installationId === 'string' || installationId === null) &&
+    (source === 'installed' || source === 'public')
+  );
+}
+
+function readStoredRecentRepos(): RecentRepoVisit[] {
+  try {
+    const raw = localStorage.getItem(RECENT_REPOS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isRecentRepoVisit).slice(0, MAX_RECENT_REPOS);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredRecentRepos(recentRepos: RecentRepoVisit[]): void {
+  try {
+    localStorage.setItem(RECENT_REPOS_STORAGE_KEY, JSON.stringify(recentRepos.slice(0, MAX_RECENT_REPOS)));
+  } catch {
+    // Ignore localStorage failures.
+  }
+}
+
+function pushRecentRepoVisit(
+  existingRecentRepos: RecentRepoVisit[],
+  nextRecentRepo: RecentRepoVisit,
+): RecentRepoVisit[] {
+  const normalizedFullName = nextRecentRepo.fullName.toLowerCase();
+  return [
+    nextRecentRepo,
+    ...existingRecentRepos.filter((candidate) => candidate.fullName.toLowerCase() !== normalizedFullName),
+  ].slice(0, MAX_RECENT_REPOS);
 }
 
 function hasAutoOnceGuard(key: string): boolean {
@@ -662,6 +715,7 @@ export function App() {
   const [menuGistsLoaded, setMenuGistsLoaded] = useState(false);
   const [menuGistsPage, setMenuGistsPage] = useState(1);
   const [menuGistsAllLoaded, setMenuGistsAllLoaded] = useState(false);
+  const [recentRepos, setRecentRepos] = useState<RecentRepoVisit[]>(() => readStoredRecentRepos());
   const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
   const installationRepos = installationId ? (installationReposById[installationId] ?? []) : [];
@@ -917,17 +971,20 @@ export function App() {
     },
     [],
   );
-  const clearInstalledRepoSelection = useCallback(() => {
+  const resetInstalledRepoSelectionState = useCallback(() => {
     clearSelectedRepo();
     setSelectedRepo(null);
     setSelectedRepoPrivate(null);
     setSelectedRepoInstallationId(null);
     setRepoFiles([]);
     setRepoSidebarFiles([]);
+  }, []);
+  const clearInstalledRepoSelection = useCallback(() => {
+    resetInstalledRepoSelectionState();
     if (repoAccessMode === 'installed') {
       navigate(routePath.workspaces());
     }
-  }, [navigate, repoAccessMode]);
+  }, [navigate, repoAccessMode, resetInstalledRepoSelectionState]);
   const routeView = viewFromRoute(route);
   const activeView = viewPhase ?? routeView;
   const currentRouteKey = routeKeyFromRoute(route);
@@ -1933,7 +1990,15 @@ export function App() {
     ) => {
       const instId = options?.installationId ?? installationId ?? getInstallationId();
       if (options && typeof options.id === 'number' && typeof options.isPrivate === 'boolean') {
-        onSelectRepo(fullName, options.id, options.isPrivate);
+        setSelectedRepo(fullName);
+        setSelectedRepoPrivate(options.isPrivate);
+        setSelectedRepoInstallationId(instId);
+        storeSelectedRepo({
+          full_name: fullName,
+          id: options.id,
+          private: options.isPrivate,
+          installationId: instId ?? undefined,
+        });
       } else {
         setSelectedRepo(fullName);
         setSelectedRepoInstallationId(instId);
@@ -1981,15 +2046,7 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Failed to load repository documents');
       }
     },
-    [
-      handleSessionExpired,
-      installationId,
-      loadRepoAllFiles,
-      navigate,
-      onSelectRepo,
-      showError,
-      showRateLimitToastIfNeeded,
-    ],
+    [handleSessionExpired, installationId, loadRepoAllFiles, navigate, showError, showRateLimitToastIfNeeded],
   );
 
   // --- Data loaders ---
@@ -4619,6 +4676,47 @@ export function App() {
     }
     return null;
   }, [route]);
+  const currentMenuRepoRef = useMemo(() => {
+    if (
+      route.name === 'repodocuments' ||
+      route.name === 'repofile' ||
+      route.name === 'repoedit' ||
+      route.name === 'sharefile'
+    ) {
+      return {
+        owner: safeDecodeURIComponent(route.params.owner),
+        repo: safeDecodeURIComponent(route.params.repo),
+      };
+    }
+    return null;
+  }, [route]);
+  const currentMenuRepoFullName = useMemo(() => {
+    if (repoAccessMode === 'installed' && selectedRepo) return selectedRepo;
+    if (repoAccessMode === 'public' && publicRepoRef) return buildRepoFullName(publicRepoRef.owner, publicRepoRef.repo);
+    if (currentMenuRepoRef) return buildRepoFullName(currentMenuRepoRef.owner, currentMenuRepoRef.repo);
+    return null;
+  }, [currentMenuRepoRef, publicRepoRef, repoAccessMode, selectedRepo]);
+
+  useEffect(() => {
+    if (!currentMenuRepoFullName) return;
+    const nextRecentRepo: RecentRepoVisit =
+      repoAccessMode === 'installed'
+        ? {
+            fullName: currentMenuRepoFullName,
+            installationId: activeInstalledRepoInstallationId ?? installationId ?? null,
+            source: 'installed',
+          }
+        : {
+            fullName: currentMenuRepoFullName,
+            installationId: null,
+            source: 'public',
+          };
+    setRecentRepos((previous) => {
+      const next = pushRecentRepoVisit(previous, nextRecentRepo);
+      writeStoredRecentRepos(next);
+      return next;
+    });
+  }, [activeInstalledRepoInstallationId, currentMenuRepoFullName, installationId, repoAccessMode]);
 
   const onEdit = useCallback(() => {
     const repoRef =
@@ -6516,6 +6614,18 @@ export function App() {
     [openInstalledRepo],
   );
 
+  const fetchInstallationReposForId = useCallback(async (targetInstallationId: string): Promise<InstallationRepo[]> => {
+    const repos = await listInstallationRepos(targetInstallationId);
+    setInstallationReposById((prev) => ({ ...prev, [targetInstallationId]: repos.repositories }));
+    setReposLoadErrorsById((prev) => {
+      if (!(targetInstallationId in prev)) return prev;
+      const next = { ...prev };
+      delete next[targetInstallationId];
+      return next;
+    });
+    return repos.repositories;
+  }, []);
+
   const loadWorkspaceGists = useCallback(
     async (options?: { reset?: boolean }) => {
       const reset = options?.reset ?? false;
@@ -6552,14 +6662,7 @@ export function App() {
     if (!installationId) return;
     setLoadingInstallationReposId(installationId);
     try {
-      const repos = await listInstallationRepos(installationId);
-      setInstallationReposById((prev) => ({ ...prev, [installationId]: repos.repositories }));
-      setReposLoadErrorsById((prev) => {
-        if (!(installationId in prev)) return prev;
-        const next = { ...prev };
-        delete next[installationId];
-        return next;
-      });
+      await fetchInstallationReposForId(installationId);
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         handleSessionExpired();
@@ -6574,7 +6677,7 @@ export function App() {
     } finally {
       setLoadingInstallationReposId((current) => (current === installationId ? null : current));
     }
-  }, [handleSessionExpired, installationId, showRateLimitToastIfNeeded]);
+  }, [fetchInstallationReposForId, handleSessionExpired, installationId, showRateLimitToastIfNeeded]);
 
   const onOpenRepoMenu = useCallback(
     async (_mode: 'auto' | 'manual' = 'manual') => {
@@ -6689,6 +6792,157 @@ export function App() {
       }
     },
     [applyInstallationSessionState, clearInstalledRepoSelection, installationId, showAlert, showRateLimitToastIfNeeded],
+  );
+
+  const resolveInstalledRepoMatch = useCallback(
+    async (
+      fullName: string,
+      options?: { preferredInstallationId?: string | null },
+    ): Promise<{ installationId: string; repo: InstallationRepo } | null> => {
+      const normalizedFullName = fullName.toLowerCase();
+      const knownInstallationIds = new Set<string>();
+      if (installationId) knownInstallationIds.add(installationId);
+      for (const linkedInstallation of linkedInstallations) {
+        if (linkedInstallation.installationId) knownInstallationIds.add(linkedInstallation.installationId);
+      }
+
+      const installationSearchOrder: string[] = [];
+      const seenInstallationIds = new Set<string>();
+      const pushInstallationId = (
+        candidateInstallationId: string | null | undefined,
+        options?: { allowUnknown?: boolean },
+      ) => {
+        if (!candidateInstallationId || seenInstallationIds.has(candidateInstallationId)) return;
+        if (!options?.allowUnknown && !knownInstallationIds.has(candidateInstallationId)) return;
+        seenInstallationIds.add(candidateInstallationId);
+        installationSearchOrder.push(candidateInstallationId);
+      };
+
+      pushInstallationId(options?.preferredInstallationId);
+      pushInstallationId(installationId);
+      for (const linkedInstallation of linkedInstallations) pushInstallationId(linkedInstallation.installationId);
+
+      for (const candidateInstallationId of installationSearchOrder) {
+        let candidateRepos: InstallationRepo[] | undefined;
+        try {
+          candidateRepos =
+            candidateInstallationId === installationId
+              ? installationRepos
+              : installationReposById[candidateInstallationId];
+          if (!candidateRepos || reposLoadErrorsById[candidateInstallationId]) {
+            candidateRepos = await fetchInstallationReposForId(candidateInstallationId);
+          }
+        } catch (err) {
+          if (err instanceof SessionExpiredError) throw err;
+          continue;
+        }
+
+        const repoMatch = candidateRepos.find((candidate) => candidate.full_name.toLowerCase() === normalizedFullName);
+        if (repoMatch) {
+          return { installationId: candidateInstallationId, repo: repoMatch };
+        }
+      }
+
+      return null;
+    },
+    [
+      fetchInstallationReposForId,
+      installationId,
+      installationRepos,
+      installationReposById,
+      linkedInstallations,
+      reposLoadErrorsById,
+    ],
+  );
+
+  const switchInstallationAndOpenRepo = useCallback(
+    async (repo: InstallationRepo, targetInstallationId: string) => {
+      if (targetInstallationId !== installationId) {
+        const nextSessionState = await selectGitHubInstallation(targetInstallationId);
+        applyInstallationSessionState(nextSessionState);
+        resetInstalledRepoSelectionState();
+      }
+      await openInstalledRepo(repo.full_name, {
+        id: repo.id,
+        isPrivate: repo.private,
+        installationId: targetInstallationId,
+      });
+    },
+    [applyInstallationSessionState, installationId, openInstalledRepo, resetInstalledRepoSelectionState],
+  );
+
+  const openRepoByFullName = useCallback(
+    async (
+      fullName: string,
+      options?: {
+        preferredInstallationId?: string | null;
+        preferPublic?: boolean;
+      },
+    ) => {
+      const repoRef = parseRepoFullName(fullName);
+      if (!repoRef) {
+        await showAlert('Enter a valid GitHub repo in username/reponame format, for example "openai/codex".');
+        return;
+      }
+
+      try {
+        if (!options?.preferPublic) {
+          const installedMatch = await resolveInstalledRepoMatch(fullName, {
+            preferredInstallationId: options?.preferredInstallationId,
+          });
+          if (installedMatch) {
+            await switchInstallationAndOpenRepo(installedMatch.repo, installedMatch.installationId);
+            return;
+          }
+        }
+
+        navigate(routePath.repoDocuments(repoRef.owner, repoRef.repo));
+      } catch (err) {
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+          return;
+        }
+        showRateLimitToastIfNeeded(err);
+        await showAlert(err instanceof Error ? err.message : 'Failed to open repository');
+      }
+    },
+    [
+      handleSessionExpired,
+      navigate,
+      resolveInstalledRepoMatch,
+      showAlert,
+      showRateLimitToastIfNeeded,
+      switchInstallationAndOpenRepo,
+    ],
+  );
+
+  const onPromptOpenRepo = useCallback(async () => {
+    while (true) {
+      const requestedRepo = await showPrompt(
+        'Enter a GitHub repo in username/reponame format.',
+        currentMenuRepoFullName ?? '',
+      );
+      if (requestedRepo === null) return;
+
+      const repoRef = parseGitHubRepoFullNameInput(requestedRepo);
+      if (!repoRef) {
+        await showAlert('Enter a valid GitHub repo in username/reponame format, for example "openai/codex".');
+        continue;
+      }
+
+      await openRepoByFullName(buildRepoFullName(repoRef.owner, repoRef.repo));
+      return;
+    }
+  }, [currentMenuRepoFullName, openRepoByFullName, showAlert, showPrompt]);
+
+  const onOpenRecentRepo = useCallback(
+    async (repo: RecentRepoVisit) => {
+      await openRepoByFullName(repo.fullName, {
+        preferredInstallationId: repo.source === 'installed' ? repo.installationId : null,
+        preferPublic: repo.source === 'public',
+      });
+    },
+    [openRepoByFullName],
   );
 
   const onDisconnect = useCallback(async () => {
@@ -7330,6 +7584,16 @@ export function App() {
     }
     navigate(routePath.repoFile(repoRef.owner, repoRef.repo, goToWorkspaceTarget.filePath));
   }, [goToWorkspaceTarget, navigate, onSelectRepo]);
+  const recentReposForMenu = useMemo(
+    () =>
+      recentRepos.filter((repo) => {
+        if (currentMenuRepoFullName && repo.fullName.toLowerCase() === currentMenuRepoFullName.toLowerCase()) {
+          return false;
+        }
+        return true;
+      }),
+    [currentMenuRepoFullName, recentRepos],
+  );
   const hasAllNonDeleteStagedContent = readerAiStagedChanges.every(
     (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
   );
@@ -7404,6 +7668,13 @@ export function App() {
         editUrl={null}
         navigate={navigate}
         onOpenRepoMenu={onOpenRepoMenu}
+        onPromptOpenRepo={() => {
+          void onPromptOpenRepo();
+        }}
+        recentRepos={recentReposForMenu}
+        onOpenRecentRepo={(repo) => {
+          void onOpenRecentRepo(repo);
+        }}
         onRetryRepos={() => onOpenRepoMenu('manual')}
         onRetryGists={() => onOpenRepoMenu('manual')}
         onSelectInstallation={async (nextInstallationId) => {

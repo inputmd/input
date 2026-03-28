@@ -3,6 +3,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   Check,
   ChevronDown,
+  ChevronRight,
   CodeXml,
   ExternalLink,
   Eye,
@@ -36,6 +37,12 @@ function getOpenInInputMdUrl(): string | null {
 }
 
 export type ActiveView = 'workspaces' | 'loading' | 'error' | 'content' | 'edit';
+
+interface RecentRepoMenuEntry {
+  fullName: string;
+  installationId: string | null;
+  source: 'installed' | 'public';
+}
 
 function animateRateLimitSnapshot(
   snapshot: GitHubRateLimitSnapshot | null,
@@ -141,6 +148,9 @@ interface ToolbarProps {
   onSignInWithGitHub: (options?: { includeGists?: boolean }) => void;
   navigate: (route: string, options?: { replace?: boolean; state?: unknown }) => void;
   onOpenRepoMenu: () => void;
+  onPromptOpenRepo: () => void | Promise<void>;
+  recentRepos: RecentRepoMenuEntry[];
+  onOpenRecentRepo: (repo: RecentRepoMenuEntry) => void | Promise<void>;
   onRetryRepos: () => void;
   onRetryGists: () => void;
   onSelectInstallation: (installationId: string) => void | Promise<void>;
@@ -223,6 +233,9 @@ export function Toolbar({
   onSignInWithGitHub,
   navigate,
   onOpenRepoMenu,
+  onPromptOpenRepo,
+  recentRepos,
+  onOpenRecentRepo,
   onRetryRepos,
   onRetryGists,
   onSelectInstallation,
@@ -253,6 +266,7 @@ export function Toolbar({
   const repoMenuShortcutAvailable = showGitHubApp && !disableLeftControls;
   const RepoPrivacyIcon = selectedRepoPrivate ? Lock : Globe;
   const noReposOrGists = !repoListLoading && !menuGistsLoading && availableRepos.length === 0 && menuGists.length === 0;
+  const hasRecentRepos = recentRepos.length > 0;
   const openInInputMdUrl = getOpenInInputMdUrl();
   const selectedInstallation =
     linkedInstallations.find((candidate) => candidate.installationId === installationId) ??
@@ -686,6 +700,38 @@ export function Toolbar({
                         </>
                       ) : null}
                       <DropdownMenu.Separator class="user-menu-separator" />
+                      <DropdownMenu.Item class="repo-menu-item" onSelect={() => void onPromptOpenRepo()}>
+                        Open...
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Sub>
+                        <DropdownMenu.SubTrigger class="repo-menu-item user-menu-subtrigger" disabled={!hasRecentRepos}>
+                          <span class="repo-menu-item-main">
+                            <span>Open Recent</span>
+                          </span>
+                          <ChevronRight size={14} class="repo-menu-icon" aria-hidden="true" />
+                        </DropdownMenu.SubTrigger>
+                        {hasRecentRepos ? (
+                          <DropdownMenu.Portal>
+                            <DropdownMenu.SubContent
+                              class="repo-menu-content user-menu-subcontent"
+                              sideOffset={6}
+                              alignOffset={-6}
+                            >
+                              {recentRepos.map((repo) => (
+                                <DropdownMenu.Item
+                                  key={`${repo.source}:${repo.installationId ?? 'public'}:${repo.fullName.toLowerCase()}`}
+                                  class="repo-menu-item"
+                                  onSelect={() => void onOpenRecentRepo(repo)}
+                                >
+                                  <span class="repo-menu-item-main">
+                                    <span>{repo.fullName}</span>
+                                  </span>
+                                </DropdownMenu.Item>
+                              ))}
+                            </DropdownMenu.SubContent>
+                          </DropdownMenu.Portal>
+                        ) : null}
+                      </DropdownMenu.Sub>
                       <DropdownMenu.Item class="repo-menu-item" onSelect={() => navigate(routePath.workspaces())}>
                         {noReposOrGists ? 'Get started...' : 'Manage Workspaces'}
                       </DropdownMenu.Item>
@@ -917,11 +963,6 @@ export function Toolbar({
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
-                {view !== 'workspaces' ? (
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => navigate(routePath.workspaces())}>
-                    Workspaces
-                  </DropdownMenu.Item>
-                ) : null}
                 <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                   Toggle theme
                 </DropdownMenu.Item>
