@@ -546,14 +546,19 @@ export class StagedChanges {
 
     const index = content.indexOf(oldText);
     if (index === -1) {
-      // Try to give a helpful error
+      // Try to give a helpful error with self-correction guidance
       const lower = content.toLowerCase();
       const lowerOld = oldText.toLowerCase();
       if (lower.includes(lowerOld)) {
-        return '(old_text not found — a case-insensitive match exists. The old_text must match exactly, including case.)';
+        const exactIndex = lower.indexOf(lowerOld);
+        const exactMatch = content.slice(exactIndex, exactIndex + oldText.length);
+        return `(old_text not found — a case-insensitive match exists at line ${countLineForIndex(content, exactIndex)}. The exact text there is:\n${exactMatch}\nPlease retry with the exact text above as old_text.)`;
       }
-      // If the file has pending staged changes, the content may have been modified
-      // by a concurrent subagent — hint this so the LLM re-reads instead of guessing.
+      // Fuzzy match — find closest match to help the model self-correct
+      const fuzzy = findClosestMatch(content, oldText);
+      if (fuzzy) {
+        return `(old_text not found — a similar block exists at line ${fuzzy.line}. The actual text there is:\n${fuzzy.match}\nPlease use read_file to verify the exact content and retry with the correct old_text.)`;
+      }
       const hasBeenEdited = this.changes.has(path);
       if (hasBeenEdited) {
         return '(old_text not found in file — the file was recently modified (possibly by a concurrent edit). Use read_file to see the current content before retrying.)';
@@ -739,12 +744,34 @@ function applySnippetEdit(
   }
   const first = source.indexOf(oldText);
   if (first === -1) {
+    const caseInsensitiveExists = source.toLowerCase().includes(oldText.toLowerCase());
+    if (caseInsensitiveExists) {
+      const lowerIdx = source.toLowerCase().indexOf(oldText.toLowerCase());
+      const exactMatch = source.slice(lowerIdx, lowerIdx + oldText.length);
+      return makeEditDocumentFailure(
+        {
+          code: 'not_found',
+          message: `old_text not found — a case-insensitive match exists at line ${countLineForIndex(source, lowerIdx)}. The exact text is:\n${exactMatch}\nRetry with the exact text above as old_text.`,
+        },
+        { case_insensitive_match_exists: true, suggested_old_text: exactMatch },
+      );
+    }
+    const fuzzy = findClosestMatch(source, oldText);
+    if (fuzzy) {
+      return makeEditDocumentFailure(
+        {
+          code: 'not_found',
+          message: `old_text not found — a similar block exists at line ${fuzzy.line}. The actual text is:\n${fuzzy.match}\nUse read_document to verify and retry with the correct old_text.`,
+        },
+        { nearest_match_line: fuzzy.line, nearest_match_distance: fuzzy.distance },
+      );
+    }
     return makeEditDocumentFailure(
       {
         code: 'not_found',
-        message: 'old_text not found in document',
+        message: 'old_text not found in document. Use search_document or read_document to verify the current content.',
       },
-      { case_insensitive_match_exists: source.toLowerCase().includes(oldText.toLowerCase()) },
+      { case_insensitive_match_exists: false },
     );
   }
   const second = source.indexOf(oldText, first + oldText.length);
@@ -828,12 +855,17 @@ export function executeReaderAiEditDocumentTool(argsJson: string, state: ReaderA
   try {
     args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {};
   } catch {
-    return JSON.stringify(
-      makeEditDocumentFailure({
-        code: 'invalid_json',
-        message: 'invalid JSON arguments',
-      }),
-    );
+    const repaired = repairToolCallJson(argsJson);
+    if (repaired) {
+      args = repaired;
+    } else {
+      return JSON.stringify(
+        makeEditDocumentFailure({
+          code: 'invalid_json',
+          message: `invalid JSON arguments — could not parse. Please provide valid JSON. Raw: ${argsJson.slice(0, 200)}`,
+        }),
+      );
+    }
   }
 
   const dryRun = args.dry_run === true;
@@ -1114,13 +1146,141 @@ export function executeReaderAiListFiles(files: ReaderAiFileEntry[], args: { pat
   return result;
 }
 
+/**
+ * Attempt to repair malformed JSON from LLM tool call arguments.
+ * Handles common issues: trailing incomplete tokens, markdown code fences,
+ * missing closing braces.
+ */
+export function repairToolCallJson(raw: string): Record<string, unknown> | null {
+  if (!raw || !raw.trim()) return null;
+  let text = raw.trim();
+
+  // Strip markdown code fences (```json ... ```)
+  const fenceMatch = text.match(/^```(?:json)?\s*\n?([\s\S]*?)```\s*$/);
+  if (fenceMatch) text = fenceMatch[1].trim();
+
+  // Try direct parse first
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // continue to repair attempts
+  }
+
+  // Try adding missing closing braces
+  let braces = 0;
+  let brackets = 0;
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') braces++;
+    else if (ch === '}') braces--;
+    else if (ch === '[') brackets++;
+    else if (ch === ']') brackets--;
+  }
+
+  // If we're inside a string, close it
+  if (inString) text += '"';
+
+  // Close open brackets/braces
+  for (let i = 0; i < brackets; i++) text += ']';
+  for (let i = 0; i < braces; i++) text += '}';
+
+  // Remove trailing comma before closing brace/bracket
+  text = text.replace(/,\s*([}\]])/g, '$1');
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // final fallback: no repair possible
+  }
+
+  return null;
+}
+
+/**
+ * Find the best fuzzy match for `needle` in `haystack` using line-based comparison.
+ * Returns the closest matching substring with its line number, or null.
+ */
+export function findClosestMatch(
+  haystack: string,
+  needle: string,
+  maxDistance = 0.3,
+): { match: string; line: number; distance: number } | null {
+  if (!needle.trim() || !haystack) return null;
+  const needleLines = needle.split('\n');
+  const haystackLines = haystack.split('\n');
+  if (needleLines.length > haystackLines.length) return null;
+
+  let bestDistance = maxDistance + 1;
+  let bestLine = -1;
+
+  for (let i = 0; i <= haystackLines.length - needleLines.length; i++) {
+    const candidate = haystackLines.slice(i, i + needleLines.length).join('\n');
+    const dist = computeNormalizedEditDistance(needle, candidate);
+    if (dist < bestDistance) {
+      bestDistance = dist;
+      bestLine = i + 1;
+    }
+  }
+
+  if (bestLine === -1 || bestDistance > maxDistance) return null;
+  const match = haystackLines.slice(bestLine - 1, bestLine - 1 + needleLines.length).join('\n');
+  return { match, line: bestLine, distance: bestDistance };
+}
+
+/**
+ * Compute normalized Levenshtein distance between two strings.
+ * Uses a simplified line-by-line approach for performance on long text.
+ */
+function computeNormalizedEditDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  const aLines = a.split('\n');
+  const bLines = b.split('\n');
+  const m = aLines.length;
+  const n = bLines.length;
+  const maxLen = Math.max(m, n);
+  if (maxLen === 0) return 0;
+
+  // Line-level Levenshtein
+  const dp = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = aLines[i - 1] === bLines[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[m][n] / maxLen;
+}
+
 /** Execute a synchronous (non-task) tool — document mode. */
 export function executeReaderAiSyncTool(toolName: string, argsJson: string, lines: string[]): string {
   let args: Record<string, unknown>;
   try {
     args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {};
   } catch {
-    return `(invalid JSON arguments: ${argsJson})`;
+    const repaired = repairToolCallJson(argsJson);
+    if (repaired) {
+      args = repaired;
+    } else {
+      return `(invalid JSON arguments — could not parse tool call. Please provide valid JSON. Raw: ${argsJson.slice(0, 200)})`;
+    }
   }
   switch (toolName) {
     case 'read_document':
@@ -1146,7 +1306,12 @@ export function executeReaderAiProjectSyncTool(
   try {
     args = argsJson ? (JSON.parse(argsJson) as Record<string, unknown>) : {};
   } catch {
-    return `(invalid JSON arguments: ${argsJson})`;
+    const repaired = repairToolCallJson(argsJson);
+    if (repaired) {
+      args = repaired;
+    } else {
+      return `(invalid JSON arguments — could not parse tool call. Please provide valid JSON. Raw: ${argsJson.slice(0, 200)})`;
+    }
   }
   // For read/search/list, use the working file set if staging is active
   const workingFiles = stagedChanges ? stagedChanges.getWorkingFiles() : files;

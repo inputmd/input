@@ -58,6 +58,7 @@ import {
   type ReaderAiToolCall,
   readUpstreamError,
   readUpstreamRateLimitMessage,
+  repairToolCallJson,
   StagedChanges,
 } from './reader_ai_tools';
 import {
@@ -2972,7 +2973,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         try {
           parsedArgs = tc.arguments ? (JSON.parse(tc.arguments) as Record<string, unknown>) : {};
         } catch {
-          // send raw string if unparseable
+          // Attempt JSON repair before giving up
+          const repaired = repairToolCallJson(tc.arguments);
+          if (repaired) parsedArgs = repaired;
         }
         writeSseEvent('tool_call', { id: tc.id, name: tc.name, arguments: parsedArgs ?? tc.arguments });
 
@@ -2980,13 +2983,11 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           if (parsedArgs) {
             taskCalls.push({ tc, parsedArgs });
           } else {
-            // Task call with malformed JSON — return an error tool result rather than
-            // silently falling through to the sync tool path (which would return "unknown tool: task").
             openRouterMessages.push({
               role: 'tool',
               tool_call_id: tc.id,
               content:
-                '(task tool arguments could not be parsed as JSON — please provide valid JSON with a "prompt" field)',
+                '(task tool arguments could not be parsed as JSON — please retry with valid JSON: {"prompt": "your task description"})',
             });
             writeSseEvent('tool_result', { id: tc.id, name: 'task', preview: '(invalid JSON arguments)' });
           }
