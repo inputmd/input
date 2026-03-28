@@ -782,6 +782,7 @@ export function App() {
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
   >([]);
+  const readerAiStagedChangesStreaming = readerAiSending && readerAiStagedChanges.length > 0;
   const [readerAiAppliedChanges, setReaderAiAppliedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>
   >([]);
@@ -3751,7 +3752,11 @@ export function App() {
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
+      setReaderAiStagedChanges([]);
+      setReaderAiStagedChangesInvalid(false);
+      setReaderAiStagedFileContents({});
       setReaderAiDocumentEditedContent(null);
+      setReaderAiSuggestedCommitMessage('');
       setReaderAiError(null);
       setReaderAiSuggestProjectMode(false);
       let received = false;
@@ -3906,7 +3911,7 @@ export function App() {
                 return next;
               });
               setReaderAiDocumentEditedContent(typeof documentContent === 'string' ? documentContent : null);
-              if (suggestedCommitMessage) setReaderAiSuggestedCommitMessage(suggestedCommitMessage);
+              setReaderAiSuggestedCommitMessage(suggestedCommitMessage ?? '');
             },
             onTurnStart: (iteration) => {
               logReceiveStart('turn_start');
@@ -8097,6 +8102,7 @@ export function App() {
               toolStatus={readerAiToolStatus}
               toolLog={readerAiToolLog}
               stagedChanges={readerAiStagedChanges}
+              stagedChangesStreaming={readerAiStagedChangesStreaming}
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
               stagedChangesDisabledHint={readerAiStagedChangesDisabledHint}

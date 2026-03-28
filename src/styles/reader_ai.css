@@ -724,6 +724,14 @@
   gap: 6px;
 }
 
+.reader-ai-tool-log-entry--result .reader-ai-tool-log-name {
+  color: color-mix(in srgb, var(--success-color) 72%, var(--text));
+}
+
+.reader-ai-tool-log-entry--progress .reader-ai-tool-log-name {
+  color: color-mix(in srgb, var(--accent-text) 78%, var(--text));
+}
+
 .reader-ai-tool-log-name {
   font-weight: 500;
   color: var(--text);
@@ -759,6 +767,34 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.reader-ai-staged-changes-header-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reader-ai-staged-changes-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent-text) 12%, transparent);
+}
+
+.reader-ai-staged-changes-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.9;
 }
 
 .reader-ai-staged-changes-popout {
@@ -908,6 +944,13 @@
   white-space: nowrap;
   font-family: var(--font-mono, monospace);
   font-size: 11.5px;
+}
+
+.reader-ai-staged-change-summary {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  white-space: nowrap;
 }
 
 /* ── Diff viewer ── */

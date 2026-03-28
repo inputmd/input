@@ -479,6 +479,70 @@ test('stream parser accumulates tool calls', async (t) => {
   t.is(result.finishReason, 'tool_calls');
 });
 
+test('stream parser tolerates repeated streamed tool-call name fragments', async (t) => {
+  const stream = makeStream([
+    sseChunk({
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ index: 0, id: 'call_repeat', function: { name: 'read', arguments: '{"pat' } }],
+          },
+        },
+      ],
+    }),
+    sseChunk({
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ index: 0, function: { name: 'read_document', arguments: '{"path":"doc' } }],
+          },
+        },
+      ],
+    }),
+    sseChunk({
+      choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '.md"}' } }] } }],
+    }),
+    sseChunk({ choices: [{ finish_reason: 'tool_calls' }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, () => {});
+
+  t.is(result.toolCalls.length, 1);
+  t.is(result.toolCalls[0].id, 'call_repeat');
+  t.is(result.toolCalls[0].name, 'read_document');
+  t.is(result.toolCalls[0].arguments, '{"path":"doc.md"}');
+});
+
+test('stream parser preserves tool call order without explicit indices', async (t) => {
+  const stream = makeStream([
+    sseChunk({
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              { id: 'call_a', function: { name: 'read_document', arguments: '{}' } },
+              { id: 'call_b', function: { name: 'search_document', arguments: '{"query":"needle"}' } },
+            ],
+          },
+        },
+      ],
+    }),
+    sseChunk({ choices: [{ finish_reason: 'tool_calls' }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, () => {});
+
+  t.deepEqual(
+    result.toolCalls.map((toolCall) => ({ id: toolCall.id, name: toolCall.name, arguments: toolCall.arguments })),
+    [
+      { id: 'call_a', name: 'read_document', arguments: '{}' },
+      { id: 'call_b', name: 'search_document', arguments: '{"query":"needle"}' },
+    ],
+  );
+});
+
 test('stream parser handles multiple parallel tool calls', async (t) => {
   const stream = makeStream([
     sseChunk({

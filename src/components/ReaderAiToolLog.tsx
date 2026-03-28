@@ -24,8 +24,7 @@ export function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntr
   const [expanded, setExpanded] = useState(false);
   if (entries.length === 0) return null;
 
-  const visibleEntries = entries.filter((e) => e.type !== 'result');
-  const activityCount = visibleEntries.length;
+  const activityCount = entries.length;
   const summary = live
     ? `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}…`
     : `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}`;
@@ -41,8 +40,8 @@ export function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntr
       </button>
       {isExpanded ? (
         <div class="reader-ai-tool-log-entries">
-          {visibleEntries.map((entry, i) => (
-            <div key={i} class="reader-ai-tool-log-entry">
+          {entries.map((entry, i) => (
+            <div key={i} class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}`}>
               <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
               {entry.detail ? (
                 <span class="reader-ai-tool-log-detail">
