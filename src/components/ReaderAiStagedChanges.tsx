@@ -1,8 +1,35 @@
 import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react';
 import { createPortal } from 'preact/compat';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import type { ReaderAiStagedChange } from '../reader_ai';
 import { SideBySideDiffView, UnifiedDiffView } from './DiffViewer';
+
+const LONG_DIFF_LINE_THRESHOLD = 25;
+
+function countDiffLines(diff: string): { added: number; removed: number; total: number } {
+  let added = 0;
+  let removed = 0;
+  let total = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('@@') || line.startsWith('---') || line.startsWith('+++')) continue;
+    total++;
+    if (line.startsWith('+')) added++;
+    else if (line.startsWith('-')) removed++;
+  }
+  return { added, removed, total };
+}
+
+function DiffStats({ diff }: { diff: string }) {
+  const { added, removed } = useMemo(() => countDiffLines(diff), [diff]);
+  if (added === 0 && removed === 0) return null;
+  return (
+    <span class="reader-ai-staged-change-stats">
+      {added > 0 ? <span class="reader-ai-staged-change-stat--add">+{added}</span> : null}
+      {added > 0 && removed > 0 ? ' ' : null}
+      {removed > 0 ? <span class="reader-ai-staged-change-stat--del">-{removed}</span> : null}
+    </span>
+  );
+}
 
 function SideBySideDiffModal({ changes, onClose }: { changes: ReaderAiStagedChange[]; onClose: () => void }) {
   useEffect(() => {
@@ -42,6 +69,7 @@ export function StagedChangesSection({
   disabledHint,
   onApplyWithoutSaving,
   onApplyAndCommit,
+  streaming = false,
 }: {
   changes: ReaderAiStagedChange[];
   defaultCommitMessage: string;
@@ -51,14 +79,26 @@ export function StagedChangesSection({
   disabledHint?: string;
   onApplyWithoutSaving?: () => void;
   onApplyAndCommit?: (commitMessage?: string) => void;
+  streaming?: boolean;
 }) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(changes.map((change) => change.path)));
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
+    return new Set(changes.filter((c) => countDiffLines(c.diff).total <= LONG_DIFF_LINE_THRESHOLD).map((c) => c.path));
+  });
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
   const [popoutOpen, setPopoutOpen] = useState(false);
   const canApply = canApplyWithoutSaving || canApplyAndCommit;
 
   useEffect(() => {
-    setExpandedPaths(new Set(changes.map((change) => change.path)));
+    setExpandedPaths((prev) => {
+      const next = new Set<string>();
+      for (const change of changes) {
+        // Keep previously expanded paths expanded; auto-expand short diffs for new paths
+        if (prev.has(change.path) || countDiffLines(change.diff).total <= LONG_DIFF_LINE_THRESHOLD) {
+          next.add(change.path);
+        }
+      }
+      return next;
+    });
   }, [changes]);
 
   if (changes.length === 0) return null;
@@ -79,10 +119,14 @@ export function StagedChangesSection({
   };
 
   return (
-    <div class="reader-ai-staged-changes">
+    <div class={`reader-ai-staged-changes${streaming ? ' reader-ai-staged-changes--streaming' : ''}`}>
       <div class="reader-ai-staged-changes-header">
         <span>
-          Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
+          {streaming ? 'Proposed changes' : 'Staged changes'} ({changes.length} file
+          {changes.length === 1 ? '' : 's'})
+          {streaming ? (
+            <span class="reader-ai-thinking-spinner reader-ai-thinking-spinner--inline" aria-hidden="true" />
+          ) : null}
         </span>
         <button
           type="button"
@@ -102,6 +146,7 @@ export function StagedChangesSection({
               {typeLabel(change.type)}
             </span>
             <span class="reader-ai-staged-change-path">{change.path}</span>
+            <DiffStats diff={change.diff} />
           </button>
           {expandedPaths.has(change.path) ? <UnifiedDiffView diff={change.diff} /> : null}
         </div>

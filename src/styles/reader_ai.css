@@ -910,6 +910,26 @@
   font-size: 11.5px;
 }
 
+.reader-ai-staged-change-stats {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+  padding-right: 2px;
+}
+
+.reader-ai-staged-change-stat--add {
+  color: #2aa198;
+}
+
+.reader-ai-staged-change-stat--del {
+  color: #dc322f;
+}
+
+.reader-ai-staged-changes--streaming {
+  border-color: color-mix(in srgb, var(--reader-ai-active-border, var(--focus-border)) 55%, transparent);
+}
+
 /* ── Diff viewer ── */
 
 .reader-ai-diff {

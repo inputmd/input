@@ -2746,7 +2746,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     tools = editModeCurrentDocOnly
       ? READER_AI_TOOLS.filter((tool) => {
           const name = tool.function.name;
-          return name === 'read_document' || name === 'search_document';
+          return name !== 'task';
         })
       : READER_AI_TOOLS;
   }
@@ -2820,9 +2820,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     return executeReaderAiSyncTool(tc.name, tc.arguments, aiLines);
   };
 
-  let stagedChangesEmitted = false;
+  let lastEmittedStagedChangesKey = '';
   const emitStagedChangesIfAny = () => {
-    if (stagedChangesEmitted || ctx.res.writableEnded) return;
+    if (ctx.res.writableEnded) return;
     const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
     const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
     if (!hasProjectStagedChanges && !hasDocumentStagedChange) return;
@@ -2838,13 +2838,17 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
             diff: documentEditState.stagedDiff!,
           },
         ];
+
+    // Deduplicate: only emit if changes have actually changed since last emission
+    const changesKey = allChanges.map((c) => `${c.path}:${c.type}:${c.diff?.length ?? 0}`).join('|');
+    if (changesKey === lastEmittedStagedChangesKey) return;
+    lastEmittedStagedChangesKey = changesKey;
+
     const changes = allChanges.map((c) => ({
       path: c.path,
       type: c.type,
       diff: c.diff,
     }));
-    // Include full modified content so clients can apply without depending on
-    // a cached project session lookup.
     const fileContents = Object.fromEntries(
       allChanges
         .filter((c) => c.type !== 'delete' && typeof c.modified === 'string')
@@ -2869,7 +2873,6 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
       })}\n\n`,
     );
-    stagedChangesEmitted = true;
   };
 
   const writeSseEvent = (event: string, data: unknown) => {
@@ -2999,6 +3002,17 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
         writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
+
+        // Emit staged changes incrementally after each edit tool so the client
+        // can show diffs in real-time as the AI builds up proposals.
+        if (
+          tc.name === 'propose_edit_file' ||
+          tc.name === 'propose_edit_document' ||
+          tc.name === 'propose_create_file' ||
+          tc.name === 'propose_delete_file'
+        ) {
+          emitStagedChangesIfAny();
+        }
       }
 
       // Run task calls in parallel (up to READER_AI_MAX_CONCURRENT_TASKS)
@@ -3062,6 +3076,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
             const resultPreview = taskResult.length > 200 ? `${taskResult.slice(0, 200)}...` : taskResult;
             writeSseEvent('tool_result', { id, name: 'task', preview: resultPreview });
           }
+          // Subagents can propose edits — emit any new staged changes
+          emitStagedChangesIfAny();
         }
       }
 

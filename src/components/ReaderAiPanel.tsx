@@ -180,16 +180,14 @@ export function ReaderAiPanel({
     messages[messageCount - 1].role === 'assistant' &&
     messages[messageCount - 1].content.trim().length === 0;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length triggers scroll on new tool activity
+  // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length and stagedChanges.length trigger scroll on new activity
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
-    // Only auto-scroll if the user is already near the bottom (within 80px).
-    // This prevents yanking the viewport away when the user scrolled up to read.
     const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
     if (distanceFromBottom > 80) return;
     root.scrollTop = root.scrollHeight;
-  }, [messageCount, sending, toolLog.length]);
+  }, [messageCount, sending, toolLog.length, stagedChanges.length]);
 
   useEffect(() => {
     if (editingIndex === null) return;
@@ -602,16 +600,17 @@ export function ReaderAiPanel({
             </button>
           </div>
         ) : null}
-        {!sending && stagedChanges.length > 0 ? (
+        {stagedChanges.length > 0 ? (
           <StagedChangesSection
             changes={stagedChanges}
             defaultCommitMessage={suggestedCommitMessage}
             applying={applyingChanges}
-            canApplyWithoutSaving={canApplyWithoutSaving}
-            canApplyAndCommit={canApplyAndCommit}
-            disabledHint={stagedChangesDisabledHint}
+            canApplyWithoutSaving={!sending && canApplyWithoutSaving}
+            canApplyAndCommit={!sending && canApplyAndCommit}
+            disabledHint={sending ? 'Waiting for AI to finish…' : stagedChangesDisabledHint}
             onApplyWithoutSaving={onApplyWithoutSaving}
             onApplyAndCommit={onApplyAndCommit}
+            streaming={sending}
           />
         ) : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
