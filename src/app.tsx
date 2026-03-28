@@ -638,8 +638,7 @@ function buildReaderAiInlinePreview(
   }
   if (!Array.isArray(change.hunks) || change.hunks.length === 0) return null;
   const firstHunk = change.hunks[0];
-  const lastHunk = change.hunks[change.hunks.length - 1];
-  if (!firstHunk || !lastHunk) return null;
+  if (!firstHunk) return null;
   const original = typeof change.originalContent === 'string' ? change.originalContent : '';
   const lines = original.split('\n');
   const lineStartOffset = (lineNumber: number) => {
@@ -652,12 +651,13 @@ function buildReaderAiInlinePreview(
     return offset;
   };
   const start = lineStartOffset(firstHunk.oldStart);
-  const endLine = Math.max(firstHunk.oldStart, lastHunk.oldStart + Math.max(0, lastHunk.oldLines) - 1);
-  const end = lineStartOffset(endLine + 1);
-  const replacement = change.modifiedContent;
+  const replacement = firstHunk.lines
+    .filter((line) => line.type === 'add')
+    .map((line) => line.content)
+    .join('\n');
   return {
     from: Math.max(0, start),
-    to: Math.max(0, Math.min(end, original.length)),
+    to: Math.max(0, start),
     insert: replacement,
     label: 'Reader AI proposal',
   };
@@ -3534,6 +3534,25 @@ export function App() {
         setReaderAiHasEligibleSelection(false);
         setReaderAiToolLog(loaded.toolLog ?? []);
         setReaderAiStagedChanges(loaded.stagedChanges ?? []);
+        setReaderAiSelectedChangeIds(
+          new Set(
+            (loaded.stagedChanges ?? [])
+              .map((change) => change.id)
+              .filter((id): id is string => typeof id === 'string'),
+          ),
+        );
+        setReaderAiSelectedHunkIdsByChangeId(
+          Object.fromEntries(
+            (loaded.stagedChanges ?? [])
+              .filter((change) => change.id && Array.isArray(change.hunks))
+              .map((change) => [
+                change.id as string,
+                new Set(
+                  (change.hunks ?? []).map((hunk) => hunk.id).filter((id): id is string => typeof id === 'string'),
+                ),
+              ]),
+          ),
+        );
         setReaderAiStagedChangesInvalid(loaded.stagedChangesInvalid === true);
         setReaderAiStagedFileContents(loaded.stagedFileContents ?? {});
         setReaderAiAppliedChanges(loaded.appliedChanges ?? []);
@@ -3549,6 +3568,8 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiSelectedChangeIds(new Set());
+    setReaderAiSelectedHunkIdsByChangeId({});
     setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
     setReaderAiStagedFileContents({});
