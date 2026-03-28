@@ -326,3 +326,78 @@
     min-height: 100%;
   }
 }
+
+.cm-editor .cm-editor-diff-preview-line {
+  background: color-mix(in srgb, var(--focus-border) 6%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-line--insert {
+  background: color-mix(in srgb, var(--success-color) 7%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-line--replace {
+  background: color-mix(in srgb, var(--focus-border) 8%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-line--delete {
+  background: color-mix(in srgb, var(--danger-border) 8%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-range {
+  border-bottom: 1px solid transparent;
+}
+
+.cm-editor .cm-editor-diff-preview-range--replace {
+  background: color-mix(in srgb, var(--focus-border) 16%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--focus-border) 48%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-range--delete {
+  background: color-mix(in srgb, var(--danger-border) 14%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--danger-border) 50%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-widget {
+  display: block;
+  margin: 4px 0 4px 1.5rem;
+  padding: 6px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--focus-border) 55%, transparent);
+  border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--focus-border) 9%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.cm-editor .cm-editor-diff-preview-widget--insert {
+  border-left-color: color-mix(in srgb, var(--success-color) 58%, transparent);
+  background: color-mix(in srgb, var(--success-color) 10%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-widget--replace {
+  border-left-color: color-mix(in srgb, var(--focus-border) 58%, transparent);
+  background: color-mix(in srgb, var(--focus-border) 9%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-widget--delete {
+  border-left-color: color-mix(in srgb, var(--danger-border) 58%, transparent);
+  background: color-mix(in srgb, var(--danger-border) 10%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-label {
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.cm-editor .cm-editor-diff-preview-content {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  white-space: pre-wrap;
+}

@@ -5,6 +5,7 @@ import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
+import type { EditorDiffPreview } from './components/codemirror_diff_preview';
 import type { BracePromptRequest, InlinePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -623,17 +624,21 @@ function generateUnifiedDiff(path: string, oldContent: string, newContent: strin
   return result || noChangesLabel;
 }
 
-function buildReaderAiInlinePreview(
-  change: ReaderAiStagedChange | undefined,
-): { from: number; to: number; insert: string; label?: string } | null {
+function buildEditorDiffPreview(change: ReaderAiStagedChange | undefined): EditorDiffPreview | null {
   if (!change || change.type === 'delete') return null;
   if (typeof change.modifiedContent !== 'string') return null;
   if (change.type === 'create') {
     return {
-      from: 0,
-      to: 0,
-      insert: change.modifiedContent,
-      label: 'Reader AI proposal',
+      blocks: [
+        {
+          kind: 'insert',
+          from: 0,
+          to: 0,
+          insert: change.modifiedContent,
+          label: 'Reader AI proposal',
+        },
+      ],
+      source: 'Reader AI proposal',
     };
   }
   const original = typeof change.originalContent === 'string' ? change.originalContent : null;
@@ -644,11 +649,31 @@ function buildReaderAiInlinePreview(
   const trailingOverlap = commonSuffixLength(original.slice(start), modified.slice(start));
   const originalTrimmedEnd = original.length - trailingOverlap;
   const modifiedTrimmedEnd = modified.length - trailingOverlap;
+  const replacement = modified.slice(start, modifiedTrimmedEnd);
+  const deleted = original.slice(start, originalTrimmedEnd);
+  const blocks: EditorDiffPreview['blocks'] = [];
+  if (deleted.length > 0) {
+    blocks.push({
+      kind: replacement.length > 0 ? 'replace' : 'delete',
+      from: Math.max(0, start),
+      to: Math.max(0, originalTrimmedEnd),
+      label: replacement.length > 0 ? 'Replace' : 'Delete',
+      deletedText: deleted,
+    });
+  }
+  if (replacement.length > 0) {
+    blocks.push({
+      kind: deleted.length > 0 ? 'replace' : 'insert',
+      from: Math.max(0, start),
+      to: Math.max(0, originalTrimmedEnd),
+      insert: replacement,
+      label: deleted.length > 0 ? 'Insert' : 'Reader AI proposal',
+    });
+  }
+  if (blocks.length === 0) return null;
   return {
-    from: Math.max(0, start),
-    to: Math.max(0, originalTrimmedEnd),
-    insert: modified.slice(start, modifiedTrimmedEnd),
-    label: 'Reader AI proposal',
+    blocks,
+    source: 'Reader AI proposal',
   };
 }
 
@@ -1141,10 +1166,10 @@ export function App() {
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
   );
-  const currentReaderAiInlinePreview = useMemo(() => {
+  const currentEditorDiffPreview = useMemo(() => {
     if (activeView !== 'edit' || !currentEditingDocPath) return null;
     const currentChange = effectiveReaderAiStagedChanges.find((change) => change.path === currentEditingDocPath);
-    return buildReaderAiInlinePreview(currentChange);
+    return buildEditorDiffPreview(currentChange);
   }, [activeView, currentEditingDocPath, effectiveReaderAiStagedChanges]);
   const isScratchDocument = useMemo(
     () =>
@@ -7676,7 +7701,7 @@ export function App() {
             contentOrigin={editContentOrigin}
             contentRevision={editContentRevision}
             contentSelection={editContentSelection}
-            readerAiInlinePreview={currentReaderAiInlinePreview}
+            diffPreview={currentEditorDiffPreview}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             scrollStorageKey={currentDocumentScrollKey}

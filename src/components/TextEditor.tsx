@@ -29,7 +29,7 @@ import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_posi
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { detectedLanguageForFileName } from './codemirror_languages';
-import { type ReaderAiInlinePreview, readerAiPreviewExtension } from './codemirror_reader_ai_preview';
+import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController } from './editor_controller';
 import {
@@ -44,7 +44,7 @@ interface TextEditorProps {
   contentOrigin?: 'userEdits' | 'external' | 'streaming' | 'appEdits';
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
-  readerAiPreview?: ReaderAiInlinePreview | null;
+  diffPreview?: EditorDiffPreview | null;
   onContentChange: (update: { content: string; origin: 'userEdits'; revision: number }) => void;
   readOnly?: boolean;
   placeholder?: string;
@@ -67,7 +67,7 @@ export function TextEditor({
   contentOrigin = 'external',
   contentRevision = 0,
   contentSelection = null,
-  readerAiPreview = null,
+  diffPreview = null,
   onContentChange,
   readOnly = false,
   placeholder = 'Write your text here...',
@@ -86,7 +86,7 @@ export function TextEditor({
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
   const languageCompartment = useRef(new Compartment());
-  const readerAiPreviewCompartment = useRef(new Compartment());
+  const diffPreviewCompartment = useRef(new Compartment());
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
@@ -321,7 +321,7 @@ export function TextEditor({
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         languageCompartment.current.of(detectedLanguage?.extensions ?? []),
-        readerAiPreviewCompartment.current.of(readerAiPreviewExtension(readerAiPreview)),
+        diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
         EditorState.tabSize.of(2),
         EditorView.lineWrapping,
         continuedIndentExtension({ mode: 'indent', maxColumns: 10 }),
@@ -578,9 +578,9 @@ export function TextEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: readerAiPreviewCompartment.current.reconfigure(readerAiPreviewExtension(readerAiPreview)),
+      effects: diffPreviewCompartment.current.reconfigure(editorDiffPreviewExtension(diffPreview)),
     });
-  }, [readerAiPreview]);
+  }, [diffPreview]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: helper is stable enough for this local sync effect
   useEffect(() => {

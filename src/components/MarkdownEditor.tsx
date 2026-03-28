@@ -34,7 +34,7 @@ import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { type InlinePromptRequest, inlinePromptCompletionSource } from './codemirror_inline_prompt';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codemirror_markdown';
-import { type ReaderAiInlinePreview, readerAiPreviewExtension } from './codemirror_reader_ai_preview';
+import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController } from './editor_controller';
 import {
@@ -74,7 +74,7 @@ interface MarkdownEditorProps {
   readOnly?: boolean;
   placeholder?: string;
   scrollStorageKey?: string | null;
-  readerAiInlinePreview?: ReaderAiInlinePreview | null;
+  diffPreview?: EditorDiffPreview | null;
   onEditorReady?: (controller: EditorController | null) => void;
   onEligibleSelectionChange?: (eligible: boolean) => void;
   class?: string;
@@ -102,7 +102,7 @@ export function MarkdownEditor({
   readOnly = false,
   placeholder = 'Write here, or use ~ to prompt...',
   scrollStorageKey = null,
-  readerAiInlinePreview = null,
+  diffPreview = null,
   onEditorReady,
   onEligibleSelectionChange,
   class: className,
@@ -123,7 +123,7 @@ export function MarkdownEditor({
   const placeholderCompartment = useRef(new Compartment());
   const promptListAnsweringCompartment = useRef(new Compartment());
   const bracePromptPreviewCompartment = useRef(new Compartment());
-  const readerAiPreviewCompartment = useRef(new Compartment());
+  const diffPreviewCompartment = useRef(new Compartment());
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
@@ -405,7 +405,7 @@ export function MarkdownEditor({
         highlightSelectionMatches(),
         promptListAnsweringCompartment.current.of(promptListAnsweringFacet.of(inlinePromptActive)),
         bracePromptPreviewCompartment.current.of([]),
-        readerAiPreviewCompartment.current.of(readerAiPreviewExtension(readerAiInlinePreview)),
+        diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
@@ -765,9 +765,9 @@ export function MarkdownEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: readerAiPreviewCompartment.current.reconfigure(readerAiPreviewExtension(readerAiInlinePreview)),
+      effects: diffPreviewCompartment.current.reconfigure(editorDiffPreviewExtension(diffPreview)),
     });
-  }, [readerAiInlinePreview]);
+  }, [diffPreview]);
 
   useEffect(() => {
     if (!bracePrompt.panel) return;
