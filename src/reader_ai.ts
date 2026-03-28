@@ -102,6 +102,7 @@ interface ReaderAiStreamOptions {
   onTurnEnd?: (iteration: number, reason: string) => void;
   mode?: 'default' | 'prompt_list';
   signal?: AbortSignal;
+  allowDocumentEdits?: boolean;
 }
 
 const LOCAL_CODEX_MODEL_PREFIX = 'codex_local::';
@@ -455,6 +456,7 @@ export async function askReaderAiStream(
       ...(summary ? { summary } : {}),
       ...(typeof currentDocPath === 'string' && currentDocPath ? { current_doc_path: currentDocPath } : {}),
       ...(editModeCurrentDocOnly ? { edit_mode_current_doc_only: true } : {}),
+      ...(options.allowDocumentEdits === false ? { allow_document_edits: false } : {}),
     }),
   });
   if (!res.ok) throw await responseToApiError(res);

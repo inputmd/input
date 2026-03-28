@@ -3813,6 +3813,7 @@ export function App() {
           sanitizedMessages,
           {
             signal: controller.signal,
+            allowDocumentEdits: activeView === 'edit',
             onSummary: (summary) => setReaderAiSummary(summary),
             onToolCall: (event) => {
               logReceiveStart('tool_call');
@@ -4451,6 +4452,7 @@ export function App() {
           [{ role: 'user', content: sanitizedPromptMessage }],
           {
             signal: controller.signal,
+            allowDocumentEdits: true,
             onTurnStart: () => logReceiveStart('turn_start'),
             onStreamError: () => logReceiveStart('stream_error'),
             onDelta: (delta) => {
@@ -4607,6 +4609,7 @@ export function App() {
         messages,
         {
           signal,
+          allowDocumentEdits: true,
           onDelta: (delta) => {
             if (!delta) return;
             callbacks.onDelta(delta);
@@ -4716,6 +4719,7 @@ export function App() {
           {
             signal: controller.signal,
             mode: 'prompt_list',
+            allowDocumentEdits: true,
             onTurnStart: () => logReceiveStart('turn_start'),
             onStreamError: () => logReceiveStart('stream_error'),
             onDelta: (delta) => {

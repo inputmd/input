@@ -5,6 +5,7 @@ interface BuildCodexBridgePromptOptions {
   summary?: string;
   currentDocPath?: string | null;
   editModeCurrentDocOnly?: boolean;
+  allowDocumentEdits?: boolean;
 }
 
 export function buildCodexBridgeDeveloperInstructions(options: BuildCodexBridgePromptOptions): string {
@@ -39,15 +40,22 @@ export function buildCodexBridgeDeveloperInstructions(options: BuildCodexBridgeP
     'You must only use the text supplied in the user input.',
     'Do not use filesystem, shell, network, MCP, or any external tools.',
     'For questions, answer clearly in markdown.',
-    'If the user is asking for edits, rewrites, or code/document changes, append one machine-readable block at the very end using exactly this format:',
-    '<input-staged-changes>{"assistant_message":"...","suggested_commit_message":"...","changes":[{"path":"...","type":"edit|create|delete","content":"..."}]}</input-staged-changes>',
-    'Rules for that block:',
-    '- assistant_message must contain the user-facing explanation.',
-    '- suggested_commit_message should be a concise conventional commit message when possible.',
-    '- For edit and create changes, content must be the full final file content.',
-    '- For delete changes, omit content.',
-    '- Do not include diff hunks; provide complete file contents.',
-    '- Do not emit the block unless the user is asking for concrete file or document changes.',
+    ...(options.allowDocumentEdits === false
+      ? [
+          'This chat is read-only while the user is viewing the document. Do not propose edits or emit staged change blocks.',
+          'If the user asks for edits, rewrites, fixes, or other document changes, tell them to switch to edit mode and request the change there.',
+        ]
+      : [
+          'If the user is asking for edits, rewrites, or code/document changes, append one machine-readable block at the very end using exactly this format:',
+          '<input-staged-changes>{"assistant_message":"...","suggested_commit_message":"...","changes":[{"path":"...","type":"edit|create|delete","content":"..."}]}</input-staged-changes>',
+          'Rules for that block:',
+          '- assistant_message must contain the user-facing explanation.',
+          '- suggested_commit_message should be a concise conventional commit message when possible.',
+          '- For edit and create changes, content must be the full final file content.',
+          '- For delete changes, omit content.',
+          '- Do not include diff hunks; provide complete file contents.',
+          '- Do not emit the block unless the user is asking for concrete file or document changes.',
+        ]),
   ].join('\n');
 }
 

@@ -1000,6 +1000,7 @@ export function buildReaderAiSystemPrompt(
   lines: string[],
   maxPreviewChars: number,
   currentDocPath?: string | null,
+  allowDocumentEdits = true,
 ): string {
   const totalLines = lines.length;
   const totalChars = source.length;
@@ -1024,25 +1025,43 @@ export function buildReaderAiSystemPrompt(
     docSection = `A preview of the document is included below (first ${previewEnd} of ${totalLines} lines). Use the read_document and search_document tools for full access.\n\n<document-preview>\n${preview}\n</document-preview>`;
   }
 
-  return [
-    'You are a helpful assistant that answers questions about a document.',
-    '',
-    'You have tools available:',
+  const toolLines = [
     '- read_document: Read all or part of the document by line range. Returns numbered lines.',
     '- search_document: Search for text in the document (case-insensitive). Returns matching lines with context.',
-    '- propose_edit_document: Propose an edit to the current document. Use this whenever you want to change the document so the user can explicitly approve or reject the proposal.',
+    ...(allowDocumentEdits
+      ? [
+          '- propose_edit_document: Propose an edit to the current document. Use this whenever you want to change the document so the user can explicitly approve or reject the proposal.',
+        ]
+      : []),
     '- task: Spawn an independent subagent with its own system prompt and fresh context. The subagent can read and search the document but cannot spawn further subagents. Avoid this by default. Use it only when the user explicitly asks for a subagent-style workflow, a skill/instruction explicitly requires one, or a distinct specialized role is clearly necessary. Multiple task calls in the same response run concurrently. Each subagent returns its complete output as the tool result.',
-    '',
-    'Guidelines:',
+  ];
+  const guidelineLines = [
     '- For specific questions, use search_document to find relevant sections.',
     '- Cite line numbers when referencing specific parts.',
     '- If the document content already visible contains the answer, respond directly without tools.',
-    '- If you suggest or intend any document change, call propose_edit_document instead of only describing the edit in text.',
+    ...(allowDocumentEdits
+      ? [
+          '- If you suggest or intend any document change, call propose_edit_document instead of only describing the edit in text.',
+        ]
+      : [
+          '- This chat is read-only while the user is viewing the document. Do not call edit tools or present edits as pending actions.',
+          '- If the user asks you to change, rewrite, fix, or edit the document, tell them to switch to edit mode and make the request there.',
+        ]),
     '- Prefer making the proposal yourself instead of asking a subagent to do it.',
     '- If the document lacks the answer, say so plainly.',
     '- Do not use markdown tables in responses; use short headings and bullet lists instead.',
     '- Do not use the task tool unless the user explicitly asks for it, a skill/instruction explicitly requires it, or a distinct specialized role is clearly necessary.',
     '- You can only see the current document. If the user asks about other files or the broader project, say that this chat only has document access.',
+  ];
+
+  return [
+    'You are a helpful assistant that answers questions about a document.',
+    '',
+    'You have tools available:',
+    ...toolLines,
+    '',
+    'Guidelines:',
+    ...guidelineLines,
     '',
     ...(currentDocPath ? [`Current document path: ${currentDocPath}`, ''] : []),
     `Document info: ${totalLines} lines, ${totalChars} characters.`,

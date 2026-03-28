@@ -401,6 +401,12 @@ test('system prompt mentions propose_edit_document tool', (t) => {
   t.true(prompt.includes('propose_edit_document'));
 });
 
+test('system prompt omits propose_edit_document when document edits are disabled', (t) => {
+  const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000, 'doc.md', false);
+  t.false(prompt.includes('propose_edit_document'));
+  t.true(prompt.includes('read-only while the user is viewing the document'));
+});
+
 test('system prompt discourages task by default and requires proposal tools for edits', (t) => {
   const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000);
   t.true(prompt.includes('Do not use the task tool unless the user explicitly asks for it'));

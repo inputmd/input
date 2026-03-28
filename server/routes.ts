@@ -203,6 +203,7 @@ interface ReaderAiChatBody {
   summary?: unknown;
   current_doc_path?: unknown;
   edit_mode_current_doc_only?: unknown;
+  allow_document_edits?: unknown;
 }
 
 interface ReaderAiChatMessage {
@@ -2664,6 +2665,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   const currentDocPath = typeof body?.current_doc_path === 'string' ? body.current_doc_path : null;
   const editModeCurrentDocOnly = body?.edit_mode_current_doc_only === true;
+  const allowDocumentEdits = body?.allow_document_edits !== false;
   const aiLines = source.split('\n');
 
   let chatMessages: ReaderAiChatMessage[];
@@ -2725,13 +2727,18 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       contextTokens > 0
         ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
         : READER_AI_DOC_PREVIEW_CHARS;
-    systemPrompt = buildReaderAiSystemPrompt(source, aiLines, maxPreviewChars, currentDocPath);
-    tools = editModeCurrentDocOnly
+    systemPrompt = buildReaderAiSystemPrompt(source, aiLines, maxPreviewChars, currentDocPath, allowDocumentEdits);
+    tools = !allowDocumentEdits
       ? READER_AI_TOOLS.filter((tool) => {
           const name = tool.function.name;
-          return name === 'read_document' || name === 'search_document' || name === 'propose_edit_document';
+          return name === 'read_document' || name === 'search_document' || name === 'task';
         })
-      : READER_AI_TOOLS;
+      : editModeCurrentDocOnly
+        ? READER_AI_TOOLS.filter((tool) => {
+            const name = tool.function.name;
+            return name === 'read_document' || name === 'search_document' || name === 'propose_edit_document';
+          })
+        : READER_AI_TOOLS;
   }
 
   // Build messages for OpenRouter (internal format supports tool call/result messages)

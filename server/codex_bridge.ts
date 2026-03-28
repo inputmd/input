@@ -37,6 +37,7 @@ interface ReaderAiChatBody {
   summary?: unknown;
   current_doc_path?: unknown;
   edit_mode_current_doc_only?: unknown;
+  allow_document_edits?: unknown;
 }
 
 interface CreateCodexBridgeServerOptions {
@@ -218,6 +219,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
     const currentDocPath =
       typeof body?.current_doc_path === 'string' && body.current_doc_path ? body.current_doc_path : null;
     const editModeCurrentDocOnly = body?.edit_mode_current_doc_only === true;
+    const allowDocumentEdits = body?.allow_document_edits !== false;
 
     writeSseHeaders(res);
     writeSse(res, { iteration: 1 }, 'turn_start');
@@ -233,6 +235,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
         summary,
         currentDocPath,
         editModeCurrentDocOnly,
+        allowDocumentEdits,
       });
       const input = buildCodexBridgeInput({
         source,
@@ -298,7 +301,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
       const structured = parseCodexBridgeStructuredOutput(result.outputText);
       const assistantMessage = structured?.assistantMessage ?? result.outputText.trim();
 
-      if (structured) {
+      if (structured && allowDocumentEdits) {
         const changes = structured.changes.map((change) => {
           const original =
             lookupOriginalFile(change.path, source, currentDocPath) ?? (change.type === 'create' ? '' : null);

@@ -426,6 +426,43 @@ test.serial('bridge emits staged changes for structured Codex output', async (t)
   t.is(deltaPayload.choices[0]?.delta.content.trim(), 'Applied the update.');
 });
 
+test.serial('bridge suppresses staged changes when document edits are disabled', async (t) => {
+  if (skipIfLocalhostBindingUnavailable(t)) return;
+  const fake = startFakeCodexServer(() => ({
+    deltas: [
+      'Applied the update.\n',
+      '<input-staged-changes>{"assistant_message":"Applied the update.","suggested_commit_message":"fix: rewrite document","changes":[{"path":"doc.md","type":"edit","content":"new body"}]}</input-staged-changes>',
+    ],
+  }));
+  const bridgePort = await reservePort();
+  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
+  await waitForBridge(bridgePort);
+
+  t.teardown(async () => {
+    bridge.kill('SIGTERM');
+    await closeServer(fake.server);
+  });
+
+  const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-5.4',
+      source: 'old body',
+      messages: [{ role: 'user', content: 'Rewrite the document.' }],
+      current_doc_path: 'doc.md',
+      allow_document_edits: false,
+    }),
+  });
+
+  const events = await readSse(res);
+  t.falsy(events.find((event) => event.event === 'staged_changes'));
+  const finalDelta = events.find((event) => !event.event && event.data !== '[DONE]');
+  t.truthy(finalDelta);
+  const deltaPayload = JSON.parse(finalDelta!.data) as { choices: Array<{ delta: { content: string } }> };
+  t.is(deltaPayload.choices[0]?.delta.content.trim(), 'Applied the update.');
+});
+
 test.serial('bridge streams reader output before completion when no staged block is present', async (t) => {
   if (skipIfLocalhostBindingUnavailable(t)) return;
   const fake = startFakeCodexServer(() => ({
