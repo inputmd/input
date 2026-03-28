@@ -281,8 +281,8 @@ test('parseMarkdownToHtml does not treat tilde content inside markdown list item
 test('parseMarkdownToHtml does not treat tilde content inside blockquotes as prompt-list syntax', (t) => {
   const html = withDom(() => parseMarkdownToHtml('> ~ Enter to generate a first response'));
 
-  t.true(html.includes('<blockquote>'));
-  t.true(html.includes('<p>~ Enter to generate a first response</p>'));
+  t.regex(html, /<blockquote(?:\s+data-sync-id="[^"]+")?>/);
+  t.regex(html, /<p(?:\s+data-sync-id="[^"]+")?>~ Enter to generate a first response<\/p>/);
   t.false(html.includes('prompt-list-conversation'));
 });
 
@@ -296,7 +296,7 @@ test('prompt-list styles do not strip ordinary nested markdown lists inside prom
 test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t) => {
   const html = withDom(() => parseMarkdownToHtml('Email test@example.com for details.'));
 
-  t.true(html.includes('<p>Email test@example.com for details.</p>'));
+  t.regex(html, /<p(?:\s+data-sync-id="[^"]+")?>Email test@example\.com for details\.<\/p>/);
   t.false(html.includes('<a'));
   t.false(html.includes('mailto:'));
 });
@@ -516,14 +516,14 @@ test('parseMarkdownToHtml does not preserve repeated inline spaces as indentatio
 test('parseMarkdownToHtml collapses soft line breaks inside paragraphs', (t) => {
   const html = withDom(() => parseMarkdownToHtml('foo\nbar'));
 
-  t.true(html.includes('<p>foo bar</p>'));
+  t.regex(html, /<p(?:\s+data-sync-id="[^"]+")?>foo bar<\/p>/);
   t.false(html.includes('<br>'));
 });
 
 test('parseMarkdownToHtml keeps fenced code blocks unchanged while preserving prose indentation', (t) => {
   const html = withDom(() => parseMarkdownToHtml('```\n    code\n```'));
 
-  t.true(html.includes('<pre><code>    code\n</code></pre>'));
+  t.regex(html, /<pre(?:\s+data-sync-id="[^"]+")?><code> {4}code\n<\/code><\/pre>/);
   t.false(html.includes('leading-indent'));
 });
 
@@ -555,7 +555,7 @@ test('parseMarkdownToHtml does not treat leading space inside opening CriticMark
 test('parseMarkdownToHtml does not parse CriticMarkup inside fenced code blocks', (t) => {
   const html = withDom(() => parseMarkdownToHtml('```md\n{++literal++}\n```'));
 
-  t.regex(html, /<pre><code(?: class="language-md")?>\{\+\+literal\+\+\}\n<\/code><\/pre>/);
+  t.regex(html, /<pre(?:\s+data-sync-id="[^"]+")?><code(?: class="language-md")?>\{\+\+literal\+\+\}\n<\/code><\/pre>/);
   t.false(html.includes('critic-addition'));
 });
 
@@ -661,7 +661,7 @@ css: |
     ),
   );
 
-  t.true(document.html.includes('<h1 id="hello">Hello</h1>'));
+  t.regex(document.html, /<h1(?:\s+[^>]*?)?\sid="hello"(?:\s+[^>]*?)?>Hello<\/h1>/);
   t.truthy(document.customCss);
   t.truthy(document.customCssScope);
   t.true(
@@ -686,7 +686,7 @@ fonts: [Libre Franklin, Montserrat]
     ),
   );
 
-  t.true(document.html.includes('<h1 id="hello">Hello</h1>'));
+  t.regex(document.html, /<h1(?:\s+[^>]*?)?\sid="hello"(?:\s+[^>]*?)?>Hello<\/h1>/);
   t.truthy(document.customCss);
   t.is(document.customCssScope, null);
   t.true(
@@ -768,7 +768,7 @@ hello`,
 
   t.is(document.customCss, null);
   t.is(document.customCssScope, null);
-  t.true(document.html.includes('<p>hello</p>'));
+  t.regex(document.html, /<p(?:\s+data-sync-id="[^"]+")?>hello<\/p>/);
 });
 
 test('parseMarkdownDocument drops only invalid custom css rules', (t) => {
