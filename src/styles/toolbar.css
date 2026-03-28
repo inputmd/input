@@ -369,12 +369,7 @@
 }
 
 .toolbar-fork-trigger {
-  color: var(--text-secondary);
-}
-
-.toolbar-fork-trigger:hover,
-.toolbar-fork-trigger:focus-visible {
-  color: var(--text);
+  color: var(--btn-text);
 }
 
 .author-menu-trigger-badge {
@@ -622,6 +617,10 @@
 
 .preview-toggle-btn-off {
   color: var(--text-secondary);
+}
+
+.toolbar-ai-toggle.preview-toggle-btn-off {
+  color: var(--btn-text);
 }
 
 .preview-toggle-btn:disabled {

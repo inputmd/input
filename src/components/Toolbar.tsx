@@ -952,7 +952,7 @@ export function Toolbar({
               {showAiToggle ? (
                 <button
                   type="button"
-                  class={`preview-toggle-btn${aiVisible ? '' : ' preview-toggle-btn-off'}`}
+                  class={`preview-toggle-btn toolbar-ai-toggle${aiVisible ? '' : ' preview-toggle-btn-off'}`}
                   title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
                   aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
                   disabled={aiDisabled}
