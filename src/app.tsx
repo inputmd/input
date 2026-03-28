@@ -636,29 +636,18 @@ function buildReaderAiInlinePreview(
       label: 'Reader AI proposal',
     };
   }
-  if (!Array.isArray(change.hunks) || change.hunks.length === 0) return null;
-  const firstHunk = change.hunks[0];
-  if (!firstHunk) return null;
-  const original = typeof change.originalContent === 'string' ? change.originalContent : '';
-  const lines = original.split('\n');
-  const lineStartOffset = (lineNumber: number) => {
-    if (lineNumber <= 1) return 0;
-    let offset = 0;
-    for (let i = 0; i < Math.min(lines.length, lineNumber - 1); i++) {
-      offset += lines[i].length;
-      if (i < lines.length - 1) offset += 1;
-    }
-    return offset;
-  };
-  const start = lineStartOffset(firstHunk.oldStart);
-  const replacement = firstHunk.lines
-    .filter((line) => line.type === 'add')
-    .map((line) => line.content)
-    .join('\n');
+  const original = typeof change.originalContent === 'string' ? change.originalContent : null;
+  if (original === null) return null;
+  const modified = change.modifiedContent;
+  if (original === modified) return null;
+  const start = commonPrefixLength(original, modified);
+  const trailingOverlap = commonSuffixLength(original.slice(start), modified.slice(start));
+  const originalTrimmedEnd = original.length - trailingOverlap;
+  const modifiedTrimmedEnd = modified.length - trailingOverlap;
   return {
     from: Math.max(0, start),
-    to: Math.max(0, start),
-    insert: replacement,
+    to: Math.max(0, originalTrimmedEnd),
+    insert: modified.slice(start, modifiedTrimmedEnd),
     label: 'Reader AI proposal',
   };
 }
