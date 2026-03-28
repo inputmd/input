@@ -25,6 +25,10 @@ export interface SidebarFile {
   size?: number;
 }
 
+function blurOnClose(open: boolean): void {
+  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
+}
+
 export type SidebarFileFilter = 'markdown' | 'text' | 'all';
 
 interface SidebarProps {
@@ -704,7 +708,7 @@ export function Sidebar({
 
   const filterLabel = fileFilter === 'markdown' ? 'Markdown docs' : fileFilter === 'text' ? 'Text files' : 'All files';
   const filterControl = (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root onOpenChange={blurOnClose}>
       <DropdownMenu.Trigger asChild>
         <button type="button" class="sidebar-filter-trigger" title={filterLabel} aria-label="Sidebar file filter">
           <ChevronDown size={12} class="sidebar-filter-trigger-icon" aria-hidden="true" />
@@ -1209,7 +1213,7 @@ export function Sidebar({
             >
               <Plus size={14} className="sidebar-add-btn-icon" aria-hidden="true" />
             </button>
-            <DropdownMenu.Root>
+            <DropdownMenu.Root onOpenChange={blurOnClose}>
               <DropdownMenu.Trigger asChild>
                 <button
                   type="button"

@@ -2,6 +2,10 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Ellipsis } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 
+function blurOnClose(open: boolean): void {
+  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
+}
+
 interface DocumentCardProps {
   title: ComponentChildren;
   meta: ComponentChildren;
@@ -22,7 +26,7 @@ export function DocumentCard({ title, meta, onOpen, onRename, onDelete, pending 
         <button type="button" onClick={onOpen}>
           Open
         </button>
-        <DropdownMenu.Root>
+        <DropdownMenu.Root onOpenChange={blurOnClose}>
           <DropdownMenu.Trigger asChild>
             <button type="button" class="doc-actions-menu-trigger" aria-label="More actions" title="More actions">
               <Ellipsis size={16} aria-hidden="true" />

@@ -7,6 +7,10 @@ import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
 
+function blurOnClose(open: boolean): void {
+  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
+}
+
 export type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
 
 export interface ReaderAiMessage {
@@ -312,7 +316,7 @@ export function ReaderAiPanel({
     <div
       class={`reader-ai-input-wrap reader-ai-input-wrap--composer${composerAtTop ? '' : ' reader-ai-input-wrap--composer-bottom'}`}
     >
-      <DropdownMenu.Root>
+      <DropdownMenu.Root onOpenChange={blurOnClose}>
         <DropdownMenu.Trigger asChild>
           <button type="button" class="reader-ai-composer-menu-trigger" aria-label="Reader AI chat actions">
             <MoreHorizontal size={14} aria-hidden="true" />

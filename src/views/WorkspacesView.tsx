@@ -7,6 +7,10 @@ import { DocumentsView } from './DocumentsView';
 
 const CONNECT_REPOS_LABEL = 'Install';
 
+function blurOnClose(open: boolean): void {
+  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
+}
+
 interface WorkspacesViewProps {
   installationId: string | null;
   availableRepos: InstallationRepo[];
@@ -106,7 +110,7 @@ export function WorkspacesView({
           <button type="button" class="workspaces-connect-btn" onClick={() => void onConnect()}>
             {CONNECT_REPOS_LABEL}
           </button>
-          <DropdownMenu.Root open={actionsMenuOpen} onOpenChange={setActionsMenuOpen}>
+          <DropdownMenu.Root open={actionsMenuOpen} onOpenChange={(open: boolean) => { setActionsMenuOpen(open); blurOnClose(open); }}>
             <DropdownMenu.Trigger asChild>
               <button
                 type="button"

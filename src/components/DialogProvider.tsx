@@ -8,6 +8,10 @@ import { useCallback, useContext, useRef, useState } from 'preact/hooks';
 import type { DiffChangeEntry } from './DiffViewer';
 import { SideBySideDiffView } from './DiffViewer';
 
+function blurOnClose(open: boolean): void {
+  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
+}
+
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;
   showConfirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
@@ -336,7 +340,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
                     >
                       {dialog.options.secondaryActionLabel}
                     </button>
-                    <DropdownMenu.Root>
+                    <DropdownMenu.Root onOpenChange={blurOnClose}>
                       <DropdownMenu.Trigger asChild>
                         <button
                           ref={confirmActionRef}

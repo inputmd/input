@@ -24,6 +24,10 @@ import type { ReaderAiModel } from '../reader_ai';
 import { routePath } from '../routing';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 
+function blurOnClose(open: boolean): void {
+  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
+}
+
 function isLocalhostHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '::1';
 }
@@ -344,7 +348,7 @@ export function Toolbar({
     action();
   };
   const authorMenu = (
-    <DropdownMenu.Root open={authorMenuOpen} onOpenChange={setAuthorMenuOpen}>
+    <DropdownMenu.Root open={authorMenuOpen} onOpenChange={(open: boolean) => { setAuthorMenuOpen(open); blurOnClose(open); }}>
       <DropdownMenu.Trigger asChild>
         <button type="button" class="author-menu-trigger" aria-label="Author menu" title="Author menu">
           <MoreVertical size={16} aria-hidden="true" />
@@ -453,7 +457,7 @@ export function Toolbar({
         <span class="toolbar-desktop-only">Sign in with GitHub</span>
         <span class="toolbar-mobile-only">Sign in</span>
       </button>
-      <DropdownMenu.Root>
+      <DropdownMenu.Root onOpenChange={blurOnClose}>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
@@ -510,6 +514,7 @@ export function Toolbar({
                   open={repoMenuOpen}
                   onOpenChange={(open: boolean) => {
                     setRepoMenuOpen(open);
+                    blurOnClose(open);
                     if (disableLeftControls) return;
                     if (open) onOpenRepoMenu();
                   }}
@@ -818,7 +823,7 @@ export function Toolbar({
                   <ChevronDown size={14} aria-hidden="true" />
                 </button>
               ) : (
-                <DropdownMenu.Root>
+                <DropdownMenu.Root onOpenChange={blurOnClose}>
                   <DropdownMenu.Trigger asChild>
                     <button
                       type="button"
@@ -901,7 +906,7 @@ export function Toolbar({
           </div>
         ) : null}
         {user ? (
-          <DropdownMenu.Root>
+          <DropdownMenu.Root onOpenChange={blurOnClose}>
             <DropdownMenu.Trigger asChild>
               <button type="button" class="user-menu-trigger" aria-label="Settings menu" title="Settings menu">
                 <Settings size={18} aria-hidden="true" />
