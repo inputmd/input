@@ -2542,7 +2542,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
 
         for (const change of candidateChanges) {
           const existing = blobsByPath.get(change.normalizedPath);
-          if (change.expectedVersion) {
+          if (change.expectedVersion && change.type !== 'create') {
             let currentContent: string | null = null;
             if (existing) {
               const blobRes = await githubFetchWithInstallationToken(installationId, existing.url);
@@ -2687,7 +2687,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
                 ? Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
                 : data.content
               : null;
-          if (change.expectedVersion) {
+          if (change.expectedVersion && change.type !== 'create') {
             const currentVersion = readerAiContentVersion(currentContent ?? '');
             if (currentVersion !== change.expectedVersion) {
               conflict = {
@@ -2733,7 +2733,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
             } | null;
             if (data?.type === 'file' && typeof data.sha === 'string') {
               sha = data.sha;
-              if (change.expectedVersion) {
+              if (change.expectedVersion && change.type !== 'create') {
                 const currentContent =
                   typeof data.content === 'string'
                     ? data.encoding === 'base64'

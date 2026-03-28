@@ -4364,6 +4364,15 @@ export function App() {
           return;
         }
 
+        const handleApplyConflict = async (conflict: { path: string; currentContent: string | null }) => {
+          const conflictMessage =
+            conflict.currentContent !== null
+              ? 'The document changed after Reader AI generated this edit. Review the latest content, then retry.'
+              : 'The document changed after Reader AI generated this edit. Refresh the file and retry.';
+          setReaderAiError(conflictMessage);
+          await showAlert(conflictMessage);
+        };
+
         if (canCommitToGist && currentGistId) {
           const result = await applyReaderAiChanges(
             { kind: 'gist', gistId: currentGistId },
@@ -4371,6 +4380,10 @@ export function App() {
             selectedFileContents,
             commitMessage,
           );
+          if (result.conflict) {
+            await handleApplyConflict(result.conflict);
+            return;
+          }
           applied.push(...result.applied);
           failed.push(...result.failed);
         } else if (canCommitToRepo && activeInstalledRepoInstallationId && selectedRepo) {
@@ -4380,6 +4393,10 @@ export function App() {
             selectedFileContents,
             commitMessage,
           );
+          if (result.conflict) {
+            await handleApplyConflict(result.conflict);
+            return;
+          }
           applied.push(...result.applied);
           failed.push(...result.failed);
         } else {
@@ -4436,6 +4453,7 @@ export function App() {
       selectedRepo,
       readerAiStagedChangesInvalid,
       setNextEditContent,
+      showAlert,
       showRateLimitToastIfNeeded,
       readerAiSelectedModel,
       setHasUnsavedChanges,
