@@ -777,7 +777,7 @@ export function App() {
   const [contentSourceViewVisible, setContentSourceViewVisible] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
   const [readerAiToolLog, setReaderAiToolLog] = useState<
-    Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>
+    Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string; taskId?: string }>
   >([]);
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
@@ -3869,13 +3869,26 @@ export function App() {
                 : undefined;
               setReaderAiToolLog((log) => [
                 ...log,
-                { type: 'call', name: event.name, detail: typeof detail === 'string' ? detail : undefined },
+                {
+                  type: 'call',
+                  name: event.name,
+                  detail: typeof detail === 'string' ? detail : undefined,
+                  taskId: event.name === 'task' ? event.id : undefined,
+                },
               ]);
             },
             onToolResult: (event) => {
               logReceiveStart('tool_result');
               setReaderAiToolStatus(null);
-              setReaderAiToolLog((log) => [...log, { type: 'result', name: event.name, detail: event.preview }]);
+              setReaderAiToolLog((log) => [
+                ...log,
+                {
+                  type: 'result',
+                  name: event.name,
+                  detail: event.preview,
+                  taskId: event.name === 'task' ? event.id : undefined,
+                },
+              ]);
             },
             onTaskProgress: (event) => {
               logReceiveStart('task_progress');
@@ -3893,7 +3906,7 @@ export function App() {
                           : 'Error';
               const detail = event.detail ? `${phaseLabel}: ${event.detail}` : phaseLabel;
               setReaderAiToolStatus(detail);
-              setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail }]);
+              setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail, taskId: event.id }]);
             },
             onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
               logReceiveStart('staged_changes');
