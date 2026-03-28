@@ -221,6 +221,156 @@ export async function githubFetchWithInstallationToken(
   return res;
 }
 
+export async function githubGraphqlWithInstallationToken<T>(
+  installationId: string,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<{ data?: T; errors?: Array<{ message?: string; type?: string; path?: Array<string | number> }> }> {
+  const tokenRec = await getInstallationToken(installationId);
+  const res = await fetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${tokenRec.token}`,
+      'User-Agent': 'input-github-app-auth-server',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+  });
+
+  const payload = (await res.json().catch(() => null)) as
+    | {
+        data?: T;
+        errors?: Array<{ message?: string; type?: string; path?: Array<string | number> }>;
+      }
+    | null;
+
+  if (!res.ok) {
+    const details = await parseGitHubErrorDetails(
+      new Response(JSON.stringify(payload ?? {}), {
+        status: res.status,
+        headers: res.headers,
+      }),
+    );
+    console.error(
+      `GitHub GraphQL error: ${res.status} ${details.message} request_id=${details.requestId ?? '-'} rate_limited=${details.isRateLimited} remaining=${details.remaining ?? '-'} reset=${details.resetAt ?? '-'}`,
+    );
+    throw new ClientError(details.message, res.status >= 400 && res.status < 500 ? res.status : 502);
+  }
+
+  return payload ?? {};
+}
+
+export interface GitHubBranchState {
+  repositoryId: string;
+  defaultBranch: string;
+  headSha: string;
+  baseTreeSha: string;
+}
+
+const REPOSITORY_BRANCH_STATE_QUERY = `
+  query RepositoryBranchState($owner: String!, $repo: String!) {
+    repository(owner: $owner, name: $repo) {
+      id
+      defaultBranchRef {
+        name
+        target {
+          ... on Commit {
+            oid
+            tree {
+              oid
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export async function getGitHubRepositoryBranchState(
+  installationId: string,
+  owner: string,
+  repo: string,
+): Promise<GitHubBranchState> {
+  const payload = await githubGraphqlWithInstallationToken<{
+    repository?: {
+      id?: string | null;
+      defaultBranchRef?: {
+        name?: string | null;
+        target?: {
+          oid?: string | null;
+          tree?: { oid?: string | null } | null;
+        } | null;
+      } | null;
+    } | null;
+  }>(installationId, REPOSITORY_BRANCH_STATE_QUERY, { owner, repo });
+
+  const graphqlMessage =
+    payload.errors
+      ?.map((entry) => entry.message)
+      .filter((message): message is string => typeof message === 'string' && message.trim().length > 0)
+      .join('; ') ?? '';
+  if (graphqlMessage) throw new ClientError(graphqlMessage, 502);
+
+  const repository = payload.data?.repository;
+  const defaultBranchRef = repository?.defaultBranchRef;
+  const target = defaultBranchRef?.target;
+  const repositoryId = typeof repository?.id === 'string' ? repository.id : '';
+  const defaultBranch = typeof defaultBranchRef?.name === 'string' ? defaultBranchRef.name : '';
+  const headSha = typeof target?.oid === 'string' ? target.oid : '';
+  const baseTreeSha = typeof target?.tree?.oid === 'string' ? target.tree.oid : '';
+  if (!repositoryId || !defaultBranch || !headSha || !baseTreeSha) {
+    throw new ClientError('Failed to load repository branch state', 502);
+  }
+
+  return { repositoryId, defaultBranch, headSha, baseTreeSha };
+}
+
+const ATOMIC_UPDATE_REF_MUTATION = `
+  mutation ForceUpdateRefAtomically($input: UpdateRefsInput!) {
+    updateRefs(input: $input) {
+      clientMutationId
+    }
+  }
+`;
+
+export async function atomicForceUpdateGitHubRef(
+  installationId: string,
+  repositoryId: string,
+  refName: string,
+  beforeOid: string,
+  afterOid: string,
+): Promise<void> {
+  const payload = await githubGraphqlWithInstallationToken<{
+    updateRefs?: { clientMutationId?: string | null };
+  }>(installationId, ATOMIC_UPDATE_REF_MUTATION, {
+    input: {
+      repositoryId,
+      refUpdates: [
+        {
+          name: refName,
+          beforeOid,
+          afterOid,
+          force: true,
+        },
+      ],
+    },
+  });
+
+  const graphqlMessage =
+    payload.errors
+      ?.map((entry) => entry.message)
+      .filter((message): message is string => typeof message === 'string' && message.trim().length > 0)
+      .join('; ') ?? '';
+  if (!graphqlMessage) return;
+  if (/before oid|beforeOid|expected|stale|has moved|mismatch|not at/i.test(graphqlMessage)) {
+    throw new ClientError('The branch changed while updating the ref. Reload and try again.', 409);
+  }
+  throw new ClientError(graphqlMessage, 502);
+}
+
 export function encodePathPreserveSlashes(path: string): string {
   return String(path)
     .split('/')
