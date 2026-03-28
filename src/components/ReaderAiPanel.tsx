@@ -314,15 +314,6 @@ export function ReaderAiPanel({
     };
   }, [isNearMessagesBottom]);
 
-  const submit = async () => {
-    const draftValue = draft;
-    const prompt = draftValue.trim();
-    if (!prompt || !canSend) return;
-    setDraft('');
-    const ok = await onSend(prompt);
-    if (!ok) setDraft(draftValue);
-  };
-
   const enqueueDraft = () => {
     const prompt = draft.trim();
     if (!prompt || !selectedModel || queuedCommands.length >= 10) return;
