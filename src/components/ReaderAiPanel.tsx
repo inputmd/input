@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowRight, CircleAlert, CircleStop, MoreHorizontal, X } from 'lucide-react';
+import { ArrowRight, CircleStop, MoreHorizontal, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
@@ -59,14 +59,7 @@ interface ReaderAiPanelProps {
   onRetryLastUserMessage: () => Promise<void>;
   onStop: () => void;
   onClear: () => void;
-  repoModeAvailable: boolean;
-  repoModeEnabled: boolean;
   selectionModeEnabled?: boolean;
-  repoModeLoading: boolean;
-  repoModeFileCount: number;
-  repoModeDisabledReason: string | null;
-  suggestProjectMode?: boolean;
-  onToggleRepoMode: (enabled: boolean) => void;
 }
 
 const INLINE_SPINNER_HOST_TAGS = new Set(['P', 'LI', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TD', 'TH']);
@@ -162,14 +155,7 @@ export function ReaderAiPanel({
   onRetryLastUserMessage,
   onStop,
   onClear,
-  repoModeAvailable,
-  repoModeEnabled,
   selectionModeEnabled = false,
-  repoModeLoading,
-  repoModeFileCount,
-  repoModeDisabledReason,
-  suggestProjectMode,
-  onToggleRepoMode,
 }: ReaderAiPanelProps) {
   const isMac = typeof navigator !== 'undefined' && /(mac|iphone|ipad|ipod)/i.test(navigator.platform ?? '');
   const clearChatShortcutLabel = isMac ? '⌘K' : 'Ctrl+K';
@@ -204,11 +190,7 @@ export function ReaderAiPanel({
       break;
     }
   }
-  const composerPlaceholder = repoModeEnabled
-    ? 'Ask about this project...'
-    : selectionModeEnabled
-      ? 'Ask about this selection...'
-      : 'Ask about this document...';
+  const composerPlaceholder = selectionModeEnabled ? 'Ask about this selection...' : 'Ask about this document...';
   const isAssistantThinking =
     sending &&
     messageCount > 0 &&
@@ -514,82 +496,34 @@ export function ReaderAiPanel({
 
   return (
     <aside ref={panelRef} class="reader-ai-panel" aria-label="Reader AI panel">
-      {repoModeAvailable ? (
-        <div
-          class="reader-ai-repo-mode"
-          title={repoModeDisabledReason ?? (repoModeEnabled ? 'Disable repo-wide context' : 'Enable repo-wide context')}
-        >
-          <label class="reader-ai-toggle">
-            <input
-              type="checkbox"
-              checked={repoModeEnabled}
-              disabled={sending || repoModeLoading || Boolean(repoModeDisabledReason)}
-              onChange={(e) => onToggleRepoMode(e.currentTarget.checked)}
-            />
-            <span class="reader-ai-toggle-track">
-              <span class="reader-ai-toggle-thumb" />
-            </span>
-          </label>
-          <span
-            class={`reader-ai-repo-mode-label${repoModeDisabledReason ? ' reader-ai-repo-mode-label--disabled' : ''}`}
-          >
-            {repoModeEnabled ? `Project mode on (${repoModeFileCount} files)` : 'Project mode off'}
-          </span>
-        </div>
-      ) : null}
       <div class="reader-ai-messages" ref={messagesRef}>
         {composerAtTop ? composer : null}
         {!hasMessages ? (
           <div class="reader-ai-empty">
-            {repoModeEnabled ? (
-              <>
-                <button
-                  type="button"
-                  class="reader-ai-summarize-btn"
-                  disabled={composerInputDisabled}
-                  onClick={() =>
-                    void onSend('Explain this project, including its purpose, structure, and key entry points.')
-                  }
-                >
-                  Explain project
-                </button>
-                <button
-                  type="button"
-                  class="reader-ai-summarize-btn"
-                  disabled={composerInputDisabled}
-                  onClick={() => void onSend('Review the code for potential bugs, issues, or improvements.')}
-                >
-                  Review code
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  class="reader-ai-summarize-btn"
-                  disabled={composerInputDisabled}
-                  onClick={() =>
-                    void onSend(selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.')
-                  }
-                >
-                  Summarize
-                </button>
-                <button
-                  type="button"
-                  class="reader-ai-summarize-btn"
-                  disabled={composerInputDisabled}
-                  onClick={() =>
-                    void onSend(
-                      selectionModeEnabled
-                        ? 'Identify any questions raised by this selection.'
-                        : 'Identify any questions raised by this document.',
-                    )
-                  }
-                >
-                  Identify questions
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              class="reader-ai-summarize-btn"
+              disabled={composerInputDisabled}
+              onClick={() =>
+                void onSend(selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.')
+              }
+            >
+              Summarize
+            </button>
+            <button
+              type="button"
+              class="reader-ai-summarize-btn"
+              disabled={composerInputDisabled}
+              onClick={() =>
+                void onSend(
+                  selectionModeEnabled
+                    ? 'Identify any questions raised by this selection.'
+                    : 'Identify any questions raised by this document.',
+                )
+              }
+            >
+              Identify questions
+            </button>
           </div>
         ) : null}
         {messages.map((message, index) => (
@@ -723,26 +657,6 @@ export function ReaderAiPanel({
               <div class="reader-ai-tool-status">{toolStatus}</div>
             ) : null}
           </>
-        ) : null}
-        {!sending && suggestProjectMode ? (
-          <div class="reader-ai-suggest-project-mode" role="status" aria-live="polite">
-            <div class="reader-ai-suggest-project-mode-copy">
-              <span class="reader-ai-suggest-project-mode-icon" aria-hidden="true">
-                <CircleAlert size={14} />
-              </span>
-              <span class="reader-ai-suggest-project-mode-text">
-                <span>This question may need access to other files in the project.</span>
-              </span>
-            </div>
-            <button
-              type="button"
-              class="reader-ai-suggest-project-mode-btn"
-              onClick={() => onToggleRepoMode(true)}
-              disabled={repoModeLoading}
-            >
-              {repoModeLoading ? 'Loading...' : 'Enable project mode'}
-            </button>
-          </div>
         ) : null}
         {stagedChanges.length > 0 ? (
           <StagedChangesSection

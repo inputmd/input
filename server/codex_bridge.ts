@@ -1,6 +1,5 @@
 import './env';
 import { type ChildProcess, spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 import { pathToFileURL, URL } from 'node:url';
 import {
@@ -11,7 +10,7 @@ import {
 import { CodexBridgeClient } from './codex_bridge_protocol';
 import { ClientError } from './errors';
 import { json, readJson } from './http_helpers';
-import { generateUnifiedDiff, type ReaderAiFileEntry } from './reader_ai_tools';
+import { generateUnifiedDiff } from './reader_ai_tools';
 
 const DEFAULT_CODEX_BRIDGE_PORT = Number.parseInt(process.env.CODEX_BRIDGE_PORT ?? '8788', 10);
 const DEFAULT_CODEX_APP_SERVER_URL = (process.env.CODEX_APP_SERVER_URL ?? 'ws://127.0.0.1:8765').trim();
@@ -28,18 +27,7 @@ const DEFAULT_CODEX_BRIDGE_ALLOWED_ORIGINS = new Set([
     .filter(Boolean),
 ]);
 
-const PROJECT_TTL_MS = 30 * 60 * 1000;
-const MAX_PROJECT_FILES = 100;
-const MAX_PROJECT_FILE_SIZE = 512 * 1024;
-const MAX_PROJECT_TOTAL_SIZE = 5 * 1024 * 1024;
 const STAGED_CHANGES_START_TAG = '<input-staged-changes>';
-
-interface ProjectSession {
-  id: string;
-  files: ReaderAiFileEntry[];
-  createdAt: number;
-  lastAccessedAt: number;
-}
 
 interface ReaderAiChatBody {
   model?: unknown;
@@ -47,7 +35,6 @@ interface ReaderAiChatBody {
   messages?: unknown;
   mode?: unknown;
   summary?: unknown;
-  project_id?: unknown;
   current_doc_path?: unknown;
   edit_mode_current_doc_only?: unknown;
 }
@@ -127,39 +114,7 @@ function parseMessages(raw: unknown): Array<{ role: 'user' | 'assistant'; conten
     .filter((message): message is { role: 'user' | 'assistant'; content: string } => message !== null);
 }
 
-function normalizeProjectFiles(raw: unknown): ReaderAiFileEntry[] {
-  if (!Array.isArray(raw) || raw.length === 0)
-    throw new ClientError('files array is required and must not be empty', 400);
-  if (raw.length > MAX_PROJECT_FILES) throw new ClientError(`Too many project files (${raw.length})`, 400);
-  const files: ReaderAiFileEntry[] = [];
-  let totalSize = 0;
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const path = typeof (item as { path?: unknown }).path === 'string' ? (item as { path: string }).path.trim() : '';
-    const content =
-      typeof (item as { content?: unknown }).content === 'string' ? (item as { content: string }).content : '';
-    const sizeValue = (item as { size?: unknown }).size;
-    const size =
-      typeof sizeValue === 'number' && Number.isFinite(sizeValue) ? sizeValue : Buffer.byteLength(content, 'utf8');
-    if (!path || size > MAX_PROJECT_FILE_SIZE) continue;
-    totalSize += size;
-    if (totalSize > MAX_PROJECT_TOTAL_SIZE) throw new ClientError('Project files exceed size limit', 400);
-    files.push({ path, content, size });
-  }
-  if (files.length === 0) throw new ClientError('No valid project files were provided', 400);
-  return files;
-}
-
-function lookupOriginalFile(
-  path: string,
-  source: string,
-  currentDocPath: string | null,
-  projectFiles?: ReaderAiFileEntry[],
-): string | null {
-  if (projectFiles) {
-    const match = projectFiles.find((file) => file.path === path);
-    return match ? match.content : null;
-  }
+function lookupOriginalFile(path: string, source: string, currentDocPath: string | null): string | null {
   const fallbackPath = currentDocPath || 'current-document.md';
   if (path === fallbackPath || (!currentDocPath && path === 'current-document.md')) return source;
   return null;
@@ -233,26 +188,10 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
   server: http.Server;
   closeManagedResources: () => void;
 }> {
-  const projects = new Map<string, ProjectSession>();
   const appServerUrl = options.codexAppServerUrl ?? DEFAULT_CODEX_APP_SERVER_URL;
   const managedCodexAppServer = await ensureCodexAppServer(appServerUrl, options);
   const codex = new CodexBridgeClient(appServerUrl);
   const allowedOrigins = new Set(options.allowedOrigins ?? DEFAULT_CODEX_BRIDGE_ALLOWED_ORIGINS);
-
-  const pruneProjects = () => {
-    const now = Date.now();
-    for (const [id, project] of projects) {
-      if (now - project.lastAccessedAt > PROJECT_TTL_MS) projects.delete(id);
-    }
-  };
-
-  const getProject = (projectId: string): ProjectSession => {
-    pruneProjects();
-    const project = projects.get(projectId);
-    if (!project) throw new ClientError('Project session not found or expired', 404);
-    project.lastAccessedAt = Date.now();
-    return project;
-  };
 
   const handleModels = async (_req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const models = await codex.listModels();
@@ -269,53 +208,6 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
     });
   };
 
-  const handleProjectCreate = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
-    const body = (await readJson(req)) as { files?: unknown } | null;
-    const files = normalizeProjectFiles(body?.files);
-    const id = randomBytes(16).toString('hex');
-    const now = Date.now();
-    projects.set(id, { id, files, createdAt: now, lastAccessedAt: now });
-    json(res, 200, { project_id: id, file_count: files.length });
-  };
-
-  const handleProjectUpdate = async (
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
-    projectId: string,
-  ): Promise<void> => {
-    const project = getProject(projectId);
-    const body = (await readJson(req)) as { path?: unknown; content?: unknown } | null;
-    const path = typeof body?.path === 'string' ? body.path.trim() : '';
-    const content = typeof body?.content === 'string' ? body.content : null;
-    if (!path) throw new ClientError('path is required', 400);
-    if (content === null) throw new ClientError('content is required', 400);
-    const size = Buffer.byteLength(content, 'utf8');
-    if (size > MAX_PROJECT_FILE_SIZE) throw new ClientError('Project file exceeds size limit', 400);
-    const nextFiles = project.files.filter((file) => file.path !== path);
-    nextFiles.push({ path, content, size });
-    project.files = nextFiles;
-    project.lastAccessedAt = Date.now();
-    json(res, 200, { updated: true, file_count: project.files.length });
-  };
-
-  const handleProjectReset = async (
-    _req: http.IncomingMessage,
-    res: http.ServerResponse,
-    projectId: string,
-  ): Promise<void> => {
-    getProject(projectId);
-    json(res, 200, { reset: true });
-  };
-
-  const handleProjectDelete = async (
-    _req: http.IncomingMessage,
-    res: http.ServerResponse,
-    projectId: string,
-  ): Promise<void> => {
-    projects.delete(projectId);
-    json(res, 200, { deleted: true });
-  };
-
   const handleChat = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const body = (await readJson(req)) as ReaderAiChatBody | null;
     const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : null;
@@ -326,8 +218,6 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
     const currentDocPath =
       typeof body?.current_doc_path === 'string' && body.current_doc_path ? body.current_doc_path : null;
     const editModeCurrentDocOnly = body?.edit_mode_current_doc_only === true;
-    const projectId = typeof body?.project_id === 'string' ? body.project_id.trim() : '';
-    const projectFiles = projectId ? getProject(projectId).files : undefined;
 
     writeSseHeaders(res);
     writeSse(res, { iteration: 1 }, 'turn_start');
@@ -342,7 +232,6 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
         mode,
         summary,
         currentDocPath,
-        projectFiles,
         editModeCurrentDocOnly,
       });
       const input = buildCodexBridgeInput({
@@ -351,7 +240,6 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
         mode,
         summary,
         currentDocPath,
-        projectFiles,
         editModeCurrentDocOnly,
       });
 
@@ -413,8 +301,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
       if (structured) {
         const changes = structured.changes.map((change) => {
           const original =
-            lookupOriginalFile(change.path, source, currentDocPath, projectFiles) ??
-            (change.type === 'create' ? '' : null);
+            lookupOriginalFile(change.path, source, currentDocPath) ?? (change.type === 'create' ? '' : null);
           if (change.type !== 'delete' && original === null) {
             throw new ClientError(`Model proposed changes for unknown path: ${change.path}`, 400);
           }
@@ -444,7 +331,7 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
             document_content:
               structured.changes.length === 1 &&
               structured.changes[0].type !== 'delete' &&
-              (!projectFiles || structured.changes[0].path === (currentDocPath || 'current-document.md'))
+              structured.changes[0].path === (currentDocPath || 'current-document.md')
                 ? structured.changes[0].content
                 : undefined,
           },
@@ -505,28 +392,6 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
       }
       if (req.method === 'POST' && pathname === '/api/ai/chat') {
         await handleChat(req, res);
-        return;
-      }
-      if (req.method === 'POST' && pathname === '/api/ai/project') {
-        await handleProjectCreate(req, res);
-        return;
-      }
-
-      const projectFileMatch = pathname.match(/^\/api\/ai\/project\/([^/]+)\/file$/);
-      if (req.method === 'POST' && projectFileMatch) {
-        await handleProjectUpdate(req, res, decodeURIComponent(projectFileMatch[1]));
-        return;
-      }
-
-      const projectResetMatch = pathname.match(/^\/api\/ai\/project\/([^/]+)\/reset$/);
-      if (req.method === 'POST' && projectResetMatch) {
-        await handleProjectReset(req, res, decodeURIComponent(projectResetMatch[1]));
-        return;
-      }
-
-      const projectDeleteMatch = pathname.match(/^\/api\/ai\/project\/([^/]+)$/);
-      if (req.method === 'DELETE' && projectDeleteMatch) {
-        await handleProjectDelete(req, res, decodeURIComponent(projectDeleteMatch[1]));
         return;
       }
 

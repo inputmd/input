@@ -461,48 +461,6 @@ test.serial('bridge streams reader output before completion when no staged block
   );
 });
 
-test.serial('bridge supports project sessions for project-mode chat', async (t) => {
-  if (skipIfLocalhostBindingUnavailable(t)) return;
-  const fake = startFakeCodexServer((inputText) => ({
-    deltas: [inputText.includes('src/app.ts') ? 'Project looks healthy.' : 'missing context'],
-  }));
-  const bridgePort = await reservePort();
-  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
-  await waitForBridge(bridgePort);
-
-  t.teardown(async () => {
-    bridge.kill('SIGTERM');
-    await closeServer(fake.server);
-  });
-
-  const createRes = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/project`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      files: [{ path: 'src/app.ts', content: 'export const ok = true;', size: 23 }],
-    }),
-  });
-  const project = (await createRes.json()) as { project_id: string };
-
-  const chatRes = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'gpt-5.4',
-      source: '',
-      messages: [{ role: 'user', content: 'Explain this project.' }],
-      project_id: project.project_id,
-      current_doc_path: 'src/app.ts',
-    }),
-  });
-
-  const events = await readSse(chatRes);
-  const delta = events.find((event) => !event.event && event.data !== '[DONE]');
-  t.truthy(delta);
-  const payload = JSON.parse(delta!.data) as { choices: Array<{ delta: { content: string } }> };
-  t.is(payload.choices[0]?.delta.content, 'Project looks healthy.');
-});
-
 test.serial('bridge enables live web search for prompt-list mode', async (t) => {
   if (skipIfLocalhostBindingUnavailable(t)) return;
   let seenThreadStart: Record<string, unknown> | undefined;

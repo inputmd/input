@@ -56,10 +56,8 @@ import {
   getInstallUrl,
   getPendingInstallationId,
   getPublicRepoContents,
-  getPublicRepoTarball,
   getPublicRepoTree,
   getRepoContents,
-  getRepoTarball,
   getRepoTree,
   getSelectedRepo,
   getSharedRepoFile,
@@ -73,7 +71,6 @@ import {
   publicRepoRawFileUrl,
   putEditorSharedRepoFile,
   putRepoFile,
-  type RepoFileEntry,
   type RepoRecentCommitsResult,
   type RepoTreeResult,
   rememberInstallState,
@@ -84,7 +81,6 @@ import {
   setInstallationId,
   setPendingInstallationId,
   setSelectedRepo as storeSelectedRepo,
-  tryBuildRepoFilesFromCache,
 } from './github_app';
 import {
   type GitHubRateLimitSnapshot,
@@ -132,8 +128,6 @@ import { splitPromptListStableText } from './prompt_list_streaming';
 import {
   applyReaderAiChanges,
   askReaderAiStream,
-  createReaderAiProjectSession,
-  deleteReaderAiProjectSession,
   formatReaderAiModelDisplayName,
   listReaderAiModels,
   localCodexEnabledByPreference,
@@ -141,9 +135,7 @@ import {
   type ReaderAiModel,
   type ReaderAiStagedChange,
   readerAiModelPriorityRank,
-  resetReaderAiProjectSession,
   setLocalCodexEnabledByPreference,
-  updateReaderAiProjectSessionFile,
 } from './reader_ai';
 import {
   buildReaderAiHistoryDocumentKey,
@@ -415,7 +407,6 @@ function buildReaderAiContextLogPayload(options: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   summary?: string;
   mode: 'default' | 'prompt_list';
-  projectMode: boolean;
   currentDocPath?: string | null;
 }) {
   const summary = options.summary?.trim() ?? '';
@@ -431,7 +422,6 @@ function buildReaderAiContextLogPayload(options: {
   return {
     model: options.model?.id ?? 'unknown',
     mode: options.mode,
-    projectMode: options.projectMode,
     currentDocPath: options.currentDocPath ?? null,
     messageCount: options.messages.length,
     sourceChars: options.source.length,
@@ -442,9 +432,7 @@ function buildReaderAiContextLogPayload(options: {
     contextLength: contextLength > 0 ? contextLength : null,
     note:
       contextLength > 0
-        ? options.projectMode
-          ? 'Approximate client-side estimate; excludes server-added system prompt and project context.'
-          : 'Approximate client-side estimate; excludes server-added system prompt and tool overhead.'
+        ? 'Approximate client-side estimate; excludes server-added system prompt and tool overhead.'
         : 'Model context length unavailable.',
   };
 }
@@ -909,12 +897,6 @@ export function App() {
   const [readerAiApplyingChanges, setReaderAiApplyingChanges] = useState(false);
   const [inlinePromptStreaming, setInlinePromptStreaming] = useState(false);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
-  const [readerAiRepoMode, setReaderAiRepoMode] = useState(false);
-  const [readerAiRepoModeLoading, setReaderAiRepoModeLoading] = useState(false);
-  const [readerAiRepoFiles, setReaderAiRepoFiles] = useState<RepoFileEntry[] | null>(null);
-  const [readerAiProjectId, setReaderAiProjectId] = useState<string | null>(null);
-  const [readerAiSuggestProjectMode, setReaderAiSuggestProjectMode] = useState(false);
-  const [readerAiRetryAfterProjectModeEnable, setReaderAiRetryAfterProjectModeEnable] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentGistCreatedAt, setCurrentGistCreatedAt] = useState<string | null>(null);
@@ -3750,162 +3732,7 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [focusReaderAiComposerInput, onOpenReaderAi, readerAiEnabled]);
 
-  // ── Repo mode availability ──
-  const REPO_MODE_MAX_FILES = 100;
-  const REPO_MODE_MAX_FILE_SIZE = 50 * 1024 * 1024;
-
   const isGistContext = currentGistId !== null && gistFiles !== null;
-  const repoModeAvailable = Boolean(user) && (repoAccessMode !== null || isGistContext);
-
-  const repoModeFileCount = readerAiRepoFiles?.length ?? 0;
-
-  const repoModeDisabledReason = useMemo((): string | null => {
-    if (!repoModeAvailable) return null;
-    if (isGistContext) {
-      const fileCount = gistFiles ? Object.keys(gistFiles).length : 0;
-      if (fileCount === 0) return 'No files in gist';
-      if (fileCount > REPO_MODE_MAX_FILES) return `Too many files (${fileCount}, max ${REPO_MODE_MAX_FILES})`;
-      return null;
-    }
-    // Check against the sidebar files list (all files) when available
-    const allFiles = repoSidebarFiles.length > 0 ? repoSidebarFiles : repoFiles;
-    if (allFiles.length === 0) return null; // tree not loaded yet — allow toggle, will validate on fetch
-    if (allFiles.length > REPO_MODE_MAX_FILES) return `Too many files (${allFiles.length}, max ${REPO_MODE_MAX_FILES})`;
-    const oversized = allFiles.find((f) => f.size != null && f.size > REPO_MODE_MAX_FILE_SIZE);
-    if (oversized)
-      return `File too large: ${oversized.path} (${Math.round((oversized.size ?? 0) / 1024 / 1024)}MB, max 50MB)`;
-    return null;
-  }, [repoModeAvailable, isGistContext, gistFiles, repoSidebarFiles, repoFiles]);
-
-  const repoModeToggleDisabledReason = useMemo((): string | null => {
-    if (readerAiRepoMode && readerAiMessages.length > 0) {
-      return 'Clear chat to disable project mode';
-    }
-    return repoModeDisabledReason;
-  }, [readerAiRepoMode, readerAiMessages.length, repoModeDisabledReason]);
-
-  // Reset repo mode when navigating away from a repo/gist
-  useEffect(() => {
-    if (!repoModeAvailable) {
-      setReaderAiRepoMode(false);
-      setReaderAiRepoFiles(null);
-      setReaderAiRetryAfterProjectModeEnable(false);
-      if (readerAiProjectId) {
-        void deleteReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
-        setReaderAiProjectId(null);
-      }
-    }
-  }, [repoModeAvailable, readerAiProjectId, readerAiSelectedModel]);
-
-  // Auto-enable repo mode when all files are already cached
-  useEffect(() => {
-    if (!repoModeAvailable || readerAiRepoMode || readerAiRepoModeLoading || repoModeDisabledReason) return;
-    const allFiles = repoSidebarFiles.length > 0 ? repoSidebarFiles : repoFiles;
-    if (allFiles.length === 0) return;
-
-    let cached: RepoFileEntry[] | null = null;
-    if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo) {
-      cached = tryBuildRepoFilesFromCache(
-        { installationId: activeInstalledRepoInstallationId, repoFullName: selectedRepo },
-        allFiles,
-      );
-    } else if (repoAccessMode === 'public' && publicRepoRef) {
-      cached = tryBuildRepoFilesFromCache({ owner: publicRepoRef.owner, repo: publicRepoRef.repo }, allFiles);
-    }
-    if (cached && cached.length > 0) {
-      setReaderAiRepoFiles(cached);
-      setReaderAiRepoMode(true);
-      // Upload to server for project session
-      void createReaderAiProjectSession(cached, readerAiSelectedModel)
-        .then((ps) => {
-          setReaderAiProjectId(ps.projectId);
-        })
-        .catch(() => {
-          // Non-fatal — chat will fall back to inline files if project session is missing
-        });
-    }
-  }, [
-    repoModeAvailable,
-    readerAiRepoMode,
-    readerAiRepoModeLoading,
-    repoModeDisabledReason,
-    repoSidebarFiles,
-    repoFiles,
-    repoAccessMode,
-    activeInstalledRepoInstallationId,
-    selectedRepo,
-    publicRepoRef,
-    readerAiSelectedModel,
-  ]);
-
-  const onToggleRepoMode = useCallback(
-    async (enabled: boolean) => {
-      if (!enabled) {
-        if (readerAiMessages.length > 0) {
-          setReaderAiError('Clear chat before disabling project mode.');
-          return;
-        }
-        setReaderAiRepoMode(false);
-        setReaderAiRepoFiles(null);
-        setReaderAiRetryAfterProjectModeEnable(false);
-        if (readerAiProjectId) {
-          void deleteReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
-          setReaderAiProjectId(null);
-        }
-        return;
-      }
-      const shouldRetryAfterEnable = readerAiSuggestProjectMode;
-
-      setReaderAiRepoModeLoading(true);
-      try {
-        let files: RepoFileEntry[];
-        if (isGistContext && gistFiles) {
-          // Build file entries from gist files (already loaded)
-          files = Object.values(gistFiles).map((f) => ({
-            path: f.filename,
-            content: f.content,
-            size: f.size,
-          }));
-        } else if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo) {
-          files = await getRepoTarball(activeInstalledRepoInstallationId, selectedRepo);
-        } else if (repoAccessMode === 'public' && publicRepoRef) {
-          files = await getPublicRepoTarball(publicRepoRef.owner, publicRepoRef.repo);
-        } else {
-          return;
-        }
-        // Upload files to server and get a project session ID
-        const ps = await createReaderAiProjectSession(files, readerAiSelectedModel);
-        setReaderAiRepoFiles(files);
-        setReaderAiProjectId(ps.projectId);
-        setReaderAiRepoMode(true);
-        setReaderAiSuggestProjectMode(false);
-        setReaderAiRetryAfterProjectModeEnable(shouldRetryAfterEnable);
-      } catch (err) {
-        showRateLimitToastIfNeeded(err);
-        setReaderAiError(err instanceof Error ? err.message : 'Failed to load repo files');
-        setReaderAiRepoMode(false);
-        setReaderAiRepoFiles(null);
-        setReaderAiProjectId(null);
-        setReaderAiRetryAfterProjectModeEnable(false);
-      } finally {
-        setReaderAiRepoModeLoading(false);
-      }
-    },
-    [
-      repoAccessMode,
-      activeInstalledRepoInstallationId,
-      selectedRepo,
-      publicRepoRef,
-      showRateLimitToastIfNeeded,
-      readerAiProjectId,
-      readerAiSuggestProjectMode,
-      readerAiMessages.length,
-      isGistContext,
-      gistFiles,
-      readerAiSelectedModel,
-    ],
-  );
-
   const streamReaderAiAssistant = useCallback(
     async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
       const model = readerAiSelectedModel;
@@ -3919,7 +3746,7 @@ export function App() {
       const nextConversationScope =
         readerAiConversationScope ??
         (() => {
-          if (readerAiRepoMode || activeView !== 'edit') return { kind: 'document' } as ReaderAiConversationScope;
+          if (activeView !== 'edit') return { kind: 'document' } as ReaderAiConversationScope;
           const selection = editViewControllerRef.current?.getSelectionText(READER_AI_SELECTION_MAX_CHARS);
           if (!selection) return { kind: 'document' } as ReaderAiConversationScope;
           const sanitizedSelection = stripCriticMarkupComments(selection);
@@ -3929,8 +3756,7 @@ export function App() {
             source: sanitizedSelection,
           } satisfies ReaderAiConversationScope;
         })();
-      const source =
-        !readerAiRepoMode && nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
+      const source = nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
       readerAiAbortRef.current?.abort();
       const controller = new AbortController();
       readerAiAbortRef.current = controller;
@@ -3954,16 +3780,12 @@ export function App() {
       setReaderAiDocumentEditedContent(null);
       setReaderAiSuggestedCommitMessage('');
       setReaderAiError(null);
-      setReaderAiSuggestProjectMode(false);
       let received = false;
       let receivedStagedChanges = false;
       let separateNextTurnOutput = false;
       let streamErrorMessage: string | null = null;
       let streamedResponseChars = 0;
-
-      let effectiveProjectId = readerAiProjectId;
-      const projectCurrentDocPath =
-        activeView === 'edit' ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
+      const currentDocPath = activeView === 'edit' ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
       const sanitizedMessages = baseMessages.map((message) => ({
         role: message.role,
         content: stripCriticMarkupComments(message.content),
@@ -3974,8 +3796,7 @@ export function App() {
         messages: sanitizedMessages,
         summary: readerAiSummary || undefined,
         mode: 'default',
-        projectMode: readerAiRepoMode,
-        currentDocPath: projectCurrentDocPath,
+        currentDocPath,
       });
       let loggedReceiveStart = false;
       const logReceiveStart = (trigger: string) => {
@@ -3986,56 +3807,6 @@ export function App() {
       console.log('[reader-ai-context] sending request', streamContextLog);
 
       try {
-        // In edit mode, update the current file in the existing project session
-        // instead of creating a brand-new session on every send.
-        if (activeView === 'edit' && readerAiRepoMode && currentEditingDocPath && readerAiRepoFiles) {
-          const contentSize = new TextEncoder().encode(currentEditContent).length;
-          const fileExists = readerAiRepoFiles.some((file) => file.path === currentEditingDocPath);
-          const nextFiles = fileExists
-            ? readerAiRepoFiles.map((file) =>
-                file.path === currentEditingDocPath
-                  ? { ...file, content: currentEditContent, size: contentSize }
-                  : file,
-              )
-            : [...readerAiRepoFiles, { path: currentEditingDocPath, content: currentEditContent, size: contentSize }];
-          if (effectiveProjectId) {
-            try {
-              await updateReaderAiProjectSessionFile(
-                effectiveProjectId,
-                currentEditingDocPath,
-                currentEditContent,
-                readerAiSelectedModel,
-              );
-            } catch (err) {
-              // Recover from expired/missing project session by creating a fresh one.
-              if (!(err instanceof ApiError) || err.status !== 404) throw err;
-              const nextProject = await createReaderAiProjectSession(nextFiles, readerAiSelectedModel);
-              effectiveProjectId = nextProject.projectId;
-              setReaderAiProjectId(nextProject.projectId);
-            }
-          } else {
-            const nextProject = await createReaderAiProjectSession(nextFiles, readerAiSelectedModel);
-            effectiveProjectId = nextProject.projectId;
-            setReaderAiProjectId(nextProject.projectId);
-          }
-          setReaderAiRepoFiles(nextFiles);
-        }
-
-        // Build project context if repo mode is active (send project_id, not files)
-        // If the project session was invalidated but we still have files, recreate it.
-        if (readerAiRepoMode && !effectiveProjectId && readerAiRepoFiles) {
-          const nextProject = await createReaderAiProjectSession(readerAiRepoFiles, readerAiSelectedModel);
-          effectiveProjectId = nextProject.projectId;
-          setReaderAiProjectId(nextProject.projectId);
-        }
-        let projectContext: { projectId: string; currentDocPath: string | null } | undefined;
-        if (readerAiRepoMode && effectiveProjectId) {
-          projectContext = {
-            projectId: effectiveProjectId,
-            currentDocPath: projectCurrentDocPath,
-          };
-        }
-
         await askReaderAiStream(
           model,
           source,
@@ -4048,13 +3819,7 @@ export function App() {
               const labels: Record<string, string> = {
                 read_document: 'Reading document…',
                 search_document: 'Searching document…',
-                read_file: 'Reading file…',
-                search_files: 'Searching files…',
-                list_files: 'Listing files…',
-                propose_edit_file: 'Proposing file edit…',
                 propose_edit_document: 'Proposing document edit…',
-                propose_create_file: 'Proposing file creation…',
-                propose_delete_file: 'Proposing file deletion…',
                 task: 'Running subagent…',
               };
               setReaderAiToolStatus(labels[event.name] ?? `Running ${event.name}…`);
@@ -4229,8 +3994,7 @@ export function App() {
             },
           },
           readerAiSummary || undefined,
-          projectContext,
-          projectCurrentDocPath,
+          currentDocPath,
           activeView === 'edit',
         );
         console.log('[reader-ai-context] stream finished', {
@@ -4269,19 +4033,6 @@ export function App() {
           });
         }
 
-        // Detect project mode suggestion marker from the AI and strip it.
-        const PROJECT_MODE_MARKER = '<<SUGGEST_PROJECT_MODE>>';
-        setReaderAiMessages((current) => {
-          if (current.length === 0) return current;
-          const last = current[current.length - 1];
-          if (last.role !== 'assistant' || !last.content.includes(PROJECT_MODE_MARKER)) return current;
-          setReaderAiSuggestProjectMode(true);
-          const cleaned = last.content.replace(PROJECT_MODE_MARKER, '').replace(/^\s*\n/, '');
-          const updated = [...current];
-          updated[updated.length - 1] = { ...last, content: cleaned };
-          return updated;
-        });
-
         return true;
       } catch (err) {
         console.log('[reader-ai-context] stream finished', {
@@ -4297,12 +4048,6 @@ export function App() {
           return current;
         });
         if (err instanceof DOMException && err.name === 'AbortError') return true;
-        // Detect expired project session (404) and invalidate so the next send recreates it
-        if (err instanceof ApiError && err.status === 404 && readerAiRepoMode && readerAiProjectId) {
-          setReaderAiProjectId(null);
-          setReaderAiError('Project session expired. Please try again.');
-          return false;
-        }
         setReaderAiError(err instanceof Error ? err.message : 'Reader AI request failed');
         return false;
       } finally {
@@ -4316,13 +4061,10 @@ export function App() {
       readerAiSource,
       readerAiSummary,
       readerAiConversationScope,
-      readerAiRepoMode,
-      readerAiProjectId,
       currentRepoDocPath,
       currentFileName,
       activeView,
       currentEditingDocPath,
-      readerAiRepoFiles,
       selectedReaderAiModel,
     ],
   );
@@ -4378,9 +4120,7 @@ export function App() {
     setReaderAiStagedFileContents({});
     setReaderAiDocumentEditedContent(null);
     setReaderAiError(null);
-    setReaderAiSuggestProjectMode(false);
-    if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
-  }, [readerAiHistoryDocumentKey, readerAiProjectId, readerAiSelectedModel]);
+  }, [readerAiHistoryDocumentKey]);
 
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
@@ -4426,7 +4166,7 @@ export function App() {
           const nextContent =
             currentPath && typeof modifiedMap.get(currentPath) === 'string'
               ? modifiedMap.get(currentPath)
-              : !readerAiProjectId && typeof readerAiDocumentEditedContent === 'string'
+              : typeof readerAiDocumentEditedContent === 'string'
                 ? readerAiDocumentEditedContent
                 : undefined;
           if (typeof nextContent !== 'string') {
@@ -4516,7 +4256,6 @@ export function App() {
           setReaderAiEditProposals([]);
           setReaderAiStagedChanges([]);
           setReaderAiStagedFileContents({});
-          if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
         }
 
         // Invalidate caches so the UI reflects the applied changes
@@ -4536,7 +4275,6 @@ export function App() {
       effectiveReaderAiStagedChanges,
       effectiveReaderAiStagedFileContents,
       readerAiDocumentEditedContent,
-      readerAiProjectId,
       activeView,
       currentEditingDocPath,
       editContentRevision,
@@ -4550,7 +4288,6 @@ export function App() {
       setNextEditContent,
       showAlert,
       showRateLimitToastIfNeeded,
-      readerAiSelectedModel,
       setHasUnsavedChanges,
       setHasUserTypedUnsavedChanges,
     ],
@@ -4681,7 +4418,6 @@ export function App() {
         source: sanitizedDocumentContent,
         messages: [{ role: 'user', content: sanitizedPromptMessage }],
         mode: 'default',
-        projectMode: false,
         currentDocPath: currentEditingDocPath,
       });
       let loggedReceiveStart = false;
@@ -4735,7 +4471,6 @@ export function App() {
               );
             },
           },
-          undefined,
           undefined,
           currentEditingDocPath,
           true,
@@ -4878,7 +4613,6 @@ export function App() {
           },
         },
         undefined,
-        undefined,
         currentEditingDocPath,
         true,
       );
@@ -4922,7 +4656,6 @@ export function App() {
         source: '',
         messages: sanitizedMessages,
         mode: 'prompt_list',
-        projectMode: false,
         currentDocPath: currentEditingDocPath,
       });
       let loggedReceiveStart = false;
@@ -4996,7 +4729,6 @@ export function App() {
             },
           },
           undefined,
-          undefined,
           currentEditingDocPath,
           true,
         );
@@ -5061,12 +4793,6 @@ export function App() {
       setHasUserTypedUnsavedChanges,
     ],
   );
-
-  useEffect(() => {
-    if (!readerAiRetryAfterProjectModeEnable || !readerAiRepoMode || readerAiSending) return;
-    setReaderAiRetryAfterProjectModeEnable(false);
-    void onReaderAiRetryLastMessage();
-  }, [readerAiRetryAfterProjectModeEnable, readerAiRepoMode, readerAiSending, onReaderAiRetryLastMessage]);
 
   // --- Sign out ---
   const signOut = useCallback(() => {
@@ -8280,7 +8006,7 @@ export function App() {
   const hasCurrentEditingSelectedStagedContent = Boolean(
     currentEditingDocPath && typeof effectiveReaderAiStagedFileContents[currentEditingDocPath] === 'string',
   );
-  const canApplyFromInlineDocumentEdit = !readerAiProjectId && readerAiDocumentEditedContent !== null;
+  const canApplyFromInlineDocumentEdit = readerAiDocumentEditedContent !== null;
   const canApplyAndCommit =
     !readerAiStagedChangesInvalid &&
     hasSelectedStagedChanges &&
@@ -8570,18 +8296,10 @@ export function App() {
               onRetryLastUserMessage={onReaderAiRetryLastMessage}
               onStop={onReaderAiStop}
               onClear={onReaderAiClear}
-              repoModeAvailable={repoModeAvailable}
-              repoModeEnabled={readerAiRepoMode}
               selectionModeEnabled={
-                !readerAiRepoMode &&
-                (readerAiConversationScope?.kind === 'selection' ||
-                  (readerAiConversationScope === null && readerAiHasEligibleSelection))
+                readerAiConversationScope?.kind === 'selection' ||
+                (readerAiConversationScope === null && readerAiHasEligibleSelection)
               }
-              repoModeLoading={readerAiRepoModeLoading}
-              repoModeFileCount={repoModeFileCount}
-              repoModeDisabledReason={repoModeToggleDisabledReason}
-              suggestProjectMode={readerAiSuggestProjectMode && repoModeAvailable && !readerAiRepoMode}
-              onToggleRepoMode={(enabled) => void onToggleRepoMode(enabled)}
             />
           </>
         ) : null}

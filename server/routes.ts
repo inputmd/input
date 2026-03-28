@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
@@ -41,13 +41,11 @@ import {
   shouldUseOpenRouterPromptCaching,
 } from './reader_ai_access';
 import {
-  buildReaderAiProjectSystemPrompt,
   buildReaderAiPromptListSystemPrompt,
   buildReaderAiSystemPrompt,
   compactToolResults,
   estimateMessagesTokens,
   executeReaderAiEditDocumentTool,
-  executeReaderAiProjectSyncTool,
   executeReaderAiSubagent,
   executeReaderAiSyncTool,
   type OpenRouterMessage,
@@ -56,14 +54,11 @@ import {
   parseUnifiedDiffHunks,
   READER_AI_DOC_PREVIEW_CHARS,
   READER_AI_MAX_CONCURRENT_TASKS,
-  READER_AI_PROJECT_TOOLS,
   READER_AI_TOOLS,
-  type ReaderAiFileEntry,
   type ReaderAiStreamParseResult,
   type ReaderAiToolCall,
   readUpstreamError,
   readUpstreamRateLimitMessage,
-  StagedChanges,
 } from './reader_ai_tools';
 import {
   clearRememberedInstallationForUser,
@@ -206,13 +201,7 @@ interface ReaderAiChatBody {
   messages?: unknown;
   mode?: unknown;
   summary?: unknown;
-  /** Project mode: server-side project session ID (preferred). */
-  project_id?: unknown;
-  /** Project mode: inline files (legacy fallback, used if project_id is absent). */
-  project_files?: unknown;
-  /** The path of the currently-viewed document (for project mode context). */
   current_doc_path?: unknown;
-  /** If true, restrict project-mode edits to the currently-viewed document. */
   edit_mode_current_doc_only?: unknown;
 }
 
@@ -2208,202 +2197,10 @@ async function handleReaderAiModels(ctx: RouteContext): Promise<void> {
   json(ctx.res, 200, { models });
 }
 
-const READER_AI_MAX_PROJECT_FILES = 100;
-const READER_AI_MAX_PROJECT_FILE_SIZE = 512 * 1024; // 512KB per file
-const READER_AI_MAX_PROJECT_TOTAL_SIZE = 5 * 1024 * 1024; // 5MB total
-
-function normalizeProjectFiles(raw: unknown): ReaderAiFileEntry[] | null {
-  if (!Array.isArray(raw) || raw.length === 0) return null;
-  if (raw.length > READER_AI_MAX_PROJECT_FILES) {
-    throw new ClientError(`Too many project files (${raw.length}, max ${READER_AI_MAX_PROJECT_FILES})`, 400);
-  }
-  const files: ReaderAiFileEntry[] = [];
-  let totalSize = 0;
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const path = (item as { path?: unknown }).path;
-    const content = (item as { content?: unknown }).content;
-    const size = (item as { size?: unknown }).size;
-    if (typeof path !== 'string' || typeof content !== 'string') continue;
-    const fileSize = typeof size === 'number' && Number.isFinite(size) ? size : content.length;
-    if (fileSize > READER_AI_MAX_PROJECT_FILE_SIZE) continue; // skip oversized files silently
-    totalSize += fileSize;
-    if (totalSize > READER_AI_MAX_PROJECT_TOTAL_SIZE) break;
-    files.push({ path, content, size: fileSize });
-  }
-  return files.length > 0 ? files : null;
-}
-
-// ── Project session cache (avoids resending all files on every chat request) ──
-// This is an in-memory, best-effort cache scoped to a single server process.
-// It improves chat/tool performance but is not a source of truth for writes.
-// Apply/commit flows must continue to work even if this cache expires or is absent.
-
-const READER_AI_PROJECT_SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const READER_AI_MAX_PROJECT_SESSIONS = 50;
-const READER_AI_MAX_PROJECT_SESSIONS_TOTAL_BYTES = 1024 * 1024 * 1024; // 1GB
-
-interface ReaderAiProjectSession {
-  id: string;
-  userId: number;
-  files: ReaderAiFileEntry[];
-  stagedChanges: StagedChanges;
-  /** Total size of files in this session (bytes). */
-  totalFileSize: number;
-  createdAt: number;
-  lastAccessedAt: number;
-}
-
-const readerAiProjectSessions = new Map<string, ReaderAiProjectSession>();
-
-function projectSessionsTotalBytes(): number {
-  let total = 0;
-  for (const ps of readerAiProjectSessions.values()) {
-    total += ps.totalFileSize;
-  }
-  return total;
-}
-
-function pruneProjectSessions(): void {
-  const now = Date.now();
-  for (const [id, session] of readerAiProjectSessions) {
-    if (now - session.lastAccessedAt > READER_AI_PROJECT_SESSION_TTL_MS) {
-      readerAiProjectSessions.delete(id);
-    }
-  }
-}
-
-/** Evict oldest sessions until total memory is under the budget. */
-function evictProjectSessionsToFit(requiredBytes: number): void {
-  while (projectSessionsTotalBytes() + requiredBytes > READER_AI_MAX_PROJECT_SESSIONS_TOTAL_BYTES) {
-    let oldestId: string | null = null;
-    let oldestTime = Infinity;
-    for (const [id, ps] of readerAiProjectSessions) {
-      if (ps.lastAccessedAt < oldestTime) {
-        oldestTime = ps.lastAccessedAt;
-        oldestId = id;
-      }
-    }
-    if (!oldestId) break;
-    readerAiProjectSessions.delete(oldestId);
-  }
-}
-
-function getProjectSession(id: string, userId: number): ReaderAiProjectSession | null {
-  const session = readerAiProjectSessions.get(id);
-  if (!session) return null;
-  // Sessions are user-scoped; never allow cross-user lookup by project ID alone.
-  if (session.userId !== userId) return null;
-  if (Date.now() - session.lastAccessedAt > READER_AI_PROJECT_SESSION_TTL_MS) {
-    readerAiProjectSessions.delete(id);
-    return null;
-  }
-  session.lastAccessedAt = Date.now();
-  return session;
-}
-
-async function handleReaderAiProjectCreate(ctx: RouteContext): Promise<void> {
-  const session = requireAuthSession(ctx);
-  if (!checkRateLimitForSession(ctx, session)) return;
-
-  const body = (await readJson(ctx.req)) as { files?: unknown } | null;
-  const files = normalizeProjectFiles(body?.files);
-  if (!files) throw new ClientError('files array is required and must not be empty', 400);
-
-  const newSessionSize = files.reduce((sum, f) => sum + f.size, 0);
-
-  // Prune expired sessions and enforce limits
-  pruneProjectSessions();
-  if (readerAiProjectSessions.size >= READER_AI_MAX_PROJECT_SESSIONS) {
-    evictProjectSessionsToFit(newSessionSize);
-  }
-  // Enforce total memory budget
-  evictProjectSessionsToFit(newSessionSize);
-
-  const id = randomBytes(16).toString('hex');
-  const now = Date.now();
-  readerAiProjectSessions.set(id, {
-    id,
-    userId: session.githubUserId,
-    files,
-    stagedChanges: new StagedChanges(files),
-    totalFileSize: newSessionSize,
-    createdAt: now,
-    lastAccessedAt: now,
-  });
-
-  json(ctx.res, 200, { project_id: id, file_count: files.length });
-}
-
-async function handleReaderAiProjectFiles(ctx: RouteContext): Promise<void> {
-  const session = requireAuthSession(ctx);
-  if (!checkRateLimitForSession(ctx, session)) return;
-
-  const projectId = ctx.match[1];
-  const ps = getProjectSession(projectId, session.githubUserId);
-  if (!ps) throw new ClientError('Project session not found or expired', 404);
-
-  // Return only changed files (modified content) to minimize payload
-  const changes = ps.stagedChanges.getChanges();
-  const files = changes.filter((c) => c.modified !== null).map((c) => ({ path: c.path, content: c.modified! }));
-  json(ctx.res, 200, { files });
-}
-
-async function handleReaderAiProjectFileUpdate(ctx: RouteContext): Promise<void> {
-  const session = requireAuthSession(ctx);
-  if (!checkRateLimitForSession(ctx, session)) return;
-
-  const projectId = ctx.match[1];
-  const ps = getProjectSession(projectId, session.githubUserId);
-  if (!ps) throw new ClientError('Project session not found or expired', 404);
-
-  const body = (await readJson(ctx.req)) as { path?: unknown; content?: unknown } | null;
-  const path = typeof body?.path === 'string' ? body.path.trim() : '';
-  const content = typeof body?.content === 'string' ? body.content : null;
-  if (!path) throw new ClientError('path is required', 400);
-  if (content === null) throw new ClientError('content is required', 400);
-
-  const fileSize = Buffer.byteLength(content, 'utf8');
-  const existingIndex = ps.files.findIndex((file) => file.path === path);
-  if (existingIndex >= 0) {
-    ps.files[existingIndex] = { path, content, size: fileSize };
-  } else {
-    ps.files.push({ path, content, size: fileSize });
-  }
-  ps.stagedChanges.reset(ps.files);
-
-  json(ctx.res, 200, { updated: true, file_count: ps.files.length });
-}
-
-async function handleReaderAiProjectReset(ctx: RouteContext): Promise<void> {
-  const session = requireAuthSession(ctx);
-  if (!checkRateLimitForSession(ctx, session)) return;
-
-  const projectId = ctx.match[1];
-  const ps = getProjectSession(projectId, session.githubUserId);
-  if (ps) {
-    ps.stagedChanges.reset(ps.files);
-  }
-  json(ctx.res, 200, { reset: true });
-}
-
-async function handleReaderAiProjectDelete(ctx: RouteContext): Promise<void> {
-  const session = requireAuthSession(ctx);
-  if (!checkRateLimitForSession(ctx, session)) return;
-
-  const projectId = ctx.match[1];
-  const ps = readerAiProjectSessions.get(projectId);
-  if (ps && ps.userId === session.githubUserId) {
-    readerAiProjectSessions.delete(projectId);
-  }
-  json(ctx.res, 200, { deleted: true });
-}
-
 async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
   // This endpoint intentionally consumes staged changes + file_contents from the client.
-  // It does not read the project-session cache so apply remains valid across cache expiry.
 
   const body = (await readJson(ctx.req)) as {
     context?: {
@@ -2865,21 +2662,6 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const existingSummary =
     typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
 
-  // Project mode: resolve from project session cache (preferred) or inline files (fallback)
-  let projectFiles: ReaderAiFileEntry[] | null = null;
-  const projectId = typeof body?.project_id === 'string' ? body.project_id.trim() : '';
-  if (projectId) {
-    if (!session) throw new ClientError('Project mode requires sign in', 401);
-    const ps = getProjectSession(projectId, session.githubUserId);
-    if (!ps) throw new ClientError('Project session not found or expired', 404);
-    // Touch TTL so long-running tool loops don't expire the session mid-request
-    ps.lastAccessedAt = Date.now();
-    projectFiles = ps.files;
-  } else {
-    projectFiles = normalizeProjectFiles(body?.project_files);
-  }
-  const resolvedProjectFiles = projectFiles ?? undefined;
-  const isProjectMode = resolvedProjectFiles !== undefined;
   const currentDocPath = typeof body?.current_doc_path === 'string' ? body.current_doc_path : null;
   const editModeCurrentDocOnly = body?.edit_mode_current_doc_only === true;
   const aiLines = source.split('\n');
@@ -2934,16 +2716,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   // Build system prompt and tool set based on mode
   let systemPrompt: string;
-  let tools: Array<(typeof READER_AI_TOOLS)[number] | (typeof READER_AI_PROJECT_TOOLS)[number]>;
-  if (isProjectMode) {
-    systemPrompt = buildReaderAiProjectSystemPrompt(resolvedProjectFiles, currentDocPath, editModeCurrentDocOnly);
-    tools = editModeCurrentDocOnly
-      ? READER_AI_PROJECT_TOOLS.filter((tool) => {
-          const name = tool.function.name;
-          return name !== 'propose_create_file' && name !== 'propose_delete_file' && name !== 'task';
-        })
-      : READER_AI_PROJECT_TOOLS;
-  } else if (mode === 'prompt_list') {
+  let tools: Array<(typeof READER_AI_TOOLS)[number]>;
+  if (mode === 'prompt_list') {
     systemPrompt = buildReaderAiPromptListSystemPrompt();
     tools = [];
   } else {
@@ -2995,37 +2769,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   // Reserve 25% for system prompt + file tree, 15% for output, 60% for conversation + tool results
   const conversationBudgetTokens = Math.floor(maxContextTokens * 0.6);
 
-  // Staging layer for chat edits in project mode.
-  // Reuse the cached stagedChanges when project_id resolves, otherwise fall back to
-  // ephemeral staging for inline project_files mode.
-  const projectSession = projectId ? readerAiProjectSessions.get(projectId) : undefined;
-  const stagedChanges = projectSession
-    ? projectSession.stagedChanges
-    : isProjectMode
-      ? new StagedChanges(resolvedProjectFiles)
-      : undefined;
-
   const executeSyncToolCall = (tc: ReaderAiToolCall, argsJsonOverride?: string): string => {
     const toolArgsJson = argsJsonOverride ?? tc.arguments;
-    if (isProjectMode) {
-      if (editModeCurrentDocOnly && currentDocPath) {
-        let args: Record<string, unknown> | null = null;
-        try {
-          args = toolArgsJson ? (JSON.parse(toolArgsJson) as Record<string, unknown>) : {};
-        } catch {
-          // Let the tool handler return its own invalid JSON error.
-        }
-        if (tc.name === 'propose_create_file' || tc.name === 'propose_delete_file') {
-          return `(tool ${tc.name} is not available while editing the current document)`;
-        }
-        if ((tc.name === 'read_file' || tc.name === 'propose_edit_file') && args && typeof args.path === 'string') {
-          if (args.path !== currentDocPath) {
-            return `(tool ${tc.name} is restricted to the current document: ${currentDocPath})`;
-          }
-        }
-      }
-      return executeReaderAiProjectSyncTool(tc.name, toolArgsJson, resolvedProjectFiles, stagedChanges);
-    }
     if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(toolArgsJson, documentEditState);
     return executeReaderAiSyncTool(tc.name, toolArgsJson, aiLines);
   };
@@ -3069,14 +2814,12 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           hunks: parseUnifiedDiffHunks(documentEditState.stagedDiff),
         }
       : null;
-  const getChangeForToolCall = (toolName: string, parsedArgs: Record<string, unknown> | undefined) => {
+  const getChangeForToolCall = (toolName: string) => {
     if (toolName === 'propose_edit_document') return getCurrentDocumentStagedChange();
-    const path = typeof parsedArgs?.path === 'string' ? parsedArgs.path.trim() : '';
-    if (!path || !stagedChanges) return null;
-    return stagedChanges.getChanges().find((change) => change.path === path) ?? null;
+    return null;
   };
-  const emitEditProposal = (toolCallId: string, toolName: string, parsedArgs: Record<string, unknown> | undefined) => {
-    const change = getChangeForToolCall(toolName, parsedArgs);
+  const emitEditProposal = (toolCallId: string, toolName: string) => {
+    const change = getChangeForToolCall(toolName);
     if (!change) return;
     writeSseEvent('edit_proposal', {
       proposal_id: `proposal:${stagedChangesRevision}:${toolCallId}`,
@@ -3086,32 +2829,14 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     });
   };
   const emitStagedChangesSnapshot = () => {
-    const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
     const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
-    const allChanges = hasProjectStagedChanges
-      ? stagedChanges!.getChanges()
-      : hasDocumentStagedChange
-        ? [getCurrentDocumentStagedChange()!]
-        : [];
+    const allChanges = hasDocumentStagedChange ? [getCurrentDocumentStagedChange()!] : [];
     const changes = allChanges.map((change) => serializeReaderAiChange({ ...change, revision: stagedChangesRevision }));
-    // Include full modified content so clients can apply without depending on
-    // a cached project session lookup.
     const fileContents = Object.fromEntries(
-      allChanges
-        .filter((c) => c.type !== 'delete' && typeof c.modified === 'string')
-        .map((c) => [c.path, c.modified as string]),
+      allChanges.filter((c) => typeof c.modified === 'string').map((c) => [c.path, c.modified as string]),
     );
-    const edits = allChanges.filter((c) => c.type === 'edit').map((c) => c.path);
-    const creates = allChanges.filter((c) => c.type === 'create').map((c) => c.path);
-    const deletes = allChanges.filter((c) => c.type === 'delete').map((c) => c.path);
-    const parts: string[] = [];
-    if (edits.length === 1) parts.push(`Update ${edits[0]}`);
-    else if (edits.length > 1) parts.push(`Update ${edits.length} files`);
-    if (creates.length === 1) parts.push(`add ${creates[0]}`);
-    else if (creates.length > 1) parts.push(`add ${creates.length} files`);
-    if (deletes.length === 1) parts.push(`delete ${deletes[0]}`);
-    else if (deletes.length > 1) parts.push(`delete ${deletes.length} files`);
-    const suggestedCommitMessage = parts.join(', ') || 'Apply AI-suggested changes';
+    const suggestedCommitMessage =
+      allChanges.length === 1 ? `Update ${allChanges[0].path}` : 'Apply AI-suggested changes';
     const payload = {
       changes,
       file_contents: fileContents,
@@ -3296,14 +3021,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           ...(toolFailed ? { error: toolResult } : {}),
           ...(repaired ? { repaired: true } : {}),
         });
-        if (
-          tc.name === 'propose_edit_document' ||
-          tc.name === 'propose_edit_file' ||
-          tc.name === 'propose_create_file' ||
-          tc.name === 'propose_delete_file'
-        ) {
+        if (tc.name === 'propose_edit_document') {
           stagedChangesRevision += 1;
-          emitEditProposal(tc.id, tc.name, parsedArgs ?? undefined);
+          emitEditProposal(tc.id, tc.name);
           emitStagedChangesSnapshot();
         }
       }
@@ -3331,8 +3051,6 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                 systemPrompt: taskSystemPrompt,
                 lines: aiLines,
                 source,
-                projectFiles: isProjectMode ? resolvedProjectFiles : undefined,
-                stagedChanges: isProjectMode ? stagedChanges : undefined,
                 openRouterHeaders: upstreamHeaders,
                 signal: abortController.signal,
                 onProgress: (event) => {
@@ -3655,11 +3373,6 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
   { method: 'POST', pattern: /^\/api\/ai\/apply$/, handler: handleReaderAiApply },
-  { method: 'POST', pattern: /^\/api\/ai\/project$/, handler: handleReaderAiProjectCreate },
-  { method: 'GET', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/files$/, handler: handleReaderAiProjectFiles },
-  { method: 'POST', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/file$/, handler: handleReaderAiProjectFileUpdate },
-  { method: 'POST', pattern: /^\/api\/ai\/project\/([a-f0-9]+)\/reset$/, handler: handleReaderAiProjectReset },
-  { method: 'DELETE', pattern: /^\/api\/ai\/project\/([a-f0-9]+)$/i, handler: handleReaderAiProjectDelete },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },
 ];
 

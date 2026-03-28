@@ -2,9 +2,7 @@ import test from 'ava';
 import {
   executeReaderAiSubagent,
   READER_AI_TASK_MAX_OUTPUT_CHARS,
-  type ReaderAiFileEntry,
   type ReaderAiSubagentOptions,
-  StagedChanges,
 } from '../reader_ai_tools.ts';
 
 // ── Helpers ──
@@ -308,41 +306,6 @@ test('subagent handles unknown tool call gracefully', async (t) => {
   const toolResult = parsed.messages.find((m) => m.role === 'tool');
   t.truthy(toolResult);
   t.true(typeof toolResult!.content === 'string' && toolResult!.content.includes('unknown tool'));
-});
-
-test('project subagent can edit shared staged changes', async (t) => {
-  const projectFiles: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello', size: 5 }];
-  const stagedChanges = new StagedChanges(projectFiles);
-  let callCount = 0;
-  let secondCallBody = '';
-  const fetchFn = async (_url: string | URL | Request, init?: RequestInit) => {
-    callCount++;
-    if (callCount === 1) {
-      return toolCallStreamResponse([
-        {
-          id: 'call_e',
-          name: 'propose_edit_file',
-          arguments: '{"path":"a.txt","old_text":"hello","new_text":"HELLO"}',
-        },
-      ]);
-    }
-    secondCallBody = typeof init?.body === 'string' ? init.body : '';
-    return textStreamResponse('Done.');
-  };
-
-  const result = await executeReaderAiSubagent({
-    ...defaultOpts,
-    projectFiles,
-    stagedChanges,
-    fetchFn,
-  });
-  t.is(result, 'Done.');
-  t.true(stagedChanges.hasChanges());
-
-  const parsed = JSON.parse(secondCallBody) as { messages: Array<{ role: string; content?: string }> };
-  const toolResult = parsed.messages.find((m) => m.role === 'tool');
-  t.truthy(toolResult);
-  t.true(typeof toolResult!.content === 'string' && toolResult!.content.includes('Edited a.txt'));
 });
 
 test('subagent sends prompt as user message', async (t) => {

@@ -347,74 +347,6 @@ function extractStreamDelta(payload: unknown): string {
   return '';
 }
 
-export interface ReaderAiProjectFile {
-  path: string;
-  content: string;
-  size: number;
-}
-
-export interface ReaderAiProjectSession {
-  projectId: string;
-  fileCount: number;
-}
-
-export async function createReaderAiProjectSession(
-  files: ReaderAiProjectFile[],
-  modelId?: string,
-): Promise<ReaderAiProjectSession> {
-  const baseUrl = modelId ? modelRequestBaseUrl(modelId) : '';
-  const res = await fetch(withBaseUrl(baseUrl, '/api/ai/project'), {
-    method: 'POST',
-    credentials: baseUrl ? 'omit' : 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ files }),
-  });
-  if (!res.ok) throw await responseToApiError(res);
-  const data = (await res.json()) as { project_id?: string; file_count?: number };
-  if (!data.project_id) throw new Error('Missing project_id in response');
-  return { projectId: data.project_id, fileCount: data.file_count ?? files.length };
-}
-
-export async function resetReaderAiProjectSession(projectId: string, modelId?: string): Promise<void> {
-  try {
-    const baseUrl = modelId ? modelRequestBaseUrl(modelId) : '';
-    await fetch(withBaseUrl(baseUrl, `/api/ai/project/${encodeURIComponent(projectId)}/reset`), {
-      method: 'POST',
-      credentials: baseUrl ? 'omit' : 'same-origin',
-    });
-  } catch {
-    // Best-effort — ignore errors.
-  }
-}
-
-export async function updateReaderAiProjectSessionFile(
-  projectId: string,
-  path: string,
-  content: string,
-  modelId?: string,
-): Promise<void> {
-  const baseUrl = modelId ? modelRequestBaseUrl(modelId) : '';
-  const res = await fetch(withBaseUrl(baseUrl, `/api/ai/project/${encodeURIComponent(projectId)}/file`), {
-    method: 'POST',
-    credentials: baseUrl ? 'omit' : 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, content }),
-  });
-  if (!res.ok) throw await responseToApiError(res);
-}
-
-export async function deleteReaderAiProjectSession(projectId: string, modelId?: string): Promise<void> {
-  try {
-    const baseUrl = modelId ? modelRequestBaseUrl(modelId) : '';
-    await fetch(withBaseUrl(baseUrl, `/api/ai/project/${encodeURIComponent(projectId)}`), {
-      method: 'DELETE',
-      credentials: baseUrl ? 'omit' : 'same-origin',
-    });
-  } catch {
-    // Best-effort cleanup — ignore errors.
-  }
-}
-
 export interface ReaderAiApplyResult {
   applied: string[];
   failed: Array<{ path: string; error: string }>;
@@ -504,14 +436,11 @@ export async function askReaderAiStream(
   messages: { role: 'user' | 'assistant'; content: string }[],
   options: ReaderAiStreamOptions,
   summary?: string,
-  projectContext?: { projectId: string; currentDocPath: string | null },
   currentDocPath?: string | null,
   editModeCurrentDocOnly?: boolean,
 ): Promise<void> {
   // Ensure the stream boundary dictionary is loaded before processing chunks.
   await initDictionary().catch(() => {});
-  // Resolve current_doc_path: projectContext takes precedence when present
-  const resolvedDocPath = projectContext?.currentDocPath ?? currentDocPath ?? null;
   const baseUrl = modelRequestBaseUrl(model);
   const res = await fetch(withBaseUrl(baseUrl, '/api/ai/chat'), {
     method: 'POST',
@@ -524,9 +453,8 @@ export async function askReaderAiStream(
       messages,
       ...(options.mode ? { mode: options.mode } : {}),
       ...(summary ? { summary } : {}),
-      ...(typeof resolvedDocPath === 'string' && resolvedDocPath ? { current_doc_path: resolvedDocPath } : {}),
+      ...(typeof currentDocPath === 'string' && currentDocPath ? { current_doc_path: currentDocPath } : {}),
       ...(editModeCurrentDocOnly ? { edit_mode_current_doc_only: true } : {}),
-      ...(projectContext ? { project_id: projectContext.projectId } : {}),
     }),
   });
   if (!res.ok) throw await responseToApiError(res);

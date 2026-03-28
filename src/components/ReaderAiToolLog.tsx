@@ -17,12 +17,6 @@ export const TOOL_LABELS: Record<string, string> = {
   read_document: 'Read document',
   search_document: 'Search document',
   propose_edit_document: 'Propose document edit',
-  read_file: 'Read file',
-  search_files: 'Search files',
-  list_files: 'List files',
-  propose_edit_file: 'Propose file edit',
-  propose_create_file: 'Propose file creation',
-  propose_delete_file: 'Propose file deletion',
   task: 'Subagent',
 };
 

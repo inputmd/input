@@ -5,35 +5,25 @@ import test from 'ava';
 import { initDictionaryFromBuffer } from '../../shared/stream_boundary_dictionary.ts';
 import { stripCriticMarkupComments } from '../../src/criticmarkup.ts';
 import {
-  buildReaderAiProjectSystemPrompt,
   buildReaderAiPromptListSystemPrompt,
   buildReaderAiSystemPrompt,
   compactToolResults,
   estimateMessagesTokens,
   estimateTokens,
   executeReaderAiEditDocumentTool,
-  executeReaderAiListFiles,
-  executeReaderAiProjectSyncTool,
   executeReaderAiReadDocument,
-  executeReaderAiReadFile,
   executeReaderAiSearchDocument,
-  executeReaderAiSearchFiles,
   executeReaderAiSyncTool,
   generateUnifiedDiff,
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
   parseSseFieldValue,
   READER_AI_MAX_REGEX_PATTERN_LENGTH,
-  READER_AI_PROJECT_SUBAGENT_TOOLS,
-  READER_AI_PROJECT_TOOLS,
   READER_AI_SUBAGENT_TOOLS,
   READER_AI_TOOL_RESULT_MAX_CHARS,
   READER_AI_TOOLS,
-  type ReaderAiFileEntry,
   readUpstreamError,
   repairToolArgumentsJson,
-  StagedChanges,
-  simpleGlobMatch,
 } from '../reader_ai_tools.ts';
 
 function loadBloomFilterOrThrow(): Uint8Array {
@@ -558,11 +548,9 @@ test('repairToolArgumentsJson trims trailing commas before close', (t) => {
   );
 });
 
-test('project sync tool can execute with repaired JSON arguments', (t) => {
-  const repaired = repairToolArgumentsJson('{"path":"README.md",}') ?? '';
-  const result = executeReaderAiProjectSyncTool('read_file', repaired, sampleFiles);
-  t.true(result.includes('README.md'));
-  t.true(result.includes('# Hello'));
+test('repairToolArgumentsJson can close truncated object payloads without file-tool support', (t) => {
+  const repaired = repairToolArgumentsJson('{"query":"reader ai",}') ?? '';
+  t.is(repaired, '{"query":"reader ai"}');
 });
 
 test('stream parser handles multiple parallel tool calls', async (t) => {
@@ -971,166 +959,6 @@ test('stream parser joins multiline data events with newlines', async (t) => {
   t.is(result.content, 'hi there');
 });
 
-// ── Project-mode tools ──
-
-const sampleFiles: ReaderAiFileEntry[] = [
-  { path: 'README.md', content: '# Hello\n\nWelcome to the project.', size: 30 },
-  { path: 'src/index.ts', content: 'import { foo } from "./foo";\nconsole.log(foo());', size: 48 },
-  { path: 'src/foo.ts', content: 'export function foo() {\n  return "bar";\n}', size: 42 },
-  { path: 'package.json', content: '{"name": "test", "version": "1.0.0"}', size: 36 },
-];
-
-test('read_file returns file content with line numbers', (t) => {
-  const result = executeReaderAiReadFile(sampleFiles, { path: 'src/index.ts' });
-  t.true(result.includes('src/index.ts'));
-  t.true(result.includes('1: import { foo }'));
-  t.true(result.includes('2: console.log'));
-});
-
-test('read_file returns error for missing file', (t) => {
-  const result = executeReaderAiReadFile(sampleFiles, { path: 'nonexistent.ts' });
-  t.true(result.includes('file not found'));
-});
-
-test('read_file supports case-insensitive path matching', (t) => {
-  const result = executeReaderAiReadFile(sampleFiles, { path: 'README.MD' });
-  t.true(result.includes('# Hello'));
-});
-
-test('read_file respects start_line and end_line', (t) => {
-  const result = executeReaderAiReadFile(sampleFiles, { path: 'src/foo.ts', start_line: 2, end_line: 2 });
-  t.true(result.includes('2:   return "bar";'));
-  t.false(result.includes('1:'));
-  t.false(result.includes('3:'));
-});
-
-test('search_files finds matches across files', (t) => {
-  const result = executeReaderAiSearchFiles(sampleFiles, { query: 'foo' });
-  t.true(result.includes('src/index.ts'));
-  t.true(result.includes('src/foo.ts'));
-});
-
-test('search_files returns no matches message', (t) => {
-  const result = executeReaderAiSearchFiles(sampleFiles, { query: 'xyznonexistent' });
-  t.is(result, 'No matches found.');
-});
-
-test('search_files respects glob filter', (t) => {
-  const result = executeReaderAiSearchFiles(sampleFiles, { query: 'foo', glob: '*.ts' });
-  // Should not match files that don't end with .ts at root level
-  t.false(result.includes('README.md'));
-});
-
-test('search_files reports no files for non-matching glob', (t) => {
-  const result = executeReaderAiSearchFiles(sampleFiles, { query: 'foo', glob: '*.py' });
-  t.true(result.includes('No files matching glob'));
-});
-
-test('list_files lists all files', (t) => {
-  const result = executeReaderAiListFiles(sampleFiles, {});
-  t.true(result.includes('4 files'));
-  t.true(result.includes('README.md'));
-  t.true(result.includes('src/index.ts'));
-  t.true(result.includes('package.json'));
-});
-
-test('list_files filters by path prefix', (t) => {
-  const result = executeReaderAiListFiles(sampleFiles, { path: 'src' });
-  t.true(result.includes('2 files'));
-  t.true(result.includes('src/index.ts'));
-  t.true(result.includes('src/foo.ts'));
-  t.false(result.includes('README.md'));
-});
-
-test('list_files returns error for empty path', (t) => {
-  const result = executeReaderAiListFiles(sampleFiles, { path: 'nonexistent' });
-  t.true(result.includes('no files under path'));
-});
-
-test('project sync tool dispatches read_file', (t) => {
-  const result = executeReaderAiProjectSyncTool('read_file', '{"path":"README.md"}', sampleFiles);
-  t.true(result.includes('# Hello'));
-});
-
-test('project sync tool omits CriticMarkup comments from read_file output', (t) => {
-  const files = [{ path: 'README.md', content: 'start {>>hide<<} end', size: 20 }];
-  const result = executeReaderAiProjectSyncTool('read_file', '{"path":"README.md"}', files);
-
-  t.true(result.includes('1: start  end'));
-  t.false(result.includes('hide'));
-});
-
-test('project sync tool dispatches search_files', (t) => {
-  const result = executeReaderAiProjectSyncTool('search_files', '{"query":"foo"}', sampleFiles);
-  t.true(result.includes('match'));
-});
-
-test('project sync tool dispatches list_files', (t) => {
-  const result = executeReaderAiProjectSyncTool('list_files', '{}', sampleFiles);
-  t.true(result.includes('4 files'));
-});
-
-test('project sync tool returns error for unknown tool', (t) => {
-  const result = executeReaderAiProjectSyncTool('unknown_tool', '{}', sampleFiles);
-  t.true(result.includes('unknown tool'));
-});
-
-test('READER_AI_PROJECT_TOOLS contains expected tools', (t) => {
-  const names = READER_AI_PROJECT_TOOLS.map((t) => t.function.name);
-  t.true(names.includes('read_file'));
-  t.true(names.includes('search_files'));
-  t.true(names.includes('list_files'));
-  t.true(names.includes('task'));
-});
-
-test('READER_AI_PROJECT_SUBAGENT_TOOLS excludes task', (t) => {
-  const names = READER_AI_PROJECT_SUBAGENT_TOOLS.map((t) => t.function.name);
-  t.true(names.includes('read_file'));
-  t.true(names.includes('propose_edit_file'));
-  t.false(names.includes('task'));
-});
-
-test('project system prompt includes file tree and tools', (t) => {
-  const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, 'README.md');
-  t.true(prompt.includes('read_file'));
-  t.true(prompt.includes('search_files'));
-  t.true(prompt.includes('list_files'));
-  t.true(prompt.includes('propose_edit_file'));
-  t.true(prompt.includes('task'));
-  t.true(prompt.includes('README.md'));
-  t.true(prompt.includes('src/index.ts'));
-  t.true(prompt.includes('currently viewing'));
-  t.true(prompt.includes('4 files'));
-});
-
-test('project system prompt omits CriticMarkup comments from current file preview', (t) => {
-  const files = [{ path: 'README.md', content: 'alpha {>>hide<<} beta', size: 21 }];
-  const prompt = buildReaderAiProjectSystemPrompt(files, 'README.md');
-
-  t.true(prompt.includes('1: alpha  beta'));
-  t.false(prompt.includes('hide'));
-});
-
-test('project system prompt works without current doc', (t) => {
-  const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, null);
-  t.false(prompt.includes('currently viewing'));
-  t.true(prompt.includes('4 files'));
-});
-
-test('project system prompt includes focused edit guidance when enabled', (t) => {
-  const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, 'README.md', true);
-  t.true(prompt.includes('focused edit mode'));
-  t.true(prompt.includes('Only edit this file: README.md'));
-  t.true(prompt.includes('Do not create or delete files'));
-  t.true(prompt.includes('Do not delegate edits to subagents'));
-});
-
-test('project system prompt discourages task by default and requires proposal tools for edits', (t) => {
-  const prompt = buildReaderAiProjectSystemPrompt(sampleFiles, 'README.md');
-  t.true(prompt.includes('Do not use the task tool unless the user explicitly asks for it'));
-  t.true(prompt.includes('use propose_edit_file, propose_create_file, or propose_delete_file'));
-});
-
 // ── Token estimation ──
 
 test('estimateTokens returns positive number', (t) => {
@@ -1226,16 +1054,6 @@ test('search_document regex rejects patterns exceeding max length', (t) => {
   t.true(result.includes('invalid regular expression'));
 });
 
-test('search_files supports regex matching', (t) => {
-  const files: ReaderAiFileEntry[] = [
-    { path: 'a.ts', content: 'const x = 42;', size: 13 },
-    { path: 'b.ts', content: 'let y = "hello";', size: 16 },
-  ];
-  const result = executeReaderAiSearchFiles(files, { query: '=\\s*\\d+', is_regex: true });
-  t.true(result.includes('a.ts'));
-  t.false(result.includes('b.ts'));
-});
-
 // ── generateUnifiedDiff ──
 
 test('generateUnifiedDiff returns no changes for identical content', (t) => {
@@ -1283,147 +1101,4 @@ test('generateUnifiedDiff handles multiple separate hunks', (t) => {
   t.true(result.includes('+CHANGED 3'));
   t.true(result.includes('-line 18'));
   t.true(result.includes('+CHANGED 18'));
-});
-
-// ── StagedChanges ──
-
-test('StagedChanges editFile replaces text and tracks change', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello world', size: 11 }];
-  const sc = new StagedChanges(files);
-  const result = sc.editFile('a.txt', 'hello', 'goodbye');
-  t.true(result.includes('Edited a.txt'));
-  t.is(sc.getContent('a.txt'), 'goodbye world');
-  t.true(sc.hasChanges());
-  const changes = sc.getChanges();
-  t.is(changes.length, 1);
-  t.is(changes[0].type, 'edit');
-});
-
-test('StagedChanges editFile returns error for missing file', (t) => {
-  const sc = new StagedChanges([]);
-  const result = sc.editFile('missing.txt', 'a', 'b');
-  t.true(result.includes('file not found'));
-});
-
-test('StagedChanges editFile returns error for identical old/new text', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello', size: 5 }];
-  const sc = new StagedChanges(files);
-  const result = sc.editFile('a.txt', 'hello', 'hello');
-  t.true(result.includes('identical'));
-});
-
-test('StagedChanges editFile returns error when old_text not found', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello', size: 5 }];
-  const sc = new StagedChanges(files);
-  const result = sc.editFile('a.txt', 'missing', 'x');
-  t.true(result.includes('not found'));
-});
-
-test('StagedChanges editFile returns error for ambiguous match', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'aa bb aa', size: 8 }];
-  const sc = new StagedChanges(files);
-  const result = sc.editFile('a.txt', 'aa', 'cc');
-  t.true(result.includes('multiple locations'));
-});
-
-test('StagedChanges editFile provides case-insensitive hint', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'Hello', size: 5 }];
-  const sc = new StagedChanges(files);
-  const result = sc.editFile('a.txt', 'hello', 'x');
-  t.true(result.includes('case-insensitive'));
-});
-
-test('StagedChanges createFile adds new file', (t) => {
-  const sc = new StagedChanges([]);
-  const result = sc.createFile('new.txt', 'content');
-  t.true(result.includes('Created new.txt'));
-  t.is(sc.getContent('new.txt'), 'content');
-  t.true(sc.hasFile('new.txt'));
-});
-
-test('StagedChanges createFile fails for existing file', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'x', size: 1 }];
-  const sc = new StagedChanges(files);
-  const result = sc.createFile('a.txt', 'y');
-  t.true(result.includes('already exists'));
-});
-
-test('StagedChanges deleteFile removes file', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'x', size: 1 }];
-  const sc = new StagedChanges(files);
-  const result = sc.deleteFile('a.txt');
-  t.true(result.includes('Deleted'));
-  t.false(sc.hasFile('a.txt'));
-  const changes = sc.getChanges();
-  t.is(changes[0].type, 'delete');
-});
-
-test('StagedChanges deleteFile fails for missing file', (t) => {
-  const sc = new StagedChanges([]);
-  const result = sc.deleteFile('missing.txt');
-  t.true(result.includes('file not found'));
-});
-
-test('StagedChanges create then delete removes the change entry', (t) => {
-  const sc = new StagedChanges([]);
-  sc.createFile('ghost.txt', 'content');
-  t.true(sc.hasChanges());
-  t.true(sc.hasFile('ghost.txt'));
-  const result = sc.deleteFile('ghost.txt');
-  t.true(result.includes('reverted create'));
-  t.false(sc.hasChanges());
-  t.false(sc.hasFile('ghost.txt'));
-  t.is(sc.getChanges().length, 0);
-});
-
-test('StagedChanges reset restores original files', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'original', size: 8 }];
-  const sc = new StagedChanges(files);
-  sc.editFile('a.txt', 'original', 'modified');
-  t.true(sc.hasChanges());
-  sc.reset(files);
-  t.false(sc.hasChanges());
-  t.is(sc.getContent('a.txt'), 'original');
-});
-
-test('StagedChanges getWorkingFiles reflects staged changes', (t) => {
-  const files: ReaderAiFileEntry[] = [{ path: 'a.txt', content: 'hello', size: 5 }];
-  const sc = new StagedChanges(files);
-  sc.editFile('a.txt', 'hello', 'goodbye');
-  sc.createFile('b.txt', 'new');
-  const working = sc.getWorkingFiles();
-  t.is(working.length, 2);
-  t.is(working.find((f) => f.path === 'a.txt')?.content, 'goodbye');
-  t.is(working.find((f) => f.path === 'b.txt')?.content, 'new');
-});
-
-// ── simpleGlobMatch ──
-
-test('simpleGlobMatch matches wildcard extensions', (t) => {
-  t.true(simpleGlobMatch('*.ts', 'index.ts'));
-  t.false(simpleGlobMatch('*.ts', 'index.js'));
-  t.false(simpleGlobMatch('*.ts', 'src/index.ts'));
-});
-
-test('simpleGlobMatch matches ** across directories', (t) => {
-  t.true(simpleGlobMatch('**/*.ts', 'src/index.ts'));
-  t.true(simpleGlobMatch('**/*.ts', 'src/lib/deep/file.ts'));
-  t.false(simpleGlobMatch('**/*.ts', 'src/index.js'));
-});
-
-test('simpleGlobMatch matches directory prefix', (t) => {
-  t.true(simpleGlobMatch('src/**', 'src/index.ts'));
-  t.true(simpleGlobMatch('src/**', 'src/lib/file.ts'));
-  t.false(simpleGlobMatch('src/**', 'lib/file.ts'));
-});
-
-test('simpleGlobMatch matches ? for single char', (t) => {
-  t.true(simpleGlobMatch('file?.ts', 'fileA.ts'));
-  t.false(simpleGlobMatch('file?.ts', 'file.ts'));
-  t.false(simpleGlobMatch('file?.ts', 'fileAB.ts'));
-});
-
-test('simpleGlobMatch is case-insensitive', (t) => {
-  t.true(simpleGlobMatch('*.TS', 'index.ts'));
-  t.true(simpleGlobMatch('README.*', 'readme.md'));
 });

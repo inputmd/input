@@ -40,11 +40,6 @@
 | `POST` | `/api/share/repo-file` | Creates a private share token for an installed markdown file |
 | `POST` | `/api/ai/chat` | Streams Reader AI chat completions for markdown content |
 | `POST` | `/api/ai/apply` | Applies Reader AI staged changes to a gist or installed repo |
-| `POST` | `/api/ai/project` | Creates a temporary Reader AI project session from uploaded files |
-| `GET` | `/api/ai/project/:id/files` | Returns modified files currently staged in a project session |
-| `POST` | `/api/ai/project/:id/file` | Replaces or adds a file in a project session |
-| `POST` | `/api/ai/project/:id/reset` | Clears staged changes in a project session |
-| `DELETE` | `/api/ai/project/:id` | Deletes a project session |
 
 Sessions are stored server-side in SQLite (`DATABASE_PATH`) and keyed by an `HttpOnly` cookie. Users can link multiple GitHub App installations; `installationId` is the currently selected installation, while repo API routes are enforced against the signed-in user's linked installation set.
 
@@ -60,7 +55,7 @@ Sessions are stored server-side in SQLite (`DATABASE_PATH`) and keyed by an `Htt
   - `suggested_commit_message`: generated commit message suggestion
   - `document_content`: full staged content in single-document edit mode (when available)
 
-`POST /api/ai/apply` accepts `changes` plus `file_contents` and applies them directly to GitHub (gist/repo) without requiring an active Reader AI project session.
+`POST /api/ai/apply` accepts `changes` plus `file_contents` and applies them directly to GitHub (gist/repo) without requiring any prior server-side staging session.
 
 When `OPENROUTER_PAID_API_KEY` is set, `/api/ai/models` also includes a hardcoded paid-model list. Those models always route through the paid key, while the existing free-model list continues to use `OPENROUTER_API_KEY`.
 

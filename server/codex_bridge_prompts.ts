@@ -1,12 +1,9 @@
-import type { ReaderAiFileEntry } from './reader_ai_tools';
-
 interface BuildCodexBridgePromptOptions {
   source: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   mode?: 'default' | 'prompt_list';
   summary?: string;
   currentDocPath?: string | null;
-  projectFiles?: ReaderAiFileEntry[] | null;
   editModeCurrentDocOnly?: boolean;
 }
 
@@ -82,18 +79,7 @@ export function buildCodexBridgeInput(options: BuildCodexBridgePromptOptions): s
   const sections: string[] = [];
   sections.push('Input context for this turn.');
 
-  if (options.projectFiles && options.projectFiles.length > 0) {
-    sections.push('');
-    sections.push(`Project mode is enabled. ${options.projectFiles.length} file(s) are available.`);
-    if (options.currentDocPath) sections.push(`Current document path: ${options.currentDocPath}`);
-    for (const file of options.projectFiles) {
-      sections.push('');
-      sections.push(`File: ${file.path}`);
-      sections.push('```');
-      sections.push(truncateContent(file.content, 60_000));
-      sections.push('```');
-    }
-  } else if (options.mode === 'prompt_list') {
+  if (options.mode === 'prompt_list') {
     sections.push('');
     sections.push('Prompt-list mode is enabled.');
   } else {
