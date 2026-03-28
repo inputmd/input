@@ -20,6 +20,7 @@ import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
 import { parseDocumentEditorsFromMarkdown, parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
+import { resolveForkTargetInstallationId, resolveForkTargetRepoFullName } from './fork_repo';
 import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import {
   clearGitHubCaches,
@@ -229,8 +230,8 @@ interface RecentRepoVisit {
 }
 
 interface ForkRepoDialogState {
-  installationId: string;
-  repos: InstallationRepo[];
+  installations: LinkedInstallation[];
+  selectedInstallationId: string;
   selectedRepoFullName: string;
   sourcePath: string;
   sourceContent: string;
@@ -699,6 +700,15 @@ export function App() {
   const loadedReposInstallationId = installationId && installationReposById[installationId] ? installationId : null;
   const reposLoadError = installationId ? (reposLoadErrorsById[installationId] ?? null) : null;
   const activeInstalledRepoInstallationId = selectedRepoInstallationId ?? installationId;
+  const forkRepoDialogRepos = forkRepoDialog
+    ? (installationReposById[forkRepoDialog.selectedInstallationId] ?? [])
+    : [];
+  const forkRepoDialogReposLoading = forkRepoDialog
+    ? loadingInstallationReposId === forkRepoDialog.selectedInstallationId
+    : false;
+  const forkRepoDialogReposLoadError = forkRepoDialog
+    ? (reposLoadErrorsById[forkRepoDialog.selectedInstallationId] ?? null)
+    : null;
   const [localRateLimit, setLocalRateLimit] = useState<GitHubRateLimitSnapshot | null>(() =>
     readStoredGitHubRateLimitSnapshot('serverLocal'),
   );
@@ -6734,59 +6744,123 @@ export function App() {
     return repos.repositories;
   }, []);
 
+  const loadInstallationReposForId = useCallback(
+    async (
+      targetInstallationId: string,
+      options?: {
+        force?: boolean;
+        notifyOnError?: boolean;
+      },
+    ): Promise<InstallationRepo[]> => {
+      if (!options?.force) {
+        const cachedRepos = installationReposById[targetInstallationId];
+        if (cachedRepos && !reposLoadErrorsById[targetInstallationId]) return cachedRepos;
+      }
+
+      setLoadingInstallationReposId(targetInstallationId);
+      try {
+        return await fetchInstallationReposForId(targetInstallationId);
+      } catch (err) {
+        if (err instanceof SessionExpiredError) throw err;
+        if (options?.notifyOnError !== false) {
+          showRateLimitToastIfNeeded(err);
+        }
+        setInstallationReposById((prev) => ({ ...prev, [targetInstallationId]: [] }));
+        setReposLoadErrorsById((prev) => ({
+          ...prev,
+          [targetInstallationId]: err instanceof Error ? err.message : 'Failed to load repos',
+        }));
+        return [];
+      } finally {
+        setLoadingInstallationReposId((current) => (current === targetInstallationId ? null : current));
+      }
+    },
+    [fetchInstallationReposForId, installationReposById, reposLoadErrorsById, showRateLimitToastIfNeeded],
+  );
+
+  const syncForkRepoDialogInstallation = useCallback(
+    async (targetInstallationId: string, options?: { force?: boolean }) => {
+      try {
+        const repos = await loadInstallationReposForId(targetInstallationId, {
+          force: options?.force,
+          notifyOnError: false,
+        });
+        setForkRepoDialog((current) => {
+          if (!current || current.selectedInstallationId !== targetInstallationId) return current;
+          return {
+            ...current,
+            selectedRepoFullName: resolveForkTargetRepoFullName(repos, {
+              preferredRepoFullName:
+                selectedRepoInstallationId === targetInstallationId ? selectedRepo : current.selectedRepoFullName,
+            }),
+          };
+        });
+      } catch (err) {
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+        }
+      }
+    },
+    [handleSessionExpired, loadInstallationReposForId, selectedRepo, selectedRepoInstallationId],
+  );
+
   const onOpenForkRepoDialog = useCallback(async () => {
     if (!user || activeView !== 'content' || !currentRepoDocPath || currentDocumentContent === null) return;
     if (!isMarkdownFileName(currentRepoDocPath)) return;
-    if (!installationId) {
+    if (linkedInstallations.length === 0) {
       await showAlert('Connect a GitHub installation before forking this file into a repo.');
       return;
     }
 
-    try {
-      const repos = installationReposById[installationId] ?? (await fetchInstallationReposForId(installationId));
-      if (repos.length === 0) {
-        await showAlert('No repos are available in the current installation.');
-        return;
-      }
-      const selectedRepoFullName =
-        (selectedRepoInstallationId === installationId &&
-          selectedRepo &&
-          repos.some((repo) => repo.full_name.toLowerCase() === selectedRepo.toLowerCase()) &&
-          selectedRepo) ||
-        repos[0].full_name;
-      setForkRepoDialog({
-        installationId,
-        repos,
-        selectedRepoFullName,
-        sourcePath: currentRepoDocPath,
-        sourceContent: currentDocumentContent,
-      });
-    } catch (err) {
-      if (err instanceof SessionExpiredError) {
-        handleSessionExpired();
-        return;
-      }
-      showRateLimitToastIfNeeded(err);
-      await showAlert(err instanceof Error ? err.message : 'Failed to load repos');
+    const targetInstallationId = resolveForkTargetInstallationId(
+      linkedInstallations,
+      activeInstalledRepoInstallationId ?? installationId,
+    );
+    if (!targetInstallationId) {
+      await showAlert('Connect a GitHub installation before forking this file into a repo.');
+      return;
     }
+
+    setForkRepoDialog({
+      installations: linkedInstallations,
+      selectedInstallationId: targetInstallationId,
+      selectedRepoFullName: '',
+      sourcePath: currentRepoDocPath,
+      sourceContent: currentDocumentContent,
+    });
+    await syncForkRepoDialogInstallation(targetInstallationId);
   }, [
+    activeInstalledRepoInstallationId,
     activeView,
     currentDocumentContent,
     currentRepoDocPath,
-    fetchInstallationReposForId,
-    handleSessionExpired,
     installationId,
-    installationReposById,
-    selectedRepo,
-    selectedRepoInstallationId,
+    linkedInstallations,
     showAlert,
-    showRateLimitToastIfNeeded,
+    syncForkRepoDialogInstallation,
     user,
   ]);
 
+  const onSelectForkRepoInstallation = useCallback(
+    (nextInstallationId: string) => {
+      setForkRepoDialog((current) =>
+        current
+          ? {
+              ...current,
+              selectedInstallationId: nextInstallationId,
+              selectedRepoFullName: '',
+            }
+          : current,
+      );
+      void syncForkRepoDialogInstallation(nextInstallationId);
+    },
+    [syncForkRepoDialogInstallation],
+  );
+
   const onConfirmForkRepo = useCallback(async () => {
     if (!forkRepoDialog) return;
-    const targetRepo = forkRepoDialog.repos.find((repo) => repo.full_name === forkRepoDialog.selectedRepoFullName);
+    const targetRepos = installationReposById[forkRepoDialog.selectedInstallationId] ?? [];
+    const targetRepo = targetRepos.find((repo) => repo.full_name === forkRepoDialog.selectedRepoFullName);
     if (!targetRepo) {
       await showAlert('Choose a target repo.');
       return;
@@ -6794,12 +6868,12 @@ export function App() {
 
     setForkRepoSubmitting(true);
     try {
-      await ensureInstalledRepoSession(forkRepoDialog.installationId);
-      const allFiles = await loadRepoAllFiles(forkRepoDialog.installationId, targetRepo.full_name);
+      await ensureInstalledRepoSession(forkRepoDialog.selectedInstallationId);
+      const allFiles = await loadRepoAllFiles(forkRepoDialog.selectedInstallationId, targetRepo.full_name);
       const prepared = await primeInstalledRepoState(targetRepo.full_name, {
         id: targetRepo.id,
         isPrivate: targetRepo.private,
-        installationId: forkRepoDialog.installationId,
+        installationId: forkRepoDialog.selectedInstallationId,
         allFiles,
       });
       if (!prepared) {
@@ -6831,6 +6905,7 @@ export function App() {
     ensureInstalledRepoSession,
     forkRepoDialog,
     handleSessionExpired,
+    installationReposById,
     loadRepoAllFiles,
     navigate,
     primeInstalledRepoState,
@@ -6872,24 +6947,14 @@ export function App() {
 
   const loadInstallationRepos = useCallback(async () => {
     if (!installationId) return;
-    setLoadingInstallationReposId(installationId);
     try {
-      await fetchInstallationReposForId(installationId);
+      await loadInstallationReposForId(installationId, { force: true });
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         handleSessionExpired();
-        return;
       }
-      showRateLimitToastIfNeeded(err);
-      setInstallationReposById((prev) => ({ ...prev, [installationId]: [] }));
-      setReposLoadErrorsById((prev) => ({
-        ...prev,
-        [installationId]: err instanceof Error ? err.message : 'Failed to load repos',
-      }));
-    } finally {
-      setLoadingInstallationReposId((current) => (current === installationId ? null : current));
     }
-  }, [fetchInstallationReposForId, handleSessionExpired, installationId, showRateLimitToastIfNeeded]);
+  }, [handleSessionExpired, installationId, loadInstallationReposForId]);
 
   const onOpenRepoMenu = useCallback(
     async (_mode: 'auto' | 'manual' = 'manual') => {
@@ -6899,7 +6964,7 @@ export function App() {
       const shouldLoadRepos =
         Boolean(installationId) &&
         !installationReposLoading &&
-        loadedReposInstallationId !== installationId &&
+        (loadedReposInstallationId !== installationId || Boolean(reposLoadError)) &&
         (!isAutoMode || autoLoadAttemptedReposInstallationId !== installationId);
       const shouldLoadGists = !menuGistsLoading && !menuGistsLoaded && (!isAutoMode || !autoLoadAttemptedGists);
       if (!shouldLoadRepos && !shouldLoadGists) return;
@@ -6926,6 +6991,7 @@ export function App() {
       user,
       installationReposLoading,
       installationId,
+      reposLoadError,
     ],
   );
 
@@ -8055,14 +8121,25 @@ export function App() {
       {forkRepoDialog ? (
         <ForkRepoDialog
           open
-          repos={forkRepoDialog.repos}
+          installations={forkRepoDialog.installations}
+          selectedInstallationId={forkRepoDialog.selectedInstallationId}
+          repos={forkRepoDialogRepos}
+          reposLoading={forkRepoDialogReposLoading}
+          reposLoadError={forkRepoDialogReposLoadError}
           selectedRepoFullName={forkRepoDialog.selectedRepoFullName}
           currentTargetFullName={
-            selectedRepoInstallationId === forkRepoDialog.installationId && selectedRepo ? selectedRepo : null
+            selectedRepoInstallationId === forkRepoDialog.selectedInstallationId && selectedRepo ? selectedRepo : null
           }
           submitting={forkRepoSubmitting}
+          onSelectInstallation={(selectedInstallationId) => {
+            void onSelectForkRepoInstallation(selectedInstallationId);
+          }}
           onSelectRepo={(selectedRepoFullName) => {
             setForkRepoDialog((current) => (current ? { ...current, selectedRepoFullName } : current));
+          }}
+          onRetryRepos={() => {
+            if (!forkRepoDialog) return;
+            void syncForkRepoDialogInstallation(forkRepoDialog.selectedInstallationId, { force: true });
           }}
           onConfirm={() => {
             void onConfirmForkRepo();

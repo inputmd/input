@@ -219,9 +219,7 @@ function buildDoubleBracePromptContext(
   const tailBudget = maxChars - headerPrefix.length - separatorLen;
   const tailFrom = Math.max(Math.min(headerEnd, to), to - tailBudget);
   const tailSlice = documentText.slice(tailFrom, to);
-  const documentContent = elided
-    ? `${headerPrefix}\n${tailSlice}`
-    : `${headerPrefix}${tailSlice}`;
+  const documentContent = elided ? `${headerPrefix}\n${tailSlice}` : `${headerPrefix}${tailSlice}`;
   return {
     documentContent,
     ranges: [
