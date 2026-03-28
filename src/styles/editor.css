@@ -205,7 +205,7 @@
   margin: calc(var(--editor-padding-y) - 2px) auto 0;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 769px) {
   .mobile-preview-backdrop,
   .mobile-preview-pane {
     display: none;

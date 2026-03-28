@@ -115,9 +115,8 @@
 }
 
 .reader-ai-model-menu {
-  min-width: 220px;
-  max-width: min(320px, calc(100vw - 24px));
-  max-height: min(300px, calc(100vh - 24px));
+  min-width: 240px;
+  max-height: min(65vh, 520px);
   overflow: auto;
   padding: 6px;
   border: 1px solid var(--border);
@@ -129,14 +128,14 @@
 
 .reader-ai-model-menu-item {
   width: 100%;
-  min-height: 30px;
+  min-height: 34px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
   display: flex;
