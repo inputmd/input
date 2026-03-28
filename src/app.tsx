@@ -658,7 +658,7 @@ function buildReaderAiInlinePreview(
   return {
     from: Math.max(0, start),
     to: Math.max(0, Math.min(end, original.length)),
-    insert: replacement,
+    insert: replacement.slice(Math.max(0, start), Math.max(0, Math.min(end, replacement.length))),
     label: 'Reader AI proposal',
   };
 }

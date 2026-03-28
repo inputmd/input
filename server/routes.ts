@@ -2799,12 +2799,13 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       ? new StagedChanges(resolvedProjectFiles)
       : undefined;
 
-  const executeSyncToolCall = (tc: ReaderAiToolCall): string => {
+  const executeSyncToolCall = (tc: ReaderAiToolCall, argsJsonOverride?: string): string => {
+    const toolArgsJson = argsJsonOverride ?? tc.arguments;
     if (isProjectMode) {
       if (editModeCurrentDocOnly && currentDocPath) {
         let args: Record<string, unknown> | null = null;
         try {
-          args = tc.arguments ? (JSON.parse(tc.arguments) as Record<string, unknown>) : {};
+          args = toolArgsJson ? (JSON.parse(toolArgsJson) as Record<string, unknown>) : {};
         } catch {
           // Let the tool handler return its own invalid JSON error.
         }
@@ -2817,10 +2818,10 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           }
         }
       }
-      return executeReaderAiProjectSyncTool(tc.name, tc.arguments, resolvedProjectFiles, stagedChanges);
+      return executeReaderAiProjectSyncTool(tc.name, toolArgsJson, resolvedProjectFiles, stagedChanges);
     }
-    if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(tc.arguments, documentEditState);
-    return executeReaderAiSyncTool(tc.name, tc.arguments, aiLines);
+    if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(toolArgsJson, documentEditState);
+    return executeReaderAiSyncTool(tc.name, toolArgsJson, aiLines);
   };
 
   const writeSseEvent = (event: string, data: unknown) => {
@@ -3046,7 +3047,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           continue;
         }
 
-        const toolResult = executeSyncToolCall(tc);
+        const toolResult = executeSyncToolCall(tc, repaired && parsedArgs ? JSON.stringify(parsedArgs) : undefined);
 
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;

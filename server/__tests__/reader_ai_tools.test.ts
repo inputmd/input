@@ -558,6 +558,13 @@ test('repairToolArgumentsJson trims trailing commas before close', (t) => {
   );
 });
 
+test('project sync tool can execute with repaired JSON arguments', (t) => {
+  const repaired = repairToolArgumentsJson('{"path":"README.md",}') ?? '';
+  const result = executeReaderAiProjectSyncTool('read_file', repaired, sampleFiles);
+  t.true(result.includes('README.md'));
+  t.true(result.includes('# Hello'));
+});
+
 test('stream parser handles multiple parallel tool calls', async (t) => {
   const stream = makeStream([
     sseChunk({
