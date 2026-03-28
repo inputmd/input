@@ -137,6 +137,7 @@ import {
   listReaderAiModels,
   localCodexEnabledByPreference,
   type ReaderAiModel,
+  type ReaderAiStagedChange,
   readerAiModelPriorityRank,
   resetReaderAiProjectSession,
   setLocalCodexEnabledByPreference,
@@ -779,9 +780,7 @@ export function App() {
   const [readerAiToolLog, setReaderAiToolLog] = useState<
     Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string; taskId?: string }>
   >([]);
-  const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<
-    Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>
-  >([]);
+  const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<ReaderAiStagedChange[]>([]);
   const readerAiStagedChangesStreaming = readerAiSending && readerAiStagedChanges.length > 0;
   const [readerAiAppliedChanges, setReaderAiAppliedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>

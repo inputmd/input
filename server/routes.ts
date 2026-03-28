@@ -49,6 +49,7 @@ import {
   executeReaderAiSyncTool,
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
+  parseUnifiedDiffHunks,
   READER_AI_DOC_PREVIEW_CHARS,
   READER_AI_MAX_CONCURRENT_TASKS,
   READER_AI_PROJECT_TOOLS,
@@ -2719,6 +2720,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     currentDocPath,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
+    stagedRevision: 0,
   };
   const modelEntry = allowedModels.find((m) => m.id === model);
   const contextTokens = modelEntry?.context_length || 0;
@@ -2826,6 +2828,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   };
 
   let lastStagedChangesSignature: string | null = null;
+  let stagedChangesRevision = 0;
   const emitStagedChangesSnapshot = () => {
     const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
     const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
@@ -2834,18 +2837,26 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       : hasDocumentStagedChange
         ? [
             {
+              id: `change:${currentDocPath || 'current-document.md'}`,
               path: currentDocPath || 'current-document.md',
               type: 'edit' as const,
               original: source,
               modified: documentEditState.stagedContent!,
               diff: documentEditState.stagedDiff!,
+              revision: documentEditState.stagedRevision,
+              hunks: parseUnifiedDiffHunks(documentEditState.stagedDiff!),
             },
           ]
         : [];
     const changes = allChanges.map((c) => ({
+      id: c.id,
       path: c.path,
       type: c.type,
       diff: c.diff,
+      revision: stagedChangesRevision,
+      original_content: c.original,
+      modified_content: c.modified,
+      hunks: parseUnifiedDiffHunks(c.diff),
     }));
     // Include full modified content so clients can apply without depending on
     // a cached project session lookup.
@@ -3005,6 +3016,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           tc.name === 'propose_create_file' ||
           tc.name === 'propose_delete_file'
         ) {
+          stagedChangesRevision += 1;
           emitStagedChangesSnapshot();
         }
       }
