@@ -28,8 +28,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
-import { detectedLanguageForFileName } from './codemirror_languages';
 import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
+import { detectedLanguageForFileName } from './codemirror_languages';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController } from './editor_controller';
 import {

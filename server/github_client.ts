@@ -240,12 +240,10 @@ export async function githubGraphqlWithInstallationToken<T>(
     signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });
 
-  const payload = (await res.json().catch(() => null)) as
-    | {
-        data?: T;
-        errors?: Array<{ message?: string; type?: string; path?: Array<string | number> }>;
-      }
-    | null;
+  const payload = (await res.json().catch(() => null)) as {
+    data?: T;
+    errors?: Array<{ message?: string; type?: string; path?: Array<string | number> }>;
+  } | null;
 
   if (!res.ok) {
     const details = await parseGitHubErrorDetails(

@@ -1,5 +1,5 @@
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
-import type { ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
+import type { ReaderAiEditProposal, ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
 import type { Route } from './routing';
 import type { PublicRepoRef } from './wiki_links';
 
@@ -12,7 +12,14 @@ export interface ReaderAiHistoryEntry {
   messages: ReaderAiMessage[];
   summary?: string;
   scope?: { kind: 'document' } | { kind: 'selection'; source: string };
-  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string; taskId?: string }>;
+  toolLog?: Array<{
+    type: 'call' | 'result' | 'progress';
+    id?: string;
+    name: string;
+    detail?: string;
+    taskId?: string;
+  }>;
+  editProposals?: ReaderAiEditProposal[];
   stagedChanges?: ReaderAiStagedChange[];
   stagedChangesInvalid?: boolean;
   stagedFileContents?: Record<string, string>;
@@ -182,6 +189,35 @@ function normalizePersistedStagedChanges(value: unknown): {
   return { changes, invalid };
 }
 
+function normalizePersistedEditProposals(value: unknown): ReaderAiEditProposal[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry): ReaderAiEditProposal | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const id = typeof (entry as { id?: unknown }).id === 'string' ? (entry as { id: string }).id : '';
+      const toolCallId =
+        typeof (entry as { toolCallId?: unknown }).toolCallId === 'string'
+          ? (entry as { toolCallId: string }).toolCallId
+          : undefined;
+      const statusRaw = (entry as { status?: unknown }).status;
+      const status = statusRaw === 'accepted' || statusRaw === 'rejected' ? statusRaw : undefined;
+      const selectedHunkIdsRaw = (entry as { selectedHunkIds?: unknown }).selectedHunkIds;
+      const selectedHunkIds = Array.isArray(selectedHunkIdsRaw)
+        ? selectedHunkIdsRaw.filter((value): value is string => typeof value === 'string')
+        : undefined;
+      const normalizedChange = normalizePersistedStagedChanges([(entry as { change?: unknown }).change]).changes[0];
+      if (!id || !normalizedChange) return null;
+      return {
+        id,
+        ...(toolCallId ? { toolCallId } : {}),
+        change: normalizedChange,
+        ...(status ? { status } : {}),
+        ...(selectedHunkIds ? { selectedHunkIds } : {}),
+      };
+    })
+    .filter((proposal): proposal is ReaderAiEditProposal => proposal !== null);
+}
+
 function normalizePersistedAppliedChanges(value: unknown): NonNullable<ReaderAiHistoryEntry['appliedChanges']> {
   if (!Array.isArray(value)) return [];
   const applied: NonNullable<ReaderAiHistoryEntry['appliedChanges']> = [];
@@ -237,7 +273,30 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
           }
         }
         if (Array.isArray(entry.toolLog) && entry.toolLog.length > 0)
-          parsed.toolLog = entry.toolLog as ReaderAiHistoryEntry['toolLog'];
+          parsed.toolLog = (entry.toolLog as Array<Record<string, unknown>>)
+            .map((toolEntry): NonNullable<ReaderAiHistoryEntry['toolLog']>[number] | null => {
+              const type = toolEntry.type;
+              const name = toolEntry.name;
+              if (
+                (type !== 'call' && type !== 'result' && type !== 'progress') ||
+                typeof name !== 'string' ||
+                !name.trim()
+              ) {
+                return null;
+              }
+              return {
+                type,
+                name,
+                id: typeof toolEntry.id === 'string' ? toolEntry.id : undefined,
+                detail: typeof toolEntry.detail === 'string' ? toolEntry.detail : undefined,
+                taskId: typeof toolEntry.taskId === 'string' ? toolEntry.taskId : undefined,
+              };
+            })
+            .filter(
+              (toolEntry): toolEntry is NonNullable<ReaderAiHistoryEntry['toolLog']>[number] => toolEntry !== null,
+            );
+        const editProposals = normalizePersistedEditProposals((entry as { editProposals?: unknown }).editProposals);
+        if (editProposals.length > 0) parsed.editProposals = editProposals;
         const normalizedStagedChanges = normalizePersistedStagedChanges(entry.stagedChanges);
         if (normalizedStagedChanges.changes.length > 0) parsed.stagedChanges = normalizedStagedChanges.changes;
         if (normalizedStagedChanges.invalid) parsed.stagedChangesInvalid = true;
@@ -278,7 +337,14 @@ export function persistReaderAiMessagesToHistory(
   messages: ReaderAiMessage[],
   summary?: string,
   scope?: ReaderAiHistoryEntry['scope'],
-  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string; taskId?: string }>,
+  toolLog?: Array<{
+    type: 'call' | 'result' | 'progress';
+    id?: string;
+    name: string;
+    detail?: string;
+    taskId?: string;
+  }>,
+  editProposals?: ReaderAiEditProposal[],
   stagedChanges?: ReaderAiStagedChange[],
   stagedFileContents?: Record<string, string>,
   appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>,
@@ -295,6 +361,7 @@ export function persistReaderAiMessagesToHistory(
   if (summary) entry.summary = summary;
   if (scope) entry.scope = scope;
   if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;
+  if (editProposals && editProposals.length > 0) entry.editProposals = editProposals;
   if (stagedChanges && stagedChanges.length > 0) entry.stagedChanges = stagedChanges;
   if (stagedFileContents && Object.keys(stagedFileContents).length > 0) entry.stagedFileContents = stagedFileContents;
   if (appliedChanges && appliedChanges.length > 0)

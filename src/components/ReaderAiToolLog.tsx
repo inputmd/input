@@ -1,8 +1,11 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'preact/hooks';
+import type { ReaderAiEditProposal } from '../reader_ai';
+import { ReaderAiEditProposalCard } from './ReaderAiEditProposalCard';
 
 export interface ReaderAiToolLogEntry {
   type: 'call' | 'result' | 'progress';
+  id?: string;
   name: string;
   detail?: string;
   taskId?: string;
@@ -33,7 +36,23 @@ function taskStatusLabel(status: ReaderAiToolLogEntry['taskStatus']): string {
   return 'running';
 }
 
-export function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntry[]; live?: boolean }) {
+export function ToolLogSection({
+  entries,
+  live,
+  proposals,
+  onAcceptProposal,
+  onRejectProposal,
+  onEditProposal,
+  onToggleProposalHunkSelection,
+}: {
+  entries: ReaderAiToolLogEntry[];
+  live?: boolean;
+  proposals?: ReaderAiEditProposal[];
+  onAcceptProposal?: (proposalId: string) => void;
+  onRejectProposal?: (proposalId: string) => void;
+  onEditProposal?: (proposalId: string) => void;
+  onToggleProposalHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(() => new Set());
   if (entries.length === 0) return null;
@@ -44,7 +63,17 @@ export function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntr
     : `${activityCount} tool activit${activityCount === 1 ? 'y' : 'ies'}`;
 
   // Auto-expand while live
-  const isExpanded = live || expanded;
+  const isExpanded = live || expanded || (proposals?.length ?? 0) > 0;
+  const proposalsByToolCallId = useMemo(() => {
+    const grouped = new Map<string, ReaderAiEditProposal[]>();
+    for (const proposal of proposals ?? []) {
+      if (!proposal.toolCallId) continue;
+      const current = grouped.get(proposal.toolCallId) ?? [];
+      current.push(proposal);
+      grouped.set(proposal.toolCallId, current);
+    }
+    return grouped;
+  }, [proposals]);
 
   const grouped = useMemo(() => {
     const taskCards: Array<{
@@ -96,18 +125,31 @@ export function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntr
       {isExpanded ? (
         <div class="reader-ai-tool-log-entries">
           {grouped.generalEntries.map((entry, i) => (
-            <div
-              key={`general:${i}`}
-              class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
-                entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
-              }`}
-            >
-              <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
-              {entry.detail ? (
-                <span class="reader-ai-tool-log-detail">
-                  {entry.detail.length > 90 ? `${entry.detail.slice(0, 90)}…` : entry.detail}
-                </span>
-              ) : null}
+            <div key={`general:${i}`} class="reader-ai-tool-log-entry-block">
+              <div
+                class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
+                  entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
+                }`}
+              >
+                <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
+                {entry.detail ? (
+                  <span class="reader-ai-tool-log-detail">
+                    {entry.detail.length > 90 ? `${entry.detail.slice(0, 90)}…` : entry.detail}
+                  </span>
+                ) : null}
+              </div>
+              {entry.type === 'result' && entry.id
+                ? (proposalsByToolCallId.get(entry.id) ?? []).map((proposal) => (
+                    <ReaderAiEditProposalCard
+                      key={proposal.id}
+                      proposal={proposal}
+                      onAccept={onAcceptProposal}
+                      onReject={onRejectProposal}
+                      onEdit={onEditProposal}
+                      onToggleHunkSelection={onToggleProposalHunkSelection}
+                    />
+                  ))
+                : null}
             </div>
           ))}
           {grouped.taskCards.map((card) => {
@@ -124,18 +166,31 @@ export function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntr
                 {taskExpanded ? (
                   <div class="reader-ai-tool-task-entries">
                     {card.entries.map((entry, entryIndex) => (
-                      <div
-                        key={`${card.taskId}:${entryIndex}`}
-                        class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
-                          entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
-                        }`}
-                      >
-                        <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
-                        {entry.detail ? (
-                          <span class="reader-ai-tool-log-detail">
-                            {entry.detail.length > 120 ? `${entry.detail.slice(0, 120)}…` : entry.detail}
-                          </span>
-                        ) : null}
+                      <div key={`${card.taskId}:${entryIndex}`} class="reader-ai-tool-log-entry-block">
+                        <div
+                          class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
+                            entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
+                          }`}
+                        >
+                          <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
+                          {entry.detail ? (
+                            <span class="reader-ai-tool-log-detail">
+                              {entry.detail.length > 120 ? `${entry.detail.slice(0, 120)}…` : entry.detail}
+                            </span>
+                          ) : null}
+                        </div>
+                        {entry.type === 'result' && entry.id
+                          ? (proposalsByToolCallId.get(entry.id) ?? []).map((proposal) => (
+                              <ReaderAiEditProposalCard
+                                key={proposal.id}
+                                proposal={proposal}
+                                onAccept={onAcceptProposal}
+                                onReject={onRejectProposal}
+                                onEdit={onEditProposal}
+                                onToggleHunkSelection={onToggleProposalHunkSelection}
+                              />
+                            ))
+                          : null}
                       </div>
                     ))}
                   </div>

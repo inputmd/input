@@ -46,6 +46,8 @@ export function StagedChangesSection({
   defaultCommitMessage,
   applying,
   streaming,
+  title,
+  reviewControls = true,
   editorProposalMode,
   canUndoEditorApply,
   selectedChangeIds,
@@ -53,6 +55,7 @@ export function StagedChangesSection({
   canApplyWithoutSaving,
   canApplyAndCommit,
   disabledHint,
+  onIgnoreAll,
   onToggleChangeSelection,
   onToggleHunkSelection,
   onRejectChange,
@@ -65,6 +68,8 @@ export function StagedChangesSection({
   defaultCommitMessage: string;
   applying: boolean;
   streaming?: boolean;
+  title?: string;
+  reviewControls?: boolean;
   editorProposalMode?: boolean;
   canUndoEditorApply?: boolean;
   selectedChangeIds?: Set<string>;
@@ -72,6 +77,7 @@ export function StagedChangesSection({
   canApplyWithoutSaving?: boolean;
   canApplyAndCommit?: boolean;
   disabledHint?: string;
+  onIgnoreAll?: () => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
   onRejectChange?: (changeId: string) => void;
@@ -132,7 +138,8 @@ export function StagedChangesSection({
       <div class="reader-ai-staged-changes-header">
         <div class="reader-ai-staged-changes-header-copy">
           <span>
-            {streaming ? 'Proposed changes' : 'Staged changes'} ({changes.length} file{changes.length === 1 ? '' : 's'})
+            {title ?? (streaming ? 'Proposed changes' : 'Staged changes')} ({changes.length} file
+            {changes.length === 1 ? '' : 's'})
           </span>
           {streaming ? (
             <span class="reader-ai-staged-changes-live-pill">
@@ -166,7 +173,7 @@ export function StagedChangesSection({
               </span>
               <span class="reader-ai-staged-change-path">{change.path}</span>
             </button>
-            {!streaming && change.id ? (
+            {!streaming && reviewControls && change.id ? (
               <div class="reader-ai-staged-change-controls">
                 <button
                   type="button"
@@ -201,28 +208,32 @@ export function StagedChangesSection({
                     const hunkSelected = change.id ? selectedHunkIds?.[change.id]?.has(hunk.id) !== false : true;
                     return (
                       <div key={hunk.id} class="reader-ai-staged-hunk-row">
-                        <button
-                          type="button"
-                          class={`reader-ai-staged-toggle-btn${hunkSelected ? '' : ' reader-ai-staged-toggle-btn--off'}`}
-                          onClick={() => change.id && onToggleHunkSelection?.(change.id, hunk.id, !hunkSelected)}
-                          title={
-                            hunkSelected ? 'Exclude this hunk from apply set' : 'Accept this hunk back into apply set'
-                          }
-                        >
-                          {renderSelectionToggle(hunkSelected, 'Toggle hunk selection')}
-                        </button>
+                        {reviewControls ? (
+                          <button
+                            type="button"
+                            class={`reader-ai-staged-toggle-btn${hunkSelected ? '' : ' reader-ai-staged-toggle-btn--off'}`}
+                            onClick={() => change.id && onToggleHunkSelection?.(change.id, hunk.id, !hunkSelected)}
+                            title={
+                              hunkSelected ? 'Exclude this hunk from apply set' : 'Accept this hunk back into apply set'
+                            }
+                          >
+                            {renderSelectionToggle(hunkSelected, 'Toggle hunk selection')}
+                          </button>
+                        ) : null}
                         <div class="reader-ai-staged-hunk-copy">
                           <div class="reader-ai-staged-hunk-header">{hunk.header}</div>
                           <div class="reader-ai-staged-hunk-summary">{hunkSummary(hunk)}</div>
                         </div>
-                        <button
-                          type="button"
-                          class="reader-ai-staged-reject-btn"
-                          onClick={() => change.id && onRejectHunk?.(change.id, hunk.id)}
-                          title="Reject this hunk"
-                        >
-                          <X size={13} aria-hidden="true" />
-                        </button>
+                        {reviewControls ? (
+                          <button
+                            type="button"
+                            class="reader-ai-staged-reject-btn"
+                            onClick={() => change.id && onRejectHunk?.(change.id, hunk.id)}
+                            title="Reject this hunk"
+                          >
+                            <X size={13} aria-hidden="true" />
+                          </button>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -272,7 +283,7 @@ export function StagedChangesSection({
                     <button
                       type="button"
                       class="reader-ai-staged-changes-secondary"
-                      onClick={() => changes.forEach((change) => change.id && onRejectChange?.(change.id))}
+                      onClick={() => onIgnoreAll?.()}
                       disabled={applying}
                     >
                       Ignore

@@ -30,11 +30,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
+import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { type InlinePromptRequest, inlinePromptCompletionSource } from './codemirror_inline_prompt';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codemirror_markdown';
-import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController } from './editor_controller';
 import {

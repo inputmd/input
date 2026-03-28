@@ -1,9 +1,9 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ArrowRight, CircleAlert, CircleStop, MoreHorizontal, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
-import type { ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
+import type { ReaderAiEditProposal, ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
@@ -29,6 +29,7 @@ interface ReaderAiPanelProps {
   sending: boolean;
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
+  editProposals: ReaderAiEditProposal[];
   stagedChanges: ReaderAiStagedChange[];
   stagedChangesStreaming?: boolean;
   suggestedCommitMessage: string;
@@ -42,6 +43,10 @@ interface ReaderAiPanelProps {
   onApplyAndCommit: (commitMessage?: string) => void;
   onUndoEditorApply?: () => void;
   onIgnoreAll?: () => void;
+  onAcceptProposal?: (proposalId: string) => void;
+  onRejectProposal?: (proposalId: string) => void;
+  onEditProposal?: (proposalId: string) => void;
+  onToggleProposalHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
   selectedChangeIds?: Set<string>;
@@ -127,6 +132,7 @@ export function ReaderAiPanel({
   sending,
   toolStatus,
   toolLog,
+  editProposals,
   stagedChanges,
   stagedChangesStreaming = false,
   suggestedCommitMessage,
@@ -140,6 +146,10 @@ export function ReaderAiPanel({
   onApplyAndCommit,
   onUndoEditorApply,
   onIgnoreAll,
+  onAcceptProposal,
+  onRejectProposal,
+  onEditProposal,
+  onToggleProposalHunkSelection,
   onToggleChangeSelection,
   onToggleHunkSelection,
   selectedChangeIds,
@@ -217,13 +227,13 @@ export function ReaderAiPanel({
     pinnedToBottomRef.current = true;
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length triggers scroll on new tool activity
+  // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length and editProposals.length trigger scroll on new activity
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
     if (!pinnedToBottomRef.current && !isNearMessagesBottom(root)) return;
     root.scrollTop = root.scrollHeight;
-  }, [isNearMessagesBottom, messageCount, sending, toolLog.length]);
+  }, [editProposals.length, isNearMessagesBottom, messageCount, sending, toolLog.length]);
 
   useEffect(() => {
     if (editingIndex === null) return;
@@ -343,7 +353,9 @@ export function ReaderAiPanel({
       }
     }
     if (failedCommand) {
-      setQueuedCommands((prev) => [failedCommand, ...commands.slice(commands.indexOf(failedCommand) + 1), ...prev].slice(0, 10));
+      setQueuedCommands((prev) =>
+        [failedCommand, ...commands.slice(commands.indexOf(failedCommand) + 1), ...prev].slice(0, 10),
+      );
       if (!prompt) setDraft(draftValue);
       else if (failedCommand === prompt) setDraft(draftValue);
     }
@@ -413,12 +425,10 @@ export function ReaderAiPanel({
         showLoginForMoreModels={showLoginForMoreModels}
       />
       {queuedCommands.length > 0 ? (
-        <div class="reader-ai-queue" aria-label="Queued Reader AI commands">
+        <div class="reader-ai-queue" role="group" aria-label="Queued Reader AI commands">
           <div class="reader-ai-queue-header">
             <span class="reader-ai-queue-title">Queued commands</span>
-            <span class="reader-ai-queue-count">
-              {queuedCommands.length}/10
-            </span>
+            <span class="reader-ai-queue-count">{queuedCommands.length}/10</span>
           </div>
           <div class="reader-ai-queue-list">
             {queuedCommands.map((command, index) => (
@@ -678,7 +688,17 @@ export function ReaderAiPanel({
             </div>
             {index === lastUserMessageIndex ? (
               <>
-                {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
+                {toolLog.length > 0 ? (
+                  <ToolLogSection
+                    entries={toolLog}
+                    live={sending}
+                    proposals={editProposals}
+                    onAcceptProposal={onAcceptProposal}
+                    onRejectProposal={onRejectProposal}
+                    onEditProposal={onEditProposal}
+                    onToggleProposalHunkSelection={onToggleProposalHunkSelection}
+                  />
+                ) : null}
                 {sending && toolStatus && toolLog.length === 0 ? (
                   <div class="reader-ai-tool-status">{toolStatus}</div>
                 ) : null}
@@ -688,7 +708,17 @@ export function ReaderAiPanel({
         ))}
         {lastUserMessageIndex === -1 ? (
           <>
-            {toolLog.length > 0 ? <ToolLogSection entries={toolLog} live={sending} /> : null}
+            {toolLog.length > 0 ? (
+              <ToolLogSection
+                entries={toolLog}
+                live={sending}
+                proposals={editProposals}
+                onAcceptProposal={onAcceptProposal}
+                onRejectProposal={onRejectProposal}
+                onEditProposal={onEditProposal}
+                onToggleProposalHunkSelection={onToggleProposalHunkSelection}
+              />
+            ) : null}
             {sending && toolStatus && toolLog.length === 0 ? (
               <div class="reader-ai-tool-status">{toolStatus}</div>
             ) : null}
@@ -718,6 +748,7 @@ export function ReaderAiPanel({
           <StagedChangesSection
             changes={stagedChanges}
             streaming={stagedChangesStreaming}
+            title={editProposals.length > 0 ? 'Accepted proposals' : undefined}
             defaultCommitMessage={suggestedCommitMessage}
             applying={applyingChanges}
             canApplyWithoutSaving={canApplyWithoutSaving}
@@ -725,6 +756,7 @@ export function ReaderAiPanel({
             editorProposalMode={editorProposalMode}
             canUndoEditorApply={canUndoEditorApply}
             disabledHint={stagedChangesDisabledHint}
+            reviewControls={false}
             onApplyWithoutSaving={onApplyWithoutSaving}
             onApplyAndCommit={onApplyAndCommit}
             onUndoEditorApply={onUndoEditorApply}

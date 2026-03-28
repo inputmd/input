@@ -52,6 +52,14 @@ export interface ReaderAiStagedHunk {
   lines: ReaderAiStagedHunkLine[];
 }
 
+export interface ReaderAiEditProposal {
+  id: string;
+  toolCallId?: string;
+  change: ReaderAiStagedChange;
+  status?: 'accepted' | 'rejected';
+  selectedHunkIds?: string[];
+}
+
 export interface ReaderAiToolCallEvent {
   id?: string;
   name: string;
@@ -81,6 +89,7 @@ interface ReaderAiStreamOptions {
   onSummary?: (summary: string) => void;
   onToolCall?: (event: ReaderAiToolCallEvent) => void;
   onToolResult?: (event: ReaderAiToolResultEvent) => void;
+  onEditProposal?: (proposal: ReaderAiEditProposal) => void;
   onTaskProgress?: (event: ReaderAiTaskProgressEvent) => void;
   onStagedChanges?: (
     changes: ReaderAiStagedChange[],
@@ -232,6 +241,82 @@ function joinStructuredContentSegments(segments: string[]): string {
     result = appendStreamText(result, segment);
   }
   return result;
+}
+
+function normalizeReaderAiHunk(input: unknown): ReaderAiStagedHunk | null {
+  if (!input || typeof input !== 'object') return null;
+  const hunk = input as {
+    id?: unknown;
+    header?: unknown;
+    oldStart?: unknown;
+    old_start?: unknown;
+    oldLines?: unknown;
+    old_lines?: unknown;
+    newStart?: unknown;
+    new_start?: unknown;
+    newLines?: unknown;
+    new_lines?: unknown;
+    lines?: unknown;
+  };
+  return {
+    id: typeof hunk.id === 'string' ? hunk.id : `hunk:${Math.random().toString(36).slice(2)}`,
+    header: typeof hunk.header === 'string' ? hunk.header : '@@',
+    oldStart:
+      typeof hunk.oldStart === 'number' ? hunk.oldStart : typeof hunk.old_start === 'number' ? hunk.old_start : 0,
+    oldLines:
+      typeof hunk.oldLines === 'number' ? hunk.oldLines : typeof hunk.old_lines === 'number' ? hunk.old_lines : 0,
+    newStart:
+      typeof hunk.newStart === 'number' ? hunk.newStart : typeof hunk.new_start === 'number' ? hunk.new_start : 0,
+    newLines:
+      typeof hunk.newLines === 'number' ? hunk.newLines : typeof hunk.new_lines === 'number' ? hunk.new_lines : 0,
+    lines: Array.isArray(hunk.lines)
+      ? hunk.lines
+          .filter((line): line is ReaderAiStagedHunkLine => !!line && typeof line === 'object')
+          .map((line) => ({
+            type: line.type === 'add' || line.type === 'del' || line.type === 'context' ? line.type : 'context',
+            content: typeof line.content === 'string' ? line.content : '',
+          }))
+      : [],
+  };
+}
+
+function normalizeReaderAiStagedChange(input: unknown, revision?: number): ReaderAiStagedChange | null {
+  if (!input || typeof input !== 'object') return null;
+  const change = input as {
+    id?: unknown;
+    path?: unknown;
+    type?: unknown;
+    diff?: unknown;
+    revision?: unknown;
+    originalContent?: unknown;
+    original_content?: unknown;
+    modifiedContent?: unknown;
+    modified_content?: unknown;
+    hunks?: unknown;
+  };
+  const path = typeof change.path === 'string' ? change.path : '';
+  const type = change.type;
+  const diff = typeof change.diff === 'string' ? change.diff : '';
+  if (!path || (type !== 'edit' && type !== 'create' && type !== 'delete') || !diff) return null;
+  const originalContentRaw = change.originalContent ?? change.original_content;
+  const modifiedContentRaw = change.modifiedContent ?? change.modified_content;
+  return {
+    id: typeof change.id === 'string' ? change.id : undefined,
+    path,
+    type,
+    diff,
+    revision:
+      typeof revision === 'number' ? revision : typeof change.revision === 'number' ? change.revision : undefined,
+    originalContent:
+      typeof originalContentRaw === 'string' || originalContentRaw === null ? originalContentRaw : undefined,
+    modifiedContent:
+      typeof modifiedContentRaw === 'string' || modifiedContentRaw === null ? modifiedContentRaw : undefined,
+    hunks: Array.isArray(change.hunks)
+      ? change.hunks
+          .map((hunk) => normalizeReaderAiHunk(hunk))
+          .filter((hunk): hunk is ReaderAiStagedHunk => hunk !== null)
+      : undefined,
+  };
 }
 
 function extractStreamDelta(payload: unknown): string {
@@ -500,11 +585,34 @@ export async function askReaderAiStream(
       } else if (eventType === 'tool_result') {
         if (options.onToolResult) {
           try {
-            const parsed = JSON.parse(data) as { id?: string; name?: string; preview?: string };
+            const parsed = JSON.parse(data) as { id?: string; name?: string; preview?: string; error?: string };
             if (typeof parsed.name === 'string')
-              options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview });
+              options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview, error: parsed.error });
           } catch {
             // Ignore malformed tool_result event.
+          }
+        }
+      } else if (eventType === 'edit_proposal') {
+        if (options.onEditProposal) {
+          try {
+            const parsed = JSON.parse(data) as {
+              proposal_id?: string;
+              tool_call_id?: string;
+              change?: unknown;
+              revision?: number;
+            };
+            const change = normalizeReaderAiStagedChange(parsed.change, parsed.revision);
+            if (typeof parsed.proposal_id === 'string' && change) {
+              options.onEditProposal({
+                id: parsed.proposal_id,
+                toolCallId: typeof parsed.tool_call_id === 'string' ? parsed.tool_call_id : undefined,
+                change,
+                status: 'accepted',
+                selectedHunkIds: Array.isArray(change.hunks) ? change.hunks.map((hunk) => hunk.id) : undefined,
+              });
+            }
+          } catch {
+            // Ignore malformed edit_proposal event.
           }
         }
       } else if (eventType === 'task_progress') {
@@ -558,43 +666,8 @@ export async function askReaderAiStream(
                     )
                   : undefined;
               const changes = parsed.changes
-                .filter((change): change is ReaderAiStagedChange => !!change && typeof change === 'object')
-                .map((change) => ({
-                  ...change,
-                  id: typeof change.id === 'string' ? change.id : undefined,
-                  revision: typeof parsed.revision === 'number' ? parsed.revision : undefined,
-                  originalContent:
-                    typeof change.originalContent === 'string' || change.originalContent === null
-                      ? change.originalContent
-                      : undefined,
-                  modifiedContent:
-                    typeof change.modifiedContent === 'string' || change.modifiedContent === null
-                      ? change.modifiedContent
-                      : undefined,
-                  hunks: Array.isArray(change.hunks)
-                    ? change.hunks
-                        .filter((hunk): hunk is ReaderAiStagedHunk => !!hunk && typeof hunk === 'object')
-                        .map((hunk) => ({
-                          id: typeof hunk.id === 'string' ? hunk.id : `hunk:${Math.random().toString(36).slice(2)}`,
-                          header: typeof hunk.header === 'string' ? hunk.header : '@@',
-                          oldStart: typeof hunk.oldStart === 'number' ? hunk.oldStart : 0,
-                          oldLines: typeof hunk.oldLines === 'number' ? hunk.oldLines : 0,
-                          newStart: typeof hunk.newStart === 'number' ? hunk.newStart : 0,
-                          newLines: typeof hunk.newLines === 'number' ? hunk.newLines : 0,
-                          lines: Array.isArray(hunk.lines)
-                            ? hunk.lines
-                                .filter((line): line is ReaderAiStagedHunkLine => !!line && typeof line === 'object')
-                                .map((line) => ({
-                                  type:
-                                    line.type === 'add' || line.type === 'del' || line.type === 'context'
-                                      ? line.type
-                                      : 'context',
-                                  content: typeof line.content === 'string' ? line.content : '',
-                                }))
-                            : [],
-                        }))
-                    : undefined,
-                }));
+                .map((change) => normalizeReaderAiStagedChange(change, parsed.revision))
+                .filter((change): change is ReaderAiStagedChange => change !== null);
               options.onStagedChanges(
                 changes,
                 parsed.suggested_commit_message,

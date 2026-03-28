@@ -23,10 +23,10 @@ import { stripCriticMarkupComments } from './criticmarkup.js';
 import { ClientError } from './errors';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
 import {
+  atomicForceUpdateGitHubRef,
   createAppJwt,
   encodePathPreserveSlashes,
-  forceUpdateBranchRefAtomicallyWithInstallationToken,
-  getRepoBranchStateWithInstallationToken,
+  getGitHubRepositoryBranchState,
   getRepoInstallationId,
   githubFetchWithInstallationToken,
   githubGraphqlWithInstallationToken,
@@ -1699,7 +1699,7 @@ async function handleListRecentCommits(ctx: RouteContext): Promise<void> {
       }
     }
   `;
-  const recentCommitsPayload = await githubFetchGraphqlWithInstallationToken<{
+  const recentCommitsPayload = await githubGraphqlWithInstallationToken<{
     repository?: {
       defaultBranchRef?: {
         name?: string | null;
@@ -1721,7 +1721,7 @@ async function handleListRecentCommits(ctx: RouteContext): Promise<void> {
   }>(installationId, recentCommitsQuery, { owner, repo, perPage });
   const graphqlMessage =
     recentCommitsPayload.errors
-      ?.map((entry) => entry.message)
+      ?.map((entry: { message?: string }) => entry.message)
       .filter((message): message is string => typeof message === 'string' && message.trim().length > 0)
       .join('; ') ?? '';
   const branch = recentCommitsPayload.data?.repository?.defaultBranchRef?.name?.trim() ?? '';
@@ -1733,7 +1733,7 @@ async function handleListRecentCommits(ctx: RouteContext): Promise<void> {
   }
   const commitNodes = recentCommitsPayload.data?.repository?.defaultBranchRef?.target?.history?.nodes ?? [];
   const commits = commitNodes
-    .map((commit, index) => {
+    .map((commit: (typeof commitNodes)[number], index: number) => {
       const sha = typeof commit?.oid === 'string' ? commit.oid : '';
       if (!sha) return null;
       const message = typeof commit?.message === 'string' ? commit.message : '';
@@ -1792,6 +1792,84 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
     entries: entriesFromTree(data?.tree ?? []),
     truncated: data?.truncated ?? false,
   });
+}
+
+async function fetchRepositoryBranchState(
+  installationId: string,
+  owner: string,
+  repo: string,
+): Promise<{
+  repositoryId: string;
+  defaultBranch: string;
+  headSha: string;
+  baseTreeSha: string;
+  tree: GitTreeEntry[];
+}> {
+  const branchState = await getGitHubRepositoryBranchState(installationId, owner, repo);
+  const treePath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branchState.baseTreeSha)}?recursive=1`;
+  const treeRes = await githubFetchWithInstallationToken(installationId, treePath);
+  const treeData = (await treeRes.json().catch(() => null)) as {
+    tree?: GitTreeEntry[];
+    truncated?: boolean;
+    message?: string;
+  } | null;
+  if (!treeRes.ok || !Array.isArray(treeData?.tree)) {
+    if (treeRes.status === 401) throw new ClientError('Unauthorized', 401);
+    throw new ClientError(treeData?.message ?? 'Failed to load repository tree', 502);
+  }
+  if (treeData.truncated) throw new ClientError('Repository tree is too large to load atomically', 413);
+  return { ...branchState, tree: treeData.tree };
+}
+
+async function loadRepoBranchState(
+  installationId: string,
+  owner: string,
+  repo: string,
+): Promise<{
+  repositoryId: string;
+  branch: string;
+  headSha: string;
+  baseTreeSha: string;
+  blobsByPath: Map<string, GitBlobTreeEntry>;
+}> {
+  const branchState = await fetchRepositoryBranchState(installationId, owner, repo);
+  const blobsByPath = new Map<string, GitBlobTreeEntry>();
+  for (const entry of branchState.tree) {
+    if (entry.type !== 'blob') continue;
+    const mode = (entry as GitTreeEntry & { mode?: string }).mode;
+    if (typeof mode !== 'string') continue;
+    blobsByPath.set(entry.path, { ...entry, mode, type: 'blob' });
+  }
+  return {
+    repositoryId: branchState.repositoryId,
+    branch: branchState.defaultBranch,
+    headSha: branchState.headSha,
+    baseTreeSha: branchState.baseTreeSha,
+    blobsByPath,
+  };
+}
+
+async function updateBranchRefAtomically(
+  installationId: string,
+  repositoryId: string,
+  branch: string,
+  expectedHeadSha: string,
+  nextHeadSha: string,
+  _force = true,
+): Promise<{ conflict: boolean }> {
+  try {
+    await atomicForceUpdateGitHubRef(
+      installationId,
+      repositoryId,
+      `refs/heads/${branch}`,
+      expectedHeadSha,
+      nextHeadSha,
+    );
+    return { conflict: false };
+  } catch (err) {
+    if (err instanceof ClientError && err.statusCode === 409) return { conflict: true };
+    throw err;
+  }
 }
 
 async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
@@ -1922,9 +2000,16 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
     return;
   }
   try {
-    await updateBranchRefAtomically(installationId, branchState.repositoryId, branch, headSha, createdCommit.sha, false);
+    await updateBranchRefAtomically(
+      installationId,
+      branchState.repositoryId,
+      branch,
+      headSha,
+      createdCommit.sha,
+      false,
+    );
   } catch (err) {
-    if (err instanceof ClientError && err.status === 409) {
+    if (err instanceof ClientError && err.statusCode === 409) {
       json(ctx.res, 409, {
         error: 'Repository changed while applying git batch update. Please retry.',
         code: 'repo_ref_conflict',
@@ -1963,14 +2048,8 @@ async function handleCompactRecentCommits(ctx: RouteContext): Promise<void> {
   if (!message) throw new ClientError('message is required', 400);
 
   const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const repoRes = await githubFetchWithInstallationToken(installationId, repoPath);
-  const repoData = (await repoRes.json().catch(() => null)) as { default_branch?: string; message?: string } | null;
-  if (!repoRes.ok || typeof repoData?.default_branch !== 'string' || !repoData.default_branch) {
-    if (repoRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(ctx.res, repoRes, repoData?.message ?? 'Failed to load repository metadata', repoPath);
-    return;
-  }
-  const branch = repoData.default_branch;
+  const branchState = await getGitHubRepositoryBranchState(installationId, owner, repo);
+  const branch = branchState.defaultBranch;
 
   const commitsPath = `${repoPath}/commits?sha=${encodeURIComponent(branch)}&per_page=20&page=1`;
   const commitsRes = await githubFetchWithInstallationToken(installationId, commitsPath);
@@ -2000,6 +2079,28 @@ async function handleCompactRecentCommits(ctx: RouteContext): Promise<void> {
     }
   })();
 
+  const createCommitPath = `${repoPath}/git/commits`;
+  const createCommitRes = await githubFetchWithInstallationToken(installationId, createCommitPath, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      tree: branchState.baseTreeSha,
+      parents: [selection.baseParentSha],
+    }),
+  });
+  const createdCommit = (await createCommitRes.json().catch(() => null)) as { sha?: string; message?: string } | null;
+  if (!createCommitRes.ok || typeof createdCommit?.sha !== 'string') {
+    if (createCommitRes.status === 401) throw new ClientError('Unauthorized', 401);
+    respondGitHubError(
+      ctx.res,
+      createCommitRes,
+      createdCommit?.message ?? 'Failed to create compacted commit',
+      createCommitPath,
+    );
+    return;
+  }
+
   const updateRefsMutation = `
     mutation ForceUpdateRefAtomically($input: UpdateRefsInput!) {
       updateRefs(input: $input) {
@@ -2011,7 +2112,7 @@ async function handleCompactRecentCommits(ctx: RouteContext): Promise<void> {
     updateRefs?: { clientMutationId?: string | null };
   }>(installationId, updateRefsMutation, {
     input: {
-      repositoryId: repoData.id,
+      repositoryId: branchState.repositoryId,
       refUpdates: [
         {
           name: `refs/heads/${branch}`,
@@ -2340,11 +2441,11 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
     if (type !== 'edit' && type !== 'create' && type !== 'delete') throw new ClientError('Invalid change type', 400);
     const originalContentRaw = (entry as { originalContent?: unknown }).originalContent;
     const originalContent =
-      originalContentRaw === null || typeof originalContentRaw === 'string'
-        ? (originalContentRaw ?? null)
-        : undefined;
+      originalContentRaw === null || typeof originalContentRaw === 'string' ? (originalContentRaw ?? null) : undefined;
     const expectedVersion =
-      originalContent === null || typeof originalContent === 'string' ? readerAiContentVersion(originalContent ?? '') : null;
+      originalContent === null || typeof originalContent === 'string'
+        ? readerAiContentVersion(originalContent ?? '')
+        : null;
     return {
       path,
       type,
@@ -2380,7 +2481,12 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
       message?: string;
     } | null;
     if (!gistRes.ok) {
-      respondGitHubError(ctx.res, gistRes, gistData?.message ?? 'GitHub API error', `/gists/${encodeURIComponent(gistId)}`);
+      respondGitHubError(
+        ctx.res,
+        gistRes,
+        gistData?.message ?? 'GitHub API error',
+        `/gists/${encodeURIComponent(gistId)}`,
+      );
       return;
     }
     const gistUpdatedAt = typeof gistData?.updated_at === 'string' ? gistData.updated_at : null;
@@ -2475,11 +2581,14 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
 
         for (const change of candidateChanges) {
           const existing = blobsByPath.get(change.normalizedPath);
-          if (change.expectedVersion && change.type !== 'create') {
+          if (change.expectedVersion) {
             let currentContent: string | null = null;
-            if (existing) {
+            if (existing?.url) {
               const blobRes = await githubFetchWithInstallationToken(installationId, existing.url);
-              const blobData = (await blobRes.json().catch(() => null)) as { content?: string; encoding?: string } | null;
+              const blobData = (await blobRes.json().catch(() => null)) as {
+                content?: string;
+                encoding?: string;
+              } | null;
               if (blobRes.ok && typeof blobData?.content === 'string') {
                 currentContent =
                   blobData.encoding === 'base64'
@@ -2635,7 +2744,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
                 ? Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
                 : data.content
               : null;
-          if (change.expectedVersion && change.type !== 'create') {
+          if (change.expectedVersion) {
             const currentVersion = readerAiContentVersion(currentContent ?? '');
             if (currentVersion !== change.expectedVersion) {
               conflict = {
@@ -2681,7 +2790,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
             } | null;
             if (data?.type === 'file' && typeof data.sha === 'string') {
               sha = data.sha;
-              if (change.expectedVersion && change.type !== 'create') {
+              if (change.expectedVersion) {
                 const currentContent =
                   typeof data.content === 'string'
                     ? data.encoding === 'base64'
@@ -2928,35 +3037,63 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   let lastStagedChangesSignature: string | null = null;
   let stagedChangesRevision = 0;
+  const serializeReaderAiChange = (change: {
+    id: string;
+    path: string;
+    type: 'edit' | 'create' | 'delete';
+    diff: string;
+    revision?: number;
+    original: string | null;
+    modified: string | null;
+    hunks?: ReturnType<typeof parseUnifiedDiffHunks>;
+  }) => ({
+    id: change.id,
+    path: change.path,
+    type: change.type,
+    diff: change.diff,
+    revision: change.revision,
+    original_content: change.original,
+    modified_content: change.modified,
+    hunks: change.hunks ?? parseUnifiedDiffHunks(change.diff),
+  });
+  const getCurrentDocumentStagedChange = () =>
+    documentEditState.stagedContent && documentEditState.stagedDiff
+      ? {
+          id: `change:${currentDocPath || 'current-document.md'}`,
+          path: currentDocPath || 'current-document.md',
+          type: 'edit' as const,
+          original: source,
+          modified: documentEditState.stagedContent,
+          diff: documentEditState.stagedDiff,
+          revision: documentEditState.stagedRevision,
+          hunks: parseUnifiedDiffHunks(documentEditState.stagedDiff),
+        }
+      : null;
+  const getChangeForToolCall = (toolName: string, parsedArgs: Record<string, unknown> | undefined) => {
+    if (toolName === 'propose_edit_document') return getCurrentDocumentStagedChange();
+    const path = typeof parsedArgs?.path === 'string' ? parsedArgs.path.trim() : '';
+    if (!path || !stagedChanges) return null;
+    return stagedChanges.getChanges().find((change) => change.path === path) ?? null;
+  };
+  const emitEditProposal = (toolCallId: string, toolName: string, parsedArgs: Record<string, unknown> | undefined) => {
+    const change = getChangeForToolCall(toolName, parsedArgs);
+    if (!change) return;
+    writeSseEvent('edit_proposal', {
+      proposal_id: `proposal:${stagedChangesRevision}:${toolCallId}`,
+      tool_call_id: toolCallId,
+      revision: stagedChangesRevision,
+      change: serializeReaderAiChange(change),
+    });
+  };
   const emitStagedChangesSnapshot = () => {
     const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
     const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
     const allChanges = hasProjectStagedChanges
       ? stagedChanges!.getChanges()
       : hasDocumentStagedChange
-        ? [
-            {
-              id: `change:${currentDocPath || 'current-document.md'}`,
-              path: currentDocPath || 'current-document.md',
-              type: 'edit' as const,
-              original: source,
-              modified: documentEditState.stagedContent!,
-              diff: documentEditState.stagedDiff!,
-              revision: documentEditState.stagedRevision,
-              hunks: parseUnifiedDiffHunks(documentEditState.stagedDiff!),
-            },
-          ]
+        ? [getCurrentDocumentStagedChange()!]
         : [];
-    const changes = allChanges.map((c) => ({
-      id: c.id,
-      path: c.path,
-      type: c.type,
-      diff: c.diff,
-      revision: stagedChangesRevision,
-      original_content: c.original,
-      modified_content: c.modified,
-      hunks: parseUnifiedDiffHunks(c.diff),
-    }));
+    const changes = allChanges.map((change) => serializeReaderAiChange({ ...change, revision: stagedChangesRevision }));
     // Include full modified content so clients can apply without depending on
     // a cached project session lookup.
     const fileContents = Object.fromEntries(
@@ -3166,6 +3303,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           tc.name === 'propose_delete_file'
         ) {
           stagedChangesRevision += 1;
+          emitEditProposal(tc.id, tc.name, parsedArgs ?? undefined);
           emitStagedChangesSnapshot();
         }
       }

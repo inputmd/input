@@ -137,6 +137,7 @@ import {
   formatReaderAiModelDisplayName,
   listReaderAiModels,
   localCodexEnabledByPreference,
+  type ReaderAiEditProposal,
   type ReaderAiModel,
   type ReaderAiStagedChange,
   readerAiModelPriorityRank,
@@ -724,6 +725,14 @@ function buildReaderAiSelectedChange(
   } satisfies ReaderAiStagedChange;
 }
 
+function buildEffectiveReaderAiProposalChange(proposal: ReaderAiEditProposal): ReaderAiStagedChange | null {
+  if (proposal.status === 'rejected') return null;
+  return buildReaderAiSelectedChange(
+    proposal.change,
+    Array.isArray(proposal.selectedHunkIds) ? new Set(proposal.selectedHunkIds) : undefined,
+  );
+}
+
 function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | null {
   if (!state || typeof state !== 'object') return null;
   const restoreDraft = (state as { restoreDraft?: unknown }).restoreDraft;
@@ -879,10 +888,12 @@ export function App() {
   const [contentSourceViewVisible, setContentSourceViewVisible] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
   const [readerAiToolLog, setReaderAiToolLog] = useState<
-    Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string; taskId?: string }>
+    Array<{ type: 'call' | 'result' | 'progress'; id?: string; name: string; detail?: string; taskId?: string }>
   >([]);
+  const [readerAiEditProposals, setReaderAiEditProposals] = useState<ReaderAiEditProposal[]>([]);
   const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<ReaderAiStagedChange[]>([]);
-  const readerAiStagedChangesStreaming = readerAiSending && readerAiStagedChanges.length > 0;
+  const readerAiStagedChangesStreaming =
+    readerAiSending && (readerAiEditProposals.length > 0 || readerAiStagedChanges.length > 0);
   const [readerAiAppliedChanges, setReaderAiAppliedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>
   >([]);
@@ -977,18 +988,25 @@ export function App() {
     if (typeof window === 'undefined') return false;
     return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
   }, []);
-  const effectiveReaderAiStagedChanges = useMemo(
-    () =>
-      readerAiStagedChanges.flatMap((change) => {
-        if (change.id && !readerAiSelectedChangeIds.has(change.id)) return [];
-        const effectiveChange = buildReaderAiSelectedChange(
-          change,
-          change.id ? readerAiSelectedHunkIdsByChangeId[change.id] : undefined,
-        );
-        return effectiveChange ? [effectiveChange] : [];
-      }),
-    [readerAiSelectedChangeIds, readerAiSelectedHunkIdsByChangeId, readerAiStagedChanges],
-  );
+  const effectiveReaderAiStagedChanges = useMemo(() => {
+    if (readerAiEditProposals.length > 0) {
+      const latestAcceptedByPath = new Map<string, ReaderAiStagedChange>();
+      for (const proposal of readerAiEditProposals) {
+        const effectiveChange = buildEffectiveReaderAiProposalChange(proposal);
+        if (!effectiveChange) continue;
+        latestAcceptedByPath.set(effectiveChange.path, effectiveChange);
+      }
+      return Array.from(latestAcceptedByPath.values());
+    }
+    return readerAiStagedChanges.flatMap((change) => {
+      if (change.id && !readerAiSelectedChangeIds.has(change.id)) return [];
+      const effectiveChange = buildReaderAiSelectedChange(
+        change,
+        change.id ? readerAiSelectedHunkIdsByChangeId[change.id] : undefined,
+      );
+      return effectiveChange ? [effectiveChange] : [];
+    });
+  }, [readerAiEditProposals, readerAiSelectedChangeIds, readerAiSelectedHunkIdsByChangeId, readerAiStagedChanges]);
   const effectiveReaderAiStagedFileContents = useMemo(
     () =>
       Object.fromEntries(
@@ -1006,6 +1024,7 @@ export function App() {
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const editViewControllerRef = useRef<EditorController | null>(null);
   const readerAiStagedChangesRef = useRef<ReaderAiStagedChange[]>(readerAiStagedChanges);
+  const readerAiEditProposalsRef = useRef<ReaderAiEditProposal[]>(readerAiEditProposals);
   const readerAiSelectedChangeIdsRef = useRef<Set<string>>(readerAiSelectedChangeIds);
   const readerAiSelectedHunkIdsByChangeIdRef = useRef<Record<string, Set<string>>>(readerAiSelectedHunkIdsByChangeId);
   const currentFileNameRef = useRef<string | null>(currentFileName);
@@ -1028,6 +1047,9 @@ export function App() {
   useEffect(() => {
     readerAiStagedChangesRef.current = readerAiStagedChanges;
   }, [readerAiStagedChanges]);
+  useEffect(() => {
+    readerAiEditProposalsRef.current = readerAiEditProposals;
+  }, [readerAiEditProposals]);
   useEffect(() => {
     readerAiSelectedChangeIdsRef.current = readerAiSelectedChangeIds;
   }, [readerAiSelectedChangeIds]);
@@ -3600,6 +3622,7 @@ export function App() {
         setReaderAiConversationScope(loaded.scope ?? null);
         setReaderAiHasEligibleSelection(false);
         setReaderAiToolLog(loaded.toolLog ?? []);
+        setReaderAiEditProposals(loaded.editProposals ?? []);
         setReaderAiStagedChanges(loaded.stagedChanges ?? []);
         setReaderAiSelectedChangeIds(
           new Set(
@@ -3634,6 +3657,7 @@ export function App() {
     setReaderAiSending(false);
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
+    setReaderAiEditProposals([]);
     setReaderAiStagedChanges([]);
     setReaderAiSelectedChangeIds(new Set());
     setReaderAiSelectedHunkIdsByChangeId({});
@@ -3659,6 +3683,7 @@ export function App() {
       readerAiSummary || undefined,
       readerAiConversationScope ?? undefined,
       readerAiToolLog.length > 0 ? readerAiToolLog : undefined,
+      readerAiEditProposals.length > 0 ? readerAiEditProposals : undefined,
       readerAiStagedChanges.length > 0 ? readerAiStagedChanges : undefined,
       Object.keys(readerAiStagedFileContents).length > 0 ? readerAiStagedFileContents : undefined,
       readerAiAppliedChanges.length > 0 ? readerAiAppliedChanges : undefined,
@@ -3670,6 +3695,7 @@ export function App() {
     readerAiConversationScope,
     readerAiHistoryDocumentKey,
     readerAiToolLog,
+    readerAiEditProposals,
     readerAiStagedChanges,
     readerAiStagedFileContents,
     readerAiAppliedChanges,
@@ -3919,6 +3945,7 @@ export function App() {
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
+      setReaderAiEditProposals([]);
       setReaderAiStagedChanges([]);
       setReaderAiSelectedChangeIds(new Set());
       setReaderAiSelectedHunkIdsByChangeId({});
@@ -4040,6 +4067,7 @@ export function App() {
                 ...log,
                 {
                   type: 'call',
+                  id: event.id,
                   name: event.name,
                   detail: typeof detail === 'string' ? detail : undefined,
                   taskId: event.name === 'task' ? event.id : undefined,
@@ -4053,12 +4081,27 @@ export function App() {
                 ...log,
                 {
                   type: 'result',
+                  id: event.id,
                   name: event.name,
                   detail: event.error ? `${event.error}${event.preview ? ` — ${event.preview}` : ''}` : event.preview,
                   taskId: event.name === 'task' ? event.id : undefined,
                   taskStatus: event.error ? 'error' : event.name === 'task' ? 'completed' : undefined,
                 },
               ]);
+            },
+            onEditProposal: (proposal) => {
+              logReceiveStart('edit_proposal');
+              setReaderAiEditProposals((current) => {
+                const existing = current.find((entry) => entry.id === proposal.id);
+                const nextProposal: ReaderAiEditProposal = existing
+                  ? {
+                      ...proposal,
+                      status: existing.status ?? proposal.status,
+                      selectedHunkIds: existing.selectedHunkIds ?? proposal.selectedHunkIds,
+                    }
+                  : proposal;
+                return [...current.filter((entry) => entry.id !== proposal.id), nextProposal];
+              });
             },
             onTaskProgress: (event) => {
               logReceiveStart('task_progress');
@@ -4325,6 +4368,7 @@ export function App() {
 
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
+    setReaderAiEditProposals([]);
     setReaderAiStagedChanges([]);
     setReaderAiSelectedChangeIds(new Set());
     setReaderAiSelectedHunkIdsByChangeId({});
@@ -4380,10 +4424,10 @@ export function App() {
           if (activeView !== 'edit') throw new Error('Cannot apply without saving outside edit view');
           const currentPath = currentEditingDocPath;
           const nextContent =
-            !readerAiProjectId && typeof readerAiDocumentEditedContent === 'string'
-              ? readerAiDocumentEditedContent
-              : currentPath
-                ? modifiedMap.get(currentPath)
+            currentPath && typeof modifiedMap.get(currentPath) === 'string'
+              ? modifiedMap.get(currentPath)
+              : !readerAiProjectId && typeof readerAiDocumentEditedContent === 'string'
+                ? readerAiDocumentEditedContent
                 : undefined;
           if (typeof nextContent !== 'string') {
             throw new Error('No staged document content to apply');
@@ -4404,6 +4448,7 @@ export function App() {
           }
           if (!canCommitToGist && !canCommitToRepo) {
             if (currentPath) recordAppliedChanges([currentPath]);
+            setReaderAiEditProposals([]);
             setReaderAiStagedChanges([]);
             setReaderAiStagedFileContents({});
             setReaderAiDocumentEditedContent(null);
@@ -4453,6 +4498,7 @@ export function App() {
         if (failed.length > 0 && applied.length > 0) {
           // Partial success
           recordAppliedChanges(applied);
+          setReaderAiEditProposals((prev) => prev.filter((proposal) => !applied.includes(proposal.change.path)));
           setReaderAiStagedChanges((prev) => prev.filter((c) => !applied.includes(c.path)));
           setReaderAiStagedFileContents((prev) => {
             const next = { ...prev };
@@ -4467,6 +4513,7 @@ export function App() {
         } else {
           // Full success — clear staged changes
           recordAppliedChanges(applied);
+          setReaderAiEditProposals([]);
           setReaderAiStagedChanges([]);
           setReaderAiStagedFileContents({});
           if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
@@ -4510,6 +4557,7 @@ export function App() {
   );
 
   const onReaderAiIgnoreChanges = useCallback(() => {
+    setReaderAiEditProposals([]);
     setReaderAiStagedChanges([]);
     setReaderAiSelectedChangeIds(new Set());
     setReaderAiSelectedHunkIdsByChangeId({});
@@ -4518,6 +4566,44 @@ export function App() {
     setReaderAiDocumentEditedContent(null);
     setReaderAiUndoState(null);
     setReaderAiError(null);
+  }, []);
+
+  const onReaderAiAcceptProposal = useCallback((proposalId: string) => {
+    setReaderAiEditProposals((current) => {
+      const targetIndex = current.findIndex((proposal) => proposal.id === proposalId);
+      if (targetIndex < 0) return current;
+      const target = current[targetIndex];
+      return current.map((proposal, index) =>
+        proposal.change.path === target.change.path && index <= targetIndex
+          ? { ...proposal, status: 'accepted' as const }
+          : proposal,
+      );
+    });
+  }, []);
+
+  const onReaderAiRejectProposal = useCallback((proposalId: string) => {
+    setReaderAiEditProposals((current) => {
+      const targetIndex = current.findIndex((proposal) => proposal.id === proposalId);
+      if (targetIndex < 0) return current;
+      const target = current[targetIndex];
+      return current.map((proposal, index) =>
+        proposal.change.path === target.change.path && index >= targetIndex
+          ? { ...proposal, status: 'rejected' as const }
+          : proposal,
+      );
+    });
+  }, []);
+
+  const onReaderAiToggleProposalHunkSelection = useCallback((proposalId: string, hunkId: string, selected: boolean) => {
+    setReaderAiEditProposals((current) =>
+      current.map((proposal) => {
+        if (proposal.id !== proposalId) return proposal;
+        const selectedIds = new Set(proposal.selectedHunkIds ?? proposal.change.hunks?.map((hunk) => hunk.id) ?? []);
+        if (selected) selectedIds.add(hunkId);
+        else selectedIds.delete(hunkId);
+        return { ...proposal, selectedHunkIds: Array.from(selectedIds) };
+      }),
+    );
   }, []);
 
   const canUndoReaderAiApply =
@@ -6455,6 +6541,19 @@ export function App() {
     ],
   );
 
+  const onReaderAiEditProposal = useCallback(
+    async (proposalId: string) => {
+      const proposal = readerAiEditProposalsRef.current.find((entry) => entry.id === proposalId);
+      if (!proposal || proposal.change.type === 'delete') return;
+      if (proposal.change.path === currentEditingDocPath) {
+        focusEditorSoon();
+        return;
+      }
+      await handleEditFile(proposal.change.path);
+    },
+    [currentEditingDocPath, focusEditorSoon, handleEditFile],
+  );
+
   const handleViewOnGitHub = useCallback(
     (filePath: string) => {
       if (currentGistId) {
@@ -8019,7 +8118,6 @@ export function App() {
       editingBackend,
       readerAiEditLocked,
       scheduleEditContentSnapshot,
-      setReaderAiUndoState,
       setHasUnsavedChanges,
       setHasUserTypedUnsavedChanges,
     ],
@@ -8406,6 +8504,7 @@ export function App() {
               sending={readerAiSending}
               toolStatus={readerAiToolStatus}
               toolLog={readerAiToolLog}
+              editProposals={readerAiEditProposals}
               stagedChanges={effectiveReaderAiStagedChanges}
               stagedChangesStreaming={readerAiStagedChangesStreaming}
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
@@ -8418,6 +8517,10 @@ export function App() {
               onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
               onApplyAndCommit={(msg) => void onReaderAiApplyChanges('commit', msg)}
               onIgnoreAll={onReaderAiIgnoreChanges}
+              onAcceptProposal={onReaderAiAcceptProposal}
+              onRejectProposal={onReaderAiRejectProposal}
+              onEditProposal={(proposalId) => void onReaderAiEditProposal(proposalId)}
+              onToggleProposalHunkSelection={onReaderAiToggleProposalHunkSelection}
               onUndoEditorApply={onReaderAiUndoApply}
               onToggleChangeSelection={(changeId, selected) =>
                 setReaderAiSelectedChangeIds((prev) => {

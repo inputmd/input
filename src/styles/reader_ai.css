@@ -816,6 +816,12 @@
   gap: 2px;
 }
 
+.reader-ai-tool-log-entry-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .reader-ai-tool-log-groups {
   display: flex;
   flex-direction: column;
@@ -908,6 +914,93 @@
   opacity: 0.75;
   font-family: var(--font-mono, monospace);
   font-size: 11px;
+}
+
+.reader-ai-edit-proposal {
+  margin: 2px 0 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--btn-bg) 44%, transparent);
+  overflow: hidden;
+}
+
+.reader-ai-edit-proposal--rejected {
+  opacity: 0.72;
+}
+
+.reader-ai-edit-proposal-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.reader-ai-edit-proposal-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+
+.reader-ai-edit-proposal-header:hover {
+  background: var(--btn-hover);
+}
+
+.reader-ai-edit-proposal-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 0;
+}
+
+.reader-ai-edit-proposal-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.reader-ai-edit-proposal-action:hover {
+  color: var(--text);
+  background: var(--btn-hover);
+}
+
+.reader-ai-edit-proposal-action--active {
+  color: color-mix(in srgb, var(--success-color) 78%, var(--text));
+  border-color: color-mix(in srgb, var(--success-color) 48%, transparent);
+  background: color-mix(in srgb, var(--success-color) 10%, transparent);
+}
+
+.reader-ai-edit-proposal-action--danger {
+  color: color-mix(in srgb, var(--danger-border) 80%, var(--text));
+  border-color: color-mix(in srgb, var(--danger-border) 46%, transparent);
+  background: color-mix(in srgb, var(--danger-border) 10%, transparent);
+}
+
+.reader-ai-edit-proposal-status {
+  padding: 5px 8px 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 /* ── Staged changes ── */
