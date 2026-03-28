@@ -38,6 +38,12 @@ interface ReaderAiPanelProps {
   canApplyAndCommit: boolean;
   onApplyWithoutSaving: () => void;
   onApplyAndCommit: (commitMessage?: string) => void;
+  onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
+  onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
+  selectedChangeIds?: Set<string>;
+  selectedHunkIds?: Record<string, Set<string>>;
+  onRejectChange?: (changeId: string) => void;
+  onRejectHunk?: (changeId: string, hunkId: string) => void;
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
@@ -126,6 +132,12 @@ export function ReaderAiPanel({
   canApplyAndCommit,
   onApplyWithoutSaving,
   onApplyAndCommit,
+  onToggleChangeSelection,
+  onToggleHunkSelection,
+  selectedChangeIds,
+  selectedHunkIds,
+  onRejectChange,
+  onRejectHunk,
   error,
   onSend,
   onEditMessage,
@@ -615,6 +627,12 @@ export function ReaderAiPanel({
             disabledHint={stagedChangesDisabledHint}
             onApplyWithoutSaving={onApplyWithoutSaving}
             onApplyAndCommit={onApplyAndCommit}
+            onToggleChangeSelection={onToggleChangeSelection}
+            onToggleHunkSelection={onToggleHunkSelection}
+            selectedChangeIds={selectedChangeIds}
+            selectedHunkIds={selectedHunkIds}
+            onRejectChange={onRejectChange}
+            onRejectHunk={onRejectHunk}
           />
         ) : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
