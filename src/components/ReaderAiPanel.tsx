@@ -174,6 +174,7 @@ export function ReaderAiPanel({
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const thinkingStartedAtRef = useRef<number | null>(null);
   const pendingFocusAfterClearRef = useRef(false);
+  const pinnedToBottomRef = useRef(true);
   const messageCount = messages.length;
   const canSend = draft.trim().length > 0 && !sending && Boolean(selectedModel);
   const canQueue = draft.trim().length > 0 && queuedCommands.length < 10;
@@ -204,16 +205,25 @@ export function ReaderAiPanel({
     messages[messageCount - 1].role === 'assistant' &&
     messages[messageCount - 1].content.trim().length === 0;
 
+  const isNearMessagesBottom = useCallback((root: HTMLDivElement) => {
+    const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
+    return distanceFromBottom <= 24;
+  }, []);
+
+  const scrollMessagesToBottom = useCallback(() => {
+    const root = messagesRef.current;
+    if (!root) return;
+    root.scrollTop = root.scrollHeight;
+    pinnedToBottomRef.current = true;
+  }, []);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length triggers scroll on new tool activity
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
-    // Only auto-scroll if the user is already near the bottom (within 80px).
-    // This prevents yanking the viewport away when the user scrolled up to read.
-    const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
-    if (distanceFromBottom > 80) return;
+    if (!pinnedToBottomRef.current && !isNearMessagesBottom(root)) return;
     root.scrollTop = root.scrollHeight;
-  }, [messageCount, sending, toolLog.length]);
+  }, [isNearMessagesBottom, messageCount, sending, toolLog.length]);
 
   useEffect(() => {
     if (editingIndex === null) return;
@@ -287,12 +297,22 @@ export function ReaderAiPanel({
       }
 
       activeMessages.scrollTop = clamped;
+      pinnedToBottomRef.current = isNearMessagesBottom(activeMessages);
       event.preventDefault();
     };
 
+    const onScroll = () => {
+      if (!messagesRef.current) return;
+      pinnedToBottomRef.current = isNearMessagesBottom(messagesRef.current);
+    };
+
     panel.addEventListener('wheel', onWheel, { passive: false });
-    return () => panel.removeEventListener('wheel', onWheel);
-  }, []);
+    messages.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      panel.removeEventListener('wheel', onWheel);
+      messages.removeEventListener('scroll', onScroll);
+    };
+  }, [isNearMessagesBottom]);
 
   const submit = async () => {
     const draftValue = draft;
@@ -319,6 +339,7 @@ export function ReaderAiPanel({
     const prompt = draftValue.trim();
     const queued = queuedCommands;
     if ((!prompt && queued.length === 0) || sending || !selectedModel) return;
+    scrollMessagesToBottom();
     setDraft('');
     setQueuedCommands([]);
     const commands = prompt ? [...queued, prompt] : queued;
