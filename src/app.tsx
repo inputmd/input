@@ -3884,8 +3884,9 @@ export function App() {
                 {
                   type: 'result',
                   name: event.name,
-                  detail: event.preview,
+                  detail: event.error ? `${event.error}${event.preview ? ` — ${event.preview}` : ''}` : event.preview,
                   taskId: event.name === 'task' ? event.id : undefined,
+                  taskStatus: event.error ? 'error' : event.name === 'task' ? 'completed' : undefined,
                 },
               ]);
             },

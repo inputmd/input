@@ -56,12 +56,16 @@ export interface ReaderAiToolCallEvent {
   id?: string;
   name: string;
   arguments?: Record<string, unknown> | string;
+  error?: string;
+  rawArguments?: string;
+  repairedArguments?: string;
 }
 
 export interface ReaderAiToolResultEvent {
   id?: string;
   name: string;
   preview?: string;
+  error?: string;
 }
 
 export interface ReaderAiTaskProgressEvent {

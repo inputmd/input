@@ -7,6 +7,7 @@ export interface ReaderAiToolLogEntry {
   detail?: string;
   taskId?: string;
   taskStatus?: 'running' | 'completed' | 'error';
+  tone?: 'default' | 'success' | 'error';
 }
 
 export const TOOL_LABELS: Record<string, string> = {
@@ -95,7 +96,12 @@ export function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntr
       {isExpanded ? (
         <div class="reader-ai-tool-log-entries">
           {grouped.generalEntries.map((entry, i) => (
-            <div key={`general:${i}`} class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}`}>
+            <div
+              key={`general:${i}`}
+              class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
+                entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
+              }`}
+            >
               <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
               {entry.detail ? (
                 <span class="reader-ai-tool-log-detail">
@@ -120,7 +126,9 @@ export function ToolLogSection({ entries, live }: { entries: ReaderAiToolLogEntr
                     {card.entries.map((entry, entryIndex) => (
                       <div
                         key={`${card.taskId}:${entryIndex}`}
-                        class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}`}
+                        class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
+                          entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
+                        }`}
                       >
                         <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
                         {entry.detail ? (
