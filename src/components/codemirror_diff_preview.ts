@@ -14,6 +14,7 @@ export interface EditorDiffPreviewBlock {
   insert?: string;
   kind?: 'insert' | 'replace' | 'delete';
   label?: string;
+  deletedText?: string;
 }
 
 export interface EditorDiffPreview {
@@ -25,20 +26,28 @@ class DiffPreviewWidget extends WidgetType {
   private readonly text: string;
   private readonly kind: NonNullable<EditorDiffPreviewBlock['kind']>;
   private readonly label?: string;
+  private readonly deletedText?: string;
 
   constructor(
     text: string,
     kind: NonNullable<EditorDiffPreviewBlock['kind']>,
     label?: string,
+    deletedText?: string,
   ) {
     super();
     this.text = text;
     this.kind = kind;
     this.label = label;
+    this.deletedText = deletedText;
   }
 
   eq(other: DiffPreviewWidget): boolean {
-    return other.text === this.text && other.kind === this.kind && other.label === this.label;
+    return (
+      other.text === this.text &&
+      other.kind === this.kind &&
+      other.label === this.label &&
+      other.deletedText === this.deletedText
+    );
   }
 
   toDOM(): HTMLElement {
@@ -50,6 +59,14 @@ class DiffPreviewWidget extends WidgetType {
       label.className = 'cm-editor-diff-preview-label';
       label.textContent = this.label;
       wrapper.append(label);
+    }
+
+    if (this.deletedText && this.deletedText.length > 0) {
+      const deleted = document.createElement('pre');
+      deleted.className = 'cm-editor-diff-preview-content cm-editor-diff-preview-content--deleted';
+      deleted.textContent =
+        this.deletedText.length > 1200 ? `${this.deletedText.slice(0, 1200)}…` : this.deletedText;
+      wrapper.append(deleted);
     }
 
     const content = document.createElement('pre');
@@ -111,7 +128,17 @@ function buildEditorDiffPreviewDecorations(view: EditorView, preview: EditorDiff
         to,
         to,
         Decoration.widget({
-          widget: new DiffPreviewWidget(insert, kind, rawBlock.label),
+          widget: new DiffPreviewWidget(insert, kind, rawBlock.label, rawBlock.deletedText),
+          side: 1,
+          block: true,
+        }),
+      );
+    } else if (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0) {
+      builder.add(
+        to,
+        to,
+        Decoration.widget({
+          widget: new DiffPreviewWidget('', kind, rawBlock.label, rawBlock.deletedText),
           side: 1,
           block: true,
         }),

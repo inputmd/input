@@ -629,16 +629,16 @@ function buildEditorDiffPreview(change: ReaderAiStagedChange | undefined): Edito
   if (typeof change.modifiedContent !== 'string') return null;
   if (change.type === 'create') {
     return {
-      label: 'Reader AI proposal',
       blocks: [
         {
           kind: 'insert',
           from: 0,
           to: 0,
-          content: change.modifiedContent,
+          insert: change.modifiedContent,
+          label: 'Reader AI proposal',
         },
       ],
-      label: 'Reader AI proposal',
+      source: 'Reader AI proposal',
     };
   }
   const original = typeof change.originalContent === 'string' ? change.originalContent : null;
@@ -650,16 +650,30 @@ function buildEditorDiffPreview(change: ReaderAiStagedChange | undefined): Edito
   const originalTrimmedEnd = original.length - trailingOverlap;
   const modifiedTrimmedEnd = modified.length - trailingOverlap;
   const replacement = modified.slice(start, modifiedTrimmedEnd);
+  const deleted = original.slice(start, originalTrimmedEnd);
+  const blocks: EditorDiffPreview['blocks'] = [];
+  if (deleted.length > 0) {
+    blocks.push({
+      kind: replacement.length > 0 ? 'replace' : 'delete',
+      from: Math.max(0, start),
+      to: Math.max(0, originalTrimmedEnd),
+      label: replacement.length > 0 ? 'Replace' : 'Delete',
+      deletedText: deleted,
+    });
+  }
+  if (replacement.length > 0) {
+    blocks.push({
+      kind: deleted.length > 0 ? 'replace' : 'insert',
+      from: Math.max(0, start),
+      to: Math.max(0, originalTrimmedEnd),
+      insert: replacement,
+      label: deleted.length > 0 ? 'Insert' : 'Reader AI proposal',
+    });
+  }
+  if (blocks.length === 0) return null;
   return {
-    label: 'Reader AI proposal',
-    blocks: [
-      {
-        kind: start === originalTrimmedEnd ? 'insert' : replacement.length === 0 ? 'delete' : 'replace',
-        from: Math.max(0, start),
-        to: Math.max(0, originalTrimmedEnd),
-        content: replacement,
-      },
-    ],
+    blocks,
+    source: 'Reader AI proposal',
   };
 }
 
