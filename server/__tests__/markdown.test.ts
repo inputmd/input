@@ -3,6 +3,7 @@ import test from 'ava';
 import { JSDOM } from 'jsdom';
 import { marked } from 'marked';
 import { parseMarkdownDocument, parseMarkdownToHtml } from '../../src/markdown.ts';
+import { setPromptAnswerExpandedState } from '../../src/prompt_list_state.ts';
 
 function withDom<T>(callback: () => T): T {
   const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -299,15 +300,134 @@ test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t
 });
 
 test('parseMarkdownToHtml keeps multiline prompt answer content inside the prompt-answer list item', (t) => {
-  const html = withDom(() =>
-    parseMarkdownToHtml(['~ Question', '⏺ First paragraph', '  ', '  Second paragraph', '  - Nested item'].join('\n')),
-  );
+  withDom(() => {
+    const thirdParagraphWords = Array.from({ length: 35 }, (_, index) => `word${index + 1}`);
+    const html = parseMarkdownToHtml(
+      [
+        '~ Question',
+        '⏺ First paragraph stays visible here.',
+        '  ',
+        '  Second paragraph also stays visible.',
+        '  ',
+        `  ${thirdParagraphWords.join(' ')}`,
+      ].join('\n'),
+    );
+    const template = document.createElement('template');
+    template.innerHTML = html;
 
-  t.true(html.includes('<li class="prompt-answer"><p>First paragraph</p>'));
-  t.true(html.includes('<p>Second paragraph</p>'));
-  t.true(html.includes('<ul>'));
-  t.true(html.includes('<li>Nested item</li>'));
-  t.true(html.includes('</ul> </li></ul>'));
+    const answer = template.content.querySelector('li.prompt-answer');
+    const excerptParagraphs = Array.from(answer?.children ?? []).filter(
+      (child): child is HTMLElement => child instanceof HTMLElement && child.tagName === 'P',
+    );
+    const preview = excerptParagraphs[2]?.querySelector<HTMLElement>('.prompt-answer-preview');
+    const inlineRest = excerptParagraphs[2]?.querySelector<HTMLElement>('.prompt-answer-inline-rest');
+    const toggle = answer?.querySelector<HTMLAnchorElement>('.prompt-answer-toggle');
+    const rest = answer?.querySelector<HTMLElement>('.prompt-answer-rest');
+
+    t.truthy(answer);
+    t.is(answer?.getAttribute('data-collapsible'), 'true');
+    t.is(answer?.getAttribute('data-expanded'), 'false');
+    t.is(excerptParagraphs.length, 3);
+    t.is(excerptParagraphs[0]?.textContent?.trim(), 'First paragraph stays visible here.');
+    t.is(excerptParagraphs[1]?.textContent?.trim(), 'Second paragraph also stays visible.');
+    t.is(preview?.textContent?.trim(), thirdParagraphWords.slice(0, 30).join(' '));
+    t.true(inlineRest?.hidden ?? false);
+    t.is(inlineRest?.textContent?.trim(), thirdParagraphWords.slice(30).join(' '));
+    t.is(toggle?.textContent, 'Show more');
+    t.is(toggle?.getAttribute('href'), '#');
+    t.is(toggle?.getAttribute('aria-expanded'), 'false');
+    t.true(rest?.hidden ?? false);
+  });
+});
+
+test('parseMarkdownToHtml breaks after a long first paragraph instead of splitting it mid-paragraph', (t) => {
+  withDom(() => {
+    const firstParagraphWords = Array.from({ length: 21 }, (_, index) => `word${index + 1}`);
+    const html = parseMarkdownToHtml(
+      ['~ Question', `⏺ ${firstParagraphWords.join(' ')}`, '  ', '  Second paragraph starts hidden.'].join('\n'),
+    );
+    const template = document.createElement('template');
+    template.innerHTML = html;
+
+    const answer = template.content.querySelector<HTMLElement>('li.prompt-answer');
+    const previewParagraph = answer?.querySelector<HTMLElement>('p');
+    const preview = previewParagraph?.querySelector<HTMLElement>('.prompt-answer-preview');
+    const rest = answer?.querySelector<HTMLElement>('.prompt-answer-rest');
+    const hiddenParagraph = rest?.querySelector<HTMLElement>('p');
+
+    t.truthy(answer);
+    t.is(previewParagraph?.textContent?.trim(), `${firstParagraphWords.join(' ')} Show more`);
+    t.is(preview?.textContent?.trim(), firstParagraphWords.join(' '));
+    t.falsy(answer?.querySelector('.prompt-answer-inline-rest'));
+    t.true(rest?.hidden ?? false);
+    t.is(hiddenParagraph?.textContent?.trim(), 'Second paragraph starts hidden.');
+  });
+});
+
+test('parseMarkdownToHtml replaces non-period preview punctuation with an ellipsis for collapsed prompt answers', (t) => {
+  withDom(() => {
+    const fortyWordQuestion = `${Array.from({ length: 39 }, (_, index) => `word${index + 1}`).join(' ')} question?`;
+    const html = parseMarkdownToHtml(['~ Question', `⏺ ${fortyWordQuestion}`, '  ', '  More detail.'].join('\n'));
+    const template = document.createElement('template');
+    template.innerHTML = html;
+
+    const preview = template.content.querySelector<HTMLElement>('.prompt-answer-preview');
+
+    t.truthy(preview);
+    t.is(preview?.textContent, `${Array.from({ length: 39 }, (_, index) => `word${index + 1}`).join(' ')} question...`);
+    t.is(preview?.getAttribute('data-preview-tail-original'), fortyWordQuestion);
+    t.is(
+      preview?.getAttribute('data-preview-tail-collapsed'),
+      `${Array.from({ length: 39 }, (_, index) => `word${index + 1}`).join(' ')} question...`,
+    );
+  });
+});
+
+test('setPromptAnswerExpandedState rejoins split paragraph text and moves the toggle to the last visible paragraph', (t) => {
+  withDom(() => {
+    const thirdParagraphWords = Array.from({ length: 35 }, (_, index) => `word${index + 1}`);
+    const html = parseMarkdownToHtml(
+      [
+        '~ Question',
+        '⏺ First paragraph stays visible here.',
+        '  ',
+        '  Second paragraph also stays visible.',
+        '  ',
+        `  ${thirdParagraphWords.join(' ')}`,
+        '  ',
+        '  Final paragraph ends here.',
+      ].join('\n'),
+    );
+    const template = document.createElement('template');
+    template.innerHTML = html;
+
+    const answer = template.content.querySelector<HTMLElement>('li.prompt-answer');
+    t.truthy(answer);
+    if (!answer) return;
+
+    setPromptAnswerExpandedState(answer, true);
+
+    const paragraphs = Array.from(answer.querySelectorAll<HTMLElement>('p'));
+    const thirdParagraph = paragraphs[2];
+    const lastParagraph = paragraphs.at(-1);
+    const toggle = answer.querySelector<HTMLElement>('.prompt-answer-toggle');
+    const inlineRest = answer.querySelector<HTMLElement>('.prompt-answer-inline-rest');
+
+    t.truthy(toggle);
+    t.truthy(thirdParagraph);
+    t.truthy(lastParagraph);
+    t.false(inlineRest?.hidden ?? true);
+    t.is(thirdParagraph?.textContent?.trim(), thirdParagraphWords.join(' '));
+    t.is(lastParagraph?.textContent?.trim(), 'Final paragraph ends here. Show less');
+    t.is(toggle?.parentElement, lastParagraph ?? null);
+  });
+});
+
+test('parseMarkdownToHtml leaves single-paragraph prompt answers uncollapsed', (t) => {
+  const html = withDom(() => parseMarkdownToHtml(['~ Question', '⏺ Only one paragraph.'].join('\n')));
+
+  t.true(html.includes('<li class="prompt-answer">Only one paragraph.</li>'));
+  t.false(html.includes('prompt-answer-toggle'));
 });
 
 test('parseMarkdownToHtml renders placeholders for empty prompt question and answer rows', (t) => {

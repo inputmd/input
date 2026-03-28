@@ -9,7 +9,11 @@ import { MarkdownEditor } from '../components/MarkdownEditor';
 import type { PromptListRequest } from '../components/markdown_editor_commands';
 import { TextEditor } from '../components/TextEditor';
 import type { MarkdownSyncBlock } from '../markdown';
-import { syncPromptListCollapsedStateFromUrl, togglePromptListCollapsedStateInUrl } from '../prompt_list_state';
+import {
+  syncPromptListCollapsedStateFromUrl,
+  togglePromptAnswerExpandedState,
+  togglePromptListCollapsedStateInUrl,
+} from '../prompt_list_state';
 import { getStoredScrollPosition } from '../scroll_positions';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
@@ -165,7 +169,12 @@ function findSyncBlockForPosition(blocks: MarkdownSyncBlock[], position: number)
     }
     if (position <= block.to) {
       const length = Math.max(1, block.to - block.from);
-      return { block, progress: Math.max(0, Math.min(1, (position - block.from) / length)), nextBlock: null, gapFraction: 0 };
+      return {
+        block,
+        progress: Math.max(0, Math.min(1, (position - block.from) / length)),
+        nextBlock: null,
+        gapFraction: 0,
+      };
     }
     previous = block;
   }
@@ -461,17 +470,14 @@ export function EditView({
     };
   }, []);
 
-  const getPreviewSyncElementTop = useCallback(
-    (id: string): { top: number; height: number } | null => {
-      const pane = previewPaneRef.current;
-      const target = previewSyncElementByIdRef.current.get(id);
-      if (!pane || !target) return null;
-      const paneRect = pane.getBoundingClientRect();
-      const rect = target.getBoundingClientRect();
-      return { top: rect.top - paneRect.top + pane.scrollTop, height: Math.max(1, rect.height) };
-    },
-    [],
-  );
+  const getPreviewSyncElementTop = useCallback((id: string): { top: number; height: number } | null => {
+    const pane = previewPaneRef.current;
+    const target = previewSyncElementByIdRef.current.get(id);
+    if (!pane || !target) return null;
+    const paneRect = pane.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    return { top: rect.top - paneRect.top + pane.scrollTop, height: Math.max(1, rect.height) };
+  }, []);
 
   const scrollPreviewToSyncHit = useCallback(
     (hit: SyncBlockHit): boolean => {
@@ -998,6 +1004,20 @@ export function EditView({
 
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
+    const answerToggle = target?.closest('.prompt-answer-toggle');
+    if (answerToggle instanceof HTMLElement) {
+      event.preventDefault();
+      const answer = answerToggle.closest('li.prompt-answer');
+      if (answer instanceof HTMLElement) {
+        const conversation = answer.closest('.prompt-list-conversation');
+        if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
+          togglePromptListCollapsedStateInUrl(conversation);
+        }
+        togglePromptAnswerExpandedState(answer);
+      }
+      return;
+    }
+
     const toggle = target?.closest('.prompt-list-caption');
     if (toggle instanceof HTMLElement) {
       event.preventDefault();

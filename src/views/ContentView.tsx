@@ -2,7 +2,11 @@ import { ExternalLink } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { TextCodeView } from '../components/TextCodeView';
-import { syncPromptListCollapsedStateFromUrl, togglePromptListCollapsedStateInUrl } from '../prompt_list_state';
+import {
+  syncPromptListCollapsedStateFromUrl,
+  togglePromptAnswerExpandedState,
+  togglePromptListCollapsedStateInUrl,
+} from '../prompt_list_state';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
@@ -295,6 +299,20 @@ export function ContentView({
     pointerDraggedRef.current = false;
     pointerDownRef.current = false;
     pointerDownPositionRef.current = null;
+
+    const answerToggle = target?.closest('.prompt-answer-toggle');
+    if (answerToggle instanceof HTMLElement) {
+      event.preventDefault();
+      const answer = answerToggle.closest('li.prompt-answer');
+      if (answer instanceof HTMLElement) {
+        const conversation = answer.closest('.prompt-list-conversation');
+        if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
+          togglePromptListCollapsedStateInUrl(conversation);
+        }
+        togglePromptAnswerExpandedState(answer);
+      }
+      return;
+    }
 
     const toggle = target?.closest('.prompt-list-caption');
     if (toggle instanceof HTMLElement) {

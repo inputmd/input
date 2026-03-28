@@ -20,6 +20,87 @@ export function setPromptListCollapsedState(container: HTMLElement, collapsed: b
   toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 }
 
+export function setPromptAnswerExpandedState(container: HTMLElement, expanded: boolean) {
+  container.setAttribute('data-expanded', expanded ? 'true' : 'false');
+
+  const toggle = container.querySelector<HTMLElement>('.prompt-answer-toggle');
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    toggle.textContent = expanded ? 'Show less' : 'Show more';
+  }
+
+  const rest = container.querySelector<HTMLElement>('.prompt-answer-rest');
+  if (rest) {
+    rest.hidden = !expanded;
+  }
+
+  const inlineRest = container.querySelector<HTMLElement>('.prompt-answer-inline-rest');
+  if (inlineRest) {
+    inlineRest.hidden = !expanded;
+  }
+
+  const preview = container.querySelector<HTMLElement>('.prompt-answer-preview');
+  if (preview) {
+    syncPromptAnswerPreviewEnding(preview, expanded);
+  }
+
+  if (toggle) {
+    syncPromptAnswerTogglePlacement(container, toggle, expanded);
+  }
+}
+
+export function togglePromptAnswerExpandedState(container: HTMLElement) {
+  const expanded = container.getAttribute('data-expanded') === 'true';
+  setPromptAnswerExpandedState(container, !expanded);
+}
+
+function promptAnswerPreviewTextNodeAtPath(root: Node, path: string): Text | null {
+  if (!path) return null;
+
+  let node: Node = root;
+  for (const segment of path.split('/')) {
+    const index = Number.parseInt(segment, 10);
+    if (!Number.isFinite(index) || index < 0) return null;
+    const next = node.childNodes.item(index);
+    if (!next) return null;
+    node = next;
+  }
+
+  return node instanceof Text ? node : null;
+}
+
+function syncPromptAnswerPreviewEnding(preview: HTMLElement, expanded: boolean) {
+  const originalText = preview.getAttribute('data-preview-tail-original') ?? '';
+  const collapsedText = preview.getAttribute('data-preview-tail-collapsed') ?? '';
+  const path = preview.getAttribute('data-preview-tail-path') ?? '';
+  if (!originalText || !collapsedText || !path) return;
+
+  const textNode = promptAnswerPreviewTextNodeAtPath(preview, path);
+  if (!textNode) return;
+  textNode.textContent = expanded ? originalText : collapsedText;
+}
+
+function syncPromptAnswerTogglePlacement(container: HTMLElement, toggle: HTMLElement, expanded: boolean) {
+  const preview = container.querySelector<HTMLElement>('.prompt-answer-preview');
+  const previewParagraph = preview?.closest('p');
+  const inlineRest = container.querySelector<HTMLElement>('.prompt-answer-inline-rest');
+
+  if (!expanded) {
+    if (!previewParagraph || !preview) return;
+    if (inlineRest) {
+      previewParagraph.append(preview, inlineRest, ' ', toggle);
+    } else {
+      previewParagraph.append(preview, ' ', toggle);
+    }
+    return;
+  }
+
+  const paragraphs = Array.from(container.querySelectorAll<HTMLElement>('p'));
+  const lastParagraph = paragraphs.at(-1);
+  if (!lastParagraph) return;
+  lastParagraph.append(' ', toggle);
+}
+
 function readCollapsedPromptListIdsFromLocation(): Set<string> {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get(PROMPT_LIST_COLLAPSED_QUERY_PARAM)?.trim() ?? '';

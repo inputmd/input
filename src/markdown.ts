@@ -5,7 +5,11 @@ import { marked, Renderer, type RendererThis, Tokenizer, type TokenizerThis } fr
 import { parseCriticMarkupAt } from './criticmarkup.ts';
 import { parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
-import { hashPromptListIdentifierText, normalizePromptListIdentifierText } from './prompt_list_state.ts';
+import {
+  hashPromptListIdentifierText,
+  normalizePromptListIdentifierText,
+  setPromptAnswerExpandedState,
+} from './prompt_list_state.ts';
 import { parsePromptListBlock } from './prompt_list_syntax.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
 
@@ -797,6 +801,271 @@ function renderPromptListTree(nodes: PromptListRenderNode[]): string {
       return `<li class="prompt-list-branch"><ul>${renderPromptListTree(node.children)}</ul></li>`;
     })
     .join('');
+}
+
+function isIgnorablePromptAnswerNode(node: Node): boolean {
+  return node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length === 0;
+}
+
+function findLastMeaningfulTextNode(node: Node): Text | null {
+  for (let index = node.childNodes.length - 1; index >= 0; index -= 1) {
+    const child = node.childNodes[index];
+    if (!child) continue;
+    if (child.nodeType === Node.TEXT_NODE && (child.textContent ?? '').trim().length > 0) {
+      return child as Text;
+    }
+    const nested = findLastMeaningfulTextNode(child);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function textNodePath(root: Node, target: Node): string | null {
+  const path: number[] = [];
+
+  function visit(node: Node): boolean {
+    if (node === target) return true;
+    for (let index = 0; index < node.childNodes.length; index += 1) {
+      const child = node.childNodes[index];
+      if (!child) continue;
+      path.push(index);
+      if (visit(child)) return true;
+      path.pop();
+    }
+    return false;
+  }
+
+  return visit(root) ? path.join('/') : null;
+}
+
+function collapsedPromptAnswerTailText(text: string): string | null {
+  const match = /([!?,;:\u2026])([)"'\]\u2019\u201d]*)\s*$/u.exec(text);
+  if (!match || match.index < 0) return null;
+  return `${text.slice(0, match.index)}...${match[2] ?? ''}`;
+}
+
+function countWordsInText(text: string): number {
+  return text.trim().match(/\S+/g)?.length ?? 0;
+}
+
+function splitTextAtWordLimit(
+  text: string,
+  maxWords: number,
+): { excerptText: string; restText: string; wordsUsed: number } {
+  if (maxWords <= 0) {
+    return { excerptText: '', restText: text, wordsUsed: 0 };
+  }
+
+  const matches = Array.from(text.matchAll(/\S+/g));
+  if (matches.length <= maxWords) {
+    return { excerptText: text, restText: '', wordsUsed: matches.length };
+  }
+
+  const boundaryMatch = matches[maxWords - 1];
+  const boundaryIndex = (boundaryMatch?.index ?? 0) + (boundaryMatch?.[0].length ?? 0);
+  return {
+    excerptText: text.slice(0, boundaryIndex),
+    restText: text.slice(boundaryIndex),
+    wordsUsed: maxWords,
+  };
+}
+
+interface PromptAnswerSplitResult {
+  excerptNode: Node | null;
+  restNode: Node | null;
+  splitWithinNode: boolean;
+  wordsUsed: number;
+}
+
+function splitPromptAnswerNodeAtWordLimit(node: Node, maxWords: number): PromptAnswerSplitResult {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node.textContent ?? '';
+    const wordCount = countWordsInText(text);
+    if (wordCount === 0) {
+      return {
+        excerptNode: maxWords > 0 ? node.cloneNode(true) : null,
+        restNode: maxWords > 0 ? null : node.cloneNode(true),
+        splitWithinNode: false,
+        wordsUsed: 0,
+      };
+    }
+
+    if (wordCount <= maxWords) {
+      return {
+        excerptNode: node.cloneNode(true),
+        restNode: null,
+        splitWithinNode: false,
+        wordsUsed: wordCount,
+      };
+    }
+
+    const split = splitTextAtWordLimit(text, maxWords);
+    const ownerDocument = node.ownerDocument ?? document;
+    return {
+      excerptNode: split.excerptText ? ownerDocument.createTextNode(split.excerptText) : null,
+      restNode: split.restText ? ownerDocument.createTextNode(split.restText) : null,
+      splitWithinNode: true,
+      wordsUsed: split.wordsUsed,
+    };
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return {
+      excerptNode: maxWords > 0 ? node.cloneNode(true) : null,
+      restNode: maxWords > 0 ? null : node.cloneNode(true),
+      splitWithinNode: false,
+      wordsUsed: 0,
+    };
+  }
+
+  const excerptElement = node.cloneNode(false) as HTMLElement;
+  const restElement = node.cloneNode(false) as HTMLElement;
+  let wordsUsed = 0;
+  let appendRemainingToRest = false;
+  let splitWithinNode = false;
+
+  for (const child of Array.from(node.childNodes)) {
+    if (appendRemainingToRest) {
+      restElement.appendChild(child.cloneNode(true));
+      continue;
+    }
+
+    const split = splitPromptAnswerNodeAtWordLimit(child, Math.max(0, maxWords - wordsUsed));
+    if (split.excerptNode) excerptElement.appendChild(split.excerptNode);
+    if (split.restNode) {
+      restElement.appendChild(split.restNode);
+      appendRemainingToRest = true;
+      splitWithinNode = true;
+    }
+    if (split.splitWithinNode) splitWithinNode = true;
+    wordsUsed += split.wordsUsed;
+    if (wordsUsed >= maxWords) {
+      appendRemainingToRest = true;
+    }
+  }
+
+  return {
+    excerptNode: excerptElement.childNodes.length > 0 ? excerptElement : null,
+    restNode: restElement.childNodes.length > 0 ? restElement : null,
+    splitWithinNode,
+    wordsUsed,
+  };
+}
+
+function splitPromptAnswerNodesAtWordLimit(
+  nodes: Node[],
+  maxWords: number,
+): {
+  excerptNodes: Node[];
+  restNodes: Node[];
+  splitBoundaryWithinNode: boolean;
+} {
+  const excerptNodes: Node[] = [];
+  const restNodes: Node[] = [];
+  let wordsUsed = 0;
+  let appendRemainingToRest = false;
+  let splitBoundaryWithinNode = false;
+
+  for (const node of nodes) {
+    if (appendRemainingToRest) {
+      restNodes.push(node.cloneNode(true));
+      continue;
+    }
+
+    const split = splitPromptAnswerNodeAtWordLimit(node, Math.max(0, maxWords - wordsUsed));
+    if (split.excerptNode) excerptNodes.push(split.excerptNode);
+    if (split.restNode) {
+      restNodes.push(split.restNode);
+      appendRemainingToRest = true;
+      if (split.splitWithinNode) splitBoundaryWithinNode = true;
+    }
+    wordsUsed += split.wordsUsed;
+    if (wordsUsed >= maxWords) {
+      appendRemainingToRest = true;
+    }
+  }
+
+  return { excerptNodes, restNodes, splitBoundaryWithinNode };
+}
+
+function decoratePromptAnswerCollapses(root: ParentNode): void {
+  const maxCollapsedWords = 40;
+  const firstParagraphBoundaryWordThreshold = 20;
+
+  root.querySelectorAll('li.prompt-answer').forEach((answer) => {
+    if (!(answer instanceof HTMLElement)) return;
+    if (answer.querySelector('.prompt-answer-toggle')) return;
+
+    const meaningfulNodes = Array.from(answer.childNodes).filter((node) => !isIgnorablePromptAnswerNode(node));
+    const firstNode = meaningfulNodes[0];
+    if (!(firstNode instanceof HTMLElement) || firstNode.tagName !== 'P') return;
+
+    const split =
+      meaningfulNodes.length > 1 && countWordsInText(firstNode.textContent ?? '') > firstParagraphBoundaryWordThreshold
+        ? {
+            excerptNodes: [firstNode.cloneNode(true)],
+            restNodes: meaningfulNodes.slice(1).map((node) => node.cloneNode(true)),
+            splitBoundaryWithinNode: false,
+          }
+        : splitPromptAnswerNodesAtWordLimit(meaningfulNodes, maxCollapsedWords);
+    if (split.restNodes.length === 0) return;
+
+    answer.replaceChildren(...split.excerptNodes);
+
+    const rest = answer.ownerDocument.createElement('div');
+    rest.className = 'prompt-answer-rest';
+    rest.append(...split.restNodes);
+
+    const toggle = answer.ownerDocument.createElement('a');
+    toggle.className = 'prompt-answer-toggle';
+    toggle.setAttribute('href', '#');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.textContent = 'Show more';
+
+    const previewParagraph = Array.from(answer.children)
+      .reverse()
+      .find((child): child is HTMLElement => child instanceof HTMLElement && child.tagName === 'P');
+    if (!previewParagraph) return;
+
+    const preview = answer.ownerDocument.createElement('span');
+    preview.className = 'prompt-answer-preview';
+    while (previewParagraph.firstChild) {
+      preview.appendChild(previewParagraph.firstChild);
+    }
+
+    if (split.splitBoundaryWithinNode) {
+      const firstRestParagraph = rest.firstElementChild;
+      if (
+        firstRestParagraph instanceof HTMLElement &&
+        firstRestParagraph.tagName === 'P' &&
+        previewParagraph.tagName === 'P'
+      ) {
+        const inlineRest = answer.ownerDocument.createElement('span');
+        inlineRest.className = 'prompt-answer-inline-rest';
+        while (firstRestParagraph.firstChild) {
+          inlineRest.appendChild(firstRestParagraph.firstChild);
+        }
+        previewParagraph.appendChild(inlineRest);
+        firstRestParagraph.remove();
+      }
+    }
+
+    const tailTextNode = findLastMeaningfulTextNode(preview);
+    if (tailTextNode) {
+      const collapsedTailText = collapsedPromptAnswerTailText(tailTextNode.textContent ?? '');
+      const path = collapsedTailText ? textNodePath(preview, tailTextNode) : null;
+      if (collapsedTailText && path) {
+        preview.setAttribute('data-preview-tail-path', path);
+        preview.setAttribute('data-preview-tail-original', tailTextNode.textContent ?? '');
+        preview.setAttribute('data-preview-tail-collapsed', collapsedTailText);
+      }
+    }
+
+    previewParagraph.append(preview, ' ', toggle);
+    answer.appendChild(rest);
+    answer.setAttribute('data-collapsible', 'true');
+    setPromptAnswerExpandedState(answer, false);
+  });
 }
 
 interface MarkdownFontConfig {
@@ -2101,6 +2370,7 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
 
   preserveLeadingIndentation(template.content);
   applySmartPunctuation(template.content);
+  decoratePromptAnswerCollapses(template.content);
 
   return {
     html: template.innerHTML,
