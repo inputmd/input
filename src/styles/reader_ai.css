@@ -254,7 +254,6 @@
 
 .reader-ai-message--assistant {
   background: var(--code-block-bg);
-  border-color: color-mix(in srgb, var(--ansi-cyan) 18%, var(--border));
 }
 
 .reader-ai-message-role {
