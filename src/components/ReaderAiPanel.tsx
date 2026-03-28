@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowRight, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-react';
+import { ArrowRight, CircleAlert, CircleStop, MoreHorizontal, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
@@ -164,6 +164,7 @@ export function ReaderAiPanel({
   const isMac = typeof navigator !== 'undefined' && /(mac|iphone|ipad|ipod)/i.test(navigator.platform ?? '');
   const clearChatShortcutLabel = isMac ? '⌘K' : 'Ctrl+K';
   const [draft, setDraft] = useState('');
+  const [queuedCommands, setQueuedCommands] = useState<string[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
@@ -175,6 +176,7 @@ export function ReaderAiPanel({
   const pendingFocusAfterClearRef = useRef(false);
   const messageCount = messages.length;
   const canSend = draft.trim().length > 0 && !sending && Boolean(selectedModel);
+  const canQueue = draft.trim().length > 0 && queuedCommands.length < 10;
   const hasMessages = messageCount > 0;
   const composerAtTop = !hasMessages;
   const statusText = useMemo(() => {
@@ -301,6 +303,40 @@ export function ReaderAiPanel({
     if (!ok) setDraft(draftValue);
   };
 
+  const enqueueDraft = () => {
+    const prompt = draft.trim();
+    if (!prompt || !selectedModel || queuedCommands.length >= 10) return;
+    setQueuedCommands((prev) => [...prev, prompt].slice(0, 10));
+    setDraft('');
+  };
+
+  const removeQueuedCommand = (index: number) => {
+    setQueuedCommands((prev) => prev.filter((_, commandIndex) => commandIndex !== index));
+  };
+
+  const submit = async () => {
+    const draftValue = draft;
+    const prompt = draftValue.trim();
+    const queued = queuedCommands;
+    if ((!prompt && queued.length === 0) || sending || !selectedModel) return;
+    setDraft('');
+    setQueuedCommands([]);
+    const commands = prompt ? [...queued, prompt] : queued;
+    let failedCommand: string | null = null;
+    for (const command of commands) {
+      const ok = await onSend(command);
+      if (!ok) {
+        failedCommand = command;
+        break;
+      }
+    }
+    if (failedCommand) {
+      setQueuedCommands((prev) => [failedCommand, ...commands.slice(commands.indexOf(failedCommand) + 1), ...prev].slice(0, 10));
+      if (!prompt) setDraft(draftValue);
+      else if (failedCommand === prompt) setDraft(draftValue);
+    }
+  };
+
   const cancelEdit = () => {
     setEditingIndex(null);
     setEditingDraft('');
@@ -364,6 +400,33 @@ export function ReaderAiPanel({
         triggerClassName="reader-ai-model-trigger reader-ai-model-trigger--composer"
         showLoginForMoreModels={showLoginForMoreModels}
       />
+      {queuedCommands.length > 0 ? (
+        <div class="reader-ai-queue" aria-label="Queued Reader AI commands">
+          <div class="reader-ai-queue-header">
+            <span class="reader-ai-queue-title">Queued commands</span>
+            <span class="reader-ai-queue-count">
+              {queuedCommands.length}/10
+            </span>
+          </div>
+          <div class="reader-ai-queue-list">
+            {queuedCommands.map((command, index) => (
+              <div key={`${index}:${command}`} class="reader-ai-queue-item">
+                <span class="reader-ai-queue-item-index">{index + 1}.</span>
+                <span class="reader-ai-queue-item-text">{command}</span>
+                <button
+                  type="button"
+                  class="reader-ai-queue-remove"
+                  onClick={() => removeQueuedCommand(index)}
+                  aria-label={`Remove queued command ${index + 1}`}
+                  disabled={sending}
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <textarea
         ref={composerInputRef}
         class={`reader-ai-input${hasMessages ? ' reader-ai-input--bottom' : ''}`}
@@ -386,6 +449,11 @@ export function ReaderAiPanel({
             if (hasMessages && !sending) clearChat(true);
             return;
           }
+          if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === 'Enter') {
+            event.preventDefault();
+            enqueueDraft();
+            return;
+          }
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             void submit();
@@ -394,6 +462,16 @@ export function ReaderAiPanel({
         rows={3}
         disabled={composerInputDisabled}
       />
+      <button
+        type="button"
+        class="reader-ai-queue-btn"
+        disabled={!canQueue || sending}
+        onClick={enqueueDraft}
+        aria-label="Add command to queue"
+        title={queuedCommands.length >= 10 ? 'Queue is full' : 'Add command to queue'}
+      >
+        Queue
+      </button>
       {sending ? (
         <button type="button" class="reader-ai-send-btn" onClick={onStop} aria-label="Stop response">
           <CircleStop size={13} class="reader-ai-stop-icon" aria-hidden="true" />

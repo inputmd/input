@@ -273,6 +273,107 @@
   gap: 6px;
 }
 
+.reader-ai-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--code-block-bg) 76%, transparent);
+}
+
+.reader-ai-queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reader-ai-queue-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.reader-ai-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reader-ai-queue-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.reader-ai-queue-item-index {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.reader-ai-queue-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.reader-ai-queue-remove {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reader-ai-queue-remove:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--btn-hover);
+}
+
+.reader-ai-queue-remove:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.reader-ai-queue-btn {
+  position: absolute;
+  right: 42px;
+  bottom: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.reader-ai-queue-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--btn-hover);
+}
+
+.reader-ai-queue-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .reader-ai-message-action-btn {
   border: 0;
   background: transparent;
