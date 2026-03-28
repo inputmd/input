@@ -608,7 +608,9 @@
   border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   border-radius: 5px;
   background: color-mix(in srgb, var(--bg) 96%, var(--btn-bg));
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28), 0 0 0 1px color-mix(in srgb, var(--border) 10%, transparent);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--border) 10%, transparent);
 }
 
 .markdown-link-preview-popover--contained {

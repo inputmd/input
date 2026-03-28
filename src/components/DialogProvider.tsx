@@ -5,9 +5,9 @@ import { ChevronDown } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 import { createContext } from 'preact';
 import { useCallback, useContext, useRef, useState } from 'preact/hooks';
+import { blurOnClose } from '../dom_utils';
 import type { DiffChangeEntry } from './DiffViewer';
 import { SideBySideDiffView } from './DiffViewer';
-import { blurOnClose } from '../dom_utils';
 
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;

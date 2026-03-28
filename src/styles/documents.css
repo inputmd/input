@@ -68,7 +68,9 @@
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   border-radius: 3px;
   background: var(--toolbar-bg);
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
   cursor: pointer;
 }
 
@@ -176,7 +178,9 @@
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   border-radius: 5px;
   background: var(--toolbar-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24), 0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.24),
+    0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
   z-index: 20;
 }
 
@@ -339,7 +343,9 @@
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   border-radius: 3px;
   background: var(--toolbar-bg);
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
   cursor: pointer;
 }
 

@@ -1,9 +1,9 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ExternalLink, Globe, Lock, MoreHorizontal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { blurOnClose } from '../dom_utils';
 import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
-import { blurOnClose } from '../dom_utils';
 import { DocumentsView } from './DocumentsView';
 
 const CONNECT_REPOS_LABEL = 'Connect Repos';
@@ -107,7 +107,13 @@ export function WorkspacesView({
           <button type="button" class="workspaces-connect-btn" onClick={() => void onConnect()}>
             {CONNECT_REPOS_LABEL}
           </button>
-          <DropdownMenu.Root open={actionsMenuOpen} onOpenChange={(open: boolean) => { setActionsMenuOpen(open); blurOnClose(open); }}>
+          <DropdownMenu.Root
+            open={actionsMenuOpen}
+            onOpenChange={(open: boolean) => {
+              setActionsMenuOpen(open);
+              blurOnClose(open);
+            }}
+          >
             <DropdownMenu.Trigger asChild>
               <button
                 type="button"

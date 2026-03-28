@@ -300,7 +300,10 @@ button {
   font-size: 14px;
   font-family: inherit;
   line-height: 1.5;
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 button:hover {

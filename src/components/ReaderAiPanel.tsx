@@ -1,12 +1,12 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ArrowRight, CircleAlert, CircleStop, MoreHorizontal } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
 import type { ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
-import { blurOnClose } from '../dom_utils';
 
 export type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
 

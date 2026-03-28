@@ -16,10 +16,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { blurOnClose } from '../dom_utils';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo, LinkedInstallation } from '../github_app';
 import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
-import { blurOnClose } from '../dom_utils';
 import { isEditableShortcutTarget, matchesControlShortcut } from '../keyboard_shortcuts';
 import type { ReaderAiModel } from '../reader_ai';
 import { routePath } from '../routing';
@@ -345,7 +345,13 @@ export function Toolbar({
     action();
   };
   const authorMenu = (
-    <DropdownMenu.Root open={authorMenuOpen} onOpenChange={(open: boolean) => { setAuthorMenuOpen(open); blurOnClose(open); }}>
+    <DropdownMenu.Root
+      open={authorMenuOpen}
+      onOpenChange={(open: boolean) => {
+        setAuthorMenuOpen(open);
+        blurOnClose(open);
+      }}
+    >
       <DropdownMenu.Trigger asChild>
         <button type="button" class="author-menu-trigger" aria-label="Author menu" title="Author menu">
           <MoreVertical size={16} aria-hidden="true" />

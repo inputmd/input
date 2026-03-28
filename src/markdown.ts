@@ -11,11 +11,7 @@ import {
   normalizePromptListIdentifierText,
   setPromptAnswerExpandedState,
 } from './prompt_list_state.ts';
-import {
-  EMPTY_PROMPT_QUESTION_PLACEHOLDER,
-  matchPromptListLine,
-  parsePromptListBlock,
-} from './prompt_list_syntax.ts';
+import { EMPTY_PROMPT_QUESTION_PLACEHOLDER, matchPromptListLine, parsePromptListBlock } from './prompt_list_syntax.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
 
 marked.setOptions({
@@ -1077,11 +1073,11 @@ function decoratePromptAnswerCollapses(root: ParentNode): void {
 
 const IO_HIGHLIGHT_RULES: Array<{ pattern: RegExp; className: string }> = [
   // CriticMarkup (must precede brace prompt)
-  { pattern: /\{~~[^]*?~>[^]*?~~\}/g, className: 'io-hl-critic-substitution' },
-  { pattern: /\{\+\+[^]*?\+\+\}/g, className: 'io-hl-critic-addition' },
-  { pattern: /\{--[^]*?--\}/g, className: 'io-hl-critic-deletion' },
-  { pattern: /\{==[^]*?==\}/g, className: 'io-hl-critic-highlight' },
-  { pattern: /\{>>[^]*?<<\}/g, className: 'io-hl-critic-comment' },
+  { pattern: /\{~~[\s\S]*?~>[\s\S]*?~~\}/g, className: 'io-hl-critic-substitution' },
+  { pattern: /\{\+\+[\s\S]*?\+\+\}/g, className: 'io-hl-critic-addition' },
+  { pattern: /\{--[\s\S]*?--\}/g, className: 'io-hl-critic-deletion' },
+  { pattern: /\{==[\s\S]*?==\}/g, className: 'io-hl-critic-highlight' },
+  { pattern: /\{>>[\s\S]*?<<\}/g, className: 'io-hl-critic-comment' },
   // Template tags
   { pattern: /\{%[\t ].*?%\}/g, className: 'io-hl-template-tag' },
   // Brace prompts (single-line, no nested braces, not CriticMarkup)

@@ -16,7 +16,9 @@
   border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   border-radius: 6px;
   background: var(--toolbar-bg);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3), 0 0 0 1px color-mix(in srgb, var(--border) 10%, transparent);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.3),
+    0 0 0 1px color-mix(in srgb, var(--border) 10%, transparent);
   z-index: 51;
 }
 
@@ -358,7 +360,9 @@
   background: var(--toolbar-bg);
   color: var(--text);
   font-size: 14px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 0 0 1px color-mix(in srgb, var(--border) 10%, transparent);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.2),
+    0 0 0 1px color-mix(in srgb, var(--border) 10%, transparent);
   cursor: pointer;
 }
 

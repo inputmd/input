@@ -87,7 +87,13 @@ export function ReaderAiModelSelector({
     showLoginForMoreModels && paidModels.length === 0 && (featuredModels.length > 0 || unverifiedModels.length > 0);
 
   return (
-    <DropdownMenu.Root open={open} onOpenChange={(nextOpen: boolean) => { onOpenChange?.(nextOpen); if (!nextOpen) (document.activeElement as HTMLElement | null)?.blur?.(); }}>
+    <DropdownMenu.Root
+      open={open}
+      onOpenChange={(nextOpen: boolean) => {
+        onOpenChange?.(nextOpen);
+        if (!nextOpen) (document.activeElement as HTMLElement | null)?.blur?.();
+      }}
+    >
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
