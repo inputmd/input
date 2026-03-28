@@ -930,6 +930,50 @@
   display: inline;
 }
 
+/* io code block highlighting */
+
+.rendered-markdown .io-hl-brace-prompt {
+  color: var(--text-secondary);
+}
+
+.rendered-markdown .io-hl-critic-addition {
+  color: color-mix(in srgb, var(--text) 70%, var(--ansi-green));
+}
+
+.rendered-markdown .io-hl-critic-deletion {
+  color: color-mix(in srgb, var(--text-secondary) 84%, var(--error-color));
+}
+
+.rendered-markdown .io-hl-critic-highlight {
+  color: color-mix(in srgb, var(--text) 76%, var(--warning-color));
+}
+
+.rendered-markdown .io-hl-critic-comment {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.rendered-markdown .io-hl-critic-substitution {
+  color: color-mix(in srgb, var(--text-secondary) 84%, var(--error-color));
+}
+
+.rendered-markdown .io-hl-wikilink {
+  color: var(--accent-text);
+}
+
+.rendered-markdown .io-hl-sup-link {
+  color: var(--accent-text);
+}
+
+.rendered-markdown .io-hl-template-tag {
+  color: var(--text-secondary);
+}
+
+.rendered-markdown .io-hl-prompt-marker {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
 .rendered-markdown table {
   width: 100%;
   border-collapse: collapse;

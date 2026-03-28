@@ -1068,6 +1068,89 @@ function decoratePromptAnswerCollapses(root: ParentNode): void {
   });
 }
 
+// --- io code block highlighting ---
+
+const IO_HIGHLIGHT_RULES: Array<{ pattern: RegExp; className: string }> = [
+  // CriticMarkup (must precede brace prompt)
+  { pattern: /\{~~[^]*?~>[^]*?~~\}/g, className: 'io-hl-critic-substitution' },
+  { pattern: /\{\+\+[^]*?\+\+\}/g, className: 'io-hl-critic-addition' },
+  { pattern: /\{--[^]*?--\}/g, className: 'io-hl-critic-deletion' },
+  { pattern: /\{==[^]*?==\}/g, className: 'io-hl-critic-highlight' },
+  { pattern: /\{>>[^]*?<<\}/g, className: 'io-hl-critic-comment' },
+  // Template tags
+  { pattern: /\{%[\t ].*?%\}/g, className: 'io-hl-template-tag' },
+  // Brace prompts (single-line, no nested braces, not CriticMarkup)
+  { pattern: /\{[^{}]+\}/g, className: 'io-hl-brace-prompt' },
+  // Wikilinks
+  { pattern: /\[\[[^\]]+\]\]/g, className: 'io-hl-wikilink' },
+  // Superscript links
+  { pattern: /\[\^[^\]]*\]\([^)]*\)/g, className: 'io-hl-sup-link' },
+  // Prompt list markers (line-start only)
+  { pattern: /^[ \t]*(?:~|❯|⏺|✻|%)/gmu, className: 'io-hl-prompt-marker' },
+];
+
+interface IoHighlightSpan {
+  from: number;
+  to: number;
+  className: string;
+}
+
+function collectIoHighlightSpans(text: string): IoHighlightSpan[] {
+  const spans: IoHighlightSpan[] = [];
+  const claimed = new Uint8Array(text.length);
+
+  for (const rule of IO_HIGHLIGHT_RULES) {
+    const re = new RegExp(rule.pattern.source, rule.pattern.flags);
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const from = m.index;
+      const to = from + m[0].length;
+      let overlap = false;
+      for (let i = from; i < to; i++) {
+        if (claimed[i]) {
+          overlap = true;
+          break;
+        }
+      }
+      if (overlap) continue;
+      for (let i = from; i < to; i++) claimed[i] = 1;
+      spans.push({ from, to, className: rule.className });
+    }
+  }
+
+  spans.sort((a, b) => a.from - b.from);
+  return spans;
+}
+
+function highlightIoCodeBlocks(root: ParentNode): void {
+  root.querySelectorAll('code.language-io').forEach((code) => {
+    const text = code.textContent ?? '';
+    const spans = collectIoHighlightSpans(text);
+    if (spans.length === 0) return;
+
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+
+    for (const span of spans) {
+      if (span.from > cursor) {
+        fragment.appendChild(document.createTextNode(text.slice(cursor, span.from)));
+      }
+      const el = document.createElement('span');
+      el.className = span.className;
+      el.textContent = text.slice(span.from, span.to);
+      fragment.appendChild(el);
+      cursor = span.to;
+    }
+
+    if (cursor < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(cursor)));
+    }
+
+    code.textContent = '';
+    code.appendChild(fragment);
+  });
+}
+
 interface MarkdownFontConfig {
   load: string[];
   body: string | null;
@@ -2371,6 +2454,7 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
   preserveLeadingIndentation(template.content);
   applySmartPunctuation(template.content);
   decoratePromptAnswerCollapses(template.content);
+  highlightIoCodeBlocks(template.content);
 
   return {
     html: template.innerHTML,
