@@ -950,6 +950,9 @@ export function App() {
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const editViewControllerRef = useRef<EditorController | null>(null);
+  const readerAiStagedChangesRef = useRef<ReaderAiStagedChange[]>(readerAiStagedChanges);
+  const readerAiSelectedChangeIdsRef = useRef<Set<string>>(readerAiSelectedChangeIds);
+  const readerAiSelectedHunkIdsByChangeIdRef = useRef<Record<string, Set<string>>>(readerAiSelectedHunkIdsByChangeId);
   const currentFileNameRef = useRef<string | null>(currentFileName);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
@@ -967,6 +970,15 @@ export function App() {
     window.clearTimeout(editContentSnapshotTimerRef.current);
     editContentSnapshotTimerRef.current = null;
   }, []);
+  useEffect(() => {
+    readerAiStagedChangesRef.current = readerAiStagedChanges;
+  }, [readerAiStagedChanges]);
+  useEffect(() => {
+    readerAiSelectedChangeIdsRef.current = readerAiSelectedChangeIds;
+  }, [readerAiSelectedChangeIds]);
+  useEffect(() => {
+    readerAiSelectedHunkIdsByChangeIdRef.current = readerAiSelectedHunkIdsByChangeId;
+  }, [readerAiSelectedHunkIdsByChangeId]);
   const scheduleEditContentSnapshot = useCallback(
     (update: { content: string; revision: number }) => {
       cancelEditContentSnapshot();
@@ -3853,6 +3865,8 @@ export function App() {
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
       setReaderAiStagedChanges([]);
+      setReaderAiSelectedChangeIds(new Set());
+      setReaderAiSelectedHunkIdsByChangeId({});
       setReaderAiStagedChangesInvalid(false);
       setReaderAiStagedFileContents({});
       setReaderAiDocumentEditedContent(null);
@@ -4012,7 +4026,48 @@ export function App() {
             onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
               logReceiveStart('staged_changes');
               receivedStagedChanges = changes.length > 0;
+              const previousChangeIds = new Set(
+                readerAiStagedChangesRef.current
+                  .map((change) => change.id)
+                  .filter((id): id is string => typeof id === 'string'),
+              );
+              const previousHunkIdsByChangeId = Object.fromEntries(
+                readerAiStagedChangesRef.current
+                  .filter((change) => change.id && Array.isArray(change.hunks))
+                  .map((change) => [
+                    change.id as string,
+                    new Set(
+                      (change.hunks ?? []).map((hunk) => hunk.id).filter((id): id is string => typeof id === 'string'),
+                    ),
+                  ]),
+              );
               setReaderAiStagedChanges(changes);
+              setReaderAiSelectedChangeIds((prev) => {
+                const latestSelectedChangeIds = readerAiSelectedChangeIdsRef.current;
+                const next = new Set<string>();
+                for (const change of changes) {
+                  if (!change.id) continue;
+                  if (!previousChangeIds.has(change.id) || latestSelectedChangeIds.has(change.id)) next.add(change.id);
+                }
+                return next;
+              });
+              setReaderAiSelectedHunkIdsByChangeId((prev) => {
+                const latestSelectedHunkIdsByChangeId = readerAiSelectedHunkIdsByChangeIdRef.current;
+                const next: Record<string, Set<string>> = {};
+                for (const change of changes) {
+                  if (!change.id || !Array.isArray(change.hunks) || change.hunks.length === 0) continue;
+                  const previousHunkIds = previousHunkIdsByChangeId[change.id] ?? new Set<string>();
+                  const previousSelectedHunkIds = latestSelectedHunkIdsByChangeId[change.id] ?? new Set<string>();
+                  next[change.id] = new Set(
+                    change.hunks
+                      .map((hunk) => hunk.id)
+                      .filter(
+                        (hunkId) => !previousHunkIds.has(hunkId) || previousSelectedHunkIds.has(hunkId),
+                      ),
+                  );
+                }
+                return next;
+              });
               setReaderAiStagedChangesInvalid(false);
               setReaderAiStagedFileContents(() => {
                 const next: Record<string, string> = {};
@@ -4218,6 +4273,8 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiSelectedChangeIds(new Set());
+    setReaderAiSelectedHunkIdsByChangeId({});
     setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
     setReaderAiStagedFileContents({});
