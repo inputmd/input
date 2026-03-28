@@ -1270,6 +1270,7 @@
   font-family: var(--font-mono, monospace);
   font-size: 12px;
   line-height: 1.45;
+  border-bottom: 1px solid var(--border);
 }
 
 .reader-ai-diff-popout-file {
