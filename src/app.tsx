@@ -20,6 +20,7 @@ import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
 import { parseDocumentEditorsFromMarkdown, parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
+import { captureDocumentVersion, type DocumentVersion, documentVersionsMatch } from './document_version';
 import { resolveForkTargetInstallationId, resolveForkTargetRepoFullName } from './fork_repo';
 import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import {
@@ -880,6 +881,8 @@ export function App() {
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const readerAiAbortRef = useRef<AbortController | null>(null);
+  const readerAiBaseVersionRef = useRef<DocumentVersion | null>(null);
+  const inlinePromptBaseVersionRef = useRef<DocumentVersion | null>(null);
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const editViewControllerRef = useRef<EditorController | null>(null);
   const currentFileNameRef = useRef<string | null>(currentFileName);
@@ -3746,6 +3749,9 @@ export function App() {
         })();
       const source =
         !readerAiRepoMode && nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
+      // Capture the document version the AI will work against so we can
+      // detect drift before applying staged changes.
+      readerAiBaseVersionRef.current = captureDocumentVersion(currentEditContent);
       readerAiAbortRef.current?.abort();
       const controller = new AbortController();
       readerAiAbortRef.current = controller;
@@ -4147,6 +4153,19 @@ export function App() {
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
       if (readerAiApplyingChanges || readerAiStagedChanges.length === 0) return;
+
+      // Check if the document changed since the AI read it
+      const baseVersion = readerAiBaseVersionRef.current;
+      if (baseVersion && activeView === 'edit') {
+        const currentVersion = captureDocumentVersion(editContentRef.current);
+        if (!documentVersionsMatch(baseVersion, currentVersion)) {
+          const proceed = await showConfirm(
+            'The document has changed since the AI read it. The proposed edits were based on an older version and may not apply correctly. Apply anyway?',
+          );
+          if (!proceed) return;
+        }
+      }
+
       setReaderAiApplyingChanges(true);
       setReaderAiError(null);
 
@@ -4276,6 +4295,7 @@ export function App() {
       selectedRepo,
       readerAiStagedChangesInvalid,
       setNextEditContent,
+      showConfirm,
       showRateLimitToastIfNeeded,
       readerAiSelectedModel,
       setHasUnsavedChanges,
@@ -4316,6 +4336,7 @@ export function App() {
       const controller = new AbortController();
       inlinePromptAbortRef.current?.abort();
       inlinePromptAbortRef.current = controller;
+      inlinePromptBaseVersionRef.current = captureDocumentVersion(documentContent);
       setInlinePromptStreaming(true);
 
       let streamed = '';
@@ -4420,6 +4441,20 @@ export function App() {
             selection: { anchor: end, head: end },
           });
         }
+        // Safety assertion: the editor should have been locked during streaming,
+        // so the base version should still match (minus our own insertions).
+        // If it doesn't, something bypassed the lock.
+        const baseVer = inlinePromptBaseVersionRef.current;
+        if (baseVer && completed) {
+          const expectedLength = baseVer.length - (to - from) + streamed.length;
+          if (editContentRef.current.length !== expectedLength) {
+            console.warn('[inline-prompt] document length mismatch after streaming', {
+              expected: expectedLength,
+              actual: editContentRef.current.length,
+            });
+          }
+        }
+        inlinePromptBaseVersionRef.current = null;
         setInlinePromptStreaming(false);
       }
     },
@@ -4553,6 +4588,7 @@ export function App() {
       const controller = new AbortController();
       inlinePromptAbortRef.current?.abort();
       inlinePromptAbortRef.current = controller;
+      inlinePromptBaseVersionRef.current = captureDocumentVersion(editContentRef.current);
       setInlinePromptStreaming(true);
 
       let streamedRaw = '';
@@ -4691,6 +4727,7 @@ export function App() {
             selection: { anchor: end, head: end },
           });
         }
+        inlinePromptBaseVersionRef.current = null;
         setInlinePromptStreaming(false);
       }
     },
