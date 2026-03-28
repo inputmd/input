@@ -1,4 +1,4 @@
-import { createTwoFilesPatch } from 'diff';
+import { applyPatch as applyDiffPatch, createTwoFilesPatch } from 'diff';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
@@ -636,31 +636,60 @@ function buildReaderAiInlinePreview(
       label: 'Reader AI proposal',
     };
   }
-  if (!Array.isArray(change.hunks) || change.hunks.length === 0) return null;
-  const firstHunk = change.hunks[0];
-  if (!firstHunk) return null;
-  const original = typeof change.originalContent === 'string' ? change.originalContent : '';
-  const lines = original.split('\n');
-  const lineStartOffset = (lineNumber: number) => {
-    if (lineNumber <= 1) return 0;
-    let offset = 0;
-    for (let i = 0; i < Math.min(lines.length, lineNumber - 1); i++) {
-      offset += lines[i].length;
-      if (i < lines.length - 1) offset += 1;
-    }
-    return offset;
-  };
-  const start = lineStartOffset(firstHunk.oldStart);
-  const replacement = firstHunk.lines
-    .filter((line) => line.type === 'add')
-    .map((line) => line.content)
-    .join('\n');
+  const original = typeof change.originalContent === 'string' ? change.originalContent : null;
+  if (original === null) return null;
+  const modified = change.modifiedContent;
+  if (original === modified) return null;
+  const start = commonPrefixLength(original, modified);
+  const trailingOverlap = commonSuffixLength(original.slice(start), modified.slice(start));
+  const originalTrimmedEnd = original.length - trailingOverlap;
+  const modifiedTrimmedEnd = modified.length - trailingOverlap;
   return {
     from: Math.max(0, start),
-    to: Math.max(0, start),
-    insert: replacement,
+    to: Math.max(0, originalTrimmedEnd),
+    insert: modified.slice(start, modifiedTrimmedEnd),
     label: 'Reader AI proposal',
   };
+}
+
+function buildReaderAiSelectedChange(
+  change: ReaderAiStagedChange,
+  selectedHunkIds: Set<string> | undefined,
+): ReaderAiStagedChange | null {
+  if (!change.hunks || change.hunks.length === 0) return change;
+  if (!selectedHunkIds || selectedHunkIds.size === 0) return null;
+  const visibleHunks = change.hunks.filter((hunk) => selectedHunkIds.has(hunk.id));
+  if (visibleHunks.length === 0) return null;
+  if (visibleHunks.length === change.hunks.length) return change;
+  const original =
+    change.type === 'create'
+      ? ''
+      : typeof change.originalContent === 'string'
+        ? change.originalContent
+        : change.originalContent === null
+          ? ''
+          : null;
+  if (original === null) return null;
+  const partialDiff = [
+    `--- a/${change.path}`,
+    `+++ b/${change.path}`,
+    ...visibleHunks.flatMap((hunk) => [
+      hunk.header,
+      ...hunk.lines.map((line) => {
+        if (line.type === 'add') return `+${line.content}`;
+        if (line.type === 'del') return `-${line.content}`;
+        return ` ${line.content}`;
+      }),
+    ]),
+  ].join('\n');
+  const patched = applyDiffPatch(original, partialDiff);
+  if (patched === false) return null;
+  return {
+    ...change,
+    diff: partialDiff,
+    modifiedContent: change.type === 'delete' ? null : patched,
+    hunks: visibleHunks,
+  } satisfies ReaderAiStagedChange;
 }
 
 function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | null {
@@ -915,33 +944,22 @@ export function App() {
     () =>
       readerAiStagedChanges.flatMap((change) => {
         if (change.id && !readerAiSelectedChangeIds.has(change.id)) return [];
-        if (!change.hunks || change.hunks.length === 0) return [change];
-        const selectedHunkIds = change.id ? readerAiSelectedHunkIdsByChangeId[change.id] : undefined;
-        if (!selectedHunkIds || selectedHunkIds.size === 0) return [];
-        const visibleHunks = change.hunks.filter((hunk) => selectedHunkIds.has(hunk.id));
-        if (visibleHunks.length === 0) return [];
-        if (visibleHunks.length === change.hunks.length) return [change];
-        const diffLines = [
-          `--- a/${change.path}`,
-          `+++ b/${change.path}`,
-          ...visibleHunks.flatMap((hunk) => [
-            hunk.header,
-            ...hunk.lines.map((line) => {
-              if (line.type === 'add') return `+${line.content}`;
-              if (line.type === 'del') return `-${line.content}`;
-              return ` ${line.content}`;
-            }),
-          ]),
-        ];
-        return [
-          {
-            ...change,
-            diff: diffLines.join('\n'),
-            hunks: visibleHunks,
-          } satisfies ReaderAiStagedChange,
-        ];
+        const effectiveChange = buildReaderAiSelectedChange(
+          change,
+          change.id ? readerAiSelectedHunkIdsByChangeId[change.id] : undefined,
+        );
+        return effectiveChange ? [effectiveChange] : [];
       }),
     [readerAiSelectedChangeIds, readerAiSelectedHunkIdsByChangeId, readerAiStagedChanges],
+  );
+  const effectiveReaderAiStagedFileContents = useMemo(
+    () =>
+      Object.fromEntries(
+        effectiveReaderAiStagedChanges
+          .filter((change) => change.type !== 'delete' && typeof change.modifiedContent === 'string')
+          .map((change) => [change.path, change.modifiedContent as string]),
+      ),
+    [effectiveReaderAiStagedChanges],
   );
   // Track initialization
   const initialized = useRef(false);
@@ -950,6 +968,9 @@ export function App() {
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const editViewControllerRef = useRef<EditorController | null>(null);
+  const readerAiStagedChangesRef = useRef<ReaderAiStagedChange[]>(readerAiStagedChanges);
+  const readerAiSelectedChangeIdsRef = useRef<Set<string>>(readerAiSelectedChangeIds);
+  const readerAiSelectedHunkIdsByChangeIdRef = useRef<Record<string, Set<string>>>(readerAiSelectedHunkIdsByChangeId);
   const currentFileNameRef = useRef<string | null>(currentFileName);
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
@@ -967,6 +988,15 @@ export function App() {
     window.clearTimeout(editContentSnapshotTimerRef.current);
     editContentSnapshotTimerRef.current = null;
   }, []);
+  useEffect(() => {
+    readerAiStagedChangesRef.current = readerAiStagedChanges;
+  }, [readerAiStagedChanges]);
+  useEffect(() => {
+    readerAiSelectedChangeIdsRef.current = readerAiSelectedChangeIds;
+  }, [readerAiSelectedChangeIds]);
+  useEffect(() => {
+    readerAiSelectedHunkIdsByChangeIdRef.current = readerAiSelectedHunkIdsByChangeId;
+  }, [readerAiSelectedHunkIdsByChangeId]);
   const scheduleEditContentSnapshot = useCallback(
     (update: { content: string; revision: number }) => {
       cancelEditContentSnapshot();
@@ -3853,6 +3883,8 @@ export function App() {
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
       setReaderAiStagedChanges([]);
+      setReaderAiSelectedChangeIds(new Set());
+      setReaderAiSelectedHunkIdsByChangeId({});
       setReaderAiStagedChangesInvalid(false);
       setReaderAiStagedFileContents({});
       setReaderAiDocumentEditedContent(null);
@@ -4012,7 +4044,48 @@ export function App() {
             onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
               logReceiveStart('staged_changes');
               receivedStagedChanges = changes.length > 0;
+              const previousChangeIds = new Set(
+                readerAiStagedChangesRef.current
+                  .map((change) => change.id)
+                  .filter((id): id is string => typeof id === 'string'),
+              );
+              const previousHunkIdsByChangeId = Object.fromEntries(
+                readerAiStagedChangesRef.current
+                  .filter((change) => change.id && Array.isArray(change.hunks))
+                  .map((change) => [
+                    change.id as string,
+                    new Set(
+                      (change.hunks ?? []).map((hunk) => hunk.id).filter((id): id is string => typeof id === 'string'),
+                    ),
+                  ]),
+              );
               setReaderAiStagedChanges(changes);
+              setReaderAiSelectedChangeIds((prev) => {
+                const latestSelectedChangeIds = readerAiSelectedChangeIdsRef.current;
+                const next = new Set<string>();
+                for (const change of changes) {
+                  if (!change.id) continue;
+                  if (!previousChangeIds.has(change.id) || latestSelectedChangeIds.has(change.id)) next.add(change.id);
+                }
+                return next;
+              });
+              setReaderAiSelectedHunkIdsByChangeId((prev) => {
+                const latestSelectedHunkIdsByChangeId = readerAiSelectedHunkIdsByChangeIdRef.current;
+                const next: Record<string, Set<string>> = {};
+                for (const change of changes) {
+                  if (!change.id || !Array.isArray(change.hunks) || change.hunks.length === 0) continue;
+                  const previousHunkIds = previousHunkIdsByChangeId[change.id] ?? new Set<string>();
+                  const previousSelectedHunkIds = latestSelectedHunkIdsByChangeId[change.id] ?? new Set<string>();
+                  next[change.id] = new Set(
+                    change.hunks
+                      .map((hunk) => hunk.id)
+                      .filter(
+                        (hunkId) => !previousHunkIds.has(hunkId) || previousSelectedHunkIds.has(hunkId),
+                      ),
+                  );
+                }
+                return next;
+              });
               setReaderAiStagedChangesInvalid(false);
               setReaderAiStagedFileContents(() => {
                 const next: Record<string, string> = {};
@@ -4218,6 +4291,8 @@ export function App() {
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
     setReaderAiStagedChanges([]);
+    setReaderAiSelectedChangeIds(new Set());
+    setReaderAiSelectedHunkIdsByChangeId({});
     setReaderAiAppliedChanges([]);
     setReaderAiStagedChangesInvalid(false);
     setReaderAiStagedFileContents({});
@@ -4229,14 +4304,16 @@ export function App() {
 
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
-      if (readerAiApplyingChanges || readerAiStagedChanges.length === 0) return;
+      if (readerAiApplyingChanges || effectiveReaderAiStagedChanges.length === 0) return;
       setReaderAiApplyingChanges(true);
       setReaderAiError(null);
 
       const applied: string[] = [];
       const failed: Array<{ path: string; error: string }> = [];
-      const changeTypeByPath = new Map(readerAiStagedChanges.map((change) => [change.path, change.type]));
-      const modifiedMap = new Map(Object.entries(readerAiStagedFileContents));
+      const selectedChanges = effectiveReaderAiStagedChanges;
+      const selectedFileContents = effectiveReaderAiStagedFileContents;
+      const changeTypeByPath = new Map(selectedChanges.map((change) => [change.path, change.type]));
+      const modifiedMap = new Map(Object.entries(selectedFileContents));
       const recordAppliedChanges = (paths: string[]) => {
         if (paths.length === 0) return;
         const appliedAt = new Date().toISOString();
@@ -4252,8 +4329,8 @@ export function App() {
           return next.slice(-100);
         });
       };
-      const hasCompleteStagedContent = readerAiStagedChanges.every(
-        (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
+      const hasCompleteStagedContent = selectedChanges.every(
+        (change) => change.type === 'delete' || typeof selectedFileContents[change.path] === 'string',
       );
       const canCommitToGist =
         !readerAiStagedChangesInvalid && hasCompleteStagedContent && Boolean(isGistContext && currentGistId && user);
@@ -4290,8 +4367,8 @@ export function App() {
         if (canCommitToGist && currentGistId) {
           const result = await applyReaderAiChanges(
             { kind: 'gist', gistId: currentGistId },
-            readerAiStagedChanges,
-            readerAiStagedFileContents,
+            selectedChanges,
+            selectedFileContents,
             commitMessage,
           );
           applied.push(...result.applied);
@@ -4299,8 +4376,8 @@ export function App() {
         } else if (canCommitToRepo && activeInstalledRepoInstallationId && selectedRepo) {
           const result = await applyReaderAiChanges(
             { kind: 'repo', installationId: activeInstalledRepoInstallationId, repoFullName: selectedRepo },
-            readerAiStagedChanges,
-            readerAiStagedFileContents,
+            selectedChanges,
+            selectedFileContents,
             commitMessage,
           );
           applied.push(...result.applied);
@@ -4345,8 +4422,8 @@ export function App() {
     },
     [
       readerAiApplyingChanges,
-      readerAiStagedChanges,
-      readerAiStagedFileContents,
+      effectiveReaderAiStagedChanges,
+      effectiveReaderAiStagedFileContents,
       readerAiDocumentEditedContent,
       readerAiProjectId,
       activeView,
@@ -7988,22 +8065,24 @@ export function App() {
       }),
     [currentMenuRepoFullName, recentRepos],
   );
-  const hasAllNonDeleteStagedContent = readerAiStagedChanges.every(
-    (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
+  const hasSelectedStagedChanges = effectiveReaderAiStagedChanges.length > 0;
+  const hasAllNonDeleteSelectedStagedContent = effectiveReaderAiStagedChanges.every(
+    (change) => change.type === 'delete' || typeof effectiveReaderAiStagedFileContents[change.path] === 'string',
   );
-  const hasCurrentEditingStagedContent = Boolean(
-    currentEditingDocPath && typeof readerAiStagedFileContents[currentEditingDocPath] === 'string',
+  const hasCurrentEditingSelectedStagedContent = Boolean(
+    currentEditingDocPath && typeof effectiveReaderAiStagedFileContents[currentEditingDocPath] === 'string',
   );
   const canApplyFromInlineDocumentEdit = !readerAiProjectId && readerAiDocumentEditedContent !== null;
   const canApplyAndCommit =
     !readerAiStagedChangesInvalid &&
-    hasAllNonDeleteStagedContent &&
+    hasSelectedStagedChanges &&
+    hasAllNonDeleteSelectedStagedContent &&
     ((repoAccessMode === 'installed' && Boolean(activeInstalledRepoInstallationId && selectedRepo)) ||
       (isGistContext && Boolean(currentGistId && user)));
   const canApplyWithoutSaving =
     !readerAiStagedChangesInvalid &&
     activeView === 'edit' &&
-    (canApplyFromInlineDocumentEdit || hasCurrentEditingStagedContent);
+    (canApplyFromInlineDocumentEdit || hasCurrentEditingSelectedStagedContent);
   const readerAiStagedChangesDisabledHint = readerAiStagedChangesInvalid
     ? 'Staged changes are invalid. Regenerate the diff to apply changes.'
     : !canApplyAndCommit &&
@@ -8011,7 +8090,7 @@ export function App() {
         activeView === 'edit' &&
         Boolean(currentEditingDocPath) &&
         !canApplyFromInlineDocumentEdit &&
-        !hasCurrentEditingStagedContent
+        !hasCurrentEditingSelectedStagedContent
       ? 'No staged changes for the current file. Switch files or regenerate the diff.'
       : undefined;
 
