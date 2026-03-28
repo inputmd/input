@@ -221,6 +221,48 @@ export async function githubFetchWithInstallationToken(
   return res;
 }
 
+export async function githubGraphqlWithInstallationToken<T>(
+  installationId: string,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<{ data?: T; errors?: Array<{ message?: string; type?: string; path?: Array<string | number> }> }> {
+  const tokenRec = await getInstallationToken(installationId);
+  const res = await fetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${tokenRec.token}`,
+      'User-Agent': 'input-github-app-auth-server',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+  });
+
+  const payload = (await res.json().catch(() => null)) as
+    | {
+        data?: T;
+        errors?: Array<{ message?: string; type?: string; path?: Array<string | number> }>;
+      }
+    | null;
+
+  if (!res.ok) {
+    const details = await parseGitHubErrorDetails(
+      new Response(JSON.stringify(payload ?? {}), {
+        status: res.status,
+        headers: res.headers,
+      }),
+    );
+    console.error(
+      `GitHub GraphQL error: ${res.status} ${details.message} request_id=${details.requestId ?? '-'} rate_limited=${details.isRateLimited} remaining=${details.remaining ?? '-'} reset=${details.resetAt ?? '-'}`,
+    );
+    throw new ClientError(details.message, res.status >= 400 && res.status < 500 ? res.status : 502);
+  }
+
+  return payload ?? {};
+}
+
 export function encodePathPreserveSlashes(path: string): string {
   return String(path)
     .split('/')

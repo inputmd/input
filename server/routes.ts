@@ -26,6 +26,7 @@ import {
   createAppJwt,
   encodePathPreserveSlashes,
   getRepoInstallationId,
+  githubFetchGraphqlWithInstallationToken,
   githubFetchWithInstallationToken,
 } from './github_client';
 import { json, readJson, requireEnv, requireString } from './http_helpers';
@@ -1978,23 +1979,6 @@ async function handleCompactRecentCommits(ctx: RouteContext): Promise<void> {
   }
   const branch = repoData.default_branch;
 
-  const refPath = `${repoPath}/git/ref/heads/${encodeURIComponent(branch)}`;
-  const refRes = await githubFetchWithInstallationToken(installationId, refPath);
-  const refData = (await refRes.json().catch(() => null)) as { object?: { sha?: string }; message?: string } | null;
-  if (!refRes.ok || typeof refData?.object?.sha !== 'string') {
-    if (refRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(ctx.res, refRes, refData?.message ?? 'Failed to load branch ref', refPath);
-    return;
-  }
-  const currentHeadSha = refData.object.sha;
-  if (currentHeadSha !== expectedHeadSha) {
-    json(ctx.res, 409, {
-      error: 'The branch changed while loading commits. Reload and try again.',
-      code: 'repo_ref_conflict',
-    });
-    return;
-  }
-
   const commitsPath = `${repoPath}/commits?sha=${encodeURIComponent(branch)}&per_page=20&page=1`;
   const commitsRes = await githubFetchWithInstallationToken(installationId, commitsPath);
   const commitsData = (await commitsRes.json().catch(() => null)) as GitHubCommitListItem[] | GitHubApiError | null;
@@ -2023,61 +2007,44 @@ async function handleCompactRecentCommits(ctx: RouteContext): Promise<void> {
     }
   })();
 
-  const headCommitPath = `${repoPath}/git/commits/${encodeURIComponent(selection.headSha)}`;
-  const headCommitRes = await githubFetchWithInstallationToken(installationId, headCommitPath);
-  const headCommitData = (await headCommitRes.json().catch(() => null)) as {
-    tree?: { sha?: string };
-    message?: string;
-  } | null;
-  if (!headCommitRes.ok || typeof headCommitData?.tree?.sha !== 'string') {
-    if (headCommitRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(ctx.res, headCommitRes, headCommitData?.message ?? 'Failed to load HEAD commit', headCommitPath);
-    return;
-  }
-
-  const createCommitPath = `${repoPath}/git/commits`;
-  const createCommitRes = await githubFetchWithInstallationToken(installationId, createCommitPath, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      tree: headCommitData.tree.sha,
-      parents: [selection.baseParentSha],
-    }),
+  const updateRefsMutation = `
+    mutation ForceUpdateRefAtomically($input: UpdateRefsInput!) {
+      updateRefs(input: $input) {
+        clientMutationId
+      }
+    }
+  `;
+  const updateRefsPayload = await githubGraphqlWithInstallationToken<{
+    updateRefs?: { clientMutationId?: string | null };
+  }>(installationId, updateRefsMutation, {
+    input: {
+      repositoryId: repoData.id,
+      refUpdates: [
+        {
+          name: `refs/heads/${branch}`,
+          beforeOid: expectedHeadSha,
+          afterOid: createdCommit.sha,
+          force: true,
+        },
+      ],
+    },
   });
-  const createdCommit = (await createCommitRes.json().catch(() => null)) as { sha?: string; message?: string } | null;
-  if (!createCommitRes.ok || typeof createdCommit?.sha !== 'string') {
-    if (createCommitRes.status === 401) throw new ClientError('Unauthorized', 401);
-    respondGitHubError(
-      ctx.res,
-      createCommitRes,
-      createdCommit?.message ?? 'Failed to create compacted commit',
-      createCommitPath,
-    );
-    return;
-  }
-
-  const updateRefPath = `${repoPath}/git/refs/heads/${encodeURIComponent(branch)}`;
-  const updateRefRes = await githubFetchWithInstallationToken(installationId, updateRefPath, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sha: createdCommit.sha, force: true }),
-  });
-  if (!updateRefRes.ok) {
-    const err = (await updateRefRes.json().catch(() => null)) as GitHubApiError | null;
-    if (updateRefRes.status === 401) throw new ClientError('Unauthorized', 401);
-    if (updateRefRes.status === 409 || updateRefRes.status === 422) {
+  const graphqlMessage =
+    updateRefsPayload.errors
+      ?.map((entry) => entry.message)
+      .filter((message): message is string => typeof message === 'string' && message.trim().length > 0)
+      .join('; ') ?? '';
+  if (graphqlMessage) {
+    if (/before oid|beforeOid|expected|stale|has moved|mismatch|not at/i.test(graphqlMessage)) {
       json(ctx.res, 409, {
         error: 'The branch changed while compacting commits. Reload and try again.',
         code: 'repo_ref_conflict',
       });
       return;
     }
-    respondGitHubError(ctx.res, updateRefRes, err?.message ?? 'Failed to force-update branch ref', updateRefPath);
-    return;
+    throw new ClientError(graphqlMessage, 502);
   }
 
-  copyGitHubRateLimitHeaders(ctx.res, updateRefRes);
   json(ctx.res, 200, {
     branch,
     previousHeadSha: selection.headSha,
