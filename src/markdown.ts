@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import { nameToEmoji } from 'gemoji';
 import type { Token, Tokens } from 'marked';
 import { marked, Renderer, type RendererThis, Tokenizer, type TokenizerThis } from 'marked';
+import { BRACE_PROMPT_HINT_LABEL } from './brace_prompt.ts';
 import { parseCriticMarkupAt } from './criticmarkup.ts';
 import { parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
@@ -10,7 +11,11 @@ import {
   normalizePromptListIdentifierText,
   setPromptAnswerExpandedState,
 } from './prompt_list_state.ts';
-import { parsePromptListBlock } from './prompt_list_syntax.ts';
+import {
+  EMPTY_PROMPT_QUESTION_PLACEHOLDER,
+  matchPromptListLine,
+  parsePromptListBlock,
+} from './prompt_list_syntax.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
 
 marked.setOptions({
@@ -1085,14 +1090,18 @@ const IO_HIGHLIGHT_RULES: Array<{ pattern: RegExp; className: string }> = [
   { pattern: /\[\[[^\]]+\]\]/g, className: 'io-hl-wikilink' },
   // Superscript links
   { pattern: /\[\^[^\]]*\]\([^)]*\)/g, className: 'io-hl-sup-link' },
-  // Prompt list markers (line-start only)
-  { pattern: /^[ \t]*(?:~|❯|⏺|✻|%)/gmu, className: 'io-hl-prompt-marker' },
 ];
 
 interface IoHighlightSpan {
   from: number;
   to: number;
   className: string;
+}
+
+interface IoHighlightInsertion {
+  at: number;
+  className: string;
+  text: string;
 }
 
 function collectIoHighlightSpans(text: string): IoHighlightSpan[] {
@@ -1122,16 +1131,122 @@ function collectIoHighlightSpans(text: string): IoHighlightSpan[] {
   return spans;
 }
 
+function collectIoPromptDecorations(text: string): { spans: IoHighlightSpan[]; insertions: IoHighlightInsertion[] } {
+  const spans: IoHighlightSpan[] = [];
+  const insertions: IoHighlightInsertion[] = [];
+  let lineStart = 0;
+
+  for (const line of text.split('\n')) {
+    const match = matchPromptListLine(line);
+    if (match) {
+      spans.push({
+        from: lineStart,
+        to: lineStart + match.indent.length + match.marker.length,
+        className: match.marker === '~' ? 'io-hl-prompt-question-marker' : 'io-hl-prompt-marker',
+      });
+
+      if (match.marker === '~' && !match.content.trim()) {
+        insertions.push({
+          at: lineStart + match.markerEnd,
+          className: 'io-hl-prompt-question-placeholder',
+          text: EMPTY_PROMPT_QUESTION_PLACEHOLDER,
+        });
+      }
+    }
+
+    lineStart += line.length + 1;
+  }
+
+  return { spans, insertions };
+}
+
+function ioPromptContinuationIndent(marker: string): string {
+  return marker === '❯' ? ' ' : '  ';
+}
+
+function normalizeIoDisplayText(text: string): string {
+  const lines = text.split('\n');
+  const normalizedLines: string[] = [];
+  let continuationIndent: string | null = null;
+  let tabContinuationIndent: string | null = null;
+
+  for (const line of lines) {
+    const match = matchPromptListLine(line);
+    if (match) {
+      continuationIndent = `${match.indent}${ioPromptContinuationIndent(match.marker)}`;
+      tabContinuationIndent = `${match.indent}\t`;
+      normalizedLines.push(line);
+      continue;
+    }
+
+    if (continuationIndent && line.startsWith(continuationIndent)) {
+      normalizedLines.push(line.slice(continuationIndent.length));
+      continue;
+    }
+
+    if (tabContinuationIndent && line.startsWith(tabContinuationIndent)) {
+      normalizedLines.push(line.slice(tabContinuationIndent.length));
+      continue;
+    }
+
+    continuationIndent = null;
+    tabContinuationIndent = null;
+    normalizedLines.push(line);
+  }
+
+  return normalizedLines.join('\n');
+}
+
+function collectIoBracePromptInsertions(text: string, spans: IoHighlightSpan[]): IoHighlightInsertion[] {
+  const insertions: IoHighlightInsertion[] = [];
+
+  for (const span of spans) {
+    if (span.className !== 'io-hl-brace-prompt') continue;
+    const lineEnd = text.indexOf('\n', span.to);
+    const lineBoundary = lineEnd >= 0 ? lineEnd : text.length;
+    if (span.to !== lineBoundary) continue;
+    insertions.push({
+      at: span.to,
+      className: 'io-hl-brace-prompt-hint',
+      text: BRACE_PROMPT_HINT_LABEL,
+    });
+  }
+
+  return insertions;
+}
+
 function highlightIoCodeBlocks(root: ParentNode): void {
   root.querySelectorAll('code.language-io').forEach((code) => {
-    const text = code.textContent ?? '';
+    const text = normalizeIoDisplayText(code.textContent ?? '');
     const spans = collectIoHighlightSpans(text);
-    if (spans.length === 0) return;
+    const promptDecorations = collectIoPromptDecorations(text);
+    const bracePromptInsertions = collectIoBracePromptInsertions(text, spans);
+    spans.push(...promptDecorations.spans);
+    spans.sort((a, b) => a.from - b.from || a.to - b.to);
+    const insertions = [...promptDecorations.insertions, ...bracePromptInsertions].sort((a, b) => a.at - b.at);
+    if (spans.length === 0 && insertions.length === 0) return;
 
     const fragment = document.createDocumentFragment();
     let cursor = 0;
+    let insertionIndex = 0;
+
+    const flushInsertionsThrough = (limit: number) => {
+      while (insertionIndex < insertions.length && insertions[insertionIndex].at <= limit) {
+        const insertion = insertions[insertionIndex];
+        if (cursor < insertion.at) {
+          fragment.appendChild(document.createTextNode(text.slice(cursor, insertion.at)));
+          cursor = insertion.at;
+        }
+        const el = document.createElement('span');
+        el.className = insertion.className;
+        el.textContent = insertion.text;
+        fragment.appendChild(el);
+        insertionIndex += 1;
+      }
+    };
 
     for (const span of spans) {
+      flushInsertionsThrough(span.from);
       if (span.from > cursor) {
         fragment.appendChild(document.createTextNode(text.slice(cursor, span.from)));
       }
@@ -1142,6 +1257,7 @@ function highlightIoCodeBlocks(root: ParentNode): void {
       cursor = span.to;
     }
 
+    flushInsertionsThrough(text.length);
     if (cursor < text.length) {
       fragment.appendChild(document.createTextNode(text.slice(cursor)));
     }

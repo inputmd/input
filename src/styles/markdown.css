@@ -936,6 +936,10 @@
   color: var(--text-secondary);
 }
 
+.rendered-markdown .io-hl-brace-prompt-hint {
+  color: var(--text-secondary);
+}
+
 .rendered-markdown .io-hl-critic-addition {
   color: color-mix(in srgb, var(--text) 70%, var(--ansi-green));
 }
@@ -969,8 +973,14 @@
   color: var(--text-secondary);
 }
 
-.rendered-markdown .io-hl-prompt-marker {
-  color: var(--accent-text);
+.rendered-markdown .io-hl-prompt-marker,
+.rendered-markdown .io-hl-prompt-question-marker,
+.rendered-markdown .io-hl-prompt-question-placeholder {
+  color: color-mix(in srgb, var(--text-secondary) 78%, var(--cyan-mix));
+}
+
+.rendered-markdown .io-hl-prompt-marker,
+.rendered-markdown .io-hl-prompt-question-marker {
   font-weight: 600;
 }
 

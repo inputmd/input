@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import test from 'ava';
 import { JSDOM } from 'jsdom';
 import { marked } from 'marked';
+import { BRACE_PROMPT_HINT_LABEL } from '../../src/brace_prompt.ts';
 import { parseMarkdownDocument, parseMarkdownToHtml } from '../../src/markdown.ts';
 import { setPromptAnswerExpandedState } from '../../src/prompt_list_state.ts';
+import { EMPTY_PROMPT_QUESTION_PLACEHOLDER } from '../../src/prompt_list_syntax.ts';
 
 function withDom<T>(callback: () => T): T {
   const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -555,6 +557,42 @@ test('parseMarkdownToHtml does not parse CriticMarkup inside fenced code blocks'
 
   t.regex(html, /<pre><code(?: class="language-md")?>\{\+\+literal\+\+\}\n<\/code><\/pre>/);
   t.false(html.includes('critic-addition'));
+});
+
+test('parseMarkdownToHtml renders empty tilde prompt placeholders inside io code blocks', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('```io\n~ \n⏺ Answer\n```'));
+
+  t.true(html.includes('<code class="language-io">'));
+  t.true(
+    html.includes(
+      `<span class="io-hl-prompt-question-marker">~</span> <span class="io-hl-prompt-question-placeholder">${EMPTY_PROMPT_QUESTION_PLACEHOLDER}</span>`,
+    ),
+  );
+  t.true(html.includes('<span class="io-hl-prompt-marker">⏺</span> Answer'));
+});
+
+test('parseMarkdownToHtml renders brace prompt tab hints only at the end of io code block lines', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('```io\nbefore {prompt}\nbefore {inline} after\n```'));
+
+  t.true(
+    html.includes(
+      `<span class="io-hl-brace-prompt">{prompt}</span><span class="io-hl-brace-prompt-hint">${BRACE_PROMPT_HINT_LABEL}</span>`,
+    ),
+  );
+  t.true(html.includes('<span class="io-hl-brace-prompt">{inline}</span> after'));
+  t.false(
+    html.includes(
+      `<span class="io-hl-brace-prompt">{inline}</span><span class="io-hl-brace-prompt-hint">${BRACE_PROMPT_HINT_LABEL}</span>`,
+    ),
+  );
+});
+
+test('parseMarkdownToHtml strips shallow prompt continuation indentation inside io code blocks', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('```io\n⏺ First paragraph.\n  \n  Second paragraph.\n```'));
+
+  t.true(html.includes('<span class="io-hl-prompt-marker">⏺</span> First paragraph.\n\nSecond paragraph.'));
+  t.false(html.includes('<span class="io-hl-prompt-marker">⏺</span> First paragraph.\n  \n  Second paragraph.'));
+  t.false(html.includes('<span class="io-hl-prompt-marker">⏺</span> First paragraph.\n\n  Second paragraph.'));
 });
 
 test('parseMarkdownToHtml does not preserve extra leading indentation on standalone CriticMarkup comments in list paragraphs', (t) => {

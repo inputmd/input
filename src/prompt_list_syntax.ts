@@ -20,6 +20,8 @@ export interface ParsedPromptListBlock {
   endLineIndexExclusive: number;
 }
 
+export const EMPTY_PROMPT_QUESTION_PLACEHOLDER = 'Type to ask AI';
+
 const PROMPT_LIST_LINE_RE = /^([ \t]*)(~|❯|⏺|✻|%)([ \t]+)(.*)$/u;
 
 function promptListItemKindForMarker(marker: string): PromptListItemKind {

@@ -3,7 +3,12 @@ import { EditorState, Facet, RangeSetBuilder, StateEffect, StateField } from '@c
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
-import { matchPromptListLine, parsePromptListBlock } from '../prompt_list_syntax.ts';
+import { BRACE_PROMPT_HINT_LABEL } from '../brace_prompt.ts';
+import {
+  EMPTY_PROMPT_QUESTION_PLACEHOLDER,
+  matchPromptListLine,
+  parsePromptListBlock,
+} from '../prompt_list_syntax.ts';
 import { criticMarkupDecorationExtension } from './codemirror_criticmarkup.ts';
 import { findBracePromptMatch, isBracePromptBlockedInCode } from './codemirror_inline_prompt.ts';
 
@@ -494,13 +499,15 @@ const promptListAtomicRangesExtension = StateField.define<DecorationSet>({
 export function promptListHintLabelForText(text: string, answering = false): string | null {
   const match = matchPromptListLine(text);
   if (!match) return null;
-  if (match.kind === 'question') return match.marker === '~' && !match.content.trim() ? 'Type to ask AI' : null;
+  if (match.kind === 'question') {
+    return match.marker === '~' && !match.content.trim() ? EMPTY_PROMPT_QUESTION_PLACEHOLDER : null;
+  }
   if (match.kind === 'answer' && answering && !match.content.trim()) return 'Answering... (Esc to cancel)';
   return null;
 }
 
 export function bracePromptHintLabelForText(text: string, position: number): string | null {
-  return findBracePromptMatch(text, position) ? '⇥' : null;
+  return findBracePromptMatch(text, position) ? BRACE_PROMPT_HINT_LABEL : null;
 }
 
 export function bracePromptHintForText(
@@ -512,7 +519,7 @@ export function bracePromptHintForText(
 
   return {
     position: match.to,
-    label: '⇥',
+    label: BRACE_PROMPT_HINT_LABEL,
     className: 'cm-brace-prompt-hint',
   };
 }
