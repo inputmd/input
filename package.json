@@ -64,7 +64,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@types/ws": "^8.18.1",
     "diff": "^8.0.3",
-    "dompurify": "^3.3.1",
+    "dompurify": "^3.3.3",
     "dotenv": "^17.3.1",
     "gemoji": "^8.1.0",
     "lucide-react": "^1.7.0",
