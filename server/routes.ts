@@ -2820,9 +2820,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     return executeReaderAiSyncTool(tc.name, tc.arguments, aiLines);
   };
 
-  let stagedChangesEmitted = false;
   const emitStagedChangesIfAny = () => {
-    if (stagedChangesEmitted || ctx.res.writableEnded) return;
+    if (ctx.res.writableEnded) return;
     const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
     const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
     if (!hasProjectStagedChanges && !hasDocumentStagedChange) return;
@@ -2869,7 +2868,6 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
       })}\n\n`,
     );
-    stagedChangesEmitted = true;
   };
 
   const writeSseEvent = (event: string, data: unknown) => {
@@ -2999,6 +2997,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
         writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
+        emitStagedChangesIfAny();
       }
 
       // Run task calls in parallel (up to READER_AI_MAX_CONCURRENT_TASKS)
@@ -3062,6 +3061,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
             const resultPreview = taskResult.length > 200 ? `${taskResult.slice(0, 200)}...` : taskResult;
             writeSseEvent('tool_result', { id, name: 'task', preview: resultPreview });
           }
+          emitStagedChangesIfAny();
         }
       }
 

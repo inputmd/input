@@ -479,6 +479,28 @@ test('stream parser accumulates tool calls', async (t) => {
   t.is(result.finishReason, 'tool_calls');
 });
 
+test('stream parser uses last tool name chunk instead of concatenating duplicates', async (t) => {
+  const stream = makeStream([
+    sseChunk({
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ index: 0, id: 'c1', function: { name: 'read_document', arguments: '{}' } }],
+          },
+        },
+      ],
+    }),
+    sseChunk({
+      choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'read_document' } }] } }],
+    }),
+    sseChunk({ choices: [{ finish_reason: 'tool_calls' }] }),
+    sseDone(),
+  ]);
+
+  const result = await parseReaderAiUpstreamStream(stream, () => {});
+  t.is(result.toolCalls[0].name, 'read_document');
+});
+
 test('stream parser handles multiple parallel tool calls', async (t) => {
   const stream = makeStream([
     sseChunk({

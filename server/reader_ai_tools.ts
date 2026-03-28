@@ -1275,7 +1275,9 @@ export async function parseReaderAiUpstreamStream(
               if (!accumulators.has(idx)) accumulators.set(idx, { id: '', name: '', arguments: '' });
               const acc = accumulators.get(idx)!;
               if (tc.id) acc.id = tc.id;
-              if (tc.function?.name) acc.name += tc.function.name;
+              // Tool name is a single string per call — some providers re-send the same name in later
+              // chunks; concatenating would produce invalid names (e.g. read_documentread_document).
+              if (tc.function?.name) acc.name = tc.function.name;
               if (tc.function?.arguments) acc.arguments += tc.function.arguments;
             }
           }
