@@ -29,7 +29,7 @@ import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_posi
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { detectedLanguageForFileName } from './codemirror_languages';
-import { type EditorDiffPreview, diffPreviewExtension } from './codemirror_diff_preview';
+import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController } from './editor_controller';
 import {
@@ -321,7 +321,7 @@ export function TextEditor({
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         languageCompartment.current.of(detectedLanguage?.extensions ?? []),
-        diffPreviewCompartment.current.of(diffPreviewExtension(diffPreview)),
+        diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
         EditorState.tabSize.of(2),
         EditorView.lineWrapping,
         continuedIndentExtension({ mode: 'indent', maxColumns: 10 }),
@@ -578,7 +578,7 @@ export function TextEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: diffPreviewCompartment.current.reconfigure(diffPreviewExtension(diffPreview)),
+      effects: diffPreviewCompartment.current.reconfigure(editorDiffPreviewExtension(diffPreview)),
     });
   }, [diffPreview]);
 
