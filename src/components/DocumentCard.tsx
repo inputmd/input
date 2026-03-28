@@ -17,7 +17,20 @@ interface DocumentCardProps {
 
 export function DocumentCard({ title, meta, onOpen, onRename, onDelete, pending = false }: DocumentCardProps) {
   return (
-    <div class={`document-card${pending ? ' document-card-pending' : ''}`}>
+    <div
+      class={`document-card${pending ? ' document-card-pending' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={(e: MouseEvent) => {
+        if ((e.target as HTMLElement).closest('button, a')) return;
+        onOpen();
+      }}
+      onKeyDown={(e: KeyboardEvent) => {
+        if (e.key === 'Enter' && !(e.target as HTMLElement).closest('button, a')) {
+          onOpen();
+        }
+      }}
+    >
       <div class="doc-info">
         <span class="doc-title">{title}</span>
         <span class="doc-meta">{meta}</span>

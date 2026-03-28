@@ -6,7 +6,7 @@
   z-index: 5;
   width: var(--sidebar-width, 220px);
   flex-shrink: 0;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   background: var(--toolbar-bg);
   overflow-y: auto;
   display: flex;
@@ -43,7 +43,7 @@
 
 .sidebar-header {
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -83,10 +83,10 @@
 .sidebar-filter-menu {
   min-width: 132px;
   padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 5px;
   background: var(--toolbar-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24), 0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
   z-index: 30;
 }
 
@@ -94,7 +94,7 @@
   width: 100%;
   min-height: 32px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: 3px;
   outline: none;
   background: transparent;
   color: var(--text);
@@ -381,10 +381,10 @@
   max-height: calc(100vh - 16px);
   overflow-y: auto;
   padding: 5px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 5px;
   background: var(--toolbar-bg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
   z-index: 30;
 }
 
@@ -392,7 +392,7 @@
   width: 100%;
   min-height: 31px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: 3px;
   outline: none;
   background: transparent;
   color: var(--text);

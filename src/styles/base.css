@@ -104,15 +104,16 @@
   --text: #e6edf3;
   --text-secondary: #8b949e;
   --toolbar-bg: #161b22;
-  --border: #30363d;
+  --border: #2a3038;
   --input-bg: #0d1117;
-  --btn-bg: #21262d;
+  --btn-bg: #22272e;
   --code-block-bg: color-mix(in srgb, var(--bg) 36%, var(--btn-hover) 64%);
   --image-loading-bg: color-mix(in srgb, var(--bg) 84%, var(--btn-bg) 16%);
   --btn-text: #c9d1d9;
-  --btn-hover: #30363d;
-  --focus-border: #58a6ff;
-  --focus-shadow: rgba(88, 166, 255, 0.4);
+  --btn-hover: #2d333b;
+  --accent-text: #7dcea0;
+  --focus-border: #1a6e3e;
+  --focus-shadow: rgba(26, 110, 62, 0.35);
   --missing-link-color: #c48888;
   --bracketed-text-underline-color: color-mix(in srgb, currentColor 58%, transparent);
   --error-color: #f85149;
@@ -133,8 +134,8 @@
   --cyan-mix: color-mix(in srgb, var(--text) 70%, var(--ansi-cyan));
   --code-content-accent: #a25031;
   --code-content-color: color-mix(in srgb, var(--text) 70%, var(--code-content-accent));
-  --selection-bg: #123f88;
-  --selection-color: #eef5ff;
+  --selection-bg: #1a4a32;
+  --selection-color: #eef5f0;
   --toolbar-height: 52px;
   --document-stack-layer-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
   --document-stack-collapsed-bg: color-mix(in srgb, var(--toolbar-bg) 55%, var(--bg) 45%);
@@ -171,8 +172,9 @@
   --image-loading-bg: color-mix(in srgb, var(--bg) 96%, var(--border) 4%);
   --btn-text: #1f2328;
   --btn-hover: #eaeef2;
-  --focus-border: #0969da;
-  --focus-shadow: rgba(9, 105, 218, 0.3);
+  --accent-text: #1d7a45;
+  --focus-border: #4a9e6e;
+  --focus-shadow: rgba(74, 158, 110, 0.3);
   --missing-link-color: #ab4d4d;
   --bracketed-text-underline-color: color-mix(in srgb, currentColor 44%, transparent);
   --error-color: #cf222e;
@@ -188,7 +190,7 @@
   --cyan-mix: color-mix(in srgb, var(--text) 60%, var(--ansi-cyan));
   --code-content-accent: #f5b98b;
   --code-content-color: color-mix(in srgb, var(--text) 60%, var(--code-content-accent));
-  --selection-bg: #2a70ff;
+  --selection-bg: #2a7d4f;
   --selection-color: #ffffff;
   --document-stack-layer-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
   --document-stack-collapsed-bg: var(--bg);
@@ -279,27 +281,28 @@ body {
 
 button {
   padding: 6px 16px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-width: 1px;
-  border-radius: 6px;
+  border-radius: 3px;
   background: var(--btn-bg);
   color: var(--btn-text);
   cursor: pointer;
   font-size: 14px;
   font-family: inherit;
   line-height: 1.5;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 
 button:hover {
   background: var(--btn-hover);
+  border-color: color-mix(in srgb, var(--border) 90%, var(--text) 10%);
 }
 
 button:focus,
 button:focus-visible {
-  outline: 1px solid var(--focus-border);
+  outline: 1px solid color-mix(in srgb, var(--focus-border) 65%, transparent);
   outline-offset: 0;
-  box-shadow: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-border) 12%, transparent);
 }
 
 @media (max-width: 768px) {
@@ -326,7 +329,7 @@ select:disabled,
 }
 
 .hint a {
-  color: var(--focus-border);
+  color: var(--accent-text);
 }
 
 .empty-state {

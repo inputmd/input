@@ -13,10 +13,10 @@
   width: 90%;
   max-width: 420px;
   padding: 20px 24px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: 6px;
   background: var(--toolbar-bg);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3), 0 0 0 1px color-mix(in srgb, var(--border) 10%, transparent);
   z-index: 51;
 }
 
@@ -44,8 +44,8 @@
 .dialog-input {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  border-radius: 3px;
   background: var(--input-bg);
   color: var(--text);
   font-size: 14px;
@@ -87,8 +87,8 @@
   min-height: 0;
   overflow: hidden;
   margin-bottom: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 5px;
   background: color-mix(in srgb, var(--bg) 70%, var(--toolbar-bg));
 }
 
@@ -148,8 +148,8 @@
   height: 360px;
   overflow: auto;
   margin-bottom: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 5px;
   background: color-mix(in srgb, var(--bg) 72%, var(--toolbar-bg));
 }
 
@@ -353,12 +353,12 @@
 
 .toast-root {
   padding: 10px 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: 4px;
   background: var(--toolbar-bg);
   color: var(--text);
   font-size: 14px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 0 0 1px color-mix(in srgb, var(--border) 10%, transparent);
   cursor: pointer;
 }
 

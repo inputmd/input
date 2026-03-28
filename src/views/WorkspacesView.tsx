@@ -5,7 +5,7 @@ import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
 import { DocumentsView } from './DocumentsView';
 
-const CONNECT_REPOS_LABEL = 'Install';
+const CONNECT_REPOS_LABEL = 'Connect Repos';
 
 function blurOnClose(open: boolean): void {
   if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
@@ -176,7 +176,21 @@ export function WorkspacesView({
       ) : availableRepos.length > 0 ? (
         <div class="workspaces-repo-list">
           {availableRepos.map((repo) => (
-            <div class="workspaces-repo-card" key={repo.id}>
+            <div
+              class="workspaces-repo-card"
+              key={repo.id}
+              role="button"
+              tabIndex={0}
+              onClick={(e: MouseEvent) => {
+                if ((e.target as HTMLElement).closest('button, a')) return;
+                onOpenRepo(repo.full_name, repo.id, repo.private);
+              }}
+              onKeyDown={(e: KeyboardEvent) => {
+                if (e.key === 'Enter' && !(e.target as HTMLElement).closest('button, a')) {
+                  onOpenRepo(repo.full_name, repo.id, repo.private);
+                }
+              }}
+            >
               <div class="workspaces-repo-info">
                 <div class="workspaces-repo-title">
                   {repo.private ? (

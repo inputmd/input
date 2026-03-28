@@ -395,7 +395,7 @@
 }
 
 .doc-editor .cm-tooltip-autocomplete ul li .cm-completionMatchedText {
-  color: var(--focus-border);
+  color: var(--accent-text);
   text-decoration: none;
   font-weight: 600;
 }
@@ -680,12 +680,12 @@
 
 /* Links */
 .cm-editor .tok-link {
-  color: var(--focus-border);
+  color: var(--accent-text);
   text-decoration: none;
 }
 
 .cm-editor .tok-url {
-  color: color-mix(in srgb, var(--focus-border) 70%, var(--text-secondary));
+  color: color-mix(in srgb, var(--accent-text) 70%, var(--text-secondary));
 }
 
 /* List markers */
@@ -714,7 +714,7 @@
 .cm-editor .tok-keyword,
 .cm-editor .tok-definitionKeyword,
 .cm-editor .tok-operatorKeyword {
-  color: color-mix(in srgb, var(--focus-border) 82%, var(--ansi-magenta));
+  color: color-mix(in srgb, var(--accent-text) 82%, var(--ansi-magenta));
   font-weight: 600;
 }
 
@@ -753,7 +753,7 @@
 }
 
 .cm-editor .tok-operator {
-  color: color-mix(in srgb, var(--text) 73%, var(--focus-border));
+  color: color-mix(in srgb, var(--text) 73%, var(--accent-text));
 }
 
 .cm-editor .tok-invalid {
@@ -837,7 +837,7 @@
 }
 
 [data-theme="light"] .cm-editor .tok-operator {
-  color: color-mix(in srgb, var(--text) 63%, var(--focus-border));
+  color: color-mix(in srgb, var(--text) 63%, var(--accent-text));
 }
 
 /* Tab size */
