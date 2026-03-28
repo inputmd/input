@@ -25,9 +25,9 @@ import {
   placeholder as placeholderExt,
   type ViewUpdate,
 } from '@codemirror/view';
+import { Eye } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
-import { Eye } from 'lucide-react';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
@@ -106,6 +106,7 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
   const SEARCH_SCROLL_MARGIN_PX = 80;
+  const BRACE_PROMPT_SLOW_HINT_DELAY_MS = 3_000;
   const rootRef = useRef<HTMLDivElement>(null);
   const bracePromptPanelRef = useRef<HTMLDivElement>(null);
   const bracePromptChatInputRef = useRef<HTMLInputElement>(null);
@@ -129,6 +130,7 @@ export function MarkdownEditor({
   const [searchQuery, setSearchQueryState] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [replaceText, setReplaceTextState] = useState('');
+  const [showSlowBracePromptHint, setShowSlowBracePromptHint] = useState(false);
   const searchQueryRef = useRef(searchQuery);
   searchQueryRef.current = searchQuery;
   const searchCaseSensitiveRef = useRef(searchCaseSensitive);
@@ -171,6 +173,16 @@ export function MarkdownEditor({
     rootRef,
     onBracePromptStreamRef,
   });
+  const bracePromptLoading = bracePrompt.panel?.loading ?? false;
+  const bracePromptLoadingKey = bracePrompt.panel
+    ? [
+        bracePrompt.panel.request.from,
+        bracePrompt.panel.request.to,
+        bracePrompt.panel.request.candidateCount,
+        bracePrompt.panel.request.excludeOptions.length,
+        bracePrompt.panel.request.chatMessages.length,
+      ].join(':')
+    : null;
 
   const readScrollPosition = (view: EditorView): number => {
     return editorUsesOwnScroll(view) ? view.scrollDOM.scrollTop : window.scrollY;
@@ -663,6 +675,20 @@ export function MarkdownEditor({
   ]);
 
   useEffect(() => {
+    if (!bracePromptLoading || bracePromptLoadingKey == null) {
+      setShowSlowBracePromptHint(false);
+      return;
+    }
+
+    setShowSlowBracePromptHint(false);
+    const timer = window.setTimeout(() => {
+      setShowSlowBracePromptHint(true);
+    }, BRACE_PROMPT_SLOW_HINT_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [bracePromptLoading, bracePromptLoadingKey]);
+
+  useEffect(() => {
     const view = viewRef.current;
     if (!view) {
       currentScrollStorageKeyRef.current = scrollStorageKey;
@@ -843,17 +869,18 @@ export function MarkdownEditor({
         <div
           ref={bracePromptPanelRef}
           class="brace-prompt-panel"
-          style={bracePrompt.panel.flipped
-            ? {
-                bottom: `calc(100% - ${bracePrompt.panel.cursorTop - 8}px)`,
-                left: `${bracePrompt.panel.left}px`,
-                maxWidth: `${bracePrompt.panel.maxWidth}px`,
-              }
-            : {
-                top: `${bracePrompt.panel.top}px`,
-                left: `${bracePrompt.panel.left}px`,
-                maxWidth: `${bracePrompt.panel.maxWidth}px`,
-              }
+          style={
+            bracePrompt.panel.flipped
+              ? {
+                  bottom: `calc(100% - ${bracePrompt.panel.cursorTop - 8}px)`,
+                  left: `${bracePrompt.panel.left}px`,
+                  maxWidth: `${bracePrompt.panel.maxWidth}px`,
+                }
+              : {
+                  top: `${bracePrompt.panel.top}px`,
+                  left: `${bracePrompt.panel.left}px`,
+                  maxWidth: `${bracePrompt.panel.maxWidth}px`,
+                }
           }
           role="listbox"
           aria-label="AI completions"
@@ -902,6 +929,7 @@ export function MarkdownEditor({
             {bracePrompt.panel.loading ? (
               <div class="brace-prompt-panel__status">
                 <span class="editor-loading-spinner brace-prompt-panel__spinner" aria-hidden="true" />
+                {showSlowBracePromptHint ? <span class="brace-prompt-panel__slow-hint">Taking a while...</span> : null}
               </div>
             ) : null}
             {showGenerateMore ? (
