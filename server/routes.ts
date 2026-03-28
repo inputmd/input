@@ -2943,15 +2943,17 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         'propose_create_file',
         'propose_delete_file',
       ]);
+      let lastDeltaEmitLength = 0;
       try {
         result = await parseReaderAiUpstreamStream(currentBody, writeSseDelta, {
           repairBoundaries: getReaderAiModelSource(model, paidReaderAiModelIds) === 'free',
-          onToolCallDelta: (_index, id, name, argsDelta, argsSoFar) => {
+          onToolCallDelta: (_index, id, name, _argsDelta, argsSoFar) => {
             if (!editToolNames.has(name)) return;
-            // Throttle: only emit every ~200 chars of accumulated args to avoid
-            // flooding the SSE connection with tiny deltas
-            if (argsSoFar.length % 200 > argsDelta.length && argsSoFar.length > 200) return;
-            writeSseEvent('tool_call_delta', { id, name, arguments_delta: argsDelta, arguments_so_far: argsSoFar });
+            // Throttle: emit when accumulated args grow by >=150 chars since
+            // last emission, to avoid flooding the SSE connection with tiny deltas
+            if (argsSoFar.length - lastDeltaEmitLength < 150) return;
+            lastDeltaEmitLength = argsSoFar.length;
+            writeSseEvent('tool_call_delta', { id, name, arguments_so_far: argsSoFar });
           },
         });
       } catch (streamErr) {
@@ -3026,38 +3028,50 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
 
         if (isEditTool) {
-          // Emit per-edit proposal event for inline review
-          const isErrorResult = toolResult.startsWith('(') && toolResult.endsWith(')');
+          // Emit per-edit proposal with the per-operation diff extracted
+          // from the tool result, not the cumulative staged diff.
+          const isErrorResult =
+            (toolResult.startsWith('(') && toolResult.endsWith(')')) || toolResult.startsWith('{"ok":false');
           if (!isErrorResult) {
-            // Determine the path affected by this tool call
             let editPath: string | undefined;
             try {
               const editArgs = tc.arguments ? (JSON.parse(tc.arguments) as Record<string, unknown>) : {};
               if (typeof editArgs.path === 'string') editPath = editArgs.path;
             } catch {
-              // ignore parse errors; path is optional for document mode
+              // path is optional for document mode
             }
+
+            // For project mode edit tools, extract the per-operation diff
+            // from the tool result text (format: "Edited path:\n<diff>" or
+            // "Created path (N bytes):\n<diff>"). This is the diff for just
+            // this operation, not the cumulative diff.
+            let proposalDiff: string | undefined;
+            let proposalPath: string | undefined;
+            let proposalType: 'edit' | 'create' | 'delete' = 'edit';
             if (stagedChanges) {
-              const targetPath = editPath;
-              const change = targetPath
-                ? stagedChanges.getChanges().find((c) => c.path === targetPath)
-                : stagedChanges.getChanges().at(-1);
-              if (change) {
-                writeSseEvent('edit_proposal', {
-                  edit_id: tc.id,
-                  tool_call_id: tc.id,
-                  path: change.path,
-                  type: change.type,
-                  diff: change.diff,
-                });
+              const diffStart = toolResult.indexOf('\n');
+              if (diffStart >= 0) {
+                proposalDiff = toolResult.slice(diffStart + 1);
+                proposalPath = editPath;
+              }
+              if (tc.name === 'propose_create_file') proposalType = 'create';
+              else if (tc.name === 'propose_delete_file') proposalType = 'delete';
+              if (!proposalPath) {
+                const change = stagedChanges.getChanges().at(-1);
+                if (change) proposalPath = change.path;
               }
             } else if (documentEditState.stagedDiff && documentEditState.stagedDiff !== docDiffBefore) {
+              proposalDiff = documentEditState.stagedDiff;
+              proposalPath = currentDocPath || 'current-document.md';
+            }
+
+            if (proposalDiff && proposalPath) {
               writeSseEvent('edit_proposal', {
                 edit_id: tc.id,
                 tool_call_id: tc.id,
-                path: currentDocPath || 'current-document.md',
-                type: 'edit',
-                diff: documentEditState.stagedDiff,
+                path: proposalPath,
+                type: proposalType,
+                diff: proposalDiff,
               });
             }
           }

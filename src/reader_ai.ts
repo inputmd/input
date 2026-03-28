@@ -481,14 +481,13 @@ export async function askReaderAiStream(
             const parsed = JSON.parse(data) as {
               id?: string;
               name?: string;
-              arguments_delta?: string;
               arguments_so_far?: string;
             };
             if (typeof parsed.id === 'string' && typeof parsed.name === 'string') {
               options.onToolCallDelta({
                 id: parsed.id,
                 name: parsed.name,
-                argumentsDelta: typeof parsed.arguments_delta === 'string' ? parsed.arguments_delta : '',
+                argumentsDelta: '',
                 argumentsSoFar: typeof parsed.arguments_so_far === 'string' ? parsed.arguments_so_far : '',
               });
             }

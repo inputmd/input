@@ -7904,6 +7904,8 @@ export function App() {
       }),
     [currentMenuRepoFullName, recentRepos],
   );
+  const allProposalsRejected =
+    readerAiEditProposals.length > 0 && readerAiEditProposals.every((p) => p.status === 'rejected');
   const hasAllNonDeleteStagedContent = readerAiStagedChanges.every(
     (change) => change.type === 'delete' || typeof readerAiStagedFileContents[change.path] === 'string',
   );
@@ -7913,23 +7915,27 @@ export function App() {
   const canApplyFromInlineDocumentEdit = !readerAiProjectId && readerAiDocumentEditedContent !== null;
   const canApplyAndCommit =
     !readerAiStagedChangesInvalid &&
+    !allProposalsRejected &&
     hasAllNonDeleteStagedContent &&
     ((repoAccessMode === 'installed' && Boolean(activeInstalledRepoInstallationId && selectedRepo)) ||
       (isGistContext && Boolean(currentGistId && user)));
   const canApplyWithoutSaving =
     !readerAiStagedChangesInvalid &&
+    !allProposalsRejected &&
     activeView === 'edit' &&
     (canApplyFromInlineDocumentEdit || hasCurrentEditingStagedContent);
-  const readerAiStagedChangesDisabledHint = readerAiStagedChangesInvalid
-    ? 'Staged changes are invalid. Regenerate the diff to apply changes.'
-    : !canApplyAndCommit &&
-        !canApplyWithoutSaving &&
-        activeView === 'edit' &&
-        Boolean(currentEditingDocPath) &&
-        !canApplyFromInlineDocumentEdit &&
-        !hasCurrentEditingStagedContent
-      ? 'No staged changes for the current file. Switch files or regenerate the diff.'
-      : undefined;
+  const readerAiStagedChangesDisabledHint = allProposalsRejected
+    ? 'All proposals were rejected.'
+    : readerAiStagedChangesInvalid
+      ? 'Staged changes are invalid. Regenerate the diff to apply changes.'
+      : !canApplyAndCommit &&
+          !canApplyWithoutSaving &&
+          activeView === 'edit' &&
+          Boolean(currentEditingDocPath) &&
+          !canApplyFromInlineDocumentEdit &&
+          !hasCurrentEditingStagedContent
+        ? 'No staged changes for the current file. Switch files or regenerate the diff.'
+        : undefined;
 
   return (
     <>

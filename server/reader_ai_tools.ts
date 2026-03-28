@@ -1217,6 +1217,9 @@ export function repairToolCallJson(raw: string): Record<string, unknown> | null 
  * Find the best fuzzy match for `needle` in `haystack` using line-based comparison.
  * Returns the closest matching substring with its line number, or null.
  */
+const FUZZY_MATCH_MAX_NEEDLE_LINES = 30;
+const FUZZY_MATCH_MAX_HAYSTACK_LINES = 2000;
+
 export function findClosestMatch(
   haystack: string,
   needle: string,
@@ -1224,18 +1227,29 @@ export function findClosestMatch(
 ): { match: string; line: number; distance: number } | null {
   if (!needle.trim() || !haystack) return null;
   const needleLines = needle.split('\n');
+  if (needleLines.length > FUZZY_MATCH_MAX_NEEDLE_LINES) return null;
   const haystackLines = haystack.split('\n');
   if (needleLines.length > haystackLines.length) return null;
+
+  // Cap search space to avoid O(n*m^2) blowup on large documents
+  const searchLimit = Math.min(haystackLines.length - needleLines.length + 1, FUZZY_MATCH_MAX_HAYSTACK_LINES);
 
   let bestDistance = maxDistance + 1;
   let bestLine = -1;
 
-  for (let i = 0; i <= haystackLines.length - needleLines.length; i++) {
+  for (let i = 0; i < searchLimit; i++) {
     const candidate = haystackLines.slice(i, i + needleLines.length).join('\n');
+    // Quick pre-check: if first lines share no common prefix, skip
+    if (needleLines[0] && haystackLines[i]) {
+      const firstNeedle = needleLines[0].trimStart();
+      const firstHaystack = haystackLines[i].trimStart();
+      if (firstNeedle.length > 0 && firstHaystack.length > 0 && firstNeedle[0] !== firstHaystack[0]) continue;
+    }
     const dist = computeNormalizedEditDistance(needle, candidate);
     if (dist < bestDistance) {
       bestDistance = dist;
       bestLine = i + 1;
+      if (dist === 0) break;
     }
   }
 
