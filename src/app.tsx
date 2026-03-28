@@ -3489,6 +3489,7 @@ export function App() {
     setReaderAiConversationScope(null);
     setReaderAiHasEligibleSelection(false);
     setReaderAiError(null);
+    readerAiBaseVersionRef.current = null;
   }, [readerAiHistoryEligible, readerAiHistoryDocumentKey]);
 
   useEffect(() => {
@@ -4147,12 +4148,15 @@ export function App() {
     setReaderAiDocumentEditedContent(null);
     setReaderAiError(null);
     setReaderAiSuggestProjectMode(false);
+    readerAiBaseVersionRef.current = null;
     if (readerAiProjectId) void resetReaderAiProjectSession(readerAiProjectId, readerAiSelectedModel);
   }, [readerAiHistoryDocumentKey, readerAiProjectId, readerAiSelectedModel]);
 
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
       if (readerAiApplyingChanges || readerAiStagedChanges.length === 0) return;
+      setReaderAiApplyingChanges(true);
+      setReaderAiError(null);
 
       // Check if the document changed since the AI read it
       const baseVersion = readerAiBaseVersionRef.current;
@@ -4162,12 +4166,12 @@ export function App() {
           const proceed = await showConfirm(
             'The document has changed since the AI read it. The proposed edits were based on an older version and may not apply correctly. Apply anyway?',
           );
-          if (!proceed) return;
+          if (!proceed) {
+            setReaderAiApplyingChanges(false);
+            return;
+          }
         }
       }
-
-      setReaderAiApplyingChanges(true);
-      setReaderAiError(null);
 
       const applied: string[] = [];
       const failed: Array<{ path: string; error: string }> = [];
