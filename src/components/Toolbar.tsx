@@ -109,8 +109,10 @@ interface ToolbarProps {
   showDraftBadge?: boolean;
   showDraftActions?: boolean;
   showRestoreDraft?: boolean;
+  showForkRepo?: boolean;
   onShare: () => void;
   onViewSource: () => void;
+  onForkRepo?: () => void;
   onResetDraftChanges?: () => void;
   onRestoreDraft?: () => void;
   onViewInGitHub: () => void;
@@ -194,8 +196,10 @@ export function Toolbar({
   showDraftBadge = false,
   showDraftActions = false,
   showRestoreDraft = false,
+  showForkRepo = false,
   onShare,
   onViewSource,
+  onForkRepo,
   onResetDraftChanges,
   onRestoreDraft,
   onViewInGitHub,
@@ -388,6 +392,18 @@ export function Toolbar({
               }}
             >
               Share
+            </DropdownMenu.Item>
+          ) : null}
+          {showForkRepo ? (
+            <DropdownMenu.Item
+              class="author-menu-item"
+              onSelect={(event: Event) => {
+                runAuthorMenuAction(event, () => {
+                  onForkRepo?.();
+                });
+              }}
+            >
+              Fork this Repo
             </DropdownMenu.Item>
           ) : null}
           {showViewSource ? (

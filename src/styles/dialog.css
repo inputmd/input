@@ -56,15 +56,29 @@
   margin-bottom: 16px;
 }
 
+.dialog-field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .dialog-input:focus {
   border-color: var(--border);
 }
 
 .dialog-content input:focus,
-.dialog-content input:focus-visible {
+.dialog-content input:focus-visible,
+.dialog-content select:focus,
+.dialog-content select:focus-visible {
   outline: 2px solid var(--focus-border);
   outline-offset: 2px;
   box-shadow: none;
+}
+
+.dialog-select {
+  appearance: auto;
 }
 
 .dialog-actions {

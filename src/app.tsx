@@ -9,6 +9,7 @@ import type { BracePromptRequest, InlinePromptRequest } from './components/codem
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import type { EditorController } from './components/editor_controller';
+import { ForkRepoDialog } from './components/ForkRepoDialog';
 import { ImageLightbox } from './components/ImageLightbox';
 import type { PromptListRequest } from './components/markdown_editor_commands';
 import { normalizeBlockquotePaste } from './components/markdown_editor_commands';
@@ -215,6 +216,14 @@ interface RecentRepoVisit {
   fullName: string;
   installationId: string | null;
   source: 'installed' | 'public';
+}
+
+interface ForkRepoDialogState {
+  installationId: string;
+  repos: InstallationRepo[];
+  selectedRepoFullName: string;
+  sourcePath: string;
+  sourceContent: string;
 }
 
 function autoOnceGuardStorageKey(key: string): string {
@@ -625,6 +634,11 @@ interface PendingNewGistFileState {
   title?: string;
 }
 
+interface PendingForkRepoDraftState {
+  title: string;
+  content: string;
+}
+
 interface PersistedNewGistFileDraft {
   title: string;
   content: string;
@@ -682,6 +696,16 @@ function parsePendingNewGistFileState(state: unknown): PendingNewGistFileState |
   return { title };
 }
 
+function parsePendingForkRepoDraftState(state: unknown): PendingForkRepoDraftState | null {
+  if (!state || typeof state !== 'object') return null;
+  const forkRepoDraft = (state as { forkRepoDraft?: unknown }).forkRepoDraft;
+  if (!forkRepoDraft || typeof forkRepoDraft !== 'object') return null;
+  const title = (forkRepoDraft as { title?: unknown }).title;
+  const content = (forkRepoDraft as { content?: unknown }).content;
+  if (typeof title !== 'string' || typeof content !== 'string') return null;
+  return { title, content };
+}
+
 function parseScratchReturnPathState(state: unknown): string | null {
   if (!state || typeof state !== 'object') return null;
   const returnToPath = (state as { returnToPath?: unknown }).returnToPath;
@@ -716,6 +740,8 @@ export function App() {
   const [menuGistsPage, setMenuGistsPage] = useState(1);
   const [menuGistsAllLoaded, setMenuGistsAllLoaded] = useState(false);
   const [recentRepos, setRecentRepos] = useState<RecentRepoVisit[]>(() => readStoredRecentRepos());
+  const [forkRepoDialog, setForkRepoDialog] = useState<ForkRepoDialogState | null>(null);
+  const [forkRepoSubmitting, setForkRepoSubmitting] = useState(false);
   const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
   const installationRepos = installationId ? (installationReposById[installationId] ?? []) : [];
@@ -1977,17 +2003,31 @@ export function App() {
     [installationId],
   );
 
-  const openInstalledRepo = useCallback(
+  const ensureInstalledRepoSession = useCallback(
+    async (targetInstallationId: string) => {
+      if (targetInstallationId === installationId) return targetInstallationId;
+      const nextSessionState = await selectGitHubInstallation(targetInstallationId);
+      applyInstallationSessionState(nextSessionState);
+      resetInstalledRepoSelectionState();
+      return targetInstallationId;
+    },
+    [applyInstallationSessionState, installationId, resetInstalledRepoSelectionState],
+  );
+
+  const primeInstalledRepoState = useCallback(
     async (
       fullName: string,
       options?: {
         id?: number;
         isPrivate?: boolean;
-        replace?: boolean;
         allFiles?: RepoDocFile[];
         installationId?: string;
       },
-    ) => {
+    ): Promise<{
+      repoRef: { owner: string; repo: string };
+      allFiles: RepoDocFile[];
+      markdownFiles: RepoDocFile[];
+    } | null> => {
       const instId = options?.installationId ?? installationId ?? getInstallationId();
       if (options && typeof options.id === 'number' && typeof options.isPrivate === 'boolean') {
         setSelectedRepo(fullName);
@@ -2006,35 +2046,47 @@ export function App() {
       }
 
       const repoRef = parseRepoFullName(fullName);
-      if (!repoRef) {
-        navigate(routePath.workspaces(), options?.replace ? { replace: true } : undefined);
-        return;
-      }
+      if (!repoRef || !instId) return null;
 
-      if (!instId) {
-        navigate(routePath.workspaces(), options?.replace ? { replace: true } : undefined);
-        return;
-      }
+      const allFiles = options?.allFiles ?? (await loadRepoAllFiles(instId, fullName));
+      const markdownFiles = allFiles.filter((file) => isMarkdownFileName(file.path));
+      setRepoAccessMode('installed');
+      setPublicRepoRef(null);
+      setRepoFiles(markdownFiles);
+      setRepoSidebarFiles(allFiles);
+      return { repoRef, allFiles, markdownFiles };
+    },
+    [installationId, loadRepoAllFiles],
+  );
 
+  const openInstalledRepo = useCallback(
+    async (
+      fullName: string,
+      options?: {
+        id?: number;
+        isPrivate?: boolean;
+        replace?: boolean;
+        allFiles?: RepoDocFile[];
+        installationId?: string;
+      },
+    ) => {
       try {
-        const nextAllFiles = options?.allFiles ?? (await loadRepoAllFiles(instId, fullName));
-        const nextMarkdownFiles = nextAllFiles.filter((file) => isMarkdownFileName(file.path));
-        setRepoAccessMode('installed');
-        setPublicRepoRef(null);
-        setRepoFiles(nextMarkdownFiles);
-        setRepoSidebarFiles(nextAllFiles);
-
-        const target = pickPreferredRepoMarkdownFile(nextMarkdownFiles);
+        const prepared = await primeInstalledRepoState(fullName, options);
+        if (!prepared) {
+          navigate(routePath.workspaces(), options?.replace ? { replace: true } : undefined);
+          return;
+        }
+        const target = pickPreferredRepoMarkdownFile(prepared.markdownFiles);
         if (target) {
           navigate(
-            routePath.repoFile(repoRef.owner, repoRef.repo, target.path),
+            routePath.repoFile(prepared.repoRef.owner, prepared.repoRef.repo, target.path),
             options?.replace ? { replace: true } : undefined,
           );
           return;
         }
 
         navigate(
-          routePath.repoNew(repoRef.owner, repoRef.repo, DEFAULT_NEW_FILENAME),
+          routePath.repoNew(prepared.repoRef.owner, prepared.repoRef.repo, DEFAULT_NEW_FILENAME),
           options?.replace ? { replace: true } : undefined,
         );
       } catch (err) {
@@ -2046,7 +2098,7 @@ export function App() {
         showError(err instanceof Error ? err.message : 'Failed to load repository documents');
       }
     },
-    [handleSessionExpired, installationId, loadRepoAllFiles, navigate, showError, showRateLimitToastIfNeeded],
+    [handleSessionExpired, navigate, primeInstalledRepoState, showError, showRateLimitToastIfNeeded],
   );
 
   // --- Data loaders ---
@@ -2764,11 +2816,17 @@ export function App() {
           setEditTitle(UNSAVED_FILE_LABEL);
           setNextEditContent('', { origin: 'external' });
           setPreviewVisible(defaultPreviewVisible());
+          const pendingForkRepoDraft = parsePendingForkRepoDraftState(routeState);
           const titleDraftKey = repoNewDraftKey(instId, repoName, path, 'title');
           const contentDraftKey = repoNewDraftKey(instId, repoName, path, 'content');
-          const shouldHydrateTitle = shouldHydrateLocalDraftForRoute(titleDraftKey);
-          const shouldHydrateContent = shouldHydrateLocalDraftForRoute(contentDraftKey);
-          if (shouldHydrateTitle) {
+          const shouldHydrateTitle = pendingForkRepoDraft === null && shouldHydrateLocalDraftForRoute(titleDraftKey);
+          const shouldHydrateContent =
+            pendingForkRepoDraft === null && shouldHydrateLocalDraftForRoute(contentDraftKey);
+          if (pendingForkRepoDraft) {
+            setEditTitle(pendingForkRepoDraft.title || UNSAVED_FILE_LABEL);
+            setNextEditContent(pendingForkRepoDraft.content, { origin: 'external' });
+            setHasUnsavedChanges(Boolean(pendingForkRepoDraft.content));
+          } else if (shouldHydrateTitle) {
             setEditTitle(localStorage.getItem(titleDraftKey) || UNSAVED_FILE_LABEL);
           }
           if (shouldHydrateContent) {
@@ -6626,6 +6684,110 @@ export function App() {
     return repos.repositories;
   }, []);
 
+  const onOpenForkRepoDialog = useCallback(async () => {
+    if (!user || activeView !== 'content' || !currentRepoDocPath || currentDocumentContent === null) return;
+    if (!isMarkdownFileName(currentRepoDocPath)) return;
+    if (!installationId) {
+      await showAlert('Connect a GitHub installation before forking this file into a repo.');
+      return;
+    }
+
+    try {
+      const repos = installationReposById[installationId] ?? (await fetchInstallationReposForId(installationId));
+      if (repos.length === 0) {
+        await showAlert('No repos are available in the current installation.');
+        return;
+      }
+      const selectedRepoFullName =
+        (selectedRepoInstallationId === installationId &&
+          selectedRepo &&
+          repos.some((repo) => repo.full_name.toLowerCase() === selectedRepo.toLowerCase()) &&
+          selectedRepo) ||
+        repos[0].full_name;
+      setForkRepoDialog({
+        installationId,
+        repos,
+        selectedRepoFullName,
+        sourcePath: currentRepoDocPath,
+        sourceContent: currentDocumentContent,
+      });
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        handleSessionExpired();
+        return;
+      }
+      showRateLimitToastIfNeeded(err);
+      await showAlert(err instanceof Error ? err.message : 'Failed to load repos');
+    }
+  }, [
+    activeView,
+    currentDocumentContent,
+    currentRepoDocPath,
+    fetchInstallationReposForId,
+    handleSessionExpired,
+    installationId,
+    installationReposById,
+    selectedRepo,
+    selectedRepoInstallationId,
+    showAlert,
+    showRateLimitToastIfNeeded,
+    user,
+  ]);
+
+  const onConfirmForkRepo = useCallback(async () => {
+    if (!forkRepoDialog) return;
+    const targetRepo = forkRepoDialog.repos.find((repo) => repo.full_name === forkRepoDialog.selectedRepoFullName);
+    if (!targetRepo) {
+      await showAlert('Choose a target repo.');
+      return;
+    }
+
+    setForkRepoSubmitting(true);
+    try {
+      await ensureInstalledRepoSession(forkRepoDialog.installationId);
+      const allFiles = await loadRepoAllFiles(forkRepoDialog.installationId, targetRepo.full_name);
+      const prepared = await primeInstalledRepoState(targetRepo.full_name, {
+        id: targetRepo.id,
+        isPrivate: targetRepo.private,
+        installationId: forkRepoDialog.installationId,
+        allFiles,
+      });
+      if (!prepared) {
+        navigate(routePath.workspaces());
+        return;
+      }
+
+      const draftPath = DEFAULT_NEW_FILENAME;
+      setForkRepoDialog(null);
+      navigate(routePath.repoNew(prepared.repoRef.owner, prepared.repoRef.repo, draftPath), {
+        state: {
+          forkRepoDraft: {
+            title: fileNameFromPath(forkRepoDialog.sourcePath) || UNSAVED_FILE_LABEL,
+            content: forkRepoDialog.sourceContent,
+          },
+        },
+      });
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        handleSessionExpired();
+        return;
+      }
+      showRateLimitToastIfNeeded(err);
+      await showAlert(err instanceof Error ? err.message : 'Failed to fork file into repo');
+    } finally {
+      setForkRepoSubmitting(false);
+    }
+  }, [
+    ensureInstalledRepoSession,
+    forkRepoDialog,
+    handleSessionExpired,
+    loadRepoAllFiles,
+    navigate,
+    primeInstalledRepoState,
+    showAlert,
+    showRateLimitToastIfNeeded,
+  ]);
+
   const loadWorkspaceGists = useCallback(
     async (options?: { reset?: boolean }) => {
       const reset = options?.reset ?? false;
@@ -6857,18 +7019,14 @@ export function App() {
 
   const switchInstallationAndOpenRepo = useCallback(
     async (repo: InstallationRepo, targetInstallationId: string) => {
-      if (targetInstallationId !== installationId) {
-        const nextSessionState = await selectGitHubInstallation(targetInstallationId);
-        applyInstallationSessionState(nextSessionState);
-        resetInstalledRepoSelectionState();
-      }
+      await ensureInstalledRepoSession(targetInstallationId);
       await openInstalledRepo(repo.full_name, {
         id: repo.id,
         isPrivate: repo.private,
         installationId: targetInstallationId,
       });
     },
-    [applyInstallationSessionState, installationId, openInstalledRepo, resetInstalledRepoSelectionState],
+    [ensureInstalledRepoSession, openInstalledRepo],
   );
 
   const openRepoByFullName = useCallback(
@@ -7474,6 +7632,9 @@ export function App() {
     currentDocumentSavedContent !== null &&
     Boolean(currentFileName) &&
     !contentLoadPending;
+  const showHeaderForkRepo =
+    activeView === 'content' &&
+    Boolean(user && currentRepoDocPath && currentDocumentContent !== null && isMarkdownFileName(currentRepoDocPath));
   const showHomeHeaderSourceAction = route.name === 'new' && !user;
   const showHeaderSourceAction = showHeaderSourceToggle || showHomeHeaderSourceAction;
   const headerSourceActionLabel = contentSourceViewVisible ? 'View Rendered' : 'View Source';
@@ -7649,8 +7810,12 @@ export function App() {
         showDraftBadge={hasDivergedDocumentDraft}
         showDraftActions={showDraftMenuActions}
         showRestoreDraft={hasRestorableDocumentDraft}
+        showForkRepo={showHeaderForkRepo}
         onShare={() => {
           void onShareLink();
+        }}
+        onForkRepo={() => {
+          void onOpenForkRepoDialog();
         }}
         onResetDraftChanges={() => {
           void onResetDraftChanges();
@@ -7849,6 +8014,24 @@ export function App() {
         ) : null}
       </div>
       {lightboxImage && <ImageLightbox src={lightboxImage.src} alt={lightboxImage.alt} onClose={onCloseLightbox} />}
+      {forkRepoDialog ? (
+        <ForkRepoDialog
+          open
+          repos={forkRepoDialog.repos}
+          selectedRepoFullName={forkRepoDialog.selectedRepoFullName}
+          submitting={forkRepoSubmitting}
+          onSelectRepo={(selectedRepoFullName) => {
+            setForkRepoDialog((current) => (current ? { ...current, selectedRepoFullName } : current));
+          }}
+          onConfirm={() => {
+            void onConfirmForkRepo();
+          }}
+          onClose={() => {
+            if (forkRepoSubmitting) return;
+            setForkRepoDialog(null);
+          }}
+        />
+      ) : null}
       <CompactCommitsDialog
         open={compactCommitsOpen}
         branch={compactCommitsData?.branch ?? null}
