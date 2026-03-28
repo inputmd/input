@@ -36,6 +36,7 @@ function SideBySideDiffModal({ changes, onClose }: { changes: ReaderAiStagedChan
 export function StagedChangesSection({
   changes,
   defaultCommitMessage,
+  streaming = false,
   applying,
   canApplyWithoutSaving,
   canApplyAndCommit,
@@ -45,6 +46,8 @@ export function StagedChangesSection({
 }: {
   changes: ReaderAiStagedChange[];
   defaultCommitMessage: string;
+  /** When true, apply buttons are hidden and a live status line is shown. */
+  streaming?: boolean;
   applying: boolean;
   canApplyWithoutSaving?: boolean;
   canApplyAndCommit?: boolean;
@@ -79,10 +82,16 @@ export function StagedChangesSection({
   };
 
   return (
-    <div class="reader-ai-staged-changes">
+    <div class={`reader-ai-staged-changes${streaming ? ' reader-ai-staged-changes--streaming' : ''}`}>
       <div class="reader-ai-staged-changes-header">
         <span>
           Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
+          {streaming ? (
+            <span class="reader-ai-staged-changes-streaming" aria-live="polite">
+              {' '}
+              — updating…
+            </span>
+          ) : null}
         </span>
         <button
           type="button"
@@ -106,7 +115,7 @@ export function StagedChangesSection({
           {expandedPaths.has(change.path) ? <UnifiedDiffView diff={change.diff} /> : null}
         </div>
       ))}
-      {canApply ? (
+      {canApply && !streaming ? (
         <div class="reader-ai-staged-changes-footer">
           {canApplyAndCommit ? (
             <input
@@ -148,6 +157,10 @@ export function StagedChangesSection({
               ) : null}
             </div>
           ) : null}
+        </div>
+      ) : streaming ? (
+        <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--streaming">
+          Apply actions appear when the assistant finishes.
         </div>
       ) : (
         <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">

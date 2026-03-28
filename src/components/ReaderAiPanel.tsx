@@ -31,6 +31,8 @@ interface ReaderAiPanelProps {
   toolLog: ReaderAiToolLogEntry[];
   stagedChanges: ReaderAiStagedChange[];
   suggestedCommitMessage: string;
+  /** When true, staged diffs update live during an in-flight assistant response. */
+  stagedChangesStreaming?: boolean;
   applyingChanges: boolean;
   stagedChangesDisabledHint?: string;
   canApplyWithoutSaving: boolean;
@@ -118,6 +120,7 @@ export function ReaderAiPanel({
   toolLog,
   stagedChanges,
   suggestedCommitMessage,
+  stagedChangesStreaming = false,
   applyingChanges,
   stagedChangesDisabledHint,
   canApplyWithoutSaving,
@@ -602,10 +605,11 @@ export function ReaderAiPanel({
             </button>
           </div>
         ) : null}
-        {!sending && stagedChanges.length > 0 ? (
+        {stagedChanges.length > 0 ? (
           <StagedChangesSection
             changes={stagedChanges}
             defaultCommitMessage={suggestedCommitMessage}
+            streaming={stagedChangesStreaming}
             applying={applyingChanges}
             canApplyWithoutSaving={canApplyWithoutSaving}
             canApplyAndCommit={canApplyAndCommit}

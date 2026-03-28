@@ -3893,19 +3893,30 @@ export function App() {
             onStagedChanges: (changes, suggestedCommitMessage, documentContent, fileContents) => {
               logReceiveStart('staged_changes');
               receivedStagedChanges = changes.length > 0;
-              setReaderAiStagedChanges(changes);
+              setReaderAiStagedChanges((prev) => {
+                const byPath = new Map(prev.map((c) => [c.path, c]));
+                for (const c of changes) {
+                  byPath.set(c.path, c);
+                }
+                return [...byPath.values()];
+              });
               setReaderAiStagedChangesInvalid(false);
-              setReaderAiStagedFileContents(() => {
-                const next: Record<string, string> = {};
+              setReaderAiStagedFileContents((prev) => {
+                const next = { ...prev };
                 const source = fileContents ?? {};
                 for (const change of changes) {
-                  if (change.type === 'delete') continue;
+                  if (change.type === 'delete') {
+                    delete next[change.path];
+                    continue;
+                  }
                   const content = source[change.path];
                   if (typeof content === 'string') next[change.path] = content;
                 }
                 return next;
               });
-              setReaderAiDocumentEditedContent(typeof documentContent === 'string' ? documentContent : null);
+              setReaderAiDocumentEditedContent((prev) =>
+                typeof documentContent === 'string' ? documentContent : prev,
+              );
               if (suggestedCommitMessage) setReaderAiSuggestedCommitMessage(suggestedCommitMessage);
             },
             onTurnStart: (iteration) => {
@@ -8098,6 +8109,7 @@ export function App() {
               toolLog={readerAiToolLog}
               stagedChanges={readerAiStagedChanges}
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
+              stagedChangesStreaming={readerAiSending && readerAiStagedChanges.length > 0}
               applyingChanges={readerAiApplyingChanges}
               stagedChangesDisabledHint={readerAiStagedChangesDisabledHint}
               canApplyWithoutSaving={canApplyWithoutSaving}

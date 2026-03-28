@@ -8,6 +8,9 @@ export interface DiffChangeEntry {
 const LONG_DIFF_LINE_CLIP_THRESHOLD = 220;
 const LONG_DIFF_LINE_CONTEXT_CHARS = 48;
 
+/** Beyond this, the diff is wrapped in a collapsible block (default collapsed). */
+const DIFF_COLLAPSE_LINE_THRESHOLD = 48;
+
 function commonPrefixLength(a: string, b: string): number {
   const limit = Math.min(a.length, b.length);
   let i = 0;
@@ -90,7 +93,15 @@ export function UnifiedDiffView({ diff }: { diff: string }) {
     );
   }
 
-  return <pre class="reader-ai-diff">{renderedLines}</pre>;
+  const body = <pre class="reader-ai-diff">{renderedLines}</pre>;
+  if (lines.length <= DIFF_COLLAPSE_LINE_THRESHOLD) return body;
+
+  return (
+    <details class="reader-ai-diff-collapsible">
+      <summary class="reader-ai-diff-collapsible-summary">Large diff ({lines.length} lines) — expand to review</summary>
+      {body}
+    </details>
+  );
 }
 
 interface SideBySideRow {
