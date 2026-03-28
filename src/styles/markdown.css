@@ -583,6 +583,9 @@
 
 .rendered-markdown pre code.language-io {
   display: block;
+}
+
+.rendered-markdown pre code.language-io.has-io-prompt-gutter {
   padding-left: 2ch;
 }
 

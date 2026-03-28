@@ -1219,6 +1219,7 @@ function highlightIoCodeBlocks(root: ParentNode): void {
     const text = normalizeIoDisplayText(code.textContent ?? '');
     const spans = collectIoHighlightSpans(text);
     const promptDecorations = collectIoPromptDecorations(text);
+    code.classList.toggle('has-io-prompt-gutter', promptDecorations.spans.length > 0);
     const bracePromptInsertions = collectIoBracePromptInsertions(text, spans);
     spans.push(...promptDecorations.spans);
     spans.sort((a, b) => a.from - b.from || a.to - b.to);
