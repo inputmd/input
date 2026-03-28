@@ -1,7 +1,7 @@
-import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react';
+import { CheckSquare2, ChevronDown, ChevronRight, Maximize2, Square, X } from 'lucide-react';
 import { createPortal } from 'preact/compat';
 import { useEffect, useState } from 'preact/hooks';
-import type { ReaderAiStagedChange } from '../reader_ai';
+import type { ReaderAiStagedChange, ReaderAiStagedHunk } from '../reader_ai';
 import { SideBySideDiffView, UnifiedDiffView } from './DiffViewer';
 
 const DEFAULT_EXPANDED_CHANGE_LINE_LIMIT = 80;
@@ -46,9 +46,15 @@ export function StagedChangesSection({
   defaultCommitMessage,
   applying,
   streaming,
+  selectedChangeIds,
+  selectedHunkIds,
   canApplyWithoutSaving,
   canApplyAndCommit,
   disabledHint,
+  onToggleChangeSelection,
+  onToggleHunkSelection,
+  onRejectChange,
+  onRejectHunk,
   onApplyWithoutSaving,
   onApplyAndCommit,
 }: {
@@ -56,9 +62,15 @@ export function StagedChangesSection({
   defaultCommitMessage: string;
   applying: boolean;
   streaming?: boolean;
+  selectedChangeIds?: Set<string>;
+  selectedHunkIds?: Record<string, Set<string>>;
   canApplyWithoutSaving?: boolean;
   canApplyAndCommit?: boolean;
   disabledHint?: string;
+  onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
+  onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
+  onRejectChange?: (changeId: string) => void;
+  onRejectHunk?: (changeId: string, hunkId: string) => void;
   onApplyWithoutSaving?: () => void;
   onApplyAndCommit?: (commitMessage?: string) => void;
 }) {
@@ -100,6 +112,15 @@ export function StagedChangesSection({
     return 'edit';
   };
 
+  const renderSelectionToggle = (selected: boolean, label: string) =>
+    selected ? <CheckSquare2 size={13} aria-label={label} /> : <Square size={13} aria-label={label} />;
+
+  const hunkSummary = (hunk: ReaderAiStagedHunk) => {
+    const additions = hunk.lines.filter((line) => line.type === 'add').length;
+    const deletions = hunk.lines.filter((line) => line.type === 'del').length;
+    return `${additions} add${additions === 1 ? '' : 's'} / ${deletions} del${deletions === 1 ? '' : 's'}`;
+  };
+
   return (
     <div class="reader-ai-staged-changes">
       <div class="reader-ai-staged-changes-header">
@@ -125,15 +146,85 @@ export function StagedChangesSection({
         </button>
       </div>
       {changes.map((change) => (
-        <div key={change.path} class="reader-ai-staged-change">
-          <button type="button" class="reader-ai-staged-change-header" onClick={() => togglePath(change.path)}>
-            {expandedPaths.has(change.path) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <span class={`reader-ai-staged-change-type reader-ai-staged-change-type--${change.type}`}>
-              {typeLabel(change.type)}
-            </span>
-            <span class="reader-ai-staged-change-path">{change.path}</span>
-          </button>
-          {expandedPaths.has(change.path) ? <UnifiedDiffView diff={change.diff} /> : null}
+        <div key={change.id ?? change.path} class="reader-ai-staged-change">
+          <div class="reader-ai-staged-change-header-row">
+            <button
+              type="button"
+              class="reader-ai-staged-change-header"
+              onClick={() => togglePath(change.path)}
+              aria-expanded={expandedPaths.has(change.path)}
+            >
+              {expandedPaths.has(change.path) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              <span class={`reader-ai-staged-change-type reader-ai-staged-change-type--${change.type}`}>
+                {typeLabel(change.type)}
+              </span>
+              <span class="reader-ai-staged-change-path">{change.path}</span>
+            </button>
+            {!streaming && change.id ? (
+              <div class="reader-ai-staged-change-controls">
+                <button
+                  type="button"
+                  class={`reader-ai-staged-toggle-btn${
+                    selectedChangeIds?.has(change.id) === false ? ' reader-ai-staged-toggle-btn--off' : ''
+                  }`}
+                  onClick={() => onToggleChangeSelection?.(change.id!, !(selectedChangeIds?.has(change.id!) === false))}
+                  title={
+                    selectedChangeIds?.has(change.id) === false
+                      ? 'Accept this file back into apply set'
+                      : 'Exclude this file from apply set'
+                  }
+                >
+                  {renderSelectionToggle(selectedChangeIds?.has(change.id) !== false, 'Toggle file selection')}
+                </button>
+                <button
+                  type="button"
+                  class="reader-ai-staged-reject-btn"
+                  onClick={() => onRejectChange?.(change.id!)}
+                  title="Reject this file"
+                >
+                  <X size={13} aria-hidden="true" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+          {expandedPaths.has(change.path) ? (
+            <>
+              {change.hunks && change.hunks.length > 0 && !streaming ? (
+                <div class="reader-ai-staged-hunks">
+                  {change.hunks.map((hunk) => {
+                    const hunkSelected = change.id ? selectedHunkIds?.[change.id]?.has(hunk.id) !== false : true;
+                    return (
+                      <div key={hunk.id} class="reader-ai-staged-hunk-row">
+                        <button
+                          type="button"
+                          class={`reader-ai-staged-toggle-btn${hunkSelected ? '' : ' reader-ai-staged-toggle-btn--off'}`}
+                          onClick={() => change.id && onToggleHunkSelection?.(change.id, hunk.id, !hunkSelected)}
+                          title={
+                            hunkSelected ? 'Exclude this hunk from apply set' : 'Accept this hunk back into apply set'
+                          }
+                        >
+                          {renderSelectionToggle(hunkSelected, 'Toggle hunk selection')}
+                        </button>
+                        <div class="reader-ai-staged-hunk-copy">
+                          <div class="reader-ai-staged-hunk-header">{hunk.header}</div>
+                          <div class="reader-ai-staged-hunk-summary">{hunkSummary(hunk)}</div>
+                        </div>
+                        <button
+                          type="button"
+                          class="reader-ai-staged-reject-btn"
+                          onClick={() => change.id && onRejectHunk?.(change.id, hunk.id)}
+                          title="Reject this hunk"
+                        >
+                          <X size={13} aria-hidden="true" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <UnifiedDiffView diff={change.diff} />
+            </>
+          ) : null}
         </div>
       ))}
       {streaming ? (
