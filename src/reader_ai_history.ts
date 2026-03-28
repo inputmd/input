@@ -11,7 +11,7 @@ export interface ReaderAiHistoryEntry {
   messages: ReaderAiMessage[];
   summary?: string;
   scope?: { kind: 'document' } | { kind: 'selection'; source: string };
-  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>;
+  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string; taskId?: string }>;
   stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
   stagedChangesInvalid?: boolean;
   stagedFileContents?: Record<string, string>;

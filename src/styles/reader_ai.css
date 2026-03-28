@@ -716,6 +716,69 @@
   gap: 2px;
 }
 
+.reader-ai-tool-log-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reader-ai-tool-log-group {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--btn-bg) 38%, transparent);
+  overflow: hidden;
+}
+
+.reader-ai-tool-log-group-header {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reader-ai-tool-log-group-header:hover {
+  background: color-mix(in srgb, var(--btn-hover) 65%, transparent);
+}
+
+.reader-ai-tool-log-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11.5px;
+}
+
+.reader-ai-tool-log-group-title-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.reader-ai-tool-log-group-title-id {
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+}
+
+.reader-ai-tool-log-group-status {
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.reader-ai-tool-log-group-entries {
+  padding: 0 10px 8px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .reader-ai-tool-log-entry {
   font-size: 11.5px;
   color: var(--text-secondary);
