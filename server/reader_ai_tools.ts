@@ -111,6 +111,21 @@ interface ReaderAiStreamParseOptions {
   repairBoundaries?: boolean;
 }
 
+function mergeToolCallFragment(existing: string, incoming: string | undefined): string {
+  if (!incoming) return existing;
+  if (!existing) return incoming;
+  if (incoming === existing || existing.endsWith(incoming)) return existing;
+  if (incoming.startsWith(existing)) return incoming;
+
+  const maxOverlap = Math.min(existing.length, incoming.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap--) {
+    if (existing.slice(-overlap) === incoming.slice(0, overlap)) {
+      return existing + incoming.slice(overlap);
+    }
+  }
+  return existing + incoming;
+}
+
 function joinStructuredContentSegments(segments: string[]): string {
   let result = '';
   for (const segment of segments) {
@@ -1210,7 +1225,7 @@ export async function parseReaderAiUpstreamStream(
   let content = '';
   let finishReason = '';
   let pendingVisibleDelta = '';
-  const accumulators = new Map<number, { id: string; name: string; arguments: string }>();
+  const accumulators = new Map<string, { id: string; name: string; arguments: string }>();
   const repairBoundaries = options.repairBoundaries ?? true;
 
   try {
@@ -1270,13 +1285,19 @@ export async function parseReaderAiUpstreamStream(
             }
           }
           if (Array.isArray(delta?.tool_calls)) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index ?? 0;
-              if (!accumulators.has(idx)) accumulators.set(idx, { id: '', name: '', arguments: '' });
-              const acc = accumulators.get(idx)!;
+            for (let i = 0; i < delta.tool_calls.length; i++) {
+              const tc = delta.tool_calls[i];
+              const key =
+                typeof tc.index === 'number'
+                  ? `index:${tc.index}`
+                  : typeof tc.id === 'string' && tc.id
+                    ? `id:${tc.id}`
+                    : `position:${i}`;
+              if (!accumulators.has(key)) accumulators.set(key, { id: '', name: '', arguments: '' });
+              const acc = accumulators.get(key)!;
               if (tc.id) acc.id = tc.id;
-              if (tc.function?.name) acc.name += tc.function.name;
-              if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+              acc.name = mergeToolCallFragment(acc.name, tc.function?.name);
+              acc.arguments = mergeToolCallFragment(acc.arguments, tc.function?.arguments);
             }
           }
         } catch {
@@ -1295,7 +1316,7 @@ export async function parseReaderAiUpstreamStream(
   }
 
   const toolCalls: ReaderAiToolCall[] = [];
-  for (const [, acc] of [...accumulators.entries()].sort((a, b) => a[0] - b[0])) {
+  for (const [, acc] of [...accumulators.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     if (acc.name) {
       toolCalls.push({
         id: acc.id || `tool_${Date.now()}_${toolCalls.length}`,

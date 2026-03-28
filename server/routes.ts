@@ -2746,7 +2746,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     tools = editModeCurrentDocOnly
       ? READER_AI_TOOLS.filter((tool) => {
           const name = tool.function.name;
-          return name === 'read_document' || name === 'search_document';
+          return name === 'read_document' || name === 'search_document' || name === 'propose_edit_document';
         })
       : READER_AI_TOOLS;
   }
@@ -2820,24 +2820,28 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     return executeReaderAiSyncTool(tc.name, tc.arguments, aiLines);
   };
 
-  let stagedChangesEmitted = false;
-  const emitStagedChangesIfAny = () => {
-    if (stagedChangesEmitted || ctx.res.writableEnded) return;
+  const writeSseEvent = (event: string, data: unknown) => {
+    if (ctx.res.writableEnded) return;
+    ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  let lastStagedChangesSignature: string | null = null;
+  const emitStagedChangesSnapshot = () => {
     const hasProjectStagedChanges = stagedChanges?.hasChanges() ?? false;
     const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
-    if (!hasProjectStagedChanges && !hasDocumentStagedChange) return;
-
     const allChanges = hasProjectStagedChanges
       ? stagedChanges!.getChanges()
-      : [
-          {
-            path: currentDocPath || 'current-document.md',
-            type: 'edit' as const,
-            original: source,
-            modified: documentEditState.stagedContent!,
-            diff: documentEditState.stagedDiff!,
-          },
-        ];
+      : hasDocumentStagedChange
+        ? [
+            {
+              path: currentDocPath || 'current-document.md',
+              type: 'edit' as const,
+              original: source,
+              modified: documentEditState.stagedContent!,
+              diff: documentEditState.stagedDiff!,
+            },
+          ]
+        : [];
     const changes = allChanges.map((c) => ({
       path: c.path,
       type: c.type,
@@ -2861,20 +2865,16 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     if (deletes.length === 1) parts.push(`delete ${deletes[0]}`);
     else if (deletes.length > 1) parts.push(`delete ${deletes.length} files`);
     const suggestedCommitMessage = parts.join(', ') || 'Apply AI-suggested changes';
-    ctx.res.write(
-      `event: staged_changes\ndata: ${JSON.stringify({
-        changes,
-        file_contents: fileContents,
-        suggested_commit_message: suggestedCommitMessage,
-        ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
-      })}\n\n`,
-    );
-    stagedChangesEmitted = true;
-  };
-
-  const writeSseEvent = (event: string, data: unknown) => {
-    if (ctx.res.writableEnded) return;
-    ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const payload = {
+      changes,
+      file_contents: fileContents,
+      suggested_commit_message: suggestedCommitMessage,
+      ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
+    };
+    const signature = JSON.stringify(payload);
+    if (signature === lastStagedChangesSignature || ctx.res.writableEnded) return;
+    writeSseEvent('staged_changes', payload);
+    lastStagedChangesSignature = signature;
   };
 
   let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
@@ -2999,6 +2999,14 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
         writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
+        if (
+          tc.name === 'propose_edit_document' ||
+          tc.name === 'propose_edit_file' ||
+          tc.name === 'propose_create_file' ||
+          tc.name === 'propose_delete_file'
+        ) {
+          emitStagedChangesSnapshot();
+        }
       }
 
       // Run task calls in parallel (up to READER_AI_MAX_CONCURRENT_TASKS)
@@ -3113,7 +3121,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       if (!ctx.res.headersSent) throw new ClientError('Reader AI request timed out', 504);
       if (!ctx.res.writableEnded) {
         writeSseEvent('error', { message: 'Request timed out' });
-        emitStagedChangesIfAny();
+        emitStagedChangesSnapshot();
         ctx.res.write('data: [DONE]\n\n');
         ctx.res.end();
       }
@@ -3124,7 +3132,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       if (!ctx.res.writableEnded) {
         const message = err instanceof Error ? err.message : 'An unexpected error occurred';
         writeSseEvent('error', { message });
-        emitStagedChangesIfAny();
+        emitStagedChangesSnapshot();
         ctx.res.write('data: [DONE]\n\n');
         ctx.res.end();
       }
@@ -3136,8 +3144,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     ctx.req.off('close', onClientClose);
   }
 
-  // Emit staged changes if any edits were made
-  emitStagedChangesIfAny();
+  // Emit the latest staged-change snapshot, including an empty payload if staged edits were reverted.
+  emitStagedChangesSnapshot();
 
   if (!ctx.res.writableEnded) {
     ctx.res.write('data: [DONE]\n\n');

@@ -4,6 +4,14 @@ import { useEffect, useState } from 'preact/hooks';
 import type { ReaderAiStagedChange } from '../reader_ai';
 import { SideBySideDiffView, UnifiedDiffView } from './DiffViewer';
 
+const DEFAULT_EXPANDED_CHANGE_LINE_LIMIT = 80;
+
+function shouldExpandChangeByDefault(change: ReaderAiStagedChange): boolean {
+  const diffLines = change.diff.split('\n');
+  if (change.type !== 'edit') return diffLines.length <= DEFAULT_EXPANDED_CHANGE_LINE_LIMIT;
+  return diffLines.length <= DEFAULT_EXPANDED_CHANGE_LINE_LIMIT;
+}
+
 function SideBySideDiffModal({ changes, onClose }: { changes: ReaderAiStagedChange[]; onClose: () => void }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -37,6 +45,7 @@ export function StagedChangesSection({
   changes,
   defaultCommitMessage,
   applying,
+  streaming,
   canApplyWithoutSaving,
   canApplyAndCommit,
   disabledHint,
@@ -46,20 +55,33 @@ export function StagedChangesSection({
   changes: ReaderAiStagedChange[];
   defaultCommitMessage: string;
   applying: boolean;
+  streaming?: boolean;
   canApplyWithoutSaving?: boolean;
   canApplyAndCommit?: boolean;
   disabledHint?: string;
   onApplyWithoutSaving?: () => void;
   onApplyAndCommit?: (commitMessage?: string) => void;
 }) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(changes.map((change) => change.path)));
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
+    () => new Set(changes.filter((change) => shouldExpandChangeByDefault(change)).map((change) => change.path)),
+  );
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage);
   const [popoutOpen, setPopoutOpen] = useState(false);
   const canApply = canApplyWithoutSaving || canApplyAndCommit;
 
   useEffect(() => {
-    setExpandedPaths(new Set(changes.map((change) => change.path)));
+    setExpandedPaths((prev) => {
+      const next = new Set<string>();
+      for (const change of changes) {
+        if (prev.has(change.path) || shouldExpandChangeByDefault(change)) next.add(change.path);
+      }
+      return next;
+    });
   }, [changes]);
+
+  useEffect(() => {
+    setCommitMessage(defaultCommitMessage);
+  }, [defaultCommitMessage]);
 
   if (changes.length === 0) return null;
 
@@ -81,9 +103,17 @@ export function StagedChangesSection({
   return (
     <div class="reader-ai-staged-changes">
       <div class="reader-ai-staged-changes-header">
-        <span>
-          Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
-        </span>
+        <div class="reader-ai-staged-changes-header-copy">
+          <span>
+            {streaming ? 'Proposed changes' : 'Staged changes'} ({changes.length} file{changes.length === 1 ? '' : 's'})
+          </span>
+          {streaming ? (
+            <span class="reader-ai-staged-changes-live-pill">
+              <span class="reader-ai-staged-changes-live-dot" aria-hidden="true" />
+              Streaming
+            </span>
+          ) : null}
+        </div>
         <button
           type="button"
           class="reader-ai-staged-changes-popout"
@@ -106,7 +136,11 @@ export function StagedChangesSection({
           {expandedPaths.has(change.path) ? <UnifiedDiffView diff={change.diff} /> : null}
         </div>
       ))}
-      {canApply ? (
+      {streaming ? (
+        <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
+          Reviewing live proposals. Apply actions unlock when streaming finishes.
+        </div>
+      ) : canApply ? (
         <div class="reader-ai-staged-changes-footer">
           {canApplyAndCommit ? (
             <input

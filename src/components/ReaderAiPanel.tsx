@@ -30,6 +30,7 @@ interface ReaderAiPanelProps {
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
   stagedChanges: ReaderAiStagedChange[];
+  stagedChangesStreaming?: boolean;
   suggestedCommitMessage: string;
   applyingChanges: boolean;
   stagedChangesDisabledHint?: string;
@@ -117,6 +118,7 @@ export function ReaderAiPanel({
   toolStatus,
   toolLog,
   stagedChanges,
+  stagedChangesStreaming = false,
   suggestedCommitMessage,
   applyingChanges,
   stagedChangesDisabledHint,
@@ -602,9 +604,10 @@ export function ReaderAiPanel({
             </button>
           </div>
         ) : null}
-        {!sending && stagedChanges.length > 0 ? (
+        {stagedChanges.length > 0 ? (
           <StagedChangesSection
             changes={stagedChanges}
+            streaming={stagedChangesStreaming}
             defaultCommitMessage={suggestedCommitMessage}
             applying={applyingChanges}
             canApplyWithoutSaving={canApplyWithoutSaving}
