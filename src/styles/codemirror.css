@@ -655,21 +655,15 @@
 .cm-editor .tok-monospace {
   color: var(--code-content-color);
   background: color-mix(in srgb, var(--btn-bg) 50%, transparent);
-  border-radius: 3px;
-  padding: 1px 3px;
 }
 
 .cm-editor .tok-list.tok-monospace {
   color: inherit;
   background: transparent;
-  border-radius: 0;
-  padding: 0;
 }
 
 .doc-editor .cm-line.cm-md-fenced-code .tok-monospace {
   background: transparent;
-  border-radius: 0;
-  padding: 0;
 }
 
 /* Code blocks / fenced code */
