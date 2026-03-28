@@ -5,7 +5,7 @@ import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
-import type { EditorDiffPreview } from './components/codemirror_diff_preview';
+import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './components/codemirror_diff_preview';
 import type { BracePromptRequest, InlinePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -645,8 +645,15 @@ function buildEditorDiffPreview(change: ReaderAiStagedChange | undefined): Edito
   if (original === null) return null;
   const modified = change.modifiedContent;
   if (original === modified) return null;
+  const hunkBlocks = buildDiffPreviewBlocksFromHunks(original, modified, change.hunks ?? []);
+  if (hunkBlocks.length > 0) {
+    return {
+      blocks: hunkBlocks,
+      source: 'Reader AI proposal',
+    };
+  }
   const start = commonPrefixLength(original, modified);
-  const trailingOverlap = commonSuffixLength(original.slice(start), modified.slice(start));
+  const trailingOverlap = commonSuffixLength(original, modified, start);
   const originalTrimmedEnd = original.length - trailingOverlap;
   const modifiedTrimmedEnd = modified.length - trailingOverlap;
   const replacement = modified.slice(start, modifiedTrimmedEnd);
@@ -4090,7 +4097,7 @@ export function App() {
                   ]),
               );
               setReaderAiStagedChanges(changes);
-              setReaderAiSelectedChangeIds((prev) => {
+              setReaderAiSelectedChangeIds((_prev) => {
                 const latestSelectedChangeIds = readerAiSelectedChangeIdsRef.current;
                 const next = new Set<string>();
                 for (const change of changes) {
@@ -4099,7 +4106,7 @@ export function App() {
                 }
                 return next;
               });
-              setReaderAiSelectedHunkIdsByChangeId((prev) => {
+              setReaderAiSelectedHunkIdsByChangeId((_prev) => {
                 const latestSelectedHunkIdsByChangeId = readerAiSelectedHunkIdsByChangeIdRef.current;
                 const next: Record<string, Set<string>> = {};
                 for (const change of changes) {
@@ -4109,9 +4116,7 @@ export function App() {
                   next[change.id] = new Set(
                     change.hunks
                       .map((hunk) => hunk.id)
-                      .filter(
-                        (hunkId) => !previousHunkIds.has(hunkId) || previousSelectedHunkIds.has(hunkId),
-                      ),
+                      .filter((hunkId) => !previousHunkIds.has(hunkId) || previousSelectedHunkIds.has(hunkId)),
                   );
                 }
                 return next;

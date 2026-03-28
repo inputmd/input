@@ -7,6 +7,7 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
+import type { ReaderAiStagedHunk } from '../reader_ai';
 
 export interface EditorDiffPreviewBlock {
   from: number;
@@ -22,18 +23,85 @@ export interface EditorDiffPreview {
   source?: string;
 }
 
+function buildLineStartOffsets(content: string): number[] {
+  const starts = [0];
+  for (let index = 0; index < content.length; index += 1) {
+    if (content.charCodeAt(index) === 10) starts.push(index + 1);
+  }
+  return starts;
+}
+
+function offsetForLineStart(lineStarts: number[], lineNumber: number, contentLength: number): number {
+  if (lineNumber <= 1) return 0;
+  if (lineNumber - 1 < lineStarts.length) return lineStarts[lineNumber - 1] ?? contentLength;
+  return contentLength;
+}
+
+export function buildDiffPreviewBlocksFromHunks(
+  originalContent: string,
+  modifiedContent: string,
+  hunks: ReaderAiStagedHunk[],
+): EditorDiffPreviewBlock[] {
+  if (!Array.isArray(hunks) || hunks.length === 0) return [];
+  const originalLineStarts = buildLineStartOffsets(originalContent);
+  const modifiedLineStarts = buildLineStartOffsets(modifiedContent);
+  const blocks: EditorDiffPreviewBlock[] = [];
+
+  for (const hunk of hunks) {
+    const firstChangeIndex = hunk.lines.findIndex((line) => line.type !== 'context');
+    if (firstChangeIndex < 0) continue;
+    let lastChangeIndex = -1;
+    for (let index = hunk.lines.length - 1; index >= 0; index -= 1) {
+      if (hunk.lines[index]?.type !== 'context') {
+        lastChangeIndex = index;
+        break;
+      }
+    }
+    if (lastChangeIndex < firstChangeIndex) continue;
+
+    const relevantLines = hunk.lines.slice(firstChangeIndex, lastChangeIndex + 1);
+    const originalLinesBeforeChange = hunk.lines
+      .slice(0, firstChangeIndex)
+      .filter((line) => line.type !== 'add').length;
+    const modifiedLinesBeforeChange = hunk.lines
+      .slice(0, firstChangeIndex)
+      .filter((line) => line.type !== 'del').length;
+    const replacedOriginalLineCount = relevantLines.filter((line) => line.type !== 'add').length;
+    const insertedModifiedLineCount = relevantLines.filter((line) => line.type !== 'del').length;
+
+    const fromLine = Math.max(1, hunk.oldStart + originalLinesBeforeChange);
+    const toLine = Math.max(fromLine, fromLine + replacedOriginalLineCount);
+    const insertFromLine = Math.max(1, hunk.newStart + modifiedLinesBeforeChange);
+    const insertToLine = Math.max(insertFromLine, insertFromLine + insertedModifiedLineCount);
+
+    const from = offsetForLineStart(originalLineStarts, fromLine, originalContent.length);
+    const to = offsetForLineStart(originalLineStarts, toLine, originalContent.length);
+    const insertFrom = offsetForLineStart(modifiedLineStarts, insertFromLine, modifiedContent.length);
+    const insertTo = offsetForLineStart(modifiedLineStarts, insertToLine, modifiedContent.length);
+    const deletedText = originalContent.slice(from, to);
+    const insert = modifiedContent.slice(insertFrom, insertTo);
+
+    if (!deletedText && !insert) continue;
+    blocks.push({
+      kind: deletedText && insert ? 'replace' : insert ? 'insert' : 'delete',
+      from,
+      to,
+      insert,
+      label: hunk.header,
+      deletedText,
+    });
+  }
+
+  return blocks;
+}
+
 class DiffPreviewWidget extends WidgetType {
   private readonly text: string;
   private readonly kind: NonNullable<EditorDiffPreviewBlock['kind']>;
   private readonly label?: string;
   private readonly deletedText?: string;
 
-  constructor(
-    text: string,
-    kind: NonNullable<EditorDiffPreviewBlock['kind']>,
-    label?: string,
-    deletedText?: string,
-  ) {
+  constructor(text: string, kind: NonNullable<EditorDiffPreviewBlock['kind']>, label?: string, deletedText?: string) {
     super();
     this.text = text;
     this.kind = kind;
@@ -64,8 +132,7 @@ class DiffPreviewWidget extends WidgetType {
     if (this.deletedText && this.deletedText.length > 0) {
       const deleted = document.createElement('pre');
       deleted.className = 'cm-editor-diff-preview-content cm-editor-diff-preview-content--deleted';
-      deleted.textContent =
-        this.deletedText.length > 1200 ? `${this.deletedText.slice(0, 1200)}…` : this.deletedText;
+      deleted.textContent = this.deletedText.length > 1200 ? `${this.deletedText.slice(0, 1200)}…` : this.deletedText;
       wrapper.append(deleted);
     }
 
