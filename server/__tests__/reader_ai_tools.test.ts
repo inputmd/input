@@ -31,6 +31,7 @@ import {
   READER_AI_TOOLS,
   type ReaderAiFileEntry,
   readUpstreamError,
+  repairToolArgumentsJson,
   StagedChanges,
   simpleGlobMatch,
 } from '../reader_ai_tools.ts';
@@ -540,6 +541,20 @@ test('stream parser preserves tool call order without explicit indices', async (
       { id: 'call_a', name: 'read_document', arguments: '{}' },
       { id: 'call_b', name: 'search_document', arguments: '{"query":"needle"}' },
     ],
+  );
+});
+
+test('repairToolArgumentsJson can close truncated object payloads', (t) => {
+  t.is(
+    repairToolArgumentsJson('{"path":"src/app.ts","query":"reader ai"'),
+    '{"path":"src/app.ts","query":"reader ai"}',
+  );
+});
+
+test('repairToolArgumentsJson trims trailing commas before close', (t) => {
+  t.is(
+    repairToolArgumentsJson('{"path":"src/app.ts","query":"reader ai",}'),
+    '{"path":"src/app.ts","query":"reader ai"}',
   );
 });
 

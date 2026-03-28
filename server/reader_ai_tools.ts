@@ -112,6 +112,92 @@ interface ReaderAiStreamParseOptions {
   repairBoundaries?: boolean;
 }
 
+export interface ReaderAiToolArgumentsParseResult {
+  parsedArgs?: Record<string, unknown>;
+  repairedArgs?: string;
+  message?: string;
+  error?: string;
+}
+
+function stripMarkdownCodeFence(raw: string): string {
+  return raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
+}
+
+function extractLikelyJsonObject(raw: string): string {
+  const objectStart = raw.indexOf('{');
+  const objectEnd = raw.lastIndexOf('}');
+  if (objectStart >= 0 && objectEnd > objectStart) return raw.slice(objectStart, objectEnd + 1);
+  return raw;
+}
+
+function balanceJsonDelimiters(raw: string): string {
+  let result = raw;
+  const braceBalance = [...raw].reduce((sum, ch) => sum + (ch === '{' ? 1 : ch === '}' ? -1 : 0), 0);
+  const bracketBalance = [...raw].reduce((sum, ch) => sum + (ch === '[' ? 1 : ch === ']' ? -1 : 0), 0);
+  if (braceBalance > 0) result += '}'.repeat(braceBalance);
+  if (bracketBalance > 0) result += ']'.repeat(bracketBalance);
+  return result;
+}
+
+function parseToolArgsObject(raw: string): Record<string, unknown> | null {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+}
+
+export function parseReaderAiToolArguments(argsJson: string): ReaderAiToolArgumentsParseResult {
+  const raw = argsJson.trim();
+  if (!raw) return { parsedArgs: {} };
+  try {
+    const parsedArgs = parseToolArgsObject(raw);
+    if (parsedArgs) return { parsedArgs };
+    return { error: 'arguments must be a JSON object' };
+  } catch (error) {
+    const candidates = new Set<string>();
+    candidates.add(raw);
+    candidates.add(stripMarkdownCodeFence(raw));
+    candidates.add(extractLikelyJsonObject(stripMarkdownCodeFence(raw)));
+    for (const candidate of [...candidates]) {
+      if (!candidate) continue;
+      const normalized = balanceJsonDelimiters(candidate.replace(/,\s*([}\]])/g, '$1').trim());
+      if (!normalized || normalized === raw) continue;
+      try {
+        const parsedArgs = parseToolArgsObject(normalized);
+        if (parsedArgs) {
+          return {
+            parsedArgs,
+            repairedArgs: normalized,
+            message: 'Repaired malformed JSON arguments automatically.',
+          };
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+    return {
+      error: error instanceof Error ? error.message : 'invalid JSON arguments',
+    };
+  }
+}
+
+export function repairToolArgumentsJson(argsJson: string): string | null {
+  const result = parseReaderAiToolArguments(argsJson);
+  return result.repairedArgs ?? null;
+}
+
+export function parseToolArgumentsWithRepair(argsJson: string): {
+  parsedArgs?: Record<string, unknown>;
+  repaired: boolean;
+  error?: string;
+} {
+  const result = parseReaderAiToolArguments(argsJson);
+  return {
+    parsedArgs: result.parsedArgs,
+    repaired: Boolean(result.repairedArgs),
+    error: result.error,
+  };
+}
+
 function mergeToolCallFragment(existing: string, incoming: string | undefined): string {
   if (!incoming) return existing;
   if (!existing) return incoming;

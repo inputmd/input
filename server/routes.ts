@@ -49,6 +49,7 @@ import {
   executeReaderAiSyncTool,
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
+  parseToolArgumentsWithRepair,
   parseUnifiedDiffHunks,
   READER_AI_DOC_PREVIEW_CHARS,
   READER_AI_MAX_CONCURRENT_TASKS,
@@ -2973,16 +2974,32 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
       // Execute each tool call — task calls run in parallel, sync tools run sequentially
       const taskCalls: Array<{ tc: ReaderAiToolCall; parsedArgs: Record<string, unknown> }> = [];
-      const syncCalls: Array<{ tc: ReaderAiToolCall; parsedArgs: Record<string, unknown> | undefined }> = [];
+      const syncCalls: Array<{
+        tc: ReaderAiToolCall;
+        parsedArgs: Record<string, unknown> | undefined;
+        parseError?: string;
+        repaired?: boolean;
+      }> = [];
 
       for (const tc of result.toolCalls) {
-        let parsedArgs: Record<string, unknown> | undefined;
-        try {
-          parsedArgs = tc.arguments ? (JSON.parse(tc.arguments) as Record<string, unknown>) : {};
-        } catch {
-          // send raw string if unparseable
+        const parsedArgsResult = parseToolArgumentsWithRepair(tc.arguments);
+        const parsedArgs = parsedArgsResult.parsedArgs;
+        if (parsedArgsResult.error) {
+          console.warn('[reader-ai-tool-json]', {
+            toolCallId: tc.id,
+            toolName: tc.name,
+            repaired: parsedArgsResult.repaired,
+            error: parsedArgsResult.error,
+            rawArgumentsPreview: tc.arguments.length > 300 ? `${tc.arguments.slice(0, 300)}…` : tc.arguments,
+          });
         }
-        writeSseEvent('tool_call', { id: tc.id, name: tc.name, arguments: parsedArgs ?? tc.arguments });
+        writeSseEvent('tool_call', {
+          id: tc.id,
+          name: tc.name,
+          arguments: parsedArgs ?? tc.arguments,
+          parse_error: parsedArgsResult.error,
+          repaired: parsedArgsResult.repaired,
+        });
 
         if (tc.name === 'task') {
           if (parsedArgs) {
@@ -2990,26 +3007,60 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           } else {
             // Task call with malformed JSON — return an error tool result rather than
             // silently falling through to the sync tool path (which would return "unknown tool: task").
+            const retryMessage =
+              'Arguments could not be parsed as JSON. Retry the task call with a valid JSON object that includes a "prompt" field.';
             openRouterMessages.push({
               role: 'tool',
               tool_call_id: tc.id,
-              content:
-                '(task tool arguments could not be parsed as JSON — please provide valid JSON with a "prompt" field)',
+              content: retryMessage,
             });
-            writeSseEvent('tool_result', { id: tc.id, name: 'task', preview: '(invalid JSON arguments)' });
+            writeSseEvent('tool_result', {
+              id: tc.id,
+              name: 'task',
+              preview: '(invalid JSON arguments)',
+              error: parsedArgsResult.error ?? 'Invalid JSON arguments',
+            });
           }
         } else {
-          syncCalls.push({ tc, parsedArgs });
+          syncCalls.push({
+            tc,
+            parsedArgs,
+            parseError: parsedArgsResult.error ?? undefined,
+            repaired: parsedArgsResult.repaired,
+          });
         }
       }
 
       // Run sync tools first
-      for (const { tc } of syncCalls) {
+      for (const { tc, parsedArgs, parseError, repaired } of syncCalls) {
+        if (!parsedArgs && parseError) {
+          const retryMessage = `Tool arguments could not be parsed as JSON. Retry ${tc.name} with valid JSON arguments.`;
+          openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: retryMessage });
+          writeSseEvent('tool_result', {
+            id: tc.id,
+            name: tc.name,
+            preview: '(invalid JSON arguments)',
+            error: parseError,
+            repaired,
+          });
+          continue;
+        }
+
         const toolResult = executeSyncToolCall(tc);
 
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
         const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
-        writeSseEvent('tool_result', { id: tc.id, name: tc.name, preview: resultPreview });
+        const toolFailed =
+          /^\((invalid JSON|unknown tool|file not found|old_text not found|path is required|content is required|new_text is required|old_text is required)/.test(
+            toolResult,
+          );
+        writeSseEvent('tool_result', {
+          id: tc.id,
+          name: tc.name,
+          preview: resultPreview,
+          ...(toolFailed ? { error: toolResult } : {}),
+          ...(repaired ? { repaired: true } : {}),
+        });
         if (
           tc.name === 'propose_edit_document' ||
           tc.name === 'propose_edit_file' ||
