@@ -623,6 +623,46 @@ function generateUnifiedDiff(path: string, oldContent: string, newContent: strin
   return result || noChangesLabel;
 }
 
+function buildReaderAiInlinePreview(
+  change: ReaderAiStagedChange | undefined,
+): { from: number; to: number; insert: string; label?: string } | null {
+  if (!change || change.type === 'delete') return null;
+  if (typeof change.modifiedContent !== 'string') return null;
+  if (change.type === 'create') {
+    return {
+      from: 0,
+      to: 0,
+      insert: change.modifiedContent,
+      label: 'Reader AI proposal',
+    };
+  }
+  if (!Array.isArray(change.hunks) || change.hunks.length === 0) return null;
+  const firstHunk = change.hunks[0];
+  const lastHunk = change.hunks[change.hunks.length - 1];
+  if (!firstHunk || !lastHunk) return null;
+  const original = typeof change.originalContent === 'string' ? change.originalContent : '';
+  const lines = original.split('\n');
+  const lineStartOffset = (lineNumber: number) => {
+    if (lineNumber <= 1) return 0;
+    let offset = 0;
+    for (let i = 0; i < Math.min(lines.length, lineNumber - 1); i++) {
+      offset += lines[i].length;
+      if (i < lines.length - 1) offset += 1;
+    }
+    return offset;
+  };
+  const start = lineStartOffset(firstHunk.oldStart);
+  const endLine = Math.max(firstHunk.oldStart, lastHunk.oldStart + Math.max(0, lastHunk.oldLines) - 1);
+  const end = lineStartOffset(endLine + 1);
+  const replacement = change.modifiedContent;
+  return {
+    from: Math.max(0, start),
+    to: Math.max(0, Math.min(end, original.length)),
+    insert: replacement,
+    label: 'Reader AI proposal',
+  };
+}
+
 function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | null {
   if (!state || typeof state !== 'object') return null;
   const restoreDraft = (state as { restoreDraft?: unknown }).restoreDraft;
@@ -849,6 +889,10 @@ export function App() {
     } catch {}
     return DEFAULT_SIDEBAR_WIDTH_PX;
   });
+  const [readerAiSelectedChangeIds, setReaderAiSelectedChangeIds] = useState<Set<string>>(() => new Set());
+  const [readerAiSelectedHunkIdsByChangeId, setReaderAiSelectedHunkIdsByChangeId] = useState<
+    Record<string, Set<string>>
+  >(() => ({}));
   const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
     if (typeof window !== 'undefined' && !window.matchMedia(DESKTOP_MEDIA_QUERY).matches) {
       return false;
@@ -867,7 +911,38 @@ export function App() {
     if (typeof window === 'undefined') return false;
     return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
   }, []);
-
+  const effectiveReaderAiStagedChanges = useMemo(
+    () =>
+      readerAiStagedChanges.flatMap((change) => {
+        if (change.id && !readerAiSelectedChangeIds.has(change.id)) return [];
+        if (!change.hunks || change.hunks.length === 0) return [change];
+        const selectedHunkIds = change.id ? readerAiSelectedHunkIdsByChangeId[change.id] : undefined;
+        if (!selectedHunkIds || selectedHunkIds.size === 0) return [];
+        const visibleHunks = change.hunks.filter((hunk) => selectedHunkIds.has(hunk.id));
+        if (visibleHunks.length === 0) return [];
+        if (visibleHunks.length === change.hunks.length) return [change];
+        const diffLines = [
+          `--- a/${change.path}`,
+          `+++ b/${change.path}`,
+          ...visibleHunks.flatMap((hunk) => [
+            hunk.header,
+            ...hunk.lines.map((line) => {
+              if (line.type === 'add') return `+${line.content}`;
+              if (line.type === 'del') return `-${line.content}`;
+              return ` ${line.content}`;
+            }),
+          ]),
+        ];
+        return [
+          {
+            ...change,
+            diff: diffLines.join('\n'),
+            hunks: visibleHunks,
+          } satisfies ReaderAiStagedChange,
+        ];
+      }),
+    [readerAiSelectedChangeIds, readerAiSelectedHunkIdsByChangeId, readerAiStagedChanges],
+  );
   // Track initialization
   const initialized = useRef(false);
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
@@ -1031,6 +1106,11 @@ export function App() {
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
   );
+  const currentReaderAiInlinePreview = useMemo(() => {
+    if (activeView !== 'edit' || !currentEditingDocPath) return null;
+    const currentChange = effectiveReaderAiStagedChanges.find((change) => change.path === currentEditingDocPath);
+    return buildReaderAiInlinePreview(currentChange);
+  }, [activeView, currentEditingDocPath, effectiveReaderAiStagedChanges]);
   const isScratchDocument = useMemo(
     () =>
       activeView === 'edit' &&
@@ -7420,6 +7500,7 @@ export function App() {
             contentOrigin={editContentOrigin}
             contentRevision={editContentRevision}
             contentSelection={editContentSelection}
+            readerAiInlinePreview={currentReaderAiInlinePreview}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             scrollStorageKey={currentDocumentScrollKey}
@@ -8114,7 +8195,7 @@ export function App() {
               sending={readerAiSending}
               toolStatus={readerAiToolStatus}
               toolLog={readerAiToolLog}
-              stagedChanges={readerAiStagedChanges}
+              stagedChanges={effectiveReaderAiStagedChanges}
               stagedChangesStreaming={readerAiStagedChangesStreaming}
               suggestedCommitMessage={readerAiSuggestedCommitMessage}
               applyingChanges={readerAiApplyingChanges}
@@ -8123,6 +8204,48 @@ export function App() {
               canApplyAndCommit={canApplyAndCommit}
               onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
               onApplyAndCommit={(msg) => void onReaderAiApplyChanges('commit', msg)}
+              onToggleChangeSelection={(changeId, selected) =>
+                setReaderAiSelectedChangeIds((prev) => {
+                  const next = new Set(prev);
+                  if (selected) next.add(changeId);
+                  else next.delete(changeId);
+                  return next;
+                })
+              }
+              onToggleHunkSelection={(changeId, hunkId, selected) =>
+                setReaderAiSelectedHunkIdsByChangeId((prev) => {
+                  const next = { ...prev };
+                  const current = new Set(next[changeId] ?? []);
+                  if (selected) current.add(hunkId);
+                  else current.delete(hunkId);
+                  next[changeId] = current;
+                  return next;
+                })
+              }
+              selectedChangeIds={readerAiSelectedChangeIds}
+              selectedHunkIds={readerAiSelectedHunkIdsByChangeId}
+              onRejectChange={(changeId) => {
+                setReaderAiSelectedChangeIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(changeId);
+                  return next;
+                });
+                setReaderAiStagedChanges((prev) => prev.filter((change) => change.id !== changeId));
+                setReaderAiSelectedHunkIdsByChangeId((prev) => {
+                  const next = { ...prev };
+                  delete next[changeId];
+                  return next;
+                });
+              }}
+              onRejectHunk={(changeId, hunkId) => {
+                setReaderAiSelectedHunkIdsByChangeId((prev) => {
+                  const next = { ...prev };
+                  const current = new Set(next[changeId] ?? []);
+                  current.delete(hunkId);
+                  next[changeId] = current;
+                  return next;
+                });
+              }}
               error={readerAiError}
               onSend={onReaderAiSend}
               onEditMessage={onReaderAiEditMessage}
