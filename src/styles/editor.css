@@ -326,3 +326,25 @@
     min-height: 100%;
   }
 }
+
+.cm-editor .cm-editor-diff-preview-line {
+  background: color-mix(in srgb, var(--focus-border) 8%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-mark {
+  background: color-mix(in srgb, var(--focus-border) 18%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--focus-border) 48%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-widget {
+  display: block;
+  margin: 2px 0 2px 1.5rem;
+  padding: 4px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--success-color) 55%, transparent);
+  background: color-mix(in srgb, var(--success-color) 10%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
