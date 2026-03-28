@@ -1,10 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Ellipsis } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
-
-function blurOnClose(open: boolean): void {
-  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
-}
+import { blurOnClose } from '../dom_utils';
 
 interface DocumentCardProps {
   title: ComponentChildren;

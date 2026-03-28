@@ -6,10 +6,7 @@ import type { ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
-
-function blurOnClose(open: boolean): void {
-  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
-}
+import { blurOnClose } from '../dom_utils';
 
 export type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
 

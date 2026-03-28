@@ -3,13 +3,10 @@ import { ExternalLink, Globe, Lock, MoreHorizontal } from 'lucide-react';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { GistSummary } from '../github';
 import type { InstallationRepo } from '../github_app';
+import { blurOnClose } from '../dom_utils';
 import { DocumentsView } from './DocumentsView';
 
 const CONNECT_REPOS_LABEL = 'Connect Repos';
-
-function blurOnClose(open: boolean): void {
-  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
-}
 
 interface WorkspacesViewProps {
   installationId: string | null;

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { blurOnClose } from '../dom_utils';
 
 export interface SidebarFile {
   path: string;
@@ -23,10 +24,6 @@ export interface SidebarFile {
   editable: boolean;
   deemphasized: boolean;
   size?: number;
-}
-
-function blurOnClose(open: boolean): void {
-  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
 }
 
 export type SidebarFileFilter = 'markdown' | 'text' | 'all';

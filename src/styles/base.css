@@ -117,6 +117,7 @@
   --missing-link-color: #c48888;
   --bracketed-text-underline-color: color-mix(in srgb, currentColor 58%, transparent);
   --error-color: #f85149;
+  --warning-color: #d29922;
   --success-color: #3fb950;
   --success-bg: rgba(63, 185, 80, 0.18);
   --success-border: #3fb950;
@@ -149,6 +150,7 @@
   --ansi-blue: #2472c8;
   --ansi-magenta: #bc3fbc;
   --ansi-cyan: #11a8cd;
+  --ansi-orange: #d19a66;
   --ansi-white: #e5e5e5;
   --ansi-bright-black: #666666;
   --ansi-bright-red: #f14c4c;
@@ -178,6 +180,7 @@
   --missing-link-color: #ab4d4d;
   --bracketed-text-underline-color: color-mix(in srgb, currentColor 44%, transparent);
   --error-color: #cf222e;
+  --warning-color: #9a6700;
   --success-color: #1a7f37;
   --success-bg: #dafbe1;
   --success-border: #1a7f37;
@@ -203,6 +206,7 @@
   --ansi-blue: #0451a5;
   --ansi-magenta: #bc05bc;
   --ansi-cyan: #0598bc;
+  --ansi-orange: #b5651d;
   --ansi-white: #555555;
   --ansi-bright-black: #666666;
   --ansi-bright-red: #cd3131;
@@ -212,6 +216,12 @@
   --ansi-bright-magenta: #bc05bc;
   --ansi-bright-cyan: #0598bc;
   --ansi-bright-white: #a5a5a5;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 *,

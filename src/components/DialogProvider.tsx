@@ -7,10 +7,7 @@ import { createContext } from 'preact';
 import { useCallback, useContext, useRef, useState } from 'preact/hooks';
 import type { DiffChangeEntry } from './DiffViewer';
 import { SideBySideDiffView } from './DiffViewer';
-
-function blurOnClose(open: boolean): void {
-  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
-}
+import { blurOnClose } from '../dom_utils';
 
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;

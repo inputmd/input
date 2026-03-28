@@ -109,13 +109,7 @@
   border: 2px solid color-mix(in srgb, var(--text-secondary) 35%, transparent);
   border-top-color: var(--text-secondary);
   border-radius: 999px;
-  animation: content-spin 0.8s linear infinite;
-}
-
-@keyframes content-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: spin 0.8s linear infinite;
 }
 
 .rendered-content {

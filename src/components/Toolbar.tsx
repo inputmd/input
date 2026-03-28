@@ -19,14 +19,11 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { GistSummary, GitHubUser } from '../github';
 import type { InstallationRepo, LinkedInstallation } from '../github_app';
 import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
+import { blurOnClose } from '../dom_utils';
 import { isEditableShortcutTarget, matchesControlShortcut } from '../keyboard_shortcuts';
 import type { ReaderAiModel } from '../reader_ai';
 import { routePath } from '../routing';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
-
-function blurOnClose(open: boolean): void {
-  if (!open) (document.activeElement as HTMLElement | null)?.blur?.();
-}
 
 function isLocalhostHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '::1';
