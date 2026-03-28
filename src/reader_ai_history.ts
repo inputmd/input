@@ -1,4 +1,5 @@
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
+import type { ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
 import type { Route } from './routing';
 import type { PublicRepoRef } from './wiki_links';
 
@@ -12,7 +13,7 @@ export interface ReaderAiHistoryEntry {
   summary?: string;
   scope?: { kind: 'document' } | { kind: 'selection'; source: string };
   toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string; taskId?: string }>;
-  stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>;
+  stagedChanges?: ReaderAiStagedChange[];
   stagedChangesInvalid?: boolean;
   stagedFileContents?: Record<string, string>;
   appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>;
@@ -93,11 +94,90 @@ function normalizePersistedStagedChanges(value: unknown): {
     const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path : '';
     const type = typeof (entry as { type?: unknown }).type === 'string' ? (entry as { type: string }).type : '';
     const diff = typeof (entry as { diff?: unknown }).diff === 'string' ? (entry as { diff: string }).diff : '';
+    const id = typeof (entry as { id?: unknown }).id === 'string' ? (entry as { id: string }).id : undefined;
+    const revision =
+      typeof (entry as { revision?: unknown }).revision === 'number'
+        ? (entry as { revision: number }).revision
+        : undefined;
+    const originalContent =
+      (entry as { originalContent?: unknown }).originalContent === null ||
+      typeof (entry as { originalContent?: unknown }).originalContent === 'string'
+        ? ((entry as { originalContent?: string | null }).originalContent ?? undefined)
+        : undefined;
+    const modifiedContent =
+      (entry as { modifiedContent?: unknown }).modifiedContent === null ||
+      typeof (entry as { modifiedContent?: unknown }).modifiedContent === 'string'
+        ? ((entry as { modifiedContent?: string | null }).modifiedContent ?? undefined)
+        : undefined;
+    const hunksRaw = (entry as { hunks?: unknown }).hunks;
     if (!path || (type !== 'edit' && type !== 'create' && type !== 'delete') || !diff) {
       invalid = true;
       continue;
     }
-    changes.push({ path, type, diff });
+    const hunks = Array.isArray(hunksRaw)
+      ? hunksRaw
+          .map((hunk): ReaderAiStagedHunk | null => {
+            if (!hunk || typeof hunk !== 'object') return null;
+            const header =
+              typeof (hunk as { header?: unknown }).header === 'string' ? (hunk as { header: string }).header : '';
+            const hunkId = typeof (hunk as { id?: unknown }).id === 'string' ? (hunk as { id: string }).id : '';
+            const oldStart =
+              typeof (hunk as { oldStart?: unknown }).oldStart === 'number'
+                ? (hunk as { oldStart: number }).oldStart
+                : NaN;
+            const oldLines =
+              typeof (hunk as { oldLines?: unknown }).oldLines === 'number'
+                ? (hunk as { oldLines: number }).oldLines
+                : NaN;
+            const newStart =
+              typeof (hunk as { newStart?: unknown }).newStart === 'number'
+                ? (hunk as { newStart: number }).newStart
+                : NaN;
+            const newLines =
+              typeof (hunk as { newLines?: unknown }).newLines === 'number'
+                ? (hunk as { newLines: number }).newLines
+                : NaN;
+            const linesRaw = (hunk as { lines?: unknown }).lines;
+            if (
+              !hunkId ||
+              !header ||
+              !Number.isFinite(oldStart) ||
+              !Number.isFinite(oldLines) ||
+              !Number.isFinite(newStart) ||
+              !Number.isFinite(newLines) ||
+              !Array.isArray(linesRaw)
+            ) {
+              return null;
+            }
+            const lines = linesRaw
+              .map((line) => {
+                if (!line || typeof line !== 'object') return null;
+                const lineType = (line as { type?: unknown }).type;
+                const contentValue = (line as { content?: unknown }).content;
+                if (
+                  (lineType !== 'context' && lineType !== 'add' && lineType !== 'del') ||
+                  typeof contentValue !== 'string'
+                ) {
+                  return null;
+                }
+                return { type: lineType, content: contentValue } as const;
+              })
+              .filter((line): line is NonNullable<typeof line> => line !== null);
+            if (lines.length === 0) return null;
+            return { id: hunkId, header, oldStart, oldLines, newStart, newLines, lines };
+          })
+          .filter((hunk): hunk is NonNullable<typeof hunk> => hunk !== null)
+      : undefined;
+    changes.push({
+      ...(id ? { id } : {}),
+      path,
+      type,
+      diff,
+      ...(typeof revision === 'number' ? { revision } : {}),
+      ...(originalContent !== undefined ? { originalContent } : {}),
+      ...(modifiedContent !== undefined ? { modifiedContent } : {}),
+      ...(hunks && hunks.length > 0 ? { hunks } : {}),
+    });
   }
   return { changes, invalid };
 }
@@ -198,8 +278,8 @@ export function persistReaderAiMessagesToHistory(
   messages: ReaderAiMessage[],
   summary?: string,
   scope?: ReaderAiHistoryEntry['scope'],
-  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string }>,
-  stagedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; diff: string }>,
+  toolLog?: Array<{ type: 'call' | 'result' | 'progress'; name: string; detail?: string; taskId?: string }>,
+  stagedChanges?: ReaderAiStagedChange[],
   stagedFileContents?: Record<string, string>,
   appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>,
 ): void {

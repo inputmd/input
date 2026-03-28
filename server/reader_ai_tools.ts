@@ -30,6 +30,7 @@ export interface ReaderAiDocumentEditState {
   currentDocPath?: string | null;
   stagedContent: string | null;
   stagedDiff: string | null;
+  stagedRevision: number;
 }
 
 /**
@@ -506,14 +507,32 @@ export function executeReaderAiSearchDocument(
 // ── Staged changes (in-memory editing layer) ──
 
 export interface StagedChange {
+  id: string;
   path: string;
   type: 'edit' | 'create' | 'delete';
+  revision: number;
   /** Original content (null for creates). */
   original: string | null;
   /** Modified content (null for deletes). */
   modified: string | null;
   /** Unified diff for display. */
   diff: string;
+  hunks: StagedHunk[];
+}
+
+export interface StagedHunkLine {
+  type: 'context' | 'add' | 'del';
+  content: string;
+}
+
+export interface StagedHunk {
+  id: string;
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: StagedHunkLine[];
 }
 
 /**
@@ -530,6 +549,7 @@ export interface StagedChange {
 export class StagedChanges {
   private changes = new Map<string, StagedChange>();
   private workingFiles: Map<string, string>;
+  private revisionByPath = new Map<string, number>();
 
   constructor(files: ReaderAiFileEntry[]) {
     this.workingFiles = new Map(files.map((f) => [f.path, f.content]));
@@ -587,10 +607,10 @@ export class StagedChanges {
 
     const existing = this.changes.get(path);
     const original = existing?.original ?? content;
-    const diff = generateUnifiedDiff(path, original, updated);
-    this.changes.set(path, { path, type: 'edit', original, modified: updated, diff });
+    const revision = this.bumpRevision(path);
+    this.changes.set(path, createStructuredStagedChange(path, 'edit', original, updated, revision));
 
-    return `Edited ${path}:\n${diff}`;
+    return `Edited ${path}:\n${this.changes.get(path)!.diff}`;
   }
 
   createFile(path: string, content: string): string {
@@ -598,9 +618,9 @@ export class StagedChanges {
       return `(file already exists: ${path} — use propose_edit_file to modify it)`;
     }
     this.workingFiles.set(path, content);
-    const diff = generateUnifiedDiff(path, '', content);
-    this.changes.set(path, { path, type: 'create', original: null, modified: content, diff });
-    return `Created ${path} (${content.length} bytes):\n${diff}`;
+    const revision = this.bumpRevision(path);
+    this.changes.set(path, createStructuredStagedChange(path, 'create', null, content, revision));
+    return `Created ${path} (${content.length} bytes):\n${this.changes.get(path)!.diff}`;
   }
 
   deleteFile(path: string): string {
@@ -612,11 +632,12 @@ export class StagedChanges {
     // cancels out the create — remove the change entry entirely.
     if (existing && existing.original === null) {
       this.changes.delete(path);
+      this.revisionByPath.delete(path);
       return `Deleted ${path} (reverted create)`;
     }
     const original = existing?.original ?? content;
-    const diff = generateUnifiedDiff(path, original, '');
-    this.changes.set(path, { path, type: 'delete', original, modified: null, diff });
+    const revision = this.bumpRevision(path);
+    this.changes.set(path, createStructuredStagedChange(path, 'delete', original, null, revision));
     return `Deleted ${path}`;
   }
 
@@ -631,7 +652,14 @@ export class StagedChanges {
   /** Discard all staged changes and restore original file contents. */
   reset(files: ReaderAiFileEntry[]): void {
     this.changes.clear();
+    this.revisionByPath.clear();
     this.workingFiles = new Map(files.map((f) => [f.path, f.content]));
+  }
+
+  private bumpRevision(path: string): number {
+    const next = (this.revisionByPath.get(path) ?? 0) + 1;
+    this.revisionByPath.set(path, next);
+    return next;
   }
 }
 
@@ -648,6 +676,69 @@ export function generateUnifiedDiff(path: string, oldContent: string, newContent
   if (!lines.some((l) => l.startsWith('@@'))) return '(no changes)';
   const result = lines.slice(startIndex).join('\n').trimEnd();
   return result || '(no changes)';
+}
+
+function stagedChangeId(path: string): string {
+  return `staged:${encodeURIComponent(path)}`;
+}
+
+export function parseUnifiedDiffHunks(diff: string): StagedHunk[] {
+  if (!diff || diff === '(no changes)') return [];
+  const lines = diff.split('\n');
+  const hunks: StagedHunk[] = [];
+  let current: StagedHunk | null = null;
+  let hunkIndex = 0;
+
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      const match = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+      current = {
+        id: `hunk:${hunkIndex++}:${line}`,
+        header: line,
+        oldStart: Number(match?.[1] ?? 0),
+        oldLines: Number(match?.[2] ?? 1),
+        newStart: Number(match?.[3] ?? 0),
+        newLines: Number(match?.[4] ?? 1),
+        lines: [],
+      };
+      hunks.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      current.lines.push({ type: 'add', content: line.slice(1) });
+      continue;
+    }
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      current.lines.push({ type: 'del', content: line.slice(1) });
+      continue;
+    }
+    if (line.startsWith(' ')) {
+      current.lines.push({ type: 'context', content: line.slice(1) });
+    }
+  }
+
+  return hunks;
+}
+
+export function createStructuredStagedChange(
+  path: string,
+  type: 'edit' | 'create' | 'delete',
+  original: string | null,
+  modified: string | null,
+  revision: number,
+): StagedChange {
+  const diff = generateUnifiedDiff(path, original ?? '', modified ?? '');
+  return {
+    id: stagedChangeId(path),
+    path,
+    type,
+    revision,
+    original,
+    modified,
+    diff,
+    hunks: parseUnifiedDiffHunks(diff),
+  };
 }
 
 interface ReaderAiEditDocumentOp {

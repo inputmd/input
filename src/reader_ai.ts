@@ -27,9 +27,29 @@ type ReaderAiModelsResponse = {
 };
 
 export interface ReaderAiStagedChange {
+  id?: string;
   path: string;
   type: 'edit' | 'create' | 'delete';
   diff: string;
+  revision?: number;
+  originalContent?: string | null;
+  modifiedContent?: string | null;
+  hunks?: ReaderAiStagedHunk[];
+}
+
+export interface ReaderAiStagedHunkLine {
+  type: 'context' | 'add' | 'del';
+  content: string;
+}
+
+export interface ReaderAiStagedHunk {
+  id: string;
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: ReaderAiStagedHunkLine[];
 }
 
 export interface ReaderAiToolCallEvent {
@@ -495,6 +515,7 @@ export async function askReaderAiStream(
               suggested_commit_message?: string;
               document_content?: string;
               file_contents?: Record<string, unknown>;
+              revision?: number;
             };
             if (Array.isArray(parsed.changes)) {
               const fileContents =
@@ -506,8 +527,46 @@ export async function askReaderAiStream(
                       ),
                     )
                   : undefined;
+              const changes = parsed.changes
+                .filter((change): change is ReaderAiStagedChange => !!change && typeof change === 'object')
+                .map((change) => ({
+                  ...change,
+                  id: typeof change.id === 'string' ? change.id : undefined,
+                  revision: typeof parsed.revision === 'number' ? parsed.revision : undefined,
+                  originalContent:
+                    typeof change.originalContent === 'string' || change.originalContent === null
+                      ? change.originalContent
+                      : undefined,
+                  modifiedContent:
+                    typeof change.modifiedContent === 'string' || change.modifiedContent === null
+                      ? change.modifiedContent
+                      : undefined,
+                  hunks: Array.isArray(change.hunks)
+                    ? change.hunks
+                        .filter((hunk): hunk is ReaderAiStagedHunk => !!hunk && typeof hunk === 'object')
+                        .map((hunk) => ({
+                          id: typeof hunk.id === 'string' ? hunk.id : `hunk:${Math.random().toString(36).slice(2)}`,
+                          header: typeof hunk.header === 'string' ? hunk.header : '@@',
+                          oldStart: typeof hunk.oldStart === 'number' ? hunk.oldStart : 0,
+                          oldLines: typeof hunk.oldLines === 'number' ? hunk.oldLines : 0,
+                          newStart: typeof hunk.newStart === 'number' ? hunk.newStart : 0,
+                          newLines: typeof hunk.newLines === 'number' ? hunk.newLines : 0,
+                          lines: Array.isArray(hunk.lines)
+                            ? hunk.lines
+                                .filter((line): line is ReaderAiStagedHunkLine => !!line && typeof line === 'object')
+                                .map((line) => ({
+                                  type:
+                                    line.type === 'add' || line.type === 'del' || line.type === 'context'
+                                      ? line.type
+                                      : 'context',
+                                  content: typeof line.content === 'string' ? line.content : '',
+                                }))
+                            : [],
+                        }))
+                    : undefined,
+                }));
               options.onStagedChanges(
-                parsed.changes,
+                changes,
                 parsed.suggested_commit_message,
                 typeof parsed.document_content === 'string' ? parsed.document_content : undefined,
                 fileContents,
