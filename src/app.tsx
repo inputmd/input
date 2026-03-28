@@ -8057,6 +8057,9 @@ export function App() {
           open
           repos={forkRepoDialog.repos}
           selectedRepoFullName={forkRepoDialog.selectedRepoFullName}
+          currentTargetFullName={
+            selectedRepoInstallationId === forkRepoDialog.installationId && selectedRepo ? selectedRepo : null
+          }
           submitting={forkRepoSubmitting}
           onSelectRepo={(selectedRepoFullName) => {
             setForkRepoDialog((current) => (current ? { ...current, selectedRepoFullName } : current));

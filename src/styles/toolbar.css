@@ -368,6 +368,15 @@
   padding: 0;
 }
 
+.toolbar-fork-trigger {
+  color: var(--text-secondary);
+}
+
+.toolbar-fork-trigger:hover,
+.toolbar-fork-trigger:focus-visible {
+  color: var(--text);
+}
+
 .author-menu-trigger-badge {
   position: absolute;
   top: 7px;

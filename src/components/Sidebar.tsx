@@ -988,7 +988,7 @@ export function Sidebar({
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     const fileRow = (
       <div
-        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${draggingItem?.kind === 'file' && draggingItem.path === file.path ? ' dragging' : ''}`}
+        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${file.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${draggingItem?.kind === 'file' && draggingItem.path === file.path ? ' dragging' : ''}`}
         ref={(el) => {
           rowRefs.current[file.path] = el;
         }}

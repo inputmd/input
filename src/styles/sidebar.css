@@ -130,6 +130,11 @@
   color: var(--text-secondary);
 }
 
+.sidebar-file.sidebar-file-virtual .sidebar-node-icon,
+.sidebar-file.sidebar-file-virtual.active .sidebar-node-icon {
+  color: var(--text-secondary);
+}
+
 .sidebar-add-btn {
   min-height: 24px;
   width: 28px;
