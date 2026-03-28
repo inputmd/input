@@ -4313,7 +4313,7 @@ export function App() {
 
   const onBracePromptStream = useCallback(
     async (
-      { prompt, documentContent, paragraphTail, mode, candidateCount, excludeOptions }: BracePromptRequest,
+      { prompt, documentContent, paragraphTail, mode, candidateCount, excludeOptions, chatMessages }: BracePromptRequest,
       callbacks: { onDelta: (delta: string) => void },
       signal: AbortSignal,
     ) => {
@@ -4357,15 +4357,31 @@ export function App() {
         .filter(Boolean)
         .join('\n');
 
+      const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+        { role: 'user', content: requestContent },
+      ];
+
+      if (chatMessages.length > 0) {
+        for (const chatMsg of chatMessages) {
+          if (chatMsg.role === 'options') {
+            messages.push({ role: 'assistant', content: chatMsg.content });
+          } else {
+            messages.push({
+              role: 'user',
+              content: [
+                chatMsg.content,
+                `Return exactly ${candidateCount} new candidate replacement fragments.`,
+                'Follow the same rules as before.',
+              ].join('\n'),
+            });
+          }
+        }
+      }
+
       await askReaderAiStream(
         readerAiSelectedModel,
         sanitizedDocumentContent,
-        [
-          {
-            role: 'user',
-            content: requestContent,
-          },
-        ],
+        messages,
         {
           signal,
           onDelta: (delta) => {

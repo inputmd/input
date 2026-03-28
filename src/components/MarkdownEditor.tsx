@@ -27,6 +27,7 @@ import {
 } from '@codemirror/view';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
+import { Eye } from 'lucide-react';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
@@ -107,6 +108,7 @@ export function MarkdownEditor({
   const SEARCH_SCROLL_MARGIN_PX = 80;
   const rootRef = useRef<HTMLDivElement>(null);
   const bracePromptPanelRef = useRef<HTMLDivElement>(null);
+  const bracePromptChatInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -404,6 +406,14 @@ export function MarkdownEditor({
               bracePrompt.close();
               event.preventDefault();
               return true;
+            }
+            if (event.key === '/') {
+              const chatInput = bracePromptChatInputRef.current;
+              if (chatInput) {
+                event.preventDefault();
+                chatInput.focus();
+                return true;
+              }
             }
             return false;
           },
@@ -851,30 +861,38 @@ export function MarkdownEditor({
           {bracePrompt.panel.request.mode === 'replace-with-paragraph-tail' ? (
             <div class="brace-prompt-panel__header">Used full paragraph as context</div>
           ) : null}
-          <div
-            class="brace-prompt-panel__options"
-            onMouseLeave={() => {
-              bracePrompt.scheduleHoverPreview(null);
-            }}
-          >
+          <div class="brace-prompt-panel__options">
             {bracePrompt.panel.options.map((option, index) => (
-              <button
+              <div
                 key={`${bracePrompt.panel!.request.from}:${index}:${option}`}
-                type="button"
                 class={`brace-prompt-panel__option${index === bracePrompt.panel!.selectedIndex ? ' is-selected' : ''}`}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => {
-                  bracePrompt.scheduleHoverPreview(index);
-                }}
-                onClick={() => {
-                  const view = viewRef.current;
-                  if (!view) return;
-                  bracePrompt.acceptSelection(view, index);
-                  view.focus();
-                }}
               >
-                {option}
-              </button>
+                <button
+                  type="button"
+                  class="brace-prompt-panel__option-label"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    const view = viewRef.current;
+                    if (!view) return;
+                    bracePrompt.acceptSelection(view, index);
+                    view.focus();
+                  }}
+                >
+                  {option}
+                </button>
+                <button
+                  type="button"
+                  class="brace-prompt-panel__option-preview"
+                  aria-label="Preview"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    bracePrompt.scheduleHoverPreview(index);
+                  }}
+                >
+                  <Eye size={13} />
+                </button>
+              </div>
             ))}
             {bracePrompt.panel.draftOption ? (
               <div class="brace-prompt-panel__option brace-prompt-panel__option--draft">
@@ -893,16 +911,13 @@ export function MarkdownEditor({
                   bracePrompt.panel.selectedIndex === bracePrompt.panel.options.length ? ' is-selected' : ''
                 }`}
                 onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => {
-                  bracePrompt.scheduleHoverPreview(bracePrompt.panel?.options.length ?? null);
-                }}
                 onClick={() => {
                   const view = viewRef.current;
                   if (!view) return;
                   bracePrompt.loadMore(view);
                 }}
               >
-                More completions
+                Generate more
                 <span class="brace-prompt-panel__option-caption">Shift-Tab</span>
               </button>
             ) : null}
@@ -914,10 +929,6 @@ export function MarkdownEditor({
                   : ''
               }`}
               onMouseDown={(event) => event.preventDefault()}
-              onMouseEnter={() => {
-                const index = (bracePrompt.panel?.options.length ?? 0) + (showGenerateMore ? 1 : 0);
-                bracePrompt.scheduleHoverPreview(index);
-              }}
               onClick={() => {
                 const view = viewRef.current;
                 if (view) view.focus();
@@ -927,8 +938,50 @@ export function MarkdownEditor({
               Close
               <span class="brace-prompt-panel__option-caption">Esc</span>
             </button>
+            {!bracePrompt.panel.loading ? (
+              <div class="brace-prompt-panel__chat">
+                <input
+                  ref={bracePromptChatInputRef}
+                  type="text"
+                  class="brace-prompt-panel__chat-input"
+                  placeholder="Ask for specific completions"
+                  value={bracePrompt.panel.chatInputValue}
+                  onInput={(e) => {
+                    bracePrompt.setChatInputValue((e.target as HTMLInputElement).value);
+                  }}
+                  onKeyDown={(e) => {
+                    const input = e.target as HTMLInputElement;
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = input.value.trim();
+                      if (!val) return;
+                      const view = viewRef.current;
+                      if (view) bracePrompt.refine(view, val);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (input.value) {
+                        bracePrompt.setChatInputValue('');
+                      } else {
+                        bracePrompt.close();
+                        viewRef.current?.focus();
+                      }
+                    } else if (e.key === 'Tab') {
+                      e.preventDefault();
+                    } else if (e.key === 'ArrowUp') {
+                      if (input.selectionStart === 0 && input.selectionEnd === 0) {
+                        e.preventDefault();
+                        input.blur();
+                        viewRef.current?.focus();
+                      }
+                    }
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                />
+              </div>
+            ) : null}
             {bracePrompt.panel.error ? (
-              <div class="brace-prompt-panel__status brace-prompt-panel__status--error">Couldn’t load suggestions</div>
+              <div class="brace-prompt-panel__status brace-prompt-panel__status--error">Couldn't load suggestions</div>
             ) : null}
           </div>
         </div>

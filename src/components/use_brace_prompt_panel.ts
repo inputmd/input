@@ -3,6 +3,7 @@ import type { EditorState } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { useCallback, useRef, useState } from 'preact/hooks';
 import {
+  type BracePromptChatMessage,
   type BracePromptRequest,
   buildBracePromptRequest,
   findBracePromptMatch,
@@ -23,6 +24,8 @@ export interface BracePromptPanelState {
   flipped: boolean;
   /** Cursor-top offset relative to root, used to recompute `top` when flipped. */
   cursorTop: number;
+  chatMessages: BracePromptChatMessage[];
+  chatInputValue: string;
 }
 
 interface BracePromptPreviewState {
@@ -42,7 +45,6 @@ const BRACE_PROMPT_MAX_DURATION_MS = 30_000;
 const BRACE_PROMPT_INITIAL_CANDIDATE_COUNT = 5;
 const BRACE_PROMPT_MORE_CANDIDATE_COUNT = 5;
 const BRACE_PROMPT_MAX_TOTAL_OPTIONS = BRACE_PROMPT_INITIAL_CANDIDATE_COUNT + BRACE_PROMPT_MORE_CANDIDATE_COUNT;
-const BRACE_PROMPT_HOVER_PREVIEW_DEBOUNCE_MS = 150;
 
 class BracePromptPreviewWidget extends WidgetType {
   private readonly text: string;
@@ -183,16 +185,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       window.clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
-
-    if (index == null) {
-      setHoverIndex(null);
-      return;
-    }
-
-    hoverTimerRef.current = window.setTimeout(() => {
-      hoverTimerRef.current = null;
-      setHoverIndex(index);
-    }, BRACE_PROMPT_HOVER_PREVIEW_DEBOUNCE_MS);
+    setHoverIndex(index);
   }, []);
 
   const syncLayout = useCallback(
@@ -281,6 +274,8 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       error: null,
       ...layout,
       flipped: basePanel?.flipped ?? false,
+      chatMessages: request.chatMessages,
+      chatInputValue: '',
     });
 
     const normalizeBracePromptOption = (raw: string): string =>
@@ -418,6 +413,8 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
             loading: false,
             error: null,
             flipped: false,
+            chatMessages: request.chatMessages,
+            chatInputValue: '',
             ...layout,
           }),
           loading: false,
@@ -477,6 +474,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       mode: 'replace',
       candidateCount: BRACE_PROMPT_INITIAL_CANDIDATE_COUNT,
       excludeOptions: [],
+      chatMessages: [],
     });
   };
 
@@ -583,7 +581,7 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
   };
 
   const getPreview = useCallback((): BracePromptPreviewState | null => {
-    const previewIndex = hoverIndex ?? panel?.selectedIndex ?? null;
+    const previewIndex = hoverIndex ?? null;
     if (!panel || previewIndex == null || previewIndex < 0 || previewIndex >= panel.options.length) return null;
     return {
       from: panel.request.from,
@@ -591,6 +589,33 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       text: panel.options[previewIndex] ?? '',
     };
   }, [hoverIndex, panel]);
+
+  const setChatInputValue = useCallback(
+    (value: string) => {
+      const currentPanel = panelRef.current;
+      if (!currentPanel) return;
+      setPanelState({ ...currentPanel, chatInputValue: value });
+    },
+    [setPanelState],
+  );
+
+  const refine = (view: EditorView, message: string): boolean => {
+    const currentPanel = panelRef.current;
+    if (!currentPanel || !message.trim()) return false;
+
+    const nextChatMessages: BracePromptChatMessage[] = [
+      ...currentPanel.chatMessages,
+      { role: 'options' as const, content: currentPanel.options.join('\n') },
+      { role: 'user' as const, content: message.trim() },
+    ];
+
+    return launch(view, {
+      ...currentPanel.request,
+      candidateCount: BRACE_PROMPT_INITIAL_CANDIDATE_COUNT,
+      excludeOptions: [],
+      chatMessages: nextChatMessages,
+    });
+  };
 
   return {
     panel,
@@ -601,6 +626,8 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     moveSelection,
     acceptSelection,
     loadMore,
+    refine,
+    setChatInputValue,
     scheduleHoverPreview,
     setFlipped,
     syncLayout,

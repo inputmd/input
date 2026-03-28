@@ -102,6 +102,7 @@ test('buildBracePromptRequest keeps default brace prompts scoped to the document
     mode: 'replace',
     candidateCount: 5,
     excludeOptions: [],
+    chatMessages: [],
   });
 });
 
@@ -118,6 +119,7 @@ test('buildBracePromptRequest includes the rest of the paragraph when requested'
     mode: 'replace-with-paragraph-tail',
     candidateCount: 5,
     excludeOptions: [],
+    chatMessages: [],
   });
 });
 

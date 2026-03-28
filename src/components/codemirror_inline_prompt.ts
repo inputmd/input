@@ -18,6 +18,11 @@ export interface InlinePromptRequest {
   documentContent: string;
 }
 
+export interface BracePromptChatMessage {
+  role: 'user' | 'options';
+  content: string;
+}
+
 export interface BracePromptRequest {
   prompt: string;
   from: number;
@@ -27,6 +32,7 @@ export interface BracePromptRequest {
   mode: 'replace' | 'replace-with-paragraph-tail';
   candidateCount: number;
   excludeOptions: string[];
+  chatMessages: BracePromptChatMessage[];
 }
 
 export interface BracePromptMatch {
@@ -142,6 +148,7 @@ export function buildBracePromptRequest(
     mode: paragraphTail ? 'replace-with-paragraph-tail' : 'replace',
     candidateCount: 5,
     excludeOptions: [],
+    chatMessages: [],
   };
 }
 
