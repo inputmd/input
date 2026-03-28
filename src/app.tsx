@@ -682,7 +682,7 @@ export function App() {
   const [publicRepoRef, setPublicRepoRef] = useState<PublicRepoRef | null>(null);
   const [repoAccessMode, setRepoAccessMode] = useState<'installed' | 'shared' | 'public' | null>(null);
   const [installationReposById, setInstallationReposById] = useState<Record<string, InstallationRepo[]>>({});
-  const [loadingInstallationReposId, setLoadingInstallationReposId] = useState<string | null>(null);
+  const [loadingInstallationRepoIds, setLoadingInstallationRepoIds] = useState<Set<string>>(() => new Set());
   const [reposLoadErrorsById, setReposLoadErrorsById] = useState<Record<string, string>>({});
   const [autoLoadAttemptedReposInstallationId, setAutoLoadAttemptedReposInstallationId] = useState<string | null>(null);
   const [menuGists, setMenuGists] = useState<GistSummary[]>([]);
@@ -696,7 +696,7 @@ export function App() {
   const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
   const [gistsLoadError, setGistsLoadError] = useState<string | null>(null);
   const installationRepos = installationId ? (installationReposById[installationId] ?? []) : [];
-  const installationReposLoading = installationId !== null && loadingInstallationReposId === installationId;
+  const installationReposLoading = installationId !== null && loadingInstallationRepoIds.has(installationId);
   const loadedReposInstallationId = installationId && installationReposById[installationId] ? installationId : null;
   const reposLoadError = installationId ? (reposLoadErrorsById[installationId] ?? null) : null;
   const activeInstalledRepoInstallationId = selectedRepoInstallationId ?? installationId;
@@ -704,7 +704,7 @@ export function App() {
     ? (installationReposById[forkRepoDialog.selectedInstallationId] ?? [])
     : [];
   const forkRepoDialogReposLoading = forkRepoDialog
-    ? loadingInstallationReposId === forkRepoDialog.selectedInstallationId
+    ? loadingInstallationRepoIds.has(forkRepoDialog.selectedInstallationId)
     : false;
   const forkRepoDialogReposLoadError = forkRepoDialog
     ? (reposLoadErrorsById[forkRepoDialog.selectedInstallationId] ?? null)
@@ -1096,7 +1096,7 @@ export function App() {
     setAutoLoadAttemptedGists(false);
     setGistsLoadError(null);
     setInstallationReposById({});
-    setLoadingInstallationReposId(null);
+    setLoadingInstallationRepoIds(new Set());
     setAutoLoadAttemptedReposInstallationId(null);
     setReposLoadErrorsById({});
   }, []);
@@ -1298,7 +1298,7 @@ export function App() {
     setRepoAccessMode(null);
     setPublicRepoRef(null);
     setInstallationReposById({});
-    setLoadingInstallationReposId(null);
+    setLoadingInstallationRepoIds(new Set());
     setReposLoadErrorsById({});
     setRepoFiles([]);
     setRepoSidebarFiles([]);
@@ -1837,7 +1837,7 @@ export function App() {
         setSelectedRepoInstallationId(null);
         setInstallationReposById({});
         setReposLoadErrorsById({});
-        setLoadingInstallationReposId(null);
+        setLoadingInstallationRepoIds(new Set());
         return { authenticated: false, navigated: false };
       }
       clearOAuthRedirectGuard();
@@ -3209,7 +3209,7 @@ export function App() {
     void installationId;
     void user?.login;
     setInstallationReposById({});
-    setLoadingInstallationReposId(null);
+    setLoadingInstallationRepoIds(new Set());
     setAutoLoadAttemptedReposInstallationId(null);
     setReposLoadErrorsById({});
     setGistsLoadError(null);
@@ -6757,7 +6757,11 @@ export function App() {
         if (cachedRepos && !reposLoadErrorsById[targetInstallationId]) return cachedRepos;
       }
 
-      setLoadingInstallationReposId(targetInstallationId);
+      setLoadingInstallationRepoIds((current) => {
+        const next = new Set(current);
+        next.add(targetInstallationId);
+        return next;
+      });
       try {
         return await fetchInstallationReposForId(targetInstallationId);
       } catch (err) {
@@ -6772,7 +6776,12 @@ export function App() {
         }));
         return [];
       } finally {
-        setLoadingInstallationReposId((current) => (current === targetInstallationId ? null : current));
+        setLoadingInstallationRepoIds((current) => {
+          if (!current.has(targetInstallationId)) return current;
+          const next = new Set(current);
+          next.delete(targetInstallationId);
+          return next;
+        });
       }
     },
     [fetchInstallationReposForId, installationReposById, reposLoadErrorsById, showRateLimitToastIfNeeded],
@@ -7237,7 +7246,7 @@ export function App() {
       setSelectedRepoPrivate(null);
       setSelectedRepoInstallationId(null);
       setInstallationReposById({});
-      setLoadingInstallationReposId(null);
+      setLoadingInstallationRepoIds(new Set());
       setReposLoadErrorsById({});
       setRepoFiles([]);
       setRepoSidebarFiles([]);
