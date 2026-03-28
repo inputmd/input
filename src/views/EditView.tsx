@@ -188,6 +188,8 @@ function findSyncBlockById(blocks: MarkdownSyncBlock[], id: string): MarkdownSyn
   return blocks.find((block) => block.id === id) ?? null;
 }
 
+import type { ReaderAiInlinePreview } from '../components/codemirror_reader_ai_preview';
+
 export interface EditViewProps {
   fileName?: string | null;
   markdown?: boolean;
@@ -195,6 +197,7 @@ export interface EditViewProps {
   contentOrigin?: 'userEdits' | 'external' | 'streaming' | 'appEdits';
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
+  readerAiInlinePreview?: ReaderAiInlinePreview | null;
   previewHtml: string;
   previewCustomCss?: string | null;
   previewCustomCssScope?: string | null;
@@ -244,6 +247,7 @@ export function EditView({
   contentOrigin = 'external',
   contentRevision = 0,
   contentSelection = null,
+  readerAiInlinePreview = null,
   previewHtml,
   previewCustomCss = null,
   previewCustomCssScope = null,
@@ -1136,6 +1140,7 @@ export function EditView({
             contentOrigin={contentOrigin}
             contentRevision={contentRevision}
             contentSelection={contentSelection}
+            readerAiInlinePreview={readerAiInlinePreview}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}
@@ -1156,6 +1161,7 @@ export function EditView({
             contentOrigin={contentOrigin}
             contentRevision={contentRevision}
             contentSelection={contentSelection}
+            readerAiPreview={readerAiInlinePreview}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}
