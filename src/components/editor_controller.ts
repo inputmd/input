@@ -19,6 +19,7 @@ export interface EditorController {
   getTopVisibleText: (maxChars?: number) => string | null;
   getViewportAnchorPosition: (anchorRatio?: number) => number;
   scrollToPosition: (position: number, anchorRatio?: number) => void;
+  getScrollTopForPosition: (position: number, anchorRatio?: number) => number | null;
   startStreamingCursorTracking: (position: number) => void;
   updateStreamingCursorTracking: (position: number) => void;
   stopStreamingCursorTracking: () => void;

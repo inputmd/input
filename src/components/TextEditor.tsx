@@ -205,17 +205,26 @@ export function TextEditor({
     }
   };
 
-  const scrollPositionToViewportAnchor = (view: EditorView, position: number, anchorRatio = 0.3) => {
+  const getScrollTopForPosition = (view: EditorView, position: number, anchorRatio = 0.3): number | null => {
     const clampedRatio = Math.min(1, Math.max(0, anchorRatio));
     const clampedPosition = clampPosition(view, position);
     if (editorUsesOwnScroll(view)) {
       const block = view.lineBlockAt(clampedPosition);
-      view.scrollDOM.scrollTop = Math.max(0, block.top - view.scrollDOM.clientHeight * clampedRatio);
-      return;
+      return Math.max(0, block.top - view.scrollDOM.clientHeight * clampedRatio);
     }
     const coords = view.coordsAtPos(clampedPosition);
-    if (!coords) return;
-    window.scrollTo({ top: Math.max(0, coords.top + window.scrollY - window.innerHeight * clampedRatio) });
+    if (!coords) return null;
+    return Math.max(0, coords.top + window.scrollY - window.innerHeight * clampedRatio);
+  };
+
+  const scrollPositionToViewportAnchor = (view: EditorView, position: number, anchorRatio = 0.3) => {
+    const scrollTop = getScrollTopForPosition(view, position, anchorRatio);
+    if (scrollTop == null) return;
+    if (editorUsesOwnScroll(view)) {
+      view.scrollDOM.scrollTop = scrollTop;
+      return;
+    }
+    window.scrollTo({ top: scrollTop });
   };
 
   const isPositionNearViewport = (view: EditorView, position: number): boolean => {
@@ -374,6 +383,9 @@ export function TextEditor({
       getViewportAnchorPosition: (anchorRatio) => getViewportAnchorPosition(view, anchorRatio),
       scrollToPosition: (position, anchorRatio) => {
         scrollPositionToViewportAnchor(view, position, anchorRatio);
+      },
+      getScrollTopForPosition: (position, anchorRatio) => {
+        return getScrollTopForPosition(view, position, anchorRatio);
       },
       startStreamingCursorTracking: (position) => {
         const clampedPosition = clampPosition(view, position);

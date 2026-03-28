@@ -286,6 +286,8 @@ export function EditView({
   const previewToEditorScrollFrameRef = useRef<number | null>(null);
   const ignorePreviewScrollFrameRef = useRef<number | null>(null);
   const ignoreEditorScrollFrameRef = useRef<number | null>(null);
+  const editorScrollLerpTargetRef = useRef<number | null>(null);
+  const editorScrollLerpFrameRef = useRef<number | null>(null);
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
   const hoverDelayTimerRef = useRef<number | null>(null);
@@ -418,10 +420,9 @@ export function EditView({
     [schedulePreviewScrollIgnoreReset],
   );
 
-  const setEditorScrollTop = useCallback(
-    (scrollTop: number) => {
-      const { editorScroller, editorUsesOwnScroll, max } = getEditorScrollMetrics();
-      const nextScrollTop = clampScrollTop(scrollTop, max);
+  const applyEditorScrollTop = useCallback(
+    (nextScrollTop: number) => {
+      const { editorScroller, editorUsesOwnScroll } = getEditorScrollMetrics();
       if (editorUsesOwnScroll && editorScroller) {
         if (Math.abs(editorScroller.scrollTop - nextScrollTop) < 1) return;
         ignoreNextEditorScrollRef.current = true;
@@ -435,6 +436,37 @@ export function EditView({
       window.scrollTo({ top: nextScrollTop, behavior: 'auto' });
     },
     [getEditorScrollMetrics, scheduleEditorScrollIgnoreReset],
+  );
+
+  const editorScrollLerpTick = useCallback(() => {
+    editorScrollLerpFrameRef.current = null;
+    const target = editorScrollLerpTargetRef.current;
+    if (target == null) return;
+
+    const { editorScroller, editorUsesOwnScroll, max } = getEditorScrollMetrics();
+    const clampedTarget = clampScrollTop(target, max);
+    const current = editorUsesOwnScroll && editorScroller ? editorScroller.scrollTop : window.scrollY;
+    const delta = clampedTarget - current;
+
+    if (Math.abs(delta) < 1) {
+      editorScrollLerpTargetRef.current = null;
+      applyEditorScrollTop(clampedTarget);
+      return;
+    }
+
+    applyEditorScrollTop(current + delta * 0.25);
+    editorScrollLerpFrameRef.current = window.requestAnimationFrame(editorScrollLerpTick);
+  }, [applyEditorScrollTop, getEditorScrollMetrics]);
+
+  const setEditorScrollTop = useCallback(
+    (scrollTop: number) => {
+      const { max } = getEditorScrollMetrics();
+      editorScrollLerpTargetRef.current = clampScrollTop(scrollTop, max);
+      if (editorScrollLerpFrameRef.current == null) {
+        editorScrollLerpFrameRef.current = window.requestAnimationFrame(editorScrollLerpTick);
+      }
+    },
+    [getEditorScrollMetrics, editorScrollLerpTick],
   );
 
   const getPreviewSyncAnchor = useCallback((): { id: string; progress: number } | null => {
@@ -511,12 +543,12 @@ export function EditView({
     (position: number): boolean => {
       const controller = editorControllerRef.current;
       if (!controller) return false;
-      ignoreNextEditorScrollRef.current = true;
-      scheduleEditorScrollIgnoreReset();
-      controller.scrollToPosition(position, SCROLL_SYNC_ANCHOR_RATIO);
+      const scrollTop = controller.getScrollTopForPosition(position, SCROLL_SYNC_ANCHOR_RATIO);
+      if (scrollTop == null) return false;
+      setEditorScrollTop(scrollTop);
       return true;
     },
-    [scheduleEditorScrollIgnoreReset],
+    [setEditorScrollTop],
   );
 
   const syncPreviewToEditorScroll = useCallback(() => {
@@ -766,6 +798,10 @@ export function EditView({
       if (ignoreEditorScrollFrameRef.current != null) {
         window.cancelAnimationFrame(ignoreEditorScrollFrameRef.current);
         ignoreEditorScrollFrameRef.current = null;
+      }
+      if (editorScrollLerpFrameRef.current != null) {
+        window.cancelAnimationFrame(editorScrollLerpFrameRef.current);
+        editorScrollLerpFrameRef.current = null;
       }
     };
   }, []);
