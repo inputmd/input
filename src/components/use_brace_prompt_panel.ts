@@ -455,27 +455,9 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
     const selection = view.state.selection.main;
     if (!selection.empty) return false;
     if (isBracePromptBlockedInCode(view.state, selection.head)) return false;
-    if (options?.includeParagraphTail) {
-      const request = buildBracePromptRequest(view.state.doc.toString(), selection.head, options);
-      if (!request) return false;
-      return launch(view, request);
-    }
-
-    const line = view.state.doc.lineAt(selection.head);
-    const match = findBracePromptMatch(line.text, selection.head - line.from);
-    if (!match) return false;
-
-    return launch(view, {
-      prompt: match.prompt,
-      from: line.from + match.from,
-      to: line.from + match.to,
-      documentContent: view.state.doc.sliceString(0, line.from + match.to),
-      paragraphTail: '',
-      mode: 'replace',
-      candidateCount: BRACE_PROMPT_INITIAL_CANDIDATE_COUNT,
-      excludeOptions: [],
-      chatMessages: [],
-    });
+    const request = buildBracePromptRequest(view.state.doc.toString(), selection.head, options);
+    if (!request) return false;
+    return launch(view, request);
   };
 
   const moveSelection = (direction: -1 | 1): boolean => {

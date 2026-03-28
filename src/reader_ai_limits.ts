@@ -1,0 +1,1 @@
+export const READER_AI_SELECTION_MAX_CHARS = 5000;

@@ -198,6 +198,13 @@
   color: var(--text-secondary);
 }
 
+.doc-editor .cm-brace-prompt-context {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--text-secondary) 52%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
 .doc-editor .cm-brace-prompt .tok-content,
 .doc-editor .cm-brace-prompt .tok-variableName {
   color: var(--text-secondary);

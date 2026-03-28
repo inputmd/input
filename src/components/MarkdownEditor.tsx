@@ -109,6 +109,7 @@ export function MarkdownEditor({
   const BRACE_PROMPT_SLOW_HINT_DELAY_MS = 3_000;
   const rootRef = useRef<HTMLDivElement>(null);
   const bracePromptPanelRef = useRef<HTMLDivElement>(null);
+  const bracePromptMeasurementKeyRef = useRef<string | null>(null);
   const bracePromptChatInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -805,15 +806,22 @@ export function MarkdownEditor({
   // Direction is locked for the lifetime of the panel (won't re-flip as options stream in).
   useLayoutEffect(() => {
     const panel = bracePrompt.panel;
+    if (!panel) {
+      bracePromptMeasurementKeyRef.current = null;
+      return;
+    }
+    const panelKey = `${panel.request.from}:${panel.request.to}`;
+    if (bracePromptMeasurementKeyRef.current === panelKey) return;
+    bracePromptMeasurementKeyRef.current = panelKey;
     const el = bracePromptPanelRef.current;
     const root = rootRef.current;
-    if (!panel || !el || !root || panel.flipped) return;
+    if (!el || !root || panel.flipped) return;
     const rootRect = root.getBoundingClientRect();
     const panelRect = el.getBoundingClientRect();
     if (panelRect.bottom > rootRect.bottom && panelRect.bottom > window.innerHeight) {
       bracePrompt.setFlipped(true);
     }
-  }, [bracePrompt.panel?.request.from, bracePrompt.panel?.request.to, bracePrompt.panel?.flipped]);
+  }, [bracePrompt.panel, bracePrompt.setFlipped]);
 
   return (
     <div ref={rootRef} class={`doc-editor-shell${className ? ` ${className}` : ''}`}>

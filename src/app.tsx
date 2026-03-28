@@ -146,6 +146,7 @@ import {
   loadReaderAiEntryFromHistory,
   persistReaderAiMessagesToHistory,
 } from './reader_ai_history';
+import { READER_AI_SELECTION_MAX_CHARS } from './reader_ai_limits';
 import { matchRoute, type Route, routePath } from './routing';
 import { clearStoredScrollPositions } from './scroll_positions';
 import { isSubdomainMode } from './subdomain';
@@ -372,8 +373,6 @@ function trimReaderAiSource(source: string): string {
   if (source.length <= READER_AI_SOURCE_MAX_CHARS) return source;
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
 }
-
-const READER_AI_SELECTION_MAX_CHARS = 5000;
 
 type ReaderAiConversationScope = { kind: 'document' } | { kind: 'selection'; source: string };
 
@@ -4313,7 +4312,15 @@ export function App() {
 
   const onBracePromptStream = useCallback(
     async (
-      { prompt, documentContent, paragraphTail, mode, candidateCount, excludeOptions, chatMessages }: BracePromptRequest,
+      {
+        prompt,
+        documentContent,
+        paragraphTail,
+        mode,
+        candidateCount,
+        excludeOptions,
+        chatMessages,
+      }: BracePromptRequest,
       callbacks: { onDelta: (delta: string) => void },
       signal: AbortSignal,
     ) => {

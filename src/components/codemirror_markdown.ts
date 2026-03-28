@@ -4,13 +4,13 @@ import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate
 import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
 import { BRACE_PROMPT_HINT_LABEL } from '../brace_prompt.ts';
-import {
-  EMPTY_PROMPT_QUESTION_PLACEHOLDER,
-  matchPromptListLine,
-  parsePromptListBlock,
-} from '../prompt_list_syntax.ts';
+import { EMPTY_PROMPT_QUESTION_PLACEHOLDER, matchPromptListLine, parsePromptListBlock } from '../prompt_list_syntax.ts';
 import { criticMarkupDecorationExtension } from './codemirror_criticmarkup.ts';
-import { findBracePromptMatch, isBracePromptBlockedInCode } from './codemirror_inline_prompt.ts';
+import {
+  bracePromptContextRangesForPosition,
+  findBracePromptMatch,
+  isBracePromptBlockedInCode,
+} from './codemirror_inline_prompt.ts';
 
 const wikiLinkInlineParser: InlineParser = {
   name: 'WikiLink',
@@ -540,7 +540,9 @@ export function bracePromptRangesForText(text: string): Array<{ from: number; to
   return ranges;
 }
 
-function promptListHintLabel(view: EditorView): { position: number; label: string; className?: string } | null {
+function promptListHintLabel(
+  view: EditorView,
+): { position: number; label: string; className?: string; contextRanges?: Array<{ from: number; to: number }> } | null {
   if (view.state.facet(EditorState.readOnly)) return null;
 
   const selection = view.state.selection.main;
@@ -558,11 +560,13 @@ function promptListHintLabel(view: EditorView): { position: number; label: strin
   const braceHint = bracePromptHintForText(line.text, selection.head - line.from);
   if (!braceHint) return null;
   if (isBracePromptBlockedInCode(view.state, selection.head)) return null;
+  const contextRanges = bracePromptContextRangesForPosition(view.state.doc.toString(), selection.head);
 
   return {
     position: line.from + braceHint.position,
     label: braceHint.label,
     className: braceHint.className,
+    contextRanges: contextRanges ?? [{ from: line.from, to: line.from + braceHint.position }],
   };
 }
 
@@ -596,6 +600,19 @@ function buildPromptListHintDecorations(view: EditorView): DecorationSet {
 
   const hint = promptListHintLabel(view);
   if (!hint) return builder.finish();
+
+  if (hint.contextRanges) {
+    for (const range of hint.contextRanges) {
+      if (range.from >= range.to) continue;
+      builder.add(
+        range.from,
+        range.to,
+        Decoration.mark({
+          class: 'cm-brace-prompt-context',
+        }),
+      );
+    }
+  }
 
   builder.add(
     hint.position,

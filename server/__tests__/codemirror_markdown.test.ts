@@ -145,6 +145,9 @@ test('bracePromptHintForText anchors the hint at the closing brace', (t) => {
 
 test('bracePromptRangesForText returns valid brace prompt spans only', (t) => {
   t.deepEqual(bracePromptRangesForText('before {prompt} after'), [{ from: 7, to: 15 }]);
-  t.deepEqual(bracePromptRangesForText('before {{skip}} and {keep}'), [{ from: 20, to: 26 }]);
+  t.deepEqual(bracePromptRangesForText('before {{skip}} and {keep}'), [
+    { from: 7, to: 15 },
+    { from: 20, to: 26 },
+  ]);
   t.deepEqual(bracePromptRangesForText('before {++critic++} and {keep}'), [{ from: 24, to: 30 }]);
 });
