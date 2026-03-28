@@ -581,6 +581,11 @@
   border-radius: 0;
 }
 
+.rendered-markdown pre code.language-io {
+  display: block;
+  padding-left: 2ch;
+}
+
 .rendered-markdown a {
   color: var(--accent-text);
 }
@@ -984,6 +989,15 @@
 .rendered-markdown .io-hl-prompt-marker,
 .rendered-markdown .io-hl-prompt-question-marker {
   font-weight: 600;
+}
+
+.rendered-markdown .io-hl-prompt-prefix {
+  display: inline-block;
+  width: 0;
+  position: relative;
+  left: -2ch;
+  overflow: visible;
+  white-space: pre;
 }
 
 .rendered-markdown table {

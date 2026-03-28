@@ -565,10 +565,10 @@ test('parseMarkdownToHtml renders empty tilde prompt placeholders inside io code
   t.true(html.includes('<code class="language-io">'));
   t.true(
     html.includes(
-      `<span class="io-hl-prompt-question-marker">~</span> <span class="io-hl-prompt-question-placeholder">${EMPTY_PROMPT_QUESTION_PLACEHOLDER}</span>`,
+      `<span class="io-hl-prompt-question-marker io-hl-prompt-prefix">~ </span><span class="io-hl-prompt-question-placeholder">${EMPTY_PROMPT_QUESTION_PLACEHOLDER}</span>`,
     ),
   );
-  t.true(html.includes('<span class="io-hl-prompt-marker">⏺</span> Answer'));
+  t.true(html.includes('<span class="io-hl-prompt-marker io-hl-prompt-prefix">⏺ </span>Answer'));
 });
 
 test('parseMarkdownToHtml renders brace prompt tab hints only at the end of io code block lines', (t) => {
@@ -590,9 +590,30 @@ test('parseMarkdownToHtml renders brace prompt tab hints only at the end of io c
 test('parseMarkdownToHtml strips shallow prompt continuation indentation inside io code blocks', (t) => {
   const html = withDom(() => parseMarkdownToHtml('```io\n⏺ First paragraph.\n  \n  Second paragraph.\n```'));
 
-  t.true(html.includes('<span class="io-hl-prompt-marker">⏺</span> First paragraph.\n\nSecond paragraph.'));
-  t.false(html.includes('<span class="io-hl-prompt-marker">⏺</span> First paragraph.\n  \n  Second paragraph.'));
-  t.false(html.includes('<span class="io-hl-prompt-marker">⏺</span> First paragraph.\n\n  Second paragraph.'));
+  t.true(
+    html.includes(
+      '<span class="io-hl-prompt-marker io-hl-prompt-prefix">⏺ </span>First paragraph.\n\nSecond paragraph.',
+    ),
+  );
+  t.false(
+    html.includes(
+      '<span class="io-hl-prompt-marker io-hl-prompt-prefix">⏺ </span>First paragraph.\n  \n  Second paragraph.',
+    ),
+  );
+  t.false(
+    html.includes(
+      '<span class="io-hl-prompt-marker io-hl-prompt-prefix">⏺ </span>First paragraph.\n\n  Second paragraph.',
+    ),
+  );
+});
+
+test('io code block styles add a hanging prompt gutter', (t) => {
+  const css = readFileSync(new URL('../../src/styles/markdown.css', import.meta.url), 'utf8');
+
+  t.true(css.includes('.rendered-markdown pre code.language-io {'));
+  t.true(css.includes('padding-left: 2ch;'));
+  t.true(css.includes('.rendered-markdown .io-hl-prompt-prefix {'));
+  t.true(css.includes('left: -2ch;'));
 });
 
 test('parseMarkdownToHtml does not preserve extra leading indentation on standalone CriticMarkup comments in list paragraphs', (t) => {

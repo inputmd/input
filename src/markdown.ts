@@ -1136,9 +1136,12 @@ function collectIoPromptDecorations(text: string): { spans: IoHighlightSpan[]; i
     const match = matchPromptListLine(line);
     if (match) {
       spans.push({
-        from: lineStart,
-        to: lineStart + match.indent.length + match.marker.length,
-        className: match.marker === '~' ? 'io-hl-prompt-question-marker' : 'io-hl-prompt-marker',
+        from: lineStart + match.indent.length,
+        to: lineStart + match.markerEnd,
+        className:
+          match.marker === '~'
+            ? 'io-hl-prompt-question-marker io-hl-prompt-prefix'
+            : 'io-hl-prompt-marker io-hl-prompt-prefix',
       });
 
       if (match.marker === '~' && !match.content.trim()) {
