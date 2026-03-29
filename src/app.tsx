@@ -6267,54 +6267,6 @@ export function App() {
     ],
   );
 
-  const handleEditFile = useCallback(
-    async (filePath: string) => {
-      if (activeView === 'edit' && readerAiNavigationLocked) {
-        showFailureToast('Reader AI is working. Wait for it to finish before switching files.');
-        return;
-      }
-      if (!isEditableTextFilePath(filePath)) return;
-      if (activeView === 'edit' && currentFileName === filePath) return;
-
-      const target = currentGistId
-        ? routePath.gistEdit(currentGistId, filePath)
-        : repoAccessMode === 'installed' && selectedRepoRef
-          ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, filePath)
-          : repoAccessMode === 'shared' && currentRouteRepoRef
-            ? routePath.repoEdit(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath)
-            : null;
-      if (!target) return;
-
-      if (activeView === 'edit' && hasEffectiveUnsavedChanges) {
-        const saveFirst = await showConfirm('You have unsaved changes. Save before editing another file?');
-        if (saveFirst) {
-          await onSave();
-        } else {
-          const discard = await showConfirm('Discard unsaved changes and continue editing another file?');
-          if (!discard) return;
-          discardCurrentDocumentChanges();
-        }
-      }
-
-      navigate(target);
-    },
-    [
-      currentGistId,
-      repoAccessMode,
-      selectedRepoRef,
-      currentRouteRepoRef,
-      activeView,
-      readerAiNavigationLocked,
-      currentFileName,
-      hasEffectiveUnsavedChanges,
-      onSave,
-      navigate,
-      discardCurrentDocumentChanges,
-      showConfirm,
-      showFailureToast,
-    ],
-  );
-
   const handleViewOnGitHub = useCallback(
     (filePath: string) => {
       if (currentGistId) {
@@ -8179,7 +8131,6 @@ export function App() {
               onClearSelection={() => {
                 void handleClearSelectedFile();
               }}
-              onEditFile={handleEditFile}
               onViewOnGitHub={handleViewOnGitHub}
               onViewFolderOnGitHub={handleViewFolderOnGitHub}
               canViewOnGitHub={

@@ -40,7 +40,6 @@ interface SidebarProps {
   readOnly?: boolean;
   onSelectFile: (path: string) => void;
   onClearSelection?: () => void;
-  onEditFile: (path: string) => void;
   onViewOnGitHub: (path: string) => void;
   onViewFolderOnGitHub: (path: string) => void;
   canViewOnGitHub: boolean;
@@ -386,7 +385,6 @@ export function Sidebar({
   readOnly = false,
   onSelectFile,
   onClearSelection,
-  onEditFile,
   onViewOnGitHub,
   onViewFolderOnGitHub,
   canViewOnGitHub,
@@ -460,7 +458,13 @@ export function Sidebar({
   useEffect(() => {
     if (!renamingTarget) return;
     setRenameValue(fileNameFromPath(renamingTarget.path));
-    renameInputRef.current?.focus();
+    const animationFrame = requestAnimationFrame(() => {
+      const input = renameInputRef.current;
+      if (!input) return;
+      input.focus();
+      input.select();
+    });
+    return () => cancelAnimationFrame(animationFrame);
   }, [renamingTarget]);
 
   useEffect(() => {
@@ -1074,7 +1078,6 @@ export function Sidebar({
     );
 
     const showFileModifyActions = !readOnly && !file.virtual;
-    const showEditAction = !readOnly && file.editable && !file.virtual;
     const showViewOnlyContext = readOnly && canViewOnGitHub;
     if (!showFileModifyActions && !showViewOnlyContext) {
       return <div key={`file:${file.path}`}>{fileRow}</div>;
@@ -1085,11 +1088,6 @@ export function Sidebar({
         <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start" collisionPadding={8}>
-            {showEditAction && (
-              <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => onEditFile(file.path)}>
-                Edit
-              </ContextMenu.Item>
-            )}
             {showFileModifyActions && (
               <ContextMenu.Item
                 class="sidebar-context-menu-item"
