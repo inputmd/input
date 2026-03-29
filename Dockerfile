@@ -10,6 +10,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY server ./server
+COPY reader-ai ./reader-ai
 COPY src ./src
 COPY shared ./shared
 COPY --from=build /app/dist ./dist

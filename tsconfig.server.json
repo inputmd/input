@@ -15,6 +15,6 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["server", "shared"],
+  "include": ["server", "shared", "reader-ai"],
   "exclude": ["server/__tests__"]
 }
