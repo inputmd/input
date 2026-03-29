@@ -874,7 +874,7 @@ export function EditView({
 
   const layoutStyle =
     markdown && previewVisible && canRenderPreview
-      ? { gridTemplateColumns: `${splitPercent}% 0 minmax(0, 1fr)` }
+      ? { gridTemplateColumns: `${splitPercent}% 7px minmax(0, 1fr)` }
       : undefined;
 
   const resolveInternalRoute = useCallback((anchor: HTMLAnchorElement): string | null => {
