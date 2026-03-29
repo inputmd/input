@@ -233,14 +233,14 @@ export function ContentView({
     const root = renderedMarkdownRef.current;
     if (!markdown || !html || !root) return;
 
-    syncPromptListCollapsedStateFromUrl(root);
+    syncPromptListCollapsedStateFromUrl(root, true);
   }, [html, markdown]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
     if (!markdown || !root) return;
 
-    const sync = () => syncPromptListCollapsedStateFromUrl(root);
+    const sync = () => syncPromptListCollapsedStateFromUrl(root, true);
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, [markdown]);
@@ -307,7 +307,7 @@ export function ContentView({
       if (answer instanceof HTMLElement) {
         const conversation = answer.closest('.prompt-list-conversation');
         if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
-          togglePromptListCollapsedStateInUrl(conversation);
+          togglePromptListCollapsedStateInUrl(conversation, true);
           return;
         }
         togglePromptAnswerExpandedState(answer);
@@ -320,7 +320,7 @@ export function ContentView({
       event.preventDefault();
       const container = toggle.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
-        togglePromptListCollapsedStateInUrl(container);
+        togglePromptListCollapsedStateInUrl(container, true);
       }
       return;
     }
@@ -380,7 +380,7 @@ export function ContentView({
     event.preventDefault();
     const container = toggle.closest('.prompt-list-conversation');
     if (container instanceof HTMLElement) {
-      togglePromptListCollapsedStateInUrl(container);
+      togglePromptListCollapsedStateInUrl(container, true);
     }
   };
 

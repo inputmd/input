@@ -1021,7 +1021,6 @@ function decoratePromptAnswerCollapses(root: ParentNode): void {
     toggle.className = 'prompt-answer-toggle';
     toggle.setAttribute('href', '#');
     toggle.setAttribute('aria-expanded', 'false');
-    toggle.textContent = 'More';
 
     const previewParagraph = Array.from(answer.children)
       .reverse()

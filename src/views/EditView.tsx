@@ -837,14 +837,14 @@ export function EditView({
     const root = renderedMarkdownRef.current;
     if (!markdown || !previewVisible || !previewHtml || !root) return;
 
-    syncPromptListCollapsedStateFromUrl(root);
+    syncPromptListCollapsedStateFromUrl(root, false);
   }, [markdown, previewHtml, previewVisible]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
     if (!markdown || !previewVisible || !root) return;
 
-    const sync = () => syncPromptListCollapsedStateFromUrl(root);
+    const sync = () => syncPromptListCollapsedStateFromUrl(root, false);
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, [markdown, previewVisible]);
@@ -1055,7 +1055,7 @@ export function EditView({
       if (answer instanceof HTMLElement) {
         const conversation = answer.closest('.prompt-list-conversation');
         if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
-          togglePromptListCollapsedStateInUrl(conversation);
+          togglePromptListCollapsedStateInUrl(conversation, false);
           return;
         }
         togglePromptAnswerExpandedState(answer);
@@ -1068,7 +1068,7 @@ export function EditView({
       event.preventDefault();
       const container = toggle.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
-        togglePromptListCollapsedStateInUrl(container);
+        togglePromptListCollapsedStateInUrl(container, false);
       }
       return;
     }
@@ -1098,7 +1098,7 @@ export function EditView({
     event.preventDefault();
     const container = toggle.closest('.prompt-list-conversation');
     if (container instanceof HTMLElement) {
-      togglePromptListCollapsedStateInUrl(container);
+      togglePromptListCollapsedStateInUrl(container, false);
     }
   };
 
@@ -1233,6 +1233,7 @@ export function EditView({
                 ref={renderedMarkdownRef}
                 class="rendered-markdown"
                 data-markdown-custom-css={previewCustomCssScope ?? undefined}
+                data-hide-prompt-answer-less="true"
                 onClick={onPreviewClick}
                 onKeyDown={onPreviewKeyDown}
                 onMouseDown={onRenderedMarkdownMouseDown}
@@ -1260,6 +1261,7 @@ export function EditView({
               ref={renderedMarkdownRef}
               class="rendered-markdown"
               data-markdown-custom-css={previewCustomCssScope ?? undefined}
+              data-hide-prompt-answer-less="true"
               onClick={onPreviewClick}
               onKeyDown={onPreviewKeyDown}
               onMouseDown={onRenderedMarkdownMouseDown}
