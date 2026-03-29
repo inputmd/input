@@ -202,6 +202,13 @@
 .rendered-markdown ul.prompt-list {
   --prompt-list-indent-step: 1.35rem;
   --prompt-list-guide-color: color-mix(in srgb, var(--border) 76%, transparent);
+  --prompt-list-guide-nav-size: 18px;
+  --prompt-list-guide-end-gap: 4px;
+  --prompt-list-guide-offset: 8px;
+  --prompt-list-branch-controls-offset: calc(
+    var(--prompt-list-guide-nav-size) +
+    (var(--prompt-list-guide-end-gap) * 2)
+  );
   font-size: 15px;
   padding-left: 0;
   list-style: none;
@@ -243,7 +250,11 @@
 }
 
 .rendered-markdown ul.prompt-list > li + li {
-  margin-top: 0;
+  margin-top: 4px;
+}
+
+.rendered-markdown li.prompt-list-branch > ul > li + li {
+  margin-top: 4px;
 }
 
 .rendered-markdown ul.prompt-list,
@@ -253,20 +264,91 @@
 }
 
 .rendered-markdown li.prompt-list-branch {
+  position: relative;
   margin: 0;
   padding-left: calc(var(--prompt-list-indent-step) - 1px);
-  border-left: 1px solid var(--prompt-list-guide-color);
 }
 
 .rendered-markdown ul.prompt-list > li.prompt-list-branch:last-child {
-  border-bottom: 1px solid var(--prompt-list-guide-color);
   border-bottom-left-radius: 3px;
   border-bottom-right-radius: 3px;
-  overflow: hidden;
+}
+
+.rendered-markdown li.prompt-list-branch::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--prompt-list-guide-end-gap) + var(--prompt-list-guide-nav-size));
+  bottom: calc(var(--prompt-list-guide-end-gap) + var(--prompt-list-guide-nav-size));
+  left: calc(var(--prompt-list-guide-offset) - 1px);
+  width: 2px;
+  background: var(--prompt-list-guide-color);
+}
+
+.rendered-markdown ul.prompt-list > li.prompt-list-branch:last-child::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: -1px;
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 4px,
+    var(--prompt-list-guide-color) 4px,
+    var(--prompt-list-guide-color) calc(100% - 4px),
+    transparent calc(100% - 4px),
+    transparent 100%
+  );
 }
 
 .rendered-markdown li.prompt-list-branch > ul {
   margin: 0;
+}
+
+.rendered-markdown .prompt-list-branch-nav {
+  position: absolute;
+  left: var(--prompt-list-guide-offset);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--prompt-list-guide-nav-size);
+  height: var(--prompt-list-guide-nav-size);
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg) 8%);
+  color: var(--text-secondary);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 28%, transparent);
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+
+.rendered-markdown .prompt-list-branch-nav:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-elevated) 82%, var(--btn-bg) 18%);
+}
+
+.rendered-markdown .prompt-list-branch-nav:focus {
+  outline: none;
+}
+
+.rendered-markdown .prompt-list-branch-nav:focus-visible {
+  outline: 1px solid #8ea98f;
+  outline-offset: 0;
+}
+
+.rendered-markdown .prompt-list-branch-nav-down {
+  top: var(--prompt-list-guide-end-gap);
+}
+
+.rendered-markdown .prompt-list-branch-nav-up {
+  bottom: var(--prompt-list-guide-end-gap);
+}
+
+.rendered-markdown .prompt-list-branch-nav svg {
+  display: block;
 }
 
 .rendered-markdown li.prompt-question,
@@ -282,41 +364,17 @@
   max-width: none;
   box-sizing: border-box;
   padding: calc(0.7em + 2px) 1.15em;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 0;
+  border: 0;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--bg-elevated) 68%, transparent);
 }
 
 [data-theme="light"] .rendered-markdown li.prompt-question {
-  background: var(--input-bg);
+  background: color-mix(in srgb, var(--input-bg) 90%, var(--text) 10%);
 }
 
 [data-theme="dark"] .rendered-markdown li.prompt-question {
-  border-color: color-mix(in srgb, var(--border) 62%, transparent);
-  background: color-mix(in srgb, var(--bg) 60%, var(--btn-bg) 40%);
-}
-
-.rendered-markdown ul.prompt-list > li + li.prompt-question,
-.rendered-markdown li.prompt-list-branch > ul > li + li.prompt-question {
-  border-top: 0;
-}
-
-.rendered-markdown li.prompt-list-branch > ul > li:first-child > .prompt-question,
-.rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-question,
-.rendered-markdown li.prompt-list-branch > ul > li:first-child > .prompt-answer,
-.rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-answer,
-.rendered-markdown li.prompt-list-branch > ul > li:first-child > .prompt-comment,
-.rendered-markdown li.prompt-list-branch > ul > li:first-child.prompt-comment {
-  border-top: 0;
-}
-
-.rendered-markdown li.prompt-list-branch > ul > li:last-child > .prompt-question,
-.rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-question,
-.rendered-markdown li.prompt-list-branch > ul > li:last-child > .prompt-answer,
-.rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-answer,
-.rendered-markdown li.prompt-list-branch > ul > li:last-child > .prompt-comment,
-.rendered-markdown li.prompt-list-branch > ul > li:last-child.prompt-comment {
-  border-bottom: 0;
+  background: color-mix(in srgb, color-mix(in srgb, var(--bg) 60%, var(--btn-bg) 40%) 82%, #2f7a57 18%);
 }
 
 .rendered-markdown li.prompt-answer {
@@ -326,9 +384,8 @@
   box-sizing: border-box;
   position: relative;
   padding: calc(0.7em + 2px) 1.15em;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-top: 0;
-  border-radius: 0;
+  border: 0;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--bg-elevated) 38%, transparent);
   color: inherit;
 }
@@ -339,37 +396,11 @@
   max-width: none;
   box-sizing: border-box;
   padding: 0.72em 1.15em;
-  border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
-  border-top: 0;
-  border-radius: 0;
+  border: 0;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--bg-elevated) 22%, transparent);
   color: var(--text-secondary);
   font-size: 0.96em;
-}
-
-.rendered-markdown ul.prompt-list > li.prompt-list-branch + li.prompt-answer,
-.rendered-markdown li.prompt-list-branch > ul > li.prompt-list-branch + li.prompt-answer {
-  border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-}
-
-.rendered-markdown ul.prompt-list > li:first-child > .prompt-question,
-.rendered-markdown ul.prompt-list > li:first-child.prompt-question,
-.rendered-markdown ul.prompt-list > li:first-child > .prompt-answer,
-.rendered-markdown ul.prompt-list > li:first-child.prompt-answer,
-.rendered-markdown ul.prompt-list > li:first-child > .prompt-comment,
-.rendered-markdown ul.prompt-list > li:first-child.prompt-comment {
-  border-top-left-radius: 3px;
-  border-top-right-radius: 3px;
-}
-
-.rendered-markdown ul.prompt-list > li:last-child > .prompt-question,
-.rendered-markdown ul.prompt-list > li:last-child.prompt-question,
-.rendered-markdown ul.prompt-list > li:last-child > .prompt-answer,
-.rendered-markdown ul.prompt-list > li:last-child.prompt-answer,
-.rendered-markdown ul.prompt-list > li:last-child > .prompt-comment,
-.rendered-markdown ul.prompt-list > li:last-child.prompt-comment {
-  border-bottom-left-radius: 3px;
-  border-bottom-right-radius: 3px;
 }
 
 [data-theme="light"] .rendered-markdown li.prompt-answer {
@@ -377,18 +408,11 @@
 }
 
 [data-theme="dark"] .rendered-markdown li.prompt-answer {
-  border-color: color-mix(in srgb, var(--border) 54%, transparent);
-  background: color-mix(in srgb, var(--bg) 92%, var(--btn-bg) 8%);
+  background: color-mix(in srgb, var(--bg) 60%, var(--btn-bg) 40%);
 }
 
 [data-theme="dark"] .rendered-markdown li.prompt-comment {
-  border-color: color-mix(in srgb, var(--border) 48%, transparent);
   background: color-mix(in srgb, var(--bg) 94%, var(--btn-bg) 6%);
-}
-
-[data-theme="dark"] .rendered-markdown ul.prompt-list > li.prompt-list-branch + li.prompt-answer,
-[data-theme="dark"] .rendered-markdown li.prompt-list-branch > ul > li.prompt-list-branch + li.prompt-answer {
-  border-top-color: color-mix(in srgb, var(--border) 54%, transparent);
 }
 
 .rendered-markdown li.prompt-answer > * + * {

@@ -790,6 +790,13 @@ function buildPromptListTree(
   return root;
 }
 
+function renderPromptListBranchNavButton(direction: 'up' | 'down'): string {
+  const label =
+    direction === 'down' ? 'Jump to the next message at this level' : 'Jump to the previous message at this level';
+  const path = direction === 'down' ? 'M6 9l6 6 6-6' : 'M6 15l6-6 6 6';
+  return `<button type="button" class="prompt-list-branch-nav prompt-list-branch-nav-${direction}" data-direction="${direction}" aria-label="${label}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"></path></svg></button>`;
+}
+
 function renderPromptListTree(nodes: PromptListRenderNode[]): string {
   return nodes
     .map((node) => {
@@ -799,7 +806,7 @@ function renderPromptListTree(nodes: PromptListRenderNode[]): string {
           : '<span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>';
         return `<li class="${node.className}">${contentHtml}</li>`;
       }
-      return `<li class="prompt-list-branch"><ul>${renderPromptListTree(node.children)}</ul></li>`;
+      return `<li class="prompt-list-branch">${renderPromptListBranchNavButton('down')}<ul>${renderPromptListTree(node.children)}</ul>${renderPromptListBranchNavButton('up')}</li>`;
     })
     .join('');
 }

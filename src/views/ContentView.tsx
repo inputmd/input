@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { TextCodeView } from '../components/TextCodeView';
 import {
+  navigatePromptListBranch,
+  syncPromptListBranchNavigationButtons,
   syncPromptListCollapsedStateFromUrl,
   togglePromptAnswerExpandedState,
   togglePromptListCollapsedStateInUrl,
@@ -234,6 +236,7 @@ export function ContentView({
     if (!markdown || !html || !root) return;
 
     syncPromptListCollapsedStateFromUrl(root, true);
+    syncPromptListBranchNavigationButtons(root);
   }, [html, markdown]);
 
   useEffect(() => {
@@ -299,6 +302,13 @@ export function ContentView({
     pointerDraggedRef.current = false;
     pointerDownRef.current = false;
     pointerDownPositionRef.current = null;
+
+    const branchNav = target?.closest('.prompt-list-branch-nav');
+    if (branchNav instanceof HTMLElement) {
+      event.preventDefault();
+      navigatePromptListBranch(branchNav);
+      return;
+    }
 
     const answerToggle = target?.closest('.prompt-answer-toggle');
     if (answerToggle instanceof HTMLElement) {

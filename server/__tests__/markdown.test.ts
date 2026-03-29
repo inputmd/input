@@ -461,7 +461,7 @@ test('parseMarkdownToHtml wraps nested prompt-list branches in nested lists', (t
   t.true(html.includes('<li class="prompt-question">root</li><li class="prompt-answer">root answer</li>'));
   t.true(
     html.includes(
-      '<li class="prompt-list-branch"><ul><li class="prompt-question">branch</li><li class="prompt-answer">branch answer</li></ul></li>',
+      '<li class="prompt-list-branch"><button type="button" class="prompt-list-branch-nav prompt-list-branch-nav-down" data-direction="down" aria-label="Jump to the next message at this level"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button><ul><li class="prompt-question">branch</li><li class="prompt-answer">branch answer</li></ul><button type="button" class="prompt-list-branch-nav prompt-list-branch-nav-up" data-direction="up" aria-label="Jump to the previous message at this level"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg></button></li>',
     ),
   );
   t.true(html.includes('<li class="prompt-question">next root</li>'));

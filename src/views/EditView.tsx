@@ -2,7 +2,7 @@ import type { EditorView } from '@codemirror/view';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { ArrowUpDown, ExternalLink, LockOpen } from 'lucide-react';
 import type { JSX } from 'preact';
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { BracePromptRequest } from '../components/codemirror_inline_prompt';
 import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
@@ -10,6 +10,8 @@ import type { PromptListRequest } from '../components/markdown_editor_commands';
 import { TextEditor } from '../components/TextEditor';
 import type { MarkdownSyncBlock } from '../markdown';
 import {
+  navigatePromptListBranch,
+  syncPromptListBranchNavigationButtons,
   syncPromptListCollapsedStateFromUrl,
   togglePromptAnswerExpandedState,
   togglePromptListCollapsedStateInUrl,
@@ -26,6 +28,7 @@ const PROGRAMMATIC_SCROLL_EVENT_WINDOW_MS = 180;
 const REVERSE_SYNC_LOOP_WINDOW_MS = 180;
 const REVERSE_SYNC_SUPPRESSION_MS = 320;
 const PROGRAMMATIC_SCROLL_TOLERANCE_PX = 10;
+const BRANCH_NAV_PREVIEW_SYNC_SUPPRESSION_MS = 700;
 
 type ScrollPane = 'editor' | 'preview';
 
@@ -334,6 +337,7 @@ export function EditView({
   const previewScrollTooltipCloseTimeoutRef = useRef<number | null>(null);
   const previewSyncElementsRef = useRef<HTMLElement[]>([]);
   const previewSyncElementByIdRef = useRef<Map<string, HTMLElement>>(new Map());
+  const lastUnlockedPreviewScrollTopRef = useRef(0);
   const pointerDownRef = useRef(false);
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
@@ -426,6 +430,7 @@ export function EditView({
 
   const ignoreNextPreviewScrollRef = useRef(false);
   const ignoreNextEditorScrollRef = useRef(false);
+  const branchNavPreviewSyncSuppressionUntilRef = useRef(0);
 
   const schedulePreviewScrollIgnoreReset = useCallback(() => {
     if (ignorePreviewScrollFrameRef.current != null) {
@@ -843,6 +848,7 @@ export function EditView({
     };
     const requestPreviewDrivenSync = () => {
       if (ignoreNextPreviewScrollRef.current) return;
+      if (performance.now() < branchNavPreviewSyncSuppressionUntilRef.current) return;
       const scrollTop = pane.scrollTop;
       const metadata = getScrollEventMetadata('preview', scrollTop);
       if (metadata.isProgrammatic) {
@@ -941,6 +947,7 @@ export function EditView({
     if (!markdown || !previewVisible || !previewHtml || !root) return;
 
     syncPromptListCollapsedStateFromUrl(root, false);
+    syncPromptListBranchNavigationButtons(root);
   }, [markdown, previewHtml, previewVisible]);
 
   useEffect(() => {
@@ -1164,8 +1171,29 @@ export function EditView({
     pane.scrollTop = clampScrollTop(pane.scrollTop, maxScrollTop(pane));
   }, [previewScrollLocked, requestPreviewScrollSync, schedulePreviewScrollIgnoreReset]);
 
+  const handlePreviewPaneScroll = useCallback((event: JSX.TargetedEvent<HTMLDivElement, Event>) => {
+    lastUnlockedPreviewScrollTopRef.current = (event.currentTarget as HTMLDivElement).scrollTop;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!markdown || !previewVisible || loading || previewScrollLocked) return;
+    void previewHtml;
+    const pane = canRenderPreview ? previewPaneRef.current : mobilePreviewPaneRef.current;
+    if (!pane) return;
+
+    pane.scrollTop = clampScrollTop(lastUnlockedPreviewScrollTopRef.current, maxScrollTop(pane));
+  }, [canRenderPreview, loading, markdown, previewHtml, previewVisible, previewScrollLocked]);
+
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
+    const branchNav = target?.closest('.prompt-list-branch-nav');
+    if (branchNav instanceof HTMLElement) {
+      event.preventDefault();
+      branchNavPreviewSyncSuppressionUntilRef.current = performance.now() + BRANCH_NAV_PREVIEW_SYNC_SUPPRESSION_MS;
+      navigatePromptListBranch(branchNav, { behavior: 'smooth' });
+      return;
+    }
+
     const answerToggle = target?.closest('.prompt-answer-toggle');
     if (answerToggle instanceof HTMLElement) {
       event.preventDefault();
@@ -1344,6 +1372,7 @@ export function EditView({
             <div
               class={`editor-preview-pane${previewRestorePending ? ' is-restoring-preview' : ''}`}
               ref={previewPaneRef}
+              onScroll={handlePreviewPaneScroll}
             >
               {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
               {!previewFrontMatterError && previewCssWarning ? (
@@ -1372,7 +1401,7 @@ export function EditView({
       {markdown && previewVisible && !canRenderPreview && !loading && (
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
-          <div class="mobile-preview-pane" ref={mobilePreviewPaneRef}>
+          <div class="mobile-preview-pane" ref={mobilePreviewPaneRef} onScroll={handlePreviewPaneScroll}>
             {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
             {!previewFrontMatterError && previewCssWarning ? (
               <div class="editor-preview-alert">{previewCssWarning}</div>

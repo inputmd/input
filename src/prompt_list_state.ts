@@ -101,6 +101,65 @@ export function togglePromptAnswerExpandedState(container: HTMLElement) {
   setPromptAnswerExpandedState(container, !expanded);
 }
 
+function isPromptListMessage(element: Element | null): element is HTMLElement {
+  return Boolean(
+    element &&
+      element instanceof HTMLElement &&
+      (element.matches('li.prompt-question') ||
+        element.matches('li.prompt-answer') ||
+        element.matches('li.prompt-comment')),
+  );
+}
+
+function findPromptListBranchNavigationTarget(branch: HTMLElement, direction: 'up' | 'down'): HTMLElement | null {
+  let sibling = direction === 'up' ? branch.previousElementSibling : branch.nextElementSibling;
+  while (sibling) {
+    if (isPromptListMessage(sibling)) return sibling;
+    sibling = direction === 'up' ? sibling.previousElementSibling : sibling.nextElementSibling;
+  }
+  return null;
+}
+
+export function syncPromptListBranchNavigationButtons(root: ParentNode) {
+  root.querySelectorAll<HTMLElement>('.prompt-list-branch').forEach((branch) => {
+    branch.querySelectorAll<HTMLElement>(':scope > .prompt-list-branch-nav').forEach((button) => {
+      const direction = button.getAttribute('data-direction') === 'up' ? 'up' : 'down';
+      const target = findPromptListBranchNavigationTarget(branch, direction);
+      button.hidden = !target;
+      button.tabIndex = target ? 0 : -1;
+      button.setAttribute('aria-hidden', target ? 'false' : 'true');
+    });
+  });
+}
+
+export function navigatePromptListBranch(button: HTMLElement, options?: { behavior?: ScrollBehavior }) {
+  const branch = button.closest<HTMLElement>('li.prompt-list-branch');
+  if (!branch) return false;
+
+  const direction = button.getAttribute('data-direction') === 'up' ? 'up' : 'down';
+  const target = findPromptListBranchNavigationTarget(branch, direction);
+  if (!target) return false;
+
+  const scrollContainer = target.closest<HTMLElement>(
+    '.editor-preview-pane, .mobile-preview-pane, .content-view, .document-stack-layer-content',
+  );
+  if (scrollContainer) {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const offsetTop = targetRect.top - containerRect.top + scrollContainer.scrollTop;
+    const conversation = target.closest<HTMLElement>('.prompt-list-conversation');
+    const header = conversation?.querySelector<HTMLElement>('.prompt-list-header');
+    const headerGap = Math.round((header?.offsetHeight ?? 0) * 1.5);
+    const directionGap = direction === 'down' ? 10 : 0;
+    const nextScrollTop = Math.max(0, offsetTop - headerGap - directionGap);
+    scrollContainer.scrollTo({ top: nextScrollTop, behavior: options?.behavior ?? 'smooth' });
+    return true;
+  }
+
+  target.scrollIntoView({ behavior: options?.behavior ?? 'smooth', block: 'center', inline: 'nearest' });
+  return true;
+}
+
 function promptAnswerPreviewTextNodeAtPath(root: Node, path: string): Text | null {
   if (!path) return null;
 
