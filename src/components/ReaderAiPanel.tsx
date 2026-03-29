@@ -88,22 +88,34 @@ function findInlineSpinnerHost(root: HTMLElement): HTMLElement {
   return root;
 }
 
-function ReaderAiAssistantMessage({ content, streaming }: { content: string; streaming: boolean }) {
+function ReaderAiAssistantMessage({
+  content,
+  streaming,
+  onRendered,
+}: {
+  content: string;
+  streaming: boolean;
+  onRendered?: () => void;
+}) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const root = contentRef.current;
     if (!root) return;
     root.innerHTML = parseMarkdownToHtml(content);
-    if (!streaming) return;
+    const frame = onRendered ? requestAnimationFrame(() => onRendered()) : null;
+    if (streaming) {
+      const spinner = document.createElement('span');
+      spinner.className = 'reader-ai-thinking-spinner reader-ai-thinking-spinner--inline';
+      spinner.setAttribute('aria-hidden', 'true');
 
-    const spinner = document.createElement('span');
-    spinner.className = 'reader-ai-thinking-spinner reader-ai-thinking-spinner--inline';
-    spinner.setAttribute('aria-hidden', 'true');
-
-    const host = findInlineSpinnerHost(root);
-    host.append(' ', spinner);
-  }, [content, streaming]);
+      const host = findInlineSpinnerHost(root);
+      host.append(' ', spinner);
+    }
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [content, onRendered, streaming]);
 
   return <div ref={contentRef} class="reader-ai-message-content rendered-markdown" />;
 }
@@ -200,6 +212,13 @@ export function ReaderAiPanel({
     root.scrollTop = root.scrollHeight;
     pinnedToBottomRef.current = true;
   }, []);
+
+  const maybeScrollMessagesToBottom = useCallback(() => {
+    const root = messagesRef.current;
+    if (!root) return;
+    if (!pinnedToBottomRef.current && !isNearMessagesBottom(root)) return;
+    root.scrollTop = root.scrollHeight;
+  }, [isNearMessagesBottom]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length and editProposals.length trigger scroll on new activity
   useEffect(() => {
@@ -594,6 +613,7 @@ export function ReaderAiPanel({
                   <ReaderAiAssistantMessage
                     content={message.content}
                     streaming={sending && index === messageCount - 1}
+                    onRendered={sending && index === messageCount - 1 ? maybeScrollMessagesToBottom : undefined}
                   />
                 )
               ) : editingIndex === index ? (
