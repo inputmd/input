@@ -97,6 +97,41 @@ test('editorDiffPreviewExtension mounts block preview decorations without crashi
   try {
     const view = new EditorView({
       state: EditorState.create({
+        doc: 'alpha\nbeta\ngamma\n',
+        extensions: [
+          editorDiffPreviewExtension({
+            blocks: [
+              {
+                from: 0,
+                to: 11,
+                insert: 'ALPHA\nBETA\n',
+                kind: 'replace',
+                deletedText: 'alpha\nbeta\n',
+                label: '@@ -1,2 +1,2 @@',
+              },
+            ],
+          }),
+        ],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.regex(view.dom.textContent ?? '', /ALPHA/);
+    t.truthy(view.dom.querySelector('.cm-editor-diff-preview-widget--block'));
+    t.true(view.state.facet(EditorView.atomicRanges).length > 0);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('editorDiffPreviewExtension renders single-line previews inline', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const view = new EditorView({
+      state: EditorState.create({
         doc: 'alpha\nbeta\n',
         extensions: [
           editorDiffPreviewExtension({
@@ -116,8 +151,12 @@ test('editorDiffPreviewExtension mounts block preview decorations without crashi
       parent: document.getElementById('app')!,
     });
 
-    t.regex(view.dom.textContent ?? '', /ALPHA/);
-    t.true(view.state.facet(EditorView.atomicRanges).length > 0);
+    const inlineWidget = view.dom.querySelector('.cm-editor-diff-preview-widget--inline');
+    t.truthy(inlineWidget);
+    t.falsy(view.dom.querySelector('.cm-editor-diff-preview-widget--block'));
+    t.is(inlineWidget?.querySelectorAll('.cm-editor-diff-preview-inline-part--deleted').length, 1);
+    t.is(inlineWidget?.querySelectorAll('.cm-editor-diff-preview-inline-part--inserted').length, 1);
+    t.regex(inlineWidget?.textContent ?? '', /ALPHA/);
     view.destroy();
   } finally {
     restore();

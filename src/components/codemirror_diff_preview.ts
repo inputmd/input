@@ -16,6 +16,13 @@ export interface EditorDiffPreview {
   source?: string;
 }
 
+type DiffPreviewWidgetDisplay = 'block' | 'inline';
+
+interface InlineDiffPart {
+  kind: 'context' | 'deleted' | 'inserted';
+  text: string;
+}
+
 function buildLineStartOffsets(content: string): number[] {
   const starts = [0];
   for (let index = 0; index < content.length; index += 1) {
@@ -93,13 +100,21 @@ class DiffPreviewWidget extends WidgetType {
   private readonly kind: NonNullable<EditorDiffPreviewBlock['kind']>;
   private readonly label?: string;
   private readonly deletedText?: string;
+  private readonly display: DiffPreviewWidgetDisplay;
 
-  constructor(text: string, kind: NonNullable<EditorDiffPreviewBlock['kind']>, label?: string, deletedText?: string) {
+  constructor(
+    text: string,
+    kind: NonNullable<EditorDiffPreviewBlock['kind']>,
+    label?: string,
+    deletedText?: string,
+    display: DiffPreviewWidgetDisplay = 'block',
+  ) {
     super();
     this.text = text;
     this.kind = kind;
     this.label = label;
     this.deletedText = deletedText;
+    this.display = display;
   }
 
   eq(other: DiffPreviewWidget): boolean {
@@ -107,19 +122,25 @@ class DiffPreviewWidget extends WidgetType {
       other.text === this.text &&
       other.kind === this.kind &&
       other.label === this.label &&
-      other.deletedText === this.deletedText
+      other.deletedText === this.deletedText &&
+      other.display === this.display
     );
   }
 
   toDOM(): HTMLElement {
     const wrapper = document.createElement('div');
-    wrapper.className = `cm-editor-diff-preview-widget cm-editor-diff-preview-widget--${this.kind}`;
+    wrapper.className = `cm-editor-diff-preview-widget cm-editor-diff-preview-widget--${this.kind} cm-editor-diff-preview-widget--${this.display}`;
 
-    if (this.label) {
+    if (this.label && this.display === 'block') {
       const label = document.createElement('div');
       label.className = 'cm-editor-diff-preview-label';
       label.textContent = this.label;
       wrapper.append(label);
+    }
+
+    if (this.display === 'inline') {
+      this.appendInlineDiffContent(wrapper);
+      return wrapper;
     }
 
     if (this.deletedText && this.deletedText.length > 0) {
@@ -129,11 +150,24 @@ class DiffPreviewWidget extends WidgetType {
       wrapper.append(deleted);
     }
 
-    const content = document.createElement('pre');
-    content.className = 'cm-editor-diff-preview-content';
-    content.textContent = this.text.length > 1200 ? `${this.text.slice(0, 1200)}…` : this.text;
-    wrapper.append(content);
+    if (this.text.length > 0 || !(this.deletedText && this.deletedText.length > 0)) {
+      const content = document.createElement('pre');
+      content.className = 'cm-editor-diff-preview-content';
+      content.textContent = this.text.length > 1200 ? `${this.text.slice(0, 1200)}…` : this.text;
+      wrapper.append(content);
+    }
     return wrapper;
+  }
+
+  private appendInlineDiffContent(wrapper: HTMLElement): void {
+    const parts = buildInlineDiffParts(this.deletedText ?? '', this.text);
+    for (const part of parts) {
+      if (!part.text) continue;
+      const span = document.createElement('span');
+      span.className = `cm-editor-diff-preview-inline-part cm-editor-diff-preview-inline-part--${part.kind}`;
+      span.textContent = part.text;
+      wrapper.append(span);
+    }
   }
 }
 
@@ -150,6 +184,52 @@ function previewLineClass(kind: NonNullable<EditorDiffPreviewBlock['kind']>): st
   return 'cm-editor-diff-preview-line cm-editor-diff-preview-line--replace';
 }
 
+function previewTextVisualLineCount(text: string | undefined): number {
+  if (!text) return 0;
+  const normalized = text.endsWith('\n') ? text.slice(0, -1) : text;
+  if (!normalized) return 1;
+  return normalized.split('\n').length;
+}
+
+function trimSingleTrailingNewline(text: string): string {
+  return text.endsWith('\n') ? text.slice(0, -1) : text;
+}
+
+function buildInlineDiffParts(deletedText: string, insertedText: string): InlineDiffPart[] {
+  const before = trimSingleTrailingNewline(deletedText);
+  const after = trimSingleTrailingNewline(insertedText);
+  const maxPrefixLength = Math.min(before.length, after.length);
+  let prefixLength = 0;
+  while (prefixLength < maxPrefixLength && before[prefixLength] === after[prefixLength]) prefixLength += 1;
+
+  const beforeRemainder = before.length - prefixLength;
+  const afterRemainder = after.length - prefixLength;
+  let suffixLength = 0;
+  while (
+    suffixLength < beforeRemainder &&
+    suffixLength < afterRemainder &&
+    before[before.length - 1 - suffixLength] === after[after.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  const prefix = before.slice(0, prefixLength);
+  const deleted = before.slice(prefixLength, before.length - suffixLength);
+  const inserted = after.slice(prefixLength, after.length - suffixLength);
+  const suffix = before.slice(before.length - suffixLength);
+  const parts: InlineDiffPart[] = [];
+  if (prefix) parts.push({ kind: 'context', text: prefix });
+  if (deleted) parts.push({ kind: 'deleted', text: deleted });
+  if (inserted) parts.push({ kind: 'inserted', text: inserted });
+  if (suffix) parts.push({ kind: 'context', text: suffix });
+  if (parts.length === 0) parts.push({ kind: 'context', text: after || before });
+  return parts;
+}
+
+function shouldRenderInlinePreview(block: EditorDiffPreviewBlock): boolean {
+  return previewTextVisualLineCount(block.insert) <= 1 && previewTextVisualLineCount(block.deletedText) <= 1;
+}
+
 function buildEditorDiffPreviewDecorations(
   state: EditorView['state'],
   preview: EditorDiffPreview | null,
@@ -164,14 +244,17 @@ function buildEditorDiffPreviewDecorations(
     const insert = rawBlock.insert ?? '';
     const kind = normalizeKind(rawBlock);
     const line = state.doc.lineAt(from);
+    const inlinePreview = shouldRenderInlinePreview(rawBlock);
 
-    builder.add(
-      line.from,
-      line.from,
-      Decoration.line({
-        class: previewLineClass(kind),
-      }),
-    );
+    if (!inlinePreview) {
+      builder.add(
+        line.from,
+        line.from,
+        Decoration.line({
+          class: previewLineClass(kind),
+        }),
+      );
+    }
 
     if (to > from) {
       builder.add(
@@ -188,21 +271,31 @@ function buildEditorDiffPreviewDecorations(
 
     if (insert.length > 0) {
       builder.add(
-        to,
-        to,
-        Decoration.replace({
-          widget: new DiffPreviewWidget(insert, kind, rawBlock.label, rawBlock.deletedText),
-          block: true,
-        }),
+        inlinePreview ? line.to : to,
+        inlinePreview ? line.to : to,
+        inlinePreview
+          ? Decoration.widget({
+              widget: new DiffPreviewWidget(insert, kind, rawBlock.label, rawBlock.deletedText, 'inline'),
+              side: 1,
+            })
+          : Decoration.replace({
+              widget: new DiffPreviewWidget(insert, kind, rawBlock.label, rawBlock.deletedText, 'block'),
+              block: true,
+            }),
       );
     } else if (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0) {
       builder.add(
-        to,
-        to,
-        Decoration.replace({
-          widget: new DiffPreviewWidget('', kind, rawBlock.label, rawBlock.deletedText),
-          block: true,
-        }),
+        inlinePreview ? line.to : to,
+        inlinePreview ? line.to : to,
+        inlinePreview
+          ? Decoration.widget({
+              widget: new DiffPreviewWidget('', kind, rawBlock.label, rawBlock.deletedText, 'inline'),
+              side: 1,
+            })
+          : Decoration.replace({
+              widget: new DiffPreviewWidget('', kind, rawBlock.label, rawBlock.deletedText, 'block'),
+              block: true,
+            }),
       );
     }
   }
@@ -224,7 +317,10 @@ function buildEditorDiffPreviewAtomicRanges(
     const insert = rawBlock.insert ?? '';
     const kind = normalizeKind(rawBlock);
 
-    if (insert.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0)) {
+    if (
+      !shouldRenderInlinePreview(rawBlock) &&
+      (insert.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0))
+    ) {
       builder.add(
         to,
         to,

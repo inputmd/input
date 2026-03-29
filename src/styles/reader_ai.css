@@ -440,6 +440,7 @@
 .reader-ai-message-content.rendered-markdown pre {
   font-size: 12px;
   background: var(--code-block-bg);
+  padding: 6px 8px;
   text-wrap: auto;
 }
 

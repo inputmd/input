@@ -371,6 +371,16 @@
   white-space: pre-wrap;
 }
 
+.cm-editor .cm-editor-diff-preview-widget--inline {
+  display: inline-block;
+  margin: 0 0 0 0.5rem;
+  padding: 0;
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
+  vertical-align: baseline;
+}
+
 .cm-editor .cm-editor-diff-preview-widget--insert {
   border-left-color: color-mix(in srgb, var(--success-color) 58%, transparent);
   background: color-mix(in srgb, var(--success-color) 10%, transparent);
@@ -395,11 +405,34 @@
   color: var(--text-secondary);
 }
 
+.cm-editor .cm-editor-diff-preview-widget--inline .cm-editor-diff-preview-label {
+  display: none;
+}
+
 .cm-editor .cm-editor-diff-preview-content {
   margin: 0;
   font: inherit;
   color: inherit;
   white-space: pre-wrap;
+}
+
+.cm-editor .cm-editor-diff-preview-widget--inline .cm-editor-diff-preview-content {
+  display: inline;
+}
+
+.cm-editor .cm-editor-diff-preview-inline-part--context {
+  color: inherit;
+}
+
+.cm-editor .cm-editor-diff-preview-inline-part--deleted {
+  color: color-mix(in srgb, var(--danger-border) 78%, var(--text));
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger-border) 55%, transparent);
+}
+
+.cm-editor .cm-editor-diff-preview-inline-part--inserted {
+  color: color-mix(in srgb, var(--success-color) 82%, var(--text));
+  font-weight: 600;
 }
 
 .cm-editor .cm-editor-diff-preview-content--deleted {
