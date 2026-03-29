@@ -277,9 +277,11 @@ function defaultCollapsedFolderPaths(folderPaths: Set<string>): Set<string> {
   return defaults;
 }
 
-function collapsedFolderRecord(paths: Iterable<string>): Record<string, true> {
+function filterExpandedFolderPaths(paths: Iterable<string>, expandedPaths: Set<string>): Record<string, true> {
   const record: Record<string, true> = {};
-  for (const path of paths) record[path] = true;
+  for (const path of paths) {
+    if (!expandedPaths.has(path)) record[path] = true;
+  }
   return record;
 }
 
@@ -428,12 +430,12 @@ export function Sidebar({
     return paths;
   }, [tree]);
   const defaultCollapsedPaths = useMemo(() => defaultCollapsedFolderPaths(folderPaths), [folderPaths]);
-  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>(() =>
-    collapsedFolderRecord(defaultCollapsedPaths),
-  );
-  const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set(defaultCollapsedPaths));
   const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
   const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>(() =>
+    filterExpandedFolderPaths(defaultCollapsedPaths, new Set(activeAncestors)),
+  );
+  const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set(defaultCollapsedPaths));
   const hasFolders = folderPaths.size > 0;
   const visibleNodes = useMemo(() => flattenVisibleTree(tree.children, collapsedFolders), [tree, collapsedFolders]);
   const visibleIndexByPath = useMemo(() => {

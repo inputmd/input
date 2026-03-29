@@ -236,6 +236,10 @@ function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
 }
 
+function moveFileConfirmMessage(nextPath: string): string {
+  return nextPath.includes('/') ? `Move this file to "${nextPath}"?` : 'Move this file to the root directory?';
+}
+
 function isRecentRepoVisit(value: unknown): value is RecentRepoVisit {
   if (!value || typeof value !== 'object') return false;
   const fullName = (value as { fullName?: unknown }).fullName;
@@ -6750,7 +6754,7 @@ export function App() {
       if (nextPath === filePath) return;
 
       if (activeScratchFile?.backend === 'repo' && filePath === activeScratchFile.filePath && selectedRepoRef) {
-        const confirmed = await showConfirm(`Move this file to "${nextPath}"?`, {
+        const confirmed = await showConfirm(moveFileConfirmMessage(nextPath), {
           title: 'Move file',
           confirmLabel: 'Move',
           defaultFocus: 'action',
@@ -6781,7 +6785,7 @@ export function App() {
       }
 
       if (activeScratchFile?.backend === 'gist' && filePath === activeScratchFile.filePath) {
-        const confirmed = await showConfirm(`Move this file to "${nextPath}"?`, {
+        const confirmed = await showConfirm(moveFileConfirmMessage(nextPath), {
           title: 'Move file',
           confirmLabel: 'Move',
           defaultFocus: 'action',
@@ -6814,7 +6818,7 @@ export function App() {
       const canRename = await handleBeforeRenameFile(filePath);
       if (!canRename) return;
 
-      const confirmed = await showConfirm(`Move this file to "${nextPath}"?`, {
+      const confirmed = await showConfirm(moveFileConfirmMessage(nextPath), {
         title: 'Move file',
         confirmLabel: 'Move',
         defaultFocus: 'action',
