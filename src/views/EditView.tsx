@@ -29,6 +29,7 @@ const REVERSE_SYNC_LOOP_WINDOW_MS = 180;
 const REVERSE_SYNC_SUPPRESSION_MS = 320;
 const PROGRAMMATIC_SCROLL_TOLERANCE_PX = 10;
 const BRANCH_NAV_PREVIEW_SYNC_SUPPRESSION_MS = 700;
+const PREVIEW_REVERSE_SYNC_INTERACTION_WINDOW_MS = 240;
 
 type ScrollPane = 'editor' | 'preview';
 
@@ -330,6 +331,8 @@ export function EditView({
     editor: null,
     preview: null,
   });
+  const lastPreviewInteractionAtRef = useRef(0);
+  const suppressPreviewReverseSyncUntilRef = useRef(0);
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
   const hoverDelayTimerRef = useRef<number | null>(null);
@@ -498,6 +501,20 @@ export function EditView({
       until: now + REVERSE_SYNC_SUPPRESSION_MS,
     };
     return true;
+  }, []);
+
+  const markPreviewInteraction = useCallback(() => {
+    lastPreviewInteractionAtRef.current = performance.now();
+  }, []);
+
+  const suppressPreviewReverseSync = useCallback((durationMs = REVERSE_SYNC_SUPPRESSION_MS) => {
+    suppressPreviewReverseSyncUntilRef.current = performance.now() + durationMs;
+  }, []);
+
+  const shouldAllowPreviewReverseSync = useCallback(() => {
+    const now = performance.now();
+    if (now < suppressPreviewReverseSyncUntilRef.current) return false;
+    return now - lastPreviewInteractionAtRef.current <= PREVIEW_REVERSE_SYNC_INTERACTION_WINDOW_MS;
   }, []);
 
   const setPreviewScrollTop = useCallback(
@@ -790,6 +807,7 @@ export function EditView({
           const topVisibleText = controller.getTopVisibleText(240);
           const target = topVisibleText ? findPreviewRestoreTarget(root, topVisibleText) : null;
           if (target) {
+            suppressPreviewReverseSync();
             pane.scrollTop = Math.max(0, target.offsetTop - 8);
           }
           setPreviewRestorePending(false);
@@ -805,7 +823,7 @@ export function EditView({
         previewRestoreFrameRef.current = null;
       }
     };
-  }, [editorControllerReadyVersion, previewRestorePending]);
+  }, [editorControllerReadyVersion, previewRestorePending, suppressPreviewReverseSync]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
@@ -827,6 +845,22 @@ export function EditView({
     }
     previewSyncElementByIdRef.current = new Map(elementEntries);
   }, [markdown, previewHtml, previewVisible]);
+
+  useLayoutEffect(() => {
+    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
+    void previewHtml;
+    suppressPreviewReverseSync();
+    requestPreviewScrollSync();
+  }, [
+    canRenderPreview,
+    loading,
+    markdown,
+    previewHtml,
+    previewScrollLocked,
+    previewVisible,
+    requestPreviewScrollSync,
+    suppressPreviewReverseSync,
+  ]);
 
   useEffect(() => {
     if (!markdown || !previewVisible || !canRenderPreview || loading) return;
@@ -854,9 +888,18 @@ export function EditView({
       if (metadata.isProgrammatic) {
         if (shouldSuppressReverseSync('preview', metadata.sourcePane)) return;
       } else {
+        if (!shouldAllowPreviewReverseSync()) {
+          suppressPreviewReverseSync();
+          requestPreviewScrollSync();
+          return;
+        }
         lastUserScrollRef.current = { pane: 'preview', at: performance.now() };
       }
       requestEditorScrollSync();
+    };
+    const handlePreviewLayoutChange = () => {
+      suppressPreviewReverseSync();
+      requestPreviewScrollSync();
     };
 
     requestPreviewScrollSync();
@@ -865,12 +908,17 @@ export function EditView({
     } else {
       window.addEventListener('scroll', requestEditorDrivenSync, { passive: true });
     }
+    pane.addEventListener('wheel', markPreviewInteraction, { passive: true });
+    pane.addEventListener('touchmove', markPreviewInteraction, { passive: true });
+    pane.addEventListener('pointerdown', markPreviewInteraction, { passive: true });
     pane.addEventListener('scroll', requestPreviewDrivenSync, { passive: true });
-    window.addEventListener('resize', requestPreviewScrollSync);
+    window.addEventListener('resize', handlePreviewLayoutChange);
 
-    const resizeObserver = new ResizeObserver(requestPreviewScrollSync);
+    const resizeObserver = new ResizeObserver(handlePreviewLayoutChange);
     resizeObserver.observe(pane);
     if (editorScroller) resizeObserver.observe(editorScroller);
+    const root = renderedMarkdownRef.current;
+    if (root) resizeObserver.observe(root);
 
     return () => {
       if (editorUsesOwnScroll && editorScroller) {
@@ -878,8 +926,11 @@ export function EditView({
       } else {
         window.removeEventListener('scroll', requestEditorDrivenSync);
       }
+      pane.removeEventListener('wheel', markPreviewInteraction);
+      pane.removeEventListener('touchmove', markPreviewInteraction);
+      pane.removeEventListener('pointerdown', markPreviewInteraction);
       pane.removeEventListener('scroll', requestPreviewDrivenSync);
-      window.removeEventListener('resize', requestPreviewScrollSync);
+      window.removeEventListener('resize', handlePreviewLayoutChange);
       resizeObserver.disconnect();
     };
   }, [
@@ -887,12 +938,15 @@ export function EditView({
     getEditorScrollMetrics,
     getScrollEventMetadata,
     loading,
+    markPreviewInteraction,
     markdown,
     previewScrollLocked,
     previewVisible,
     requestEditorScrollSync,
     requestPreviewScrollSync,
+    shouldAllowPreviewReverseSync,
     shouldSuppressReverseSync,
+    suppressPreviewReverseSync,
   ]);
 
   useEffect(() => {
@@ -1160,6 +1214,7 @@ export function EditView({
     const pane = previewPaneRef.current;
     if (!pane) return;
 
+    suppressPreviewReverseSync();
     ignoreNextPreviewScrollRef.current = true;
     schedulePreviewScrollIgnoreReset();
 
@@ -1169,7 +1224,7 @@ export function EditView({
     }
 
     pane.scrollTop = clampScrollTop(pane.scrollTop, maxScrollTop(pane));
-  }, [previewScrollLocked, requestPreviewScrollSync, schedulePreviewScrollIgnoreReset]);
+  }, [previewScrollLocked, requestPreviewScrollSync, schedulePreviewScrollIgnoreReset, suppressPreviewReverseSync]);
 
   const handlePreviewPaneScroll = useCallback((event: JSX.TargetedEvent<HTMLDivElement, Event>) => {
     lastUnlockedPreviewScrollTopRef.current = (event.currentTarget as HTMLDivElement).scrollTop;

@@ -190,6 +190,7 @@
   background: var(--bg);
   border-left: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   overflow-y: auto;
+  overflow-anchor: none;
   padding: 0 16px 24px;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
 }
@@ -241,6 +242,7 @@
     display: block;
     min-width: 0;
     overflow: auto;
+    overflow-anchor: none;
     background: var(--bg);
     border-left: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
     position: sticky;
