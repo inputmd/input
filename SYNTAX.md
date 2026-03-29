@@ -151,6 +151,15 @@ fonts:
 ---
 ```
 
+Variant shorthand is also supported with `@`, using explicit `italic` suffixes:
+
+```yaml
+---
+fonts:
+  body: Lora@400,700,400italic,700italic
+---
+```
+
 Fonts are loaded from Google Fonts and applied as `font-family` rules.
 
 ## Smart Punctuation

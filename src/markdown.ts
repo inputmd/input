@@ -1273,19 +1273,6 @@ function highlightIoCodeBlocks(root: ParentNode): void {
   });
 }
 
-interface MarkdownFontConfig {
-  load: string[];
-  body: string | null;
-  headings: string | null;
-}
-
-function splitCommaSeparatedValues(value: string): string[] {
-  return value
-    .split(',')
-    .map((part) => stripMatchingQuotes(part.trim()))
-    .filter(Boolean);
-}
-
 function stripMatchingQuotes(value: string): string {
   if (value.length >= 2) {
     const first = value[0];
@@ -1297,34 +1284,149 @@ function stripMatchingQuotes(value: string): string {
   return value.trim();
 }
 
+interface MarkdownFontVariant {
+  italic: boolean;
+  weight: number;
+}
+
+interface MarkdownFontReference {
+  family: string;
+  variants: MarkdownFontVariant[];
+}
+
+interface MarkdownFontConfig {
+  load: MarkdownFontReference[];
+  body: MarkdownFontReference | null;
+  headings: MarkdownFontReference | null;
+}
+
+function splitCommaSeparatedValues(value: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const previous = index > 0 ? value[index - 1] : '';
+
+    if (char === "'" && !inDoubleQuote && previous !== '\\') {
+      inSingleQuote = !inSingleQuote;
+      current += char;
+      continue;
+    }
+    if (char === '"' && !inSingleQuote && previous !== '\\') {
+      inDoubleQuote = !inDoubleQuote;
+      current += char;
+      continue;
+    }
+    if (char === ',' && !inSingleQuote && !inDoubleQuote) {
+      const part = stripMatchingQuotes(current.trim());
+      if (part) parts.push(part);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  const part = stripMatchingQuotes(current.trim());
+  if (part) parts.push(part);
+  return parts;
+}
+
 function parseFontFamilyScalar(value: string): string | null {
   const normalized = stripMatchingQuotes(value.trim());
   if (!normalized) return null;
-  if (/[<>\\]/.test(normalized)) return null;
+  if (/[<>\\@]/.test(normalized)) return null;
   return normalized;
 }
 
-function parseFontFamilyList(value: string): string[] | null {
+function parseFontVariantToken(value: string): MarkdownFontVariant | null {
+  const normalized = stripMatchingQuotes(value.trim()).toLowerCase();
+  const match = /^([1-9]00)(italic)?$/.exec(normalized);
+  if (!match) return null;
+  return {
+    italic: match[2] === 'italic',
+    weight: Number.parseInt(match[1], 10),
+  };
+}
+
+function normalizeFontVariants(variants: MarkdownFontVariant[]): MarkdownFontVariant[] {
+  const unique = new Map<string, MarkdownFontVariant>();
+  for (const variant of variants) {
+    unique.set(`${variant.italic ? 1 : 0}:${variant.weight}`, variant);
+  }
+  return Array.from(unique.values()).sort((a, b) => {
+    if (a.italic !== b.italic) return Number(a.italic) - Number(b.italic);
+    return a.weight - b.weight;
+  });
+}
+
+function parseMarkdownFontReferenceScalar(value: string): MarkdownFontReference | null {
+  const normalized = stripMatchingQuotes(value.trim());
+  if (!normalized) return null;
+
+  const atIndex = normalized.indexOf('@');
+  if (atIndex === -1) {
+    const family = parseFontFamilyScalar(normalized);
+    return family ? { family, variants: [] } : null;
+  }
+
+  const family = parseFontFamilyScalar(normalized.slice(0, atIndex));
+  if (!family) return null;
+
+  const variantsSource = normalized.slice(atIndex + 1).trim();
+  if (!variantsSource) return null;
+  const variants = splitCommaSeparatedValues(variantsSource).map(parseFontVariantToken);
+  if (variants.length === 0 || variants.some((variant) => !variant)) return null;
+  return {
+    family,
+    variants: normalizeFontVariants(variants.filter((variant): variant is MarkdownFontVariant => variant != null)),
+  };
+}
+
+function parseFontFamilyList(value: string): MarkdownFontReference[] | null {
   const trimmed = value.trim();
   if (!trimmed) return [];
+
+  if (!trimmed.startsWith('[') && !trimmed.endsWith(']') && trimmed.includes('@')) {
+    const font = parseMarkdownFontReferenceScalar(trimmed);
+    return font ? [font] : null;
+  }
 
   const listSource = trimmed.startsWith('[') && trimmed.endsWith(']') ? trimmed.slice(1, -1).trim() : trimmed;
   if (!listSource) return [];
 
-  const families = splitCommaSeparatedValues(listSource);
-  return families.length > 0 && families.every(Boolean) ? families : null;
+  const families = splitCommaSeparatedValues(listSource).map(parseMarkdownFontReferenceScalar);
+  return families.length > 0 && families.every(Boolean)
+    ? (families.filter((family): family is MarkdownFontReference => family != null) ?? null)
+    : null;
 }
 
-function uniqueFontFamilies(families: string[]): string[] {
+function encodeGoogleFontsFamily(reference: MarkdownFontReference): string {
+  const family = encodeURIComponent(reference.family).replace(/%20/g, '+');
+  if (reference.variants.length === 0) return family;
+
+  const hasItalic = reference.variants.some((variant) => variant.italic);
+  if (!hasItalic) {
+    return `${family}:wght@${reference.variants.map((variant) => variant.weight).join(';')}`;
+  }
+
+  return `${family}:ital,wght@${reference.variants
+    .map((variant) => `${variant.italic ? 1 : 0},${variant.weight}`)
+    .join(';')}`;
+}
+
+function uniqueFontReferences(references: MarkdownFontReference[]): MarkdownFontReference[] {
   const seen = new Set<string>();
-  const result: string[] = [];
-  for (const family of families) {
-    const normalized = family.trim();
-    if (!normalized) continue;
-    const key = normalized.toLowerCase();
+  const result: MarkdownFontReference[] = [];
+  for (const reference of references) {
+    const key = `${reference.family.toLowerCase()}@${reference.variants
+      .map((variant) => `${variant.italic ? 1 : 0}-${variant.weight}`)
+      .join(';')}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    result.push(normalized);
+    result.push(reference);
   }
   return result;
 }
@@ -1333,8 +1435,8 @@ function parseIndentedList(
   lines: string[],
   startIndex: number,
   parentIndent: number,
-): { values: string[]; nextIndex: number; error: string | null } {
-  const values: string[] = [];
+): { values: MarkdownFontReference[]; nextIndex: number; error: string | null } {
+  const values: MarkdownFontReference[] = [];
   let childIndent: number | null = null;
   let index = startIndex;
 
@@ -1353,7 +1455,7 @@ function parseIndentedList(
     if (!trimmed.startsWith('-')) {
       return { values: [], nextIndex: index, error: 'Could not parse front matter' };
     }
-    const value = parseFontFamilyScalar(trimmed.slice(1).trim());
+    const value = parseMarkdownFontReferenceScalar(trimmed.slice(1).trim());
     if (!value) {
       return { values: [], nextIndex: index, error: 'Could not parse front matter' };
     }
@@ -1421,7 +1523,7 @@ function parseNestedFontConfig(
       continue;
     }
 
-    const family = parseFontFamilyScalar(value);
+    const family = parseMarkdownFontReferenceScalar(value);
     if (!family) {
       return { config, nextIndex: index, error: 'Could not parse front matter' };
     }
@@ -1493,19 +1595,19 @@ function parseFontsValue(
   return parseNestedFontConfig(lines, startIndex + 1, 0);
 }
 
-function buildGoogleFontsImportUrl(families: string[]): string {
-  const query = families.map((family) => `family=${encodeURIComponent(family).replace(/%20/g, '+')}`).join('&');
+function buildGoogleFontsImportUrl(families: MarkdownFontReference[]): string {
+  const query = families.map((family) => `family=${encodeGoogleFontsFamily(family)}`).join('&');
   return `https://fonts.googleapis.com/css2?${query}&display=swap`;
 }
 
-function formatFontFamilyCssValue(family: string): string {
-  return `"${family.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", var(--font-sans), sans-serif`;
+function formatFontFamilyCssValue(family: MarkdownFontReference): string {
+  return `"${family.family.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", var(--font-sans), sans-serif`;
 }
 
 function buildMarkdownFontCss(config: MarkdownFontConfig | null): string | null {
   if (!config) return null;
 
-  const load = uniqueFontFamilies(
+  const load = uniqueFontReferences(
     config.load.concat(config.body ? [config.body] : [], config.headings ? [config.headings] : []),
   );
   if (load.length === 0) return null;

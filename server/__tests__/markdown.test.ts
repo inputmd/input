@@ -758,6 +758,24 @@ fonts: [Libre Franklin, Montserrat]
   t.is(document.cssWarning, null);
 });
 
+test('parseMarkdownDocument loads google font variants from shorthand syntax', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+fonts: Lora@400,700,400italic,700italic
+---
+# Hello`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.true(
+    document.customCss?.includes(
+      '@import url("https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,700;1,400;1,700&display=swap");',
+    ),
+  );
+});
+
 test('parseMarkdownDocument generates body and heading font rules from front matter', (t) => {
   const document = withDom(() =>
     parseMarkdownDocument(
@@ -789,6 +807,26 @@ Paragraph`,
       `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h1, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h2, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h3, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h4, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h5, .rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] h6 { font-family: "Montserrat", var(--font-sans), sans-serif; }`,
     ),
   );
+});
+
+test('parseMarkdownDocument generates body font rules from front matter variant shorthand', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+fonts:
+  body: Lora@400,700,400italic,700italic
+---
+Paragraph`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.true(
+    document.customCss?.includes(
+      '@import url("https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,700;1,400;1,700&display=swap");',
+    ),
+  );
+  t.true(document.customCss?.includes('font-family: "Lora", var(--font-sans), sans-serif;'));
 });
 
 test('parseMarkdownDocument infers fonts load entries from structured body and headings', (t) => {
