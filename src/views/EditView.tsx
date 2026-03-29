@@ -22,6 +22,28 @@ const PREVIEW_SCROLL_LOCK_STORAGE_KEY = 'input_preview_scroll_locked_v1';
 const PREVIEW_RESTORE_SELECTOR = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th';
 const PREVIEW_SYNC_SELECTOR = '[data-sync-id]';
 const SCROLL_SYNC_ANCHOR_RATIO = 0.3;
+const PROGRAMMATIC_SCROLL_EVENT_WINDOW_MS = 180;
+const REVERSE_SYNC_LOOP_WINDOW_MS = 180;
+const REVERSE_SYNC_SUPPRESSION_MS = 320;
+const PROGRAMMATIC_SCROLL_TOLERANCE_PX = 10;
+
+type ScrollPane = 'editor' | 'preview';
+
+interface PendingProgrammaticScroll {
+  sourcePane: ScrollPane;
+  targetScrollTop: number;
+  until: number;
+}
+
+interface RecentUserScroll {
+  pane: ScrollPane;
+  at: number;
+}
+
+interface ReverseSyncSuppression {
+  sourcePane: ScrollPane;
+  until: number;
+}
 
 interface MarkdownLinkPreview {
   title: string;
@@ -296,6 +318,15 @@ export function EditView({
   const ignoreEditorScrollFrameRef = useRef<number | null>(null);
   const editorScrollLerpTargetRef = useRef<number | null>(null);
   const editorScrollLerpFrameRef = useRef<number | null>(null);
+  const pendingProgrammaticScrollRef = useRef<Record<ScrollPane, PendingProgrammaticScroll | null>>({
+    editor: null,
+    preview: null,
+  });
+  const lastUserScrollRef = useRef<RecentUserScroll | null>(null);
+  const reverseSyncSuppressionRef = useRef<Record<ScrollPane, ReverseSyncSuppression | null>>({
+    editor: null,
+    preview: null,
+  });
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
   const hoverDelayTimerRef = useRef<number | null>(null);
@@ -415,17 +446,66 @@ export function EditView({
     });
   }, []);
 
+  const recordProgrammaticScroll = useCallback((pane: ScrollPane, sourcePane: ScrollPane, targetScrollTop: number) => {
+    pendingProgrammaticScrollRef.current[pane] = {
+      sourcePane,
+      targetScrollTop,
+      until: performance.now() + PROGRAMMATIC_SCROLL_EVENT_WINDOW_MS,
+    };
+  }, []);
+
+  const getScrollEventMetadata = useCallback(
+    (pane: ScrollPane, scrollTop: number): { isProgrammatic: boolean; sourcePane: ScrollPane | null } => {
+      const pending = pendingProgrammaticScrollRef.current[pane];
+      if (!pending) return { isProgrammatic: false, sourcePane: null };
+
+      const now = performance.now();
+      if (now > pending.until) {
+        pendingProgrammaticScrollRef.current[pane] = null;
+        return { isProgrammatic: false, sourcePane: null };
+      }
+
+      if (Math.abs(scrollTop - pending.targetScrollTop) <= PROGRAMMATIC_SCROLL_TOLERANCE_PX) {
+        return { isProgrammatic: true, sourcePane: pending.sourcePane };
+      }
+
+      return { isProgrammatic: false, sourcePane: null };
+    },
+    [],
+  );
+
+  const shouldSuppressReverseSync = useCallback((pane: ScrollPane, sourcePane: ScrollPane | null) => {
+    if (!sourcePane) return false;
+    const now = performance.now();
+    const suppression = reverseSyncSuppressionRef.current[pane];
+    if (suppression && suppression.sourcePane === sourcePane) {
+      if (now <= suppression.until) return true;
+      reverseSyncSuppressionRef.current[pane] = null;
+    }
+
+    const lastUserScroll = lastUserScrollRef.current;
+    if (!lastUserScroll || lastUserScroll.pane !== sourcePane) return false;
+    if (now - lastUserScroll.at > REVERSE_SYNC_LOOP_WINDOW_MS) return false;
+
+    reverseSyncSuppressionRef.current[pane] = {
+      sourcePane,
+      until: now + REVERSE_SYNC_SUPPRESSION_MS,
+    };
+    return true;
+  }, []);
+
   const setPreviewScrollTop = useCallback(
     (scrollTop: number) => {
       const pane = previewPaneRef.current;
       if (!pane) return;
       const nextScrollTop = clampScrollTop(scrollTop, maxScrollTop(pane));
       if (Math.abs(pane.scrollTop - nextScrollTop) < 1) return;
+      recordProgrammaticScroll('preview', 'editor', nextScrollTop);
       ignoreNextPreviewScrollRef.current = true;
       schedulePreviewScrollIgnoreReset();
       pane.scrollTop = nextScrollTop;
     },
-    [schedulePreviewScrollIgnoreReset],
+    [recordProgrammaticScroll, schedulePreviewScrollIgnoreReset],
   );
 
   const applyEditorScrollTop = useCallback(
@@ -433,17 +513,19 @@ export function EditView({
       const { editorScroller, editorUsesOwnScroll } = getEditorScrollMetrics();
       if (editorUsesOwnScroll && editorScroller) {
         if (Math.abs(editorScroller.scrollTop - nextScrollTop) < 1) return;
+        recordProgrammaticScroll('editor', 'preview', nextScrollTop);
         ignoreNextEditorScrollRef.current = true;
         scheduleEditorScrollIgnoreReset();
         editorScroller.scrollTop = nextScrollTop;
         return;
       }
       if (Math.abs(window.scrollY - nextScrollTop) < 1) return;
+      recordProgrammaticScroll('editor', 'preview', nextScrollTop);
       ignoreNextEditorScrollRef.current = true;
       scheduleEditorScrollIgnoreReset();
       window.scrollTo({ top: nextScrollTop, behavior: 'auto' });
     },
-    [getEditorScrollMetrics, scheduleEditorScrollIgnoreReset],
+    [getEditorScrollMetrics, recordProgrammaticScroll, scheduleEditorScrollIgnoreReset],
   );
 
   const editorScrollLerpTick = useCallback(() => {
@@ -748,10 +830,24 @@ export function EditView({
 
     const requestEditorDrivenSync = () => {
       if (ignoreNextEditorScrollRef.current) return;
+      const { top } = getEditorScrollMetrics();
+      const metadata = getScrollEventMetadata('editor', top);
+      if (metadata.isProgrammatic) {
+        if (shouldSuppressReverseSync('editor', metadata.sourcePane)) return;
+      } else {
+        lastUserScrollRef.current = { pane: 'editor', at: performance.now() };
+      }
       requestPreviewScrollSync();
     };
     const requestPreviewDrivenSync = () => {
       if (ignoreNextPreviewScrollRef.current) return;
+      const scrollTop = pane.scrollTop;
+      const metadata = getScrollEventMetadata('preview', scrollTop);
+      if (metadata.isProgrammatic) {
+        if (shouldSuppressReverseSync('preview', metadata.sourcePane)) return;
+      } else {
+        lastUserScrollRef.current = { pane: 'preview', at: performance.now() };
+      }
       requestEditorScrollSync();
     };
 
@@ -781,12 +877,14 @@ export function EditView({
   }, [
     canRenderPreview,
     getEditorScrollMetrics,
+    getScrollEventMetadata,
     loading,
     markdown,
     previewScrollLocked,
     previewVisible,
     requestEditorScrollSync,
     requestPreviewScrollSync,
+    shouldSuppressReverseSync,
   ]);
 
   useEffect(() => {
@@ -811,6 +909,9 @@ export function EditView({
         window.cancelAnimationFrame(editorScrollLerpFrameRef.current);
         editorScrollLerpFrameRef.current = null;
       }
+      pendingProgrammaticScrollRef.current = { editor: null, preview: null };
+      reverseSyncSuppressionRef.current = { editor: null, preview: null };
+      lastUserScrollRef.current = null;
     };
   }, []);
 
