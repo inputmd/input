@@ -29,6 +29,7 @@ const REVERSE_SYNC_LOOP_WINDOW_MS = 180;
 const REVERSE_SYNC_SUPPRESSION_MS = 320;
 const PROGRAMMATIC_SCROLL_TOLERANCE_PX = 10;
 const BRANCH_NAV_PREVIEW_SYNC_SUPPRESSION_MS = 700;
+const BRANCH_NAV_PREVIEW_SYNC_SETTLE_TIMEOUT_MS = 1800;
 const PREVIEW_REVERSE_SYNC_INTERACTION_WINDOW_MS = 240;
 
 type ScrollPane = 'editor' | 'preview';
@@ -318,6 +319,7 @@ export function EditView({
   const editorControllerRef = useRef<EditorController | null>(null);
   const editorToPreviewScrollFrameRef = useRef<number | null>(null);
   const previewToEditorScrollFrameRef = useRef<number | null>(null);
+  const branchNavPreviewSyncFrameRef = useRef<number | null>(null);
   const ignorePreviewScrollFrameRef = useRef<number | null>(null);
   const ignoreEditorScrollFrameRef = useRef<number | null>(null);
   const editorScrollLerpTargetRef = useRef<number | null>(null);
@@ -501,6 +503,14 @@ export function EditView({
 
   const markPreviewInteraction = useCallback(() => {
     lastPreviewInteractionAtRef.current = performance.now();
+  }, []);
+
+  const cancelBranchNavPreviewSync = useCallback(() => {
+    if (branchNavPreviewSyncFrameRef.current != null) {
+      window.cancelAnimationFrame(branchNavPreviewSyncFrameRef.current);
+      branchNavPreviewSyncFrameRef.current = null;
+    }
+    branchNavPreviewSyncSuppressionUntilRef.current = 0;
   }, []);
 
   const suppressPreviewReverseSync = useCallback((durationMs = REVERSE_SYNC_SUPPRESSION_MS) => {
@@ -739,6 +749,50 @@ export function EditView({
     });
   }, [syncEditorToPreviewScroll]);
 
+  const scheduleBranchNavPreviewSync = useCallback(() => {
+    if (!previewScrollLocked) return;
+
+    cancelBranchNavPreviewSync();
+    branchNavPreviewSyncSuppressionUntilRef.current = performance.now() + BRANCH_NAV_PREVIEW_SYNC_SUPPRESSION_MS;
+
+    const pane = previewPaneRef.current;
+    if (!pane) return;
+
+    let lastScrollTop = pane.scrollTop;
+    let stableFrames = 0;
+    const startedAt = performance.now();
+
+    const settle = () => {
+      const nextPane = previewPaneRef.current;
+      if (!nextPane) {
+        cancelBranchNavPreviewSync();
+        return;
+      }
+
+      const currentScrollTop = nextPane.scrollTop;
+      if (Math.abs(currentScrollTop - lastScrollTop) < 0.5) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      lastScrollTop = currentScrollTop;
+
+      const now = performance.now();
+      const reachedMinimumSuppression = now >= branchNavPreviewSyncSuppressionUntilRef.current;
+      const timedOut = now - startedAt >= BRANCH_NAV_PREVIEW_SYNC_SETTLE_TIMEOUT_MS;
+      if ((reachedMinimumSuppression && stableFrames >= 2) || timedOut) {
+        cancelBranchNavPreviewSync();
+        lastUserScrollRef.current = { pane: 'preview', at: performance.now() };
+        requestEditorScrollSync();
+        return;
+      }
+
+      branchNavPreviewSyncFrameRef.current = window.requestAnimationFrame(settle);
+    };
+
+    branchNavPreviewSyncFrameRef.current = window.requestAnimationFrame(settle);
+  }, [cancelBranchNavPreviewSync, previewScrollLocked, requestEditorScrollSync]);
+
   useEffect(() => {
     return () => {
       clearHoverDelay();
@@ -878,6 +932,7 @@ export function EditView({
     };
     const requestPreviewDrivenSync = () => {
       if (ignoreNextPreviewScrollRef.current) return;
+      if (branchNavPreviewSyncFrameRef.current != null) return;
       if (performance.now() < branchNavPreviewSyncSuppressionUntilRef.current) return;
       const scrollTop = pane.scrollTop;
       const metadata = getScrollEventMetadata('preview', scrollTop);
@@ -949,6 +1004,10 @@ export function EditView({
         window.cancelAnimationFrame(previewToEditorScrollFrameRef.current);
         previewToEditorScrollFrameRef.current = null;
       }
+      if (branchNavPreviewSyncFrameRef.current != null) {
+        window.cancelAnimationFrame(branchNavPreviewSyncFrameRef.current);
+        branchNavPreviewSyncFrameRef.current = null;
+      }
       if (ignorePreviewScrollFrameRef.current != null) {
         window.cancelAnimationFrame(ignorePreviewScrollFrameRef.current);
         ignorePreviewScrollFrameRef.current = null;
@@ -963,6 +1022,7 @@ export function EditView({
       }
       pendingProgrammaticScrollRef.current = { editor: null, preview: null };
       reverseSyncSuppressionRef.current = { editor: null, preview: null };
+      branchNavPreviewSyncSuppressionUntilRef.current = 0;
       lastUserScrollRef.current = null;
     };
   }, []);
@@ -1234,9 +1294,18 @@ export function EditView({
     const branchNav = target?.closest('.prompt-list-branch-nav');
     if (branchNav instanceof HTMLElement) {
       event.preventDefault();
-      branchNavPreviewSyncSuppressionUntilRef.current = performance.now() + BRANCH_NAV_PREVIEW_SYNC_SUPPRESSION_MS;
-      navigatePromptListBranch(branchNav, { behavior: 'smooth' });
+      markPreviewInteraction();
+      const navigated = navigatePromptListBranch(branchNav, { behavior: 'smooth' });
+      if (navigated) {
+        scheduleBranchNavPreviewSync();
+      } else {
+        cancelBranchNavPreviewSync();
+      }
       return;
+    }
+
+    if (branchNavPreviewSyncFrameRef.current != null) {
+      cancelBranchNavPreviewSync();
     }
 
     const answerToggle = target?.closest('.prompt-answer-toggle');
