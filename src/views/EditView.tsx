@@ -357,6 +357,7 @@ export function EditView({
     }),
   );
   const [previewScrollTooltipOpen, setPreviewScrollTooltipOpen] = useState(false);
+  const [editorControllerReadyVersion, setEditorControllerReadyVersion] = useState(0);
   const lastPreviewRestoreKeyRef = useRef<string | null>(null);
   const [preview, setPreview] = useState<LinkPreviewState>({
     visible: false,
@@ -769,6 +770,7 @@ export function EditView({
 
   useEffect(() => {
     if (!previewRestorePending) return;
+    void editorControllerReadyVersion;
     const pane = previewPaneRef.current;
     const root = renderedMarkdownRef.current;
     const controller = editorControllerRef.current;
@@ -798,7 +800,7 @@ export function EditView({
         previewRestoreFrameRef.current = null;
       }
     };
-  }, [previewRestorePending]);
+  }, [editorControllerReadyVersion, previewRestorePending]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
@@ -1225,6 +1227,7 @@ export function EditView({
   const handleEditorReady = useCallback(
     (controller: EditorController | null) => {
       editorControllerRef.current = controller;
+      setEditorControllerReadyVersion((version) => version + 1);
       onEditorReady?.(controller);
     },
     [onEditorReady],
