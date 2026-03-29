@@ -419,16 +419,12 @@ export function EditView({
   }, []);
 
   const getEditorScrollMetrics = useCallback(() => {
-    const workspace = splitRef.current;
-    const editorScroller = workspace?.querySelector<HTMLElement>('.doc-editor .cm-scroller') ?? null;
-    const editorUsesOwnScroll =
-      editorScroller !== null && editorScroller.scrollHeight > editorScroller.clientHeight + 1;
-    const max =
-      editorUsesOwnScroll && editorScroller
-        ? maxScrollTop(editorScroller)
-        : Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    const top = editorUsesOwnScroll && editorScroller ? editorScroller.scrollTop : window.scrollY;
-    return { editorScroller, editorUsesOwnScroll, max, top };
+    return (
+      editorControllerRef.current?.getScrollMetrics() ?? {
+        top: window.scrollY,
+        max: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+      }
+    );
   }, []);
 
   const ignoreNextPreviewScrollRef = useRef(false);
@@ -533,22 +529,17 @@ export function EditView({
 
   const applyEditorScrollTop = useCallback(
     (nextScrollTop: number) => {
-      const { editorScroller, editorUsesOwnScroll } = getEditorScrollMetrics();
-      if (editorUsesOwnScroll && editorScroller) {
-        if (Math.abs(editorScroller.scrollTop - nextScrollTop) < 1) return;
-        recordProgrammaticScroll('editor', 'preview', nextScrollTop);
-        ignoreNextEditorScrollRef.current = true;
-        scheduleEditorScrollIgnoreReset();
-        editorScroller.scrollTop = nextScrollTop;
-        return;
-      }
-      if (Math.abs(window.scrollY - nextScrollTop) < 1) return;
-      recordProgrammaticScroll('editor', 'preview', nextScrollTop);
+      const controller = editorControllerRef.current;
+      if (!controller) return;
+      const { top, max } = controller.getScrollMetrics();
+      const clampedScrollTop = clampScrollTop(nextScrollTop, max);
+      if (Math.abs(top - clampedScrollTop) < 1) return;
+      recordProgrammaticScroll('editor', 'preview', clampedScrollTop);
       ignoreNextEditorScrollRef.current = true;
       scheduleEditorScrollIgnoreReset();
-      window.scrollTo({ top: nextScrollTop, behavior: 'auto' });
+      controller.setScrollTop(clampedScrollTop);
     },
-    [getEditorScrollMetrics, recordProgrammaticScroll, scheduleEditorScrollIgnoreReset],
+    [recordProgrammaticScroll, scheduleEditorScrollIgnoreReset],
   );
 
   const editorScrollLerpTick = useCallback(() => {
@@ -556,9 +547,13 @@ export function EditView({
     const target = editorScrollLerpTargetRef.current;
     if (target == null) return;
 
-    const { editorScroller, editorUsesOwnScroll, max } = getEditorScrollMetrics();
+    const controller = editorControllerRef.current;
+    if (!controller) {
+      editorScrollLerpTargetRef.current = null;
+      return;
+    }
+    const { top: current, max } = controller.getScrollMetrics();
     const clampedTarget = clampScrollTop(target, max);
-    const current = editorUsesOwnScroll && editorScroller ? editorScroller.scrollTop : window.scrollY;
     const delta = clampedTarget - current;
 
     if (Math.abs(delta) < 1) {
@@ -569,7 +564,7 @@ export function EditView({
 
     applyEditorScrollTop(current + delta * 0.25);
     editorScrollLerpFrameRef.current = window.requestAnimationFrame(editorScrollLerpTick);
-  }, [applyEditorScrollTop, getEditorScrollMetrics]);
+  }, [applyEditorScrollTop]);
 
   const setEditorScrollTop = useCallback(
     (scrollTop: number) => {
@@ -865,9 +860,10 @@ export function EditView({
   useEffect(() => {
     if (!markdown || !previewVisible || !canRenderPreview || loading) return;
     if (!previewScrollLocked) return;
+    void editorControllerReadyVersion;
     const pane = previewPaneRef.current;
-    if (!pane) return;
-    const { editorScroller, editorUsesOwnScroll } = getEditorScrollMetrics();
+    const controller = editorControllerRef.current;
+    if (!pane || !controller) return;
 
     const requestEditorDrivenSync = () => {
       if (ignoreNextEditorScrollRef.current) return;
@@ -903,11 +899,8 @@ export function EditView({
     };
 
     requestPreviewScrollSync();
-    if (editorUsesOwnScroll && editorScroller) {
-      editorScroller.addEventListener('scroll', requestEditorDrivenSync, { passive: true });
-    } else {
-      window.addEventListener('scroll', requestEditorDrivenSync, { passive: true });
-    }
+    const unsubscribeEditorScroll = controller.subscribeScroll(requestEditorDrivenSync);
+    const unsubscribeEditorLayout = controller.subscribeLayoutChange(handlePreviewLayoutChange);
     pane.addEventListener('wheel', markPreviewInteraction, { passive: true });
     pane.addEventListener('touchmove', markPreviewInteraction, { passive: true });
     pane.addEventListener('pointerdown', markPreviewInteraction, { passive: true });
@@ -916,16 +909,12 @@ export function EditView({
 
     const resizeObserver = new ResizeObserver(handlePreviewLayoutChange);
     resizeObserver.observe(pane);
-    if (editorScroller) resizeObserver.observe(editorScroller);
     const root = renderedMarkdownRef.current;
     if (root) resizeObserver.observe(root);
 
     return () => {
-      if (editorUsesOwnScroll && editorScroller) {
-        editorScroller.removeEventListener('scroll', requestEditorDrivenSync);
-      } else {
-        window.removeEventListener('scroll', requestEditorDrivenSync);
-      }
+      unsubscribeEditorScroll();
+      unsubscribeEditorLayout();
       pane.removeEventListener('wheel', markPreviewInteraction);
       pane.removeEventListener('touchmove', markPreviewInteraction);
       pane.removeEventListener('pointerdown', markPreviewInteraction);
@@ -935,6 +924,7 @@ export function EditView({
     };
   }, [
     canRenderPreview,
+    editorControllerReadyVersion,
     getEditorScrollMetrics,
     getScrollEventMetadata,
     loading,

@@ -18,6 +18,11 @@ export interface ExternalEditorChange {
   isolateHistory?: 'before' | 'after' | 'full';
 }
 
+export interface EditorScrollMetrics {
+  top: number;
+  max: number;
+}
+
 export interface EditorController {
   applyExternalChange: (change: ExternalEditorChange) => boolean;
   getSelectionText: (maxChars?: number) => string | null;
@@ -25,6 +30,10 @@ export interface EditorController {
   getViewportAnchorPosition: (anchorRatio?: number) => number;
   scrollToPosition: (position: number, anchorRatio?: number) => void;
   getScrollTopForPosition: (position: number, anchorRatio?: number) => number | null;
+  getScrollMetrics: () => EditorScrollMetrics;
+  setScrollTop: (scrollTop: number) => void;
+  subscribeScroll: (listener: () => void) => () => void;
+  subscribeLayoutChange: (listener: () => void) => () => void;
   startStreamingCursorTracking: (position: number) => void;
   updateStreamingCursorTracking: (position: number) => void;
   stopStreamingCursorTracking: () => void;

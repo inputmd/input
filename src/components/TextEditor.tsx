@@ -189,6 +189,45 @@ export function TextEditor({
     return view.scrollDOM.scrollHeight > view.scrollDOM.clientHeight + 1;
   };
 
+  const getScrollMetrics = (view: EditorView) => {
+    if (editorUsesOwnScroll(view)) {
+      return {
+        top: view.scrollDOM.scrollTop,
+        max: Math.max(0, view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight),
+      };
+    }
+    return {
+      top: window.scrollY,
+      max: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+    };
+  };
+
+  const setScrollTop = (view: EditorView, scrollTop: number) => {
+    const { max } = getScrollMetrics(view);
+    const nextScrollTop = Math.min(max, Math.max(0, scrollTop));
+    if (editorUsesOwnScroll(view)) {
+      view.scrollDOM.scrollTop = nextScrollTop;
+      return;
+    }
+    window.scrollTo({ top: nextScrollTop });
+  };
+
+  const subscribeScroll = (view: EditorView, listener: () => void) => {
+    view.scrollDOM.addEventListener('scroll', listener, { passive: true });
+    window.addEventListener('scroll', listener, { passive: true });
+    return () => {
+      view.scrollDOM.removeEventListener('scroll', listener);
+      window.removeEventListener('scroll', listener);
+    };
+  };
+
+  const subscribeLayoutChange = (view: EditorView, listener: () => void) => {
+    const observer = new ResizeObserver(listener);
+    observer.observe(view.scrollDOM);
+    observer.observe(view.contentDOM);
+    return () => observer.disconnect();
+  };
+
   const scrollWindowToKeepPositionVisible = (view: EditorView, position: number) => {
     const coords = view.coordsAtPos(clampPosition(view, position));
     if (!coords) return;
@@ -223,11 +262,7 @@ export function TextEditor({
   const scrollPositionToViewportAnchor = (view: EditorView, position: number, anchorRatio = 0.3) => {
     const scrollTop = getScrollTopForPosition(view, position, anchorRatio);
     if (scrollTop == null) return;
-    if (editorUsesOwnScroll(view)) {
-      view.scrollDOM.scrollTop = scrollTop;
-      return;
-    }
-    window.scrollTo({ top: scrollTop });
+    setScrollTop(view, scrollTop);
   };
 
   const isPositionNearViewport = (view: EditorView, position: number): boolean => {
@@ -391,6 +426,12 @@ export function TextEditor({
       getScrollTopForPosition: (position, anchorRatio) => {
         return getScrollTopForPosition(view, position, anchorRatio);
       },
+      getScrollMetrics: () => getScrollMetrics(view),
+      setScrollTop: (scrollTop) => {
+        setScrollTop(view, scrollTop);
+      },
+      subscribeScroll: (listener) => subscribeScroll(view, listener),
+      subscribeLayoutChange: (listener) => subscribeLayoutChange(view, listener),
       startStreamingCursorTracking: (position) => {
         const clampedPosition = clampPosition(view, position);
         streamingCursorPositionRef.current = clampedPosition;
@@ -421,17 +462,12 @@ export function TextEditor({
       }
       const key = currentScrollStorageKeyRef.current;
       const nextScrollTop = key ? (getStoredScrollPosition(key) ?? 0) : 0;
-      const useEditorScroll = editorUsesOwnScroll(view);
       window.requestAnimationFrame(() => {
         if (viewRef.current !== view) return;
         if (streamingCursorPositionRef.current != null) {
           return;
         }
-        if (useEditorScroll) {
-          view.scrollDOM.scrollTop = nextScrollTop;
-        } else {
-          window.scrollTo({ top: nextScrollTop });
-        }
+        setScrollTop(view, nextScrollTop);
       });
     };
 
@@ -441,10 +477,9 @@ export function TextEditor({
       }
       const key = currentScrollStorageKeyRef.current;
       if (!key) return;
-      setStoredScrollPosition(key, editorUsesOwnScroll(view) ? view.scrollDOM.scrollTop : window.scrollY);
+      setStoredScrollPosition(key, getScrollMetrics(view).top);
     };
-    view.scrollDOM.addEventListener('scroll', syncScrollPosition, { passive: true });
-    window.addEventListener('scroll', syncScrollPosition, { passive: true });
+    const unsubscribeScroll = subscribeScroll(view, syncScrollPosition);
 
     const persistOnPageHide = () => {
       syncScrollPosition();
@@ -456,8 +491,7 @@ export function TextEditor({
 
     return () => {
       syncScrollPosition();
-      view.scrollDOM.removeEventListener('scroll', syncScrollPosition);
-      window.removeEventListener('scroll', syncScrollPosition);
+      unsubscribeScroll();
       window.removeEventListener('pagehide', persistOnPageHide);
       window.removeEventListener('beforeunload', persistOnPageHide);
       restoreScrollPositionRef.current = null;
@@ -540,7 +574,9 @@ export function TextEditor({
     if (previousKey === scrollStorageKey) return;
 
     if (previousKey) {
-      setStoredScrollPosition(previousKey, view.scrollDOM.scrollTop);
+      const previousScrollTop =
+        view.scrollDOM.scrollHeight > view.scrollDOM.clientHeight + 1 ? view.scrollDOM.scrollTop : window.scrollY;
+      setStoredScrollPosition(previousKey, previousScrollTop);
     }
 
     currentScrollStorageKeyRef.current = scrollStorageKey;
