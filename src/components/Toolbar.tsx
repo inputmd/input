@@ -287,6 +287,7 @@ export function Toolbar({
   const modelSelectorShortcutAvailable = showAiModelSelector && !aiDisabled && !aiModelsLoading && aiModels.length > 0;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
+  const showHeaderForkRepoButton = showForkRepo && view !== 'edit' && view !== 'workspaces';
   const resolvedLocalRateLimit = localRateLimit ?? readStoredGitHubRateLimitSnapshot('serverLocal');
   const resolvedServerRateLimit = serverRateLimit ?? readStoredGitHubRateLimitSnapshot('server');
   const localRateLimitAnimated = useMemo(
@@ -403,7 +404,7 @@ export function Toolbar({
               Share
             </DropdownMenu.Item>
           ) : null}
-          {showForkRepo ? (
+          {showForkRepo && !showHeaderForkRepoButton ? (
             <DropdownMenu.Item
               class="author-menu-item toolbar-mobile-only"
               onSelect={(event: Event) => {
@@ -880,7 +881,7 @@ export function Toolbar({
               )}
             </button>
           )}
-          {showForkRepo && view !== 'edit' && view !== 'workspaces' ? (
+          {showHeaderForkRepoButton ? (
             <button
               type="button"
               class="author-menu-trigger toolbar-desktop-only toolbar-fork-trigger"

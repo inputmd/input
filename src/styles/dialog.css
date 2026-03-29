@@ -81,6 +81,54 @@
   appearance: auto;
 }
 
+.dialog-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dialog-menu-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fork-repo-menu-item-meta {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.fork-repo-menu-content {
+  padding-bottom: 2px;
+  z-index: 70;
+}
+
+.fork-repo-menu-content button.repo-menu-item {
+  border: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+.fork-repo-menu-content button.repo-menu-item:hover {
+  background: var(--btn-hover);
+  border-color: transparent;
+}
+
+.fork-repo-menu-content button.repo-menu-item:focus,
+.fork-repo-menu-content button.repo-menu-item:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 0;
+  box-shadow: none;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

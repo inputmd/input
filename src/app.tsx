@@ -821,15 +821,33 @@ export function App() {
   const loadedReposInstallationId = installationId && installationReposById[installationId] ? installationId : null;
   const reposLoadError = installationId ? (reposLoadErrorsById[installationId] ?? null) : null;
   const activeInstalledRepoInstallationId = selectedRepoInstallationId ?? installationId;
-  const forkRepoDialogRepos = forkRepoDialog
-    ? (installationReposById[forkRepoDialog.selectedInstallationId] ?? [])
-    : [];
-  const forkRepoDialogReposLoading = forkRepoDialog
-    ? loadingInstallationRepoIds.has(forkRepoDialog.selectedInstallationId)
-    : false;
-  const forkRepoDialogReposLoadError = forkRepoDialog
-    ? (reposLoadErrorsById[forkRepoDialog.selectedInstallationId] ?? null)
-    : null;
+  const forkRepoDialogRepoGroups = useMemo(
+    () =>
+      forkRepoDialog
+        ? forkRepoDialog.installations.map((installation) => ({
+            installationId: installation.installationId,
+            installationLabel: installation.accountLogin ?? installation.installationId,
+            repos: (installationReposById[installation.installationId] ?? []).map((repo) => ({
+              id: repo.id,
+              fullName: repo.full_name,
+              isCurrentTarget:
+                selectedRepoInstallationId === installation.installationId &&
+                selectedRepo !== null &&
+                repo.full_name.toLowerCase() === selectedRepo.toLowerCase(),
+            })),
+            loading: loadingInstallationRepoIds.has(installation.installationId),
+            error: reposLoadErrorsById[installation.installationId] ?? null,
+          }))
+        : [],
+    [
+      forkRepoDialog,
+      installationReposById,
+      loadingInstallationRepoIds,
+      reposLoadErrorsById,
+      selectedRepo,
+      selectedRepoInstallationId,
+    ],
+  );
   const [localRateLimit, setLocalRateLimit] = useState<GitHubRateLimitSnapshot | null>(() =>
     readStoredGitHubRateLimitSnapshot('serverLocal'),
   );
@@ -6983,6 +7001,13 @@ export function App() {
       sourcePath: currentRepoDocPath,
       sourceContent: currentDocumentContent,
     });
+    await Promise.all(
+      linkedInstallations.map((installation) =>
+        loadInstallationReposForId(installation.installationId, {
+          notifyOnError: false,
+        }),
+      ),
+    );
     await syncForkRepoDialogInstallation(targetInstallationId);
   }, [
     activeInstalledRepoInstallationId,
@@ -6991,26 +7016,11 @@ export function App() {
     currentRepoDocPath,
     installationId,
     linkedInstallations,
+    loadInstallationReposForId,
     showAlert,
     syncForkRepoDialogInstallation,
     user,
   ]);
-
-  const onSelectForkRepoInstallation = useCallback(
-    (nextInstallationId: string) => {
-      setForkRepoDialog((current) =>
-        current
-          ? {
-              ...current,
-              selectedInstallationId: nextInstallationId,
-              selectedRepoFullName: '',
-            }
-          : current,
-      );
-      void syncForkRepoDialogInstallation(nextInstallationId);
-    },
-    [syncForkRepoDialogInstallation],
-  );
 
   const onConfirmForkRepo = useCallback(async () => {
     if (!forkRepoDialog) return;
@@ -8311,25 +8321,23 @@ export function App() {
       {forkRepoDialog ? (
         <ForkRepoDialog
           open
-          installations={forkRepoDialog.installations}
           selectedInstallationId={forkRepoDialog.selectedInstallationId}
-          repos={forkRepoDialogRepos}
-          reposLoading={forkRepoDialogReposLoading}
-          reposLoadError={forkRepoDialogReposLoadError}
+          repoGroups={forkRepoDialogRepoGroups}
           selectedRepoFullName={forkRepoDialog.selectedRepoFullName}
-          currentTargetFullName={
-            selectedRepoInstallationId === forkRepoDialog.selectedInstallationId && selectedRepo ? selectedRepo : null
-          }
           submitting={forkRepoSubmitting}
-          onSelectInstallation={(selectedInstallationId) => {
-            void onSelectForkRepoInstallation(selectedInstallationId);
+          onSelectRepo={({ installationId: selectedInstallationId, fullName: selectedRepoFullName }) => {
+            setForkRepoDialog((current) =>
+              current
+                ? {
+                    ...current,
+                    selectedInstallationId,
+                    selectedRepoFullName,
+                  }
+                : current,
+            );
           }}
-          onSelectRepo={(selectedRepoFullName) => {
-            setForkRepoDialog((current) => (current ? { ...current, selectedRepoFullName } : current));
-          }}
-          onRetryRepos={() => {
-            if (!forkRepoDialog) return;
-            void syncForkRepoDialogInstallation(forkRepoDialog.selectedInstallationId, { force: true });
+          onRetryRepos={(selectedInstallationId) => {
+            void syncForkRepoDialogInstallation(selectedInstallationId, { force: true });
           }}
           onConfirm={() => {
             void onConfirmForkRepo();
