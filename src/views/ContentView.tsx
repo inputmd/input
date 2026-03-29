@@ -308,6 +308,7 @@ export function ContentView({
         const conversation = answer.closest('.prompt-list-conversation');
         if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
           togglePromptListCollapsedStateInUrl(conversation);
+          return;
         }
         togglePromptAnswerExpandedState(answer);
       }

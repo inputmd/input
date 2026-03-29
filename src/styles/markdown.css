@@ -202,6 +202,7 @@
 .rendered-markdown ul.prompt-list {
   --prompt-list-indent-step: 1.35rem;
   --prompt-list-guide-color: color-mix(in srgb, var(--border) 76%, transparent);
+  font-size: 15px;
   padding-left: 0;
   list-style: none;
 }
@@ -225,6 +226,7 @@
   line-height: 1.3;
   text-align: center;
   cursor: pointer;
+  user-select: none;
 }
 
 .rendered-markdown .prompt-list-caption:hover {
@@ -258,8 +260,8 @@
 
 .rendered-markdown ul.prompt-list > li.prompt-list-branch:last-child {
   border-bottom: 1px solid var(--prompt-list-guide-color);
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
+  border-bottom-left-radius: 3px;
+  border-bottom-right-radius: 3px;
   overflow: hidden;
 }
 
@@ -349,30 +351,14 @@
   border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
 }
 
-.rendered-markdown .prompt-list-conversation[data-collapsed="true"] li.prompt-answer {
-  max-height: 80px;
-  overflow: hidden;
-}
-
-.rendered-markdown .prompt-list-conversation[data-collapsed="true"] li.prompt-answer::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 28px;
-  background: linear-gradient(to bottom, transparent, var(--bg));
-  pointer-events: none;
-}
-
 .rendered-markdown ul.prompt-list > li:first-child > .prompt-question,
 .rendered-markdown ul.prompt-list > li:first-child.prompt-question,
 .rendered-markdown ul.prompt-list > li:first-child > .prompt-answer,
 .rendered-markdown ul.prompt-list > li:first-child.prompt-answer,
 .rendered-markdown ul.prompt-list > li:first-child > .prompt-comment,
 .rendered-markdown ul.prompt-list > li:first-child.prompt-comment {
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
+  border-top-left-radius: 3px;
+  border-top-right-radius: 3px;
 }
 
 .rendered-markdown ul.prompt-list > li:last-child > .prompt-question,
@@ -381,8 +367,8 @@
 .rendered-markdown ul.prompt-list > li:last-child.prompt-answer,
 .rendered-markdown ul.prompt-list > li:last-child > .prompt-comment,
 .rendered-markdown ul.prompt-list > li:last-child.prompt-comment {
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
+  border-bottom-left-radius: 3px;
+  border-bottom-right-radius: 3px;
 }
 
 [data-theme="light"] .rendered-markdown li.prompt-answer {

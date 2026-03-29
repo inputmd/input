@@ -333,7 +333,7 @@ marked.use({
         if (itemCount <= 1) {
           return `<ul class="prompt-list">${itemsHtml}</ul>`;
         }
-        const caption = `Conversation with ${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
+        const caption = `${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
         const firstQuestion =
           promptListToken.items.find((item) => item.kind === 'question')?.sourceText ??
           promptListToken.items[0]?.sourceText ??
@@ -1021,7 +1021,7 @@ function decoratePromptAnswerCollapses(root: ParentNode): void {
     toggle.className = 'prompt-answer-toggle';
     toggle.setAttribute('href', '#');
     toggle.setAttribute('aria-expanded', 'false');
-    toggle.textContent = 'Show more';
+    toggle.textContent = 'More';
 
     const previewParagraph = Array.from(answer.children)
       .reverse()

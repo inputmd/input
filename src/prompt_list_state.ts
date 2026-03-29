@@ -16,8 +16,12 @@ export function hashPromptListIdentifierText(text: string): string {
 export function setPromptListCollapsedState(container: HTMLElement, collapsed: boolean) {
   container.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
   const toggle = container.querySelector<HTMLElement>('.prompt-list-caption');
-  if (!toggle) return;
-  toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  }
+  container.querySelectorAll<HTMLElement>('li.prompt-answer').forEach((answer) => {
+    setPromptAnswerExpandedState(answer, !collapsed);
+  });
 }
 
 export function setPromptAnswerExpandedState(container: HTMLElement, expanded: boolean) {
@@ -26,7 +30,7 @@ export function setPromptAnswerExpandedState(container: HTMLElement, expanded: b
   const toggle = container.querySelector<HTMLElement>('.prompt-answer-toggle');
   if (toggle) {
     toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    toggle.textContent = expanded ? 'Show less' : 'Show more';
+    toggle.textContent = expanded ? 'Less' : 'More';
   }
 
   const rest = container.querySelector<HTMLElement>('.prompt-answer-rest');
