@@ -1046,6 +1046,21 @@ export function EditView({
     pointerDownPositionRef.current = null;
   }, []);
 
+  const handlePreviewPromptListLayoutChange = useCallback(() => {
+    const pane = previewPaneRef.current;
+    if (!pane) return;
+
+    ignoreNextPreviewScrollRef.current = true;
+    schedulePreviewScrollIgnoreReset();
+
+    if (previewScrollLocked) {
+      requestPreviewScrollSync();
+      return;
+    }
+
+    pane.scrollTop = clampScrollTop(pane.scrollTop, maxScrollTop(pane));
+  }, [previewScrollLocked, requestPreviewScrollSync, schedulePreviewScrollIgnoreReset]);
+
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
     const answerToggle = target?.closest('.prompt-answer-toggle');
@@ -1056,9 +1071,11 @@ export function EditView({
         const conversation = answer.closest('.prompt-list-conversation');
         if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
           togglePromptListCollapsedStateInUrl(conversation, false);
+          handlePreviewPromptListLayoutChange();
           return;
         }
         togglePromptAnswerExpandedState(answer);
+        handlePreviewPromptListLayoutChange();
       }
       return;
     }
@@ -1069,6 +1086,7 @@ export function EditView({
       const container = toggle.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
         togglePromptListCollapsedStateInUrl(container, false);
+        handlePreviewPromptListLayoutChange();
       }
       return;
     }
@@ -1099,6 +1117,7 @@ export function EditView({
     const container = toggle.closest('.prompt-list-conversation');
     if (container instanceof HTMLElement) {
       togglePromptListCollapsedStateInUrl(container, false);
+      handlePreviewPromptListLayoutChange();
     }
   };
 
