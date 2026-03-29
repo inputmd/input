@@ -318,20 +318,20 @@ export function ReaderAiPanel({
     setDraft('');
     setQueuedCommands([]);
     const commands = prompt ? [...queued, prompt] : queued;
-    let failedCommand: string | null = null;
-    for (const command of commands) {
+    let failedCommandIndex = -1;
+    for (const [index, command] of commands.entries()) {
       const ok = await onSend(command);
       if (!ok) {
-        failedCommand = command;
+        failedCommandIndex = index;
         break;
       }
     }
-    if (failedCommand) {
-      setQueuedCommands((prev) =>
-        [failedCommand, ...commands.slice(commands.indexOf(failedCommand) + 1), ...prev].slice(0, 10),
-      );
-      if (!prompt) setDraft(draftValue);
-      else if (failedCommand === prompt) setDraft(draftValue);
+    if (failedCommandIndex >= 0) {
+      const failedQueuedCommands = commands.slice(failedCommandIndex, queued.length);
+      if (failedQueuedCommands.length > 0) {
+        setQueuedCommands((prev) => [...failedQueuedCommands, ...prev].slice(0, 10));
+      }
+      if (prompt) setDraft(draftValue);
     }
   };
 
@@ -349,9 +349,10 @@ export function ReaderAiPanel({
   };
 
   const clearChat = (focusComposer: boolean) => {
-    if (!hasMessages) return;
+    if (!hasMessages && queuedCommands.length === 0) return;
     pendingFocusAfterClearRef.current = focusComposer;
-    onClear();
+    setQueuedCommands([]);
+    if (hasMessages) onClear();
   };
 
   const handleSelectModel = (modelId: string) => {
@@ -369,40 +370,10 @@ export function ReaderAiPanel({
     <div
       class={`reader-ai-input-wrap reader-ai-input-wrap--composer${composerAtTop ? '' : ' reader-ai-input-wrap--composer-bottom'}`}
     >
-      <DropdownMenu.Root onOpenChange={blurOnClose}>
-        <DropdownMenu.Trigger asChild>
-          <button type="button" class="reader-ai-composer-menu-trigger" aria-label="Reader AI chat actions">
-            <MoreHorizontal size={14} aria-hidden="true" />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
-            <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={() => clearChat(true)}>
-              <span>Clear chat</span>
-              <span class="reader-ai-composer-menu-item-shortcut" aria-hidden="true">
-                {clearChatShortcutLabel}
-              </span>
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
-      <ReaderAiModelSelector
-        models={models}
-        modelsLoading={modelsLoading}
-        modelsError={modelsError}
-        selectedModel={selectedModel}
-        onSelectModel={handleSelectModel}
-        localCodexEnabled={localCodexEnabled}
-        onEnableLocalCodex={onEnableLocalCodex}
-        disabled={sending}
-        triggerClassName="reader-ai-model-trigger reader-ai-model-trigger--composer"
-        showLoginForMoreModels={showLoginForMoreModels}
-      />
       {queuedCommands.length > 0 ? (
         <div class="reader-ai-queue" role="group" aria-label="Queued Reader AI commands">
           <div class="reader-ai-queue-header">
             <span class="reader-ai-queue-title">Queued commands</span>
-            <span class="reader-ai-queue-count">{queuedCommands.length}/10</span>
           </div>
           <div class="reader-ai-queue-list">
             {queuedCommands.map((command, index) => (
@@ -423,66 +394,102 @@ export function ReaderAiPanel({
           </div>
         </div>
       ) : null}
-      <textarea
-        ref={composerInputRef}
-        class={`reader-ai-input${hasMessages ? ' reader-ai-input--bottom' : ''}`}
-        value={draft}
-        placeholder={composerPlaceholder}
-        onInput={(event) => {
-          const input = event.currentTarget;
-          setDraft(input.value);
-          input.style.height = 'auto';
-          input.style.height = `${input.scrollHeight}px`;
-        }}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
-            event.preventDefault();
+      <div class="reader-ai-composer-shell">
+        <DropdownMenu.Root onOpenChange={blurOnClose}>
+          <DropdownMenu.Trigger asChild>
+            <button type="button" class="reader-ai-composer-menu-trigger" aria-label="Reader AI chat actions">
+              <MoreHorizontal size={14} aria-hidden="true" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
+              <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={() => clearChat(true)}>
+                <span>Clear all</span>
+                <span class="reader-ai-composer-menu-item-shortcut" aria-hidden="true">
+                  {clearChatShortcutLabel}
+                </span>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+        <ReaderAiModelSelector
+          models={models}
+          modelsLoading={modelsLoading}
+          modelsError={modelsError}
+          selectedModel={selectedModel}
+          onSelectModel={handleSelectModel}
+          localCodexEnabled={localCodexEnabled}
+          onEnableLocalCodex={onEnableLocalCodex}
+          disabled={sending}
+          triggerClassName="reader-ai-model-trigger reader-ai-model-trigger--composer"
+          showLoginForMoreModels={showLoginForMoreModels}
+        />
+        <textarea
+          ref={composerInputRef}
+          class={`reader-ai-input${hasMessages ? ' reader-ai-input--bottom' : ''}`}
+          value={draft}
+          placeholder={composerPlaceholder}
+          onInput={(event) => {
             const input = event.currentTarget;
-            if (draft.length > 0) {
-              setDraft('');
-              input.style.height = 'auto';
+            setDraft(input.value);
+            input.style.height = 'auto';
+            input.style.height = `${input.scrollHeight}px`;
+          }}
+          onKeyDown={(event) => {
+            if (
+              (event.metaKey || event.ctrlKey) &&
+              !event.altKey &&
+              !event.shiftKey &&
+              event.key.toLowerCase() === 'k'
+            ) {
+              event.preventDefault();
+              const input = event.currentTarget;
+              if (draft.length > 0) {
+                setDraft('');
+                input.style.height = 'auto';
+              }
+              if (hasMessages && !sending) clearChat(true);
+              return;
             }
-            if (hasMessages && !sending) clearChat(true);
-            return;
-          }
-          if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === 'Enter') {
-            event.preventDefault();
-            enqueueDraft();
-            return;
-          }
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            void submit();
-          }
-        }}
-        rows={3}
-        disabled={composerInputDisabled}
-      />
-      <button
-        type="button"
-        class="reader-ai-queue-btn"
-        disabled={!canQueue || sending}
-        onClick={enqueueDraft}
-        aria-label="Add command to queue"
-        title={queuedCommands.length >= 10 ? 'Queue is full' : 'Add command to queue'}
-      >
-        Queue
-      </button>
-      {sending ? (
-        <button type="button" class="reader-ai-send-btn" onClick={onStop} aria-label="Stop response">
-          <CircleStop size={13} class="reader-ai-stop-icon" aria-hidden="true" />
-        </button>
-      ) : (
+            if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === 'Enter') {
+              event.preventDefault();
+              enqueueDraft();
+              return;
+            }
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              void submit();
+            }
+          }}
+          rows={3}
+          disabled={composerInputDisabled}
+        />
         <button
           type="button"
-          class="reader-ai-send-btn"
-          disabled={!canSend}
-          onClick={() => void submit()}
-          aria-label="Send question"
+          class="reader-ai-queue-btn"
+          disabled={!canQueue || sending}
+          onClick={enqueueDraft}
+          aria-label="Add command to queue"
+          title={queuedCommands.length >= 10 ? 'Queue is full' : 'Add command to queue'}
         >
-          <ArrowRight size={16} aria-hidden="true" />
+          Queue
         </button>
-      )}
+        {sending ? (
+          <button type="button" class="reader-ai-send-btn" onClick={onStop} aria-label="Stop response">
+            <CircleStop size={13} class="reader-ai-stop-icon" aria-hidden="true" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            class="reader-ai-send-btn"
+            disabled={!canSend}
+            onClick={() => void submit()}
+            aria-label="Send question"
+          >
+            <ArrowRight size={16} aria-hidden="true" />
+          </button>
+        )}
+      </div>
     </div>
   );
 

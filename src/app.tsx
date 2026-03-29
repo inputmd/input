@@ -8220,6 +8220,7 @@ export function App() {
               onPointerDown={onReaderAiSplitPointerDown}
             />
             <ReaderAiPanel
+              key={readerAiHistoryDocumentKey ?? 'reader-ai-panel'}
               models={readerAiModels}
               modelsLoading={readerAiModelsLoading}
               modelsError={readerAiModelsError}

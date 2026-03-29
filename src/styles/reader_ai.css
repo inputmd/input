@@ -277,7 +277,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 8px;
+  margin-bottom: 10px;
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   border-radius: 4px;
@@ -311,6 +311,7 @@
 
 .reader-ai-queue-item-index {
   flex: 0 0 auto;
+  min-width: 1.2em;
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.5;
@@ -577,6 +578,10 @@
   bottom: 0px;
   z-index: 2;
   background: var(--toolbar-bg);
+}
+
+.reader-ai-composer-shell {
+  position: relative;
 }
 
 .reader-ai-composer-menu-trigger {
