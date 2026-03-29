@@ -10,8 +10,8 @@
     "build": "tsc && tsc -p tsconfig.server.json && vite build",
     "preview": "vite preview",
     "deploy": "fly deploy",
-    "lint": "biome check .",
-    "lint:fix": "biome check --fix .",
+    "lint": "biome check --config-path . src server vite.config.ts",
+    "lint:fix": "biome check --config-path . --fix src server vite.config.ts",
     "test": "ava"
   },
   "ava": {
