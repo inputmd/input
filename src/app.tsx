@@ -6,7 +6,7 @@ import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError }
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
 import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './components/codemirror_diff_preview';
-import type { BracePromptRequest, InlinePromptRequest } from './components/codemirror_inline_prompt';
+import type { BracePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import type { EditorController, EditorProtectedRange } from './components/editor_controller';
@@ -3800,6 +3800,10 @@ export function App() {
           } satisfies ReaderAiConversationScope;
         })();
       const source = nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
+      if (!source.trim()) {
+        showFailureToast('Reader AI needs document content before it can answer.');
+        return false;
+      }
       readerAiAbortRef.current?.abort();
       const controller = new AbortController();
       readerAiAbortRef.current = controller;
@@ -4121,6 +4125,7 @@ export function App() {
       activeView,
       currentEditingDocPath,
       selectedReaderAiModel,
+      showFailureToast,
     ],
   );
 
@@ -4503,148 +4508,6 @@ export function App() {
     resetInlinePromptState();
   }, [resetInlinePromptState]);
 
-  const onInlinePromptSubmit = useCallback(
-    async ({ prompt, from, to, documentContent }: InlinePromptRequest) => {
-      const trimmedPrompt = prompt.trim();
-      if (!trimmedPrompt || inlinePromptStreaming || readerAiSending || readerAiApplyingChanges) return;
-      if (!readerAiSelectedModel) {
-        showFailureToast('Select a Reader AI model before running an inline prompt.');
-        return;
-      }
-
-      const controller = new AbortController();
-      inlinePromptAbortRef.current?.abort();
-      inlinePromptAbortRef.current = controller;
-      setInlinePromptStreaming(true);
-      setInlinePromptProtectedRangeState(null);
-
-      let streamed = '';
-      let completed = false;
-      const sanitizedDocumentContent = trimReaderAiSource(stripCriticMarkupComments(documentContent));
-      const sanitizedPromptMessage = stripCriticMarkupComments(trimmedPrompt);
-      const inlineContextLog = buildReaderAiContextLogPayload({
-        model: selectedReaderAiModel,
-        source: sanitizedDocumentContent,
-        messages: [{ role: 'user', content: sanitizedPromptMessage }],
-        mode: 'default',
-        currentDocPath: currentEditingDocPath,
-      });
-      let loggedReceiveStart = false;
-      const logReceiveStart = (trigger: string) => {
-        if (loggedReceiveStart) return;
-        loggedReceiveStart = true;
-        console.log('[reader-ai-context] stream started', { ...inlineContextLog, trigger });
-      };
-      console.log('[reader-ai-context] sending request', inlineContextLog);
-
-      editViewControllerRef.current?.startStreamingCursorTracking(from);
-      editViewControllerRef.current?.applyExternalChange({
-        from,
-        to,
-        insert: '',
-        selection: { anchor: from, head: from },
-        addToHistory: true,
-        isolateHistory: 'before',
-      });
-      setInlinePromptProtectedRangeState({ from, to: from });
-      setNextEditContent((previousContent) => previousContent.slice(0, from) + previousContent.slice(to), {
-        origin: 'streaming',
-        selection: { anchor: from, head: from },
-      });
-      setHasUserTypedUnsavedChanges(true);
-      setHasUnsavedChanges(true);
-
-      try {
-        await askReaderAiStream(
-          readerAiSelectedModel,
-          sanitizedDocumentContent,
-          [{ role: 'user', content: sanitizedPromptMessage }],
-          {
-            signal: controller.signal,
-            allowDocumentEdits: true,
-            onTurnStart: () => logReceiveStart('turn_start'),
-            onStreamError: () => logReceiveStart('stream_error'),
-            onDelta: (delta) => {
-              if (!delta) return;
-              logReceiveStart('delta');
-              const currentProtectedRange = inlinePromptProtectedRangeRef.current ?? {
-                from,
-                to: from + streamed.length,
-              };
-              const insertAt = currentProtectedRange.to;
-              editViewControllerRef.current?.applyExternalChange({
-                from: insertAt,
-                to: insertAt,
-                insert: delta,
-                addToHistory: true,
-              });
-              streamed += delta;
-              const nextProtectedRange = { from: currentProtectedRange.from, to: insertAt + delta.length };
-              setInlinePromptProtectedRangeState(nextProtectedRange);
-              editViewControllerRef.current?.updateStreamingCursorTracking(nextProtectedRange.to);
-              setNextEditContent(
-                (previousContent) => previousContent.slice(0, insertAt) + delta + previousContent.slice(insertAt),
-                { origin: 'streaming' },
-              );
-            },
-          },
-          undefined,
-          currentEditingDocPath,
-          true,
-        );
-        console.log('[reader-ai-context] stream finished', {
-          ...inlineContextLog,
-          status: 'completed',
-          receivedResponseChars: streamed.length,
-        });
-        completed = true;
-      } catch (err) {
-        console.log('[reader-ai-context] stream finished', {
-          ...inlineContextLog,
-          status: err instanceof DOMException && err.name === 'AbortError' ? 'aborted' : 'errored',
-          error: err instanceof Error ? err.message : String(err),
-          receivedResponseChars: streamed.length,
-        });
-        if (!(err instanceof DOMException && err.name === 'AbortError')) {
-          showFailureToast(err instanceof Error ? err.message : 'Inline AI prompt failed');
-        }
-      } finally {
-        if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
-        editViewControllerRef.current?.stopStreamingCursorTracking();
-        if (completed) {
-          const end = inlinePromptProtectedRangeRef.current?.to ?? from + streamed.length;
-          editViewControllerRef.current?.applyExternalChange({
-            from: end,
-            to: end,
-            insert: '',
-            selection: { anchor: end, head: end },
-            addToHistory: true,
-            isolateHistory: 'after',
-          });
-          setNextEditContent((previousContent) => previousContent, {
-            origin: 'streaming',
-            selection: { anchor: end, head: end },
-          });
-        }
-        setInlinePromptProtectedRangeState(null);
-        setInlinePromptStreaming(false);
-      }
-    },
-    [
-      currentEditingDocPath,
-      inlinePromptStreaming,
-      readerAiApplyingChanges,
-      readerAiSelectedModel,
-      selectedReaderAiModel,
-      readerAiSending,
-      setInlinePromptProtectedRangeState,
-      setNextEditContent,
-      showFailureToast,
-      setHasUnsavedChanges,
-      setHasUserTypedUnsavedChanges,
-    ],
-  );
-
   const onBracePromptStream = useCallback(
     async (
       {
@@ -4914,9 +4777,10 @@ export function App() {
           showFailureToast(err instanceof Error ? err.message : 'Prompt question failed');
         }
       } finally {
-        if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
+        const isCurrentInlinePrompt = inlinePromptAbortRef.current === controller;
+        if (isCurrentInlinePrompt) inlinePromptAbortRef.current = null;
         editViewControllerRef.current?.stopStreamingCursorTracking();
-        if (completed) {
+        if (completed && isCurrentInlinePrompt) {
           const currentProtectedRange = inlinePromptProtectedRangeRef.current;
           const end =
             currentProtectedRange?.from != null
@@ -4935,8 +4799,10 @@ export function App() {
             selection: { anchor: end, head: end },
           });
         }
-        setInlinePromptProtectedRangeState(null);
-        setInlinePromptStreaming(false);
+        if (isCurrentInlinePrompt) {
+          setInlinePromptProtectedRangeState(null);
+          setInlinePromptStreaming(false);
+        }
       }
     },
     [
@@ -7685,7 +7551,6 @@ export function App() {
             loading={repoEditLoading}
             onTogglePreview={onTogglePreview}
             onContentChange={onEditContentChange}
-            onInlinePromptSubmit={onInlinePromptSubmit}
             onBracePromptStream={onBracePromptStream}
             onPromptListSubmit={onPromptListSubmit}
             onCancelInlinePrompt={cancelInlinePrompt}

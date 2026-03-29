@@ -33,7 +33,6 @@ import { continuedIndentExtension } from './codemirror_continued_indent';
 import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
-import { type InlinePromptRequest, inlinePromptCompletionSource } from './codemirror_inline_prompt';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codemirror_markdown';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController, EditorProtectedRange } from './editor_controller';
@@ -65,7 +64,6 @@ interface MarkdownEditorProps {
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   onContentChange: (update: { content: string; origin: 'userEdits'; revision: number }) => void;
-  onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
   onBracePromptStream?: BracePromptStreamFn;
   onPromptListSubmit?: (request: PromptListRequest) => void;
   onCancelInlinePrompt?: () => void;
@@ -120,7 +118,6 @@ export function MarkdownEditor({
   contentRevision = 0,
   contentSelection = null,
   onContentChange,
-  onInlinePromptSubmit,
   onBracePromptStream,
   onPromptListSubmit,
   onCancelInlinePrompt,
@@ -176,8 +173,6 @@ export function MarkdownEditor({
 
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
-  const onInlinePromptSubmitRef = useRef(onInlinePromptSubmit);
-  onInlinePromptSubmitRef.current = onInlinePromptSubmit;
   const onBracePromptStreamRef = useRef(onBracePromptStream);
   onBracePromptStreamRef.current = onBracePromptStream;
   const onPromptListSubmitRef = useRef(onPromptListSubmit);
@@ -444,10 +439,7 @@ export function MarkdownEditor({
         syntaxHighlighting(appCodeMirrorHighlighter),
         bracketMatching(),
         autocompletion({
-          override: [
-            inlinePromptCompletionSource((request) => onInlinePromptSubmitRef.current?.(request)),
-            emojiCompletionSource,
-          ],
+          override: [emojiCompletionSource],
         }),
         markdownEditorLanguageSupport(),
         search({

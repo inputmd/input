@@ -3,7 +3,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { ArrowUpDown, ExternalLink, LockOpen } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import type { BracePromptRequest, InlinePromptRequest } from '../components/codemirror_inline_prompt';
+import type { BracePromptRequest } from '../components/codemirror_inline_prompt';
 import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
 import type { PromptListRequest } from '../components/markdown_editor_commands';
@@ -210,7 +210,6 @@ export interface EditViewProps {
   loading?: boolean;
   onTogglePreview: () => void;
   onContentChange: (update: { content: string; origin: 'userEdits'; revision: number }) => void;
-  onInlinePromptSubmit?: (request: InlinePromptRequest) => void;
   onBracePromptStream?: (
     request: BracePromptRequest,
     callbacks: { onDelta: (delta: string) => void },
@@ -263,7 +262,6 @@ export function EditView({
   loading = false,
   onTogglePreview,
   onContentChange,
-  onInlinePromptSubmit,
   onBracePromptStream,
   onPromptListSubmit,
   onCancelInlinePrompt,
@@ -1151,7 +1149,6 @@ export function EditView({
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}
             onEligibleSelectionChange={onEligibleSelectionChange}
-            onInlinePromptSubmit={onInlinePromptSubmit}
             onBracePromptStream={onBracePromptStream}
             onPromptListSubmit={onPromptListSubmit}
             onCancelInlinePrompt={onCancelInlinePrompt}
