@@ -4,7 +4,7 @@ import { ArrowUpDown, ExternalLink, LockOpen } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { BracePromptRequest, InlinePromptRequest } from '../components/codemirror_inline_prompt';
-import type { EditorController } from '../components/editor_controller';
+import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
 import type { PromptListRequest } from '../components/markdown_editor_commands';
 import { TextEditor } from '../components/TextEditor';
@@ -225,6 +225,9 @@ export interface EditViewProps {
   onEditorPaste?: (event: ClipboardEvent, view: EditorView) => void;
   onEditorReady?: (controller: EditorController | null) => void;
   onEligibleSelectionChange?: (eligible: boolean) => void;
+  protectedEditRange?: EditorProtectedRange | null;
+  onProtectedEditRangeChange?: (range: EditorProtectedRange | null) => void;
+  onProtectedEditRangeBlocked?: () => void;
   saving: boolean;
   canSave: boolean;
   hasUserTypedUnsavedChanges?: boolean;
@@ -271,6 +274,9 @@ export function EditView({
   onEditorPaste,
   onEditorReady,
   onEligibleSelectionChange,
+  protectedEditRange = null,
+  onProtectedEditRangeChange,
+  onProtectedEditRangeBlocked,
   saving,
   canSave,
   hasUserTypedUnsavedChanges = false,
@@ -1152,6 +1158,9 @@ export function EditView({
             inlinePromptActive={inlinePromptActive}
             onPaste={onEditorPaste}
             readOnly={readOnly || locked || loading}
+            protectedEditRange={protectedEditRange}
+            onProtectedEditRangeChange={onProtectedEditRangeChange}
+            onProtectedEditRangeBlocked={onProtectedEditRangeBlocked}
           />
         ) : (
           <TextEditor

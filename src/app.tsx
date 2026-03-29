@@ -9,7 +9,7 @@ import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './compo
 import type { BracePromptRequest, InlinePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import type { EditorController } from './components/editor_controller';
+import type { EditorController, EditorProtectedRange } from './components/editor_controller';
 import { ForkRepoDialog } from './components/ForkRepoDialog';
 import { ImageLightbox } from './components/ImageLightbox';
 import type { PromptListRequest } from './components/markdown_editor_commands';
@@ -916,6 +916,7 @@ export function App() {
   const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
   const [readerAiApplyingChanges, setReaderAiApplyingChanges] = useState(false);
   const [inlinePromptStreaming, setInlinePromptStreaming] = useState(false);
+  const [inlinePromptProtectedRange, setInlinePromptProtectedRange] = useState<EditorProtectedRange | null>(null);
   const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
@@ -1024,6 +1025,7 @@ export function App() {
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
+  const inlinePromptProtectedRangeRef = useRef<EditorProtectedRange | null>(inlinePromptProtectedRange);
   const editViewControllerRef = useRef<EditorController | null>(null);
   const readerAiStagedChangesRef = useRef<ReaderAiStagedChange[]>(readerAiStagedChanges);
   const readerAiEditProposalsRef = useRef<ReaderAiEditProposal[]>(readerAiEditProposals);
@@ -1058,6 +1060,9 @@ export function App() {
   useEffect(() => {
     readerAiSelectedHunkIdsByChangeIdRef.current = readerAiSelectedHunkIdsByChangeId;
   }, [readerAiSelectedHunkIdsByChangeId]);
+  useEffect(() => {
+    inlinePromptProtectedRangeRef.current = inlinePromptProtectedRange;
+  }, [inlinePromptProtectedRange]);
   const scheduleEditContentSnapshot = useCallback(
     (update: { content: string; revision: number }) => {
       cancelEditContentSnapshot();
@@ -1231,8 +1236,18 @@ export function App() {
     ((renderMode === 'markdown' && Boolean(readerAiSource)) ||
       (contentLoadPending && isMarkdownFileName(currentFileName)));
   const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
-  const readerAiEditLocked =
-    activeView === 'edit' && (readerAiSending || readerAiApplyingChanges || inlinePromptStreaming);
+  const setInlinePromptProtectedRangeState = useCallback((range: EditorProtectedRange | null) => {
+    inlinePromptProtectedRangeRef.current = range;
+    setInlinePromptProtectedRange(range);
+  }, []);
+  const resetInlinePromptState = useCallback(() => {
+    inlinePromptAbortRef.current = null;
+    setInlinePromptProtectedRangeState(null);
+    setInlinePromptStreaming(false);
+  }, [setInlinePromptProtectedRangeState]);
+  const readerAiSaveLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
+  const readerAiNavigationLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
+  const readerAiEditorLocked = activeView === 'edit' && readerAiApplyingChanges;
   const editorLockLabel = useMemo(() => {
     const selectedModel = readerAiModels.find((model) => model.id === readerAiSelectedModel);
     return selectedModel ? formatReaderAiModelDisplayName(selectedModel) : 'Reader AI';
@@ -3616,6 +3631,8 @@ export function App() {
         readerAiSkipPersistHistoryKeyRef.current = readerAiHistoryDocumentKey;
         readerAiAbortRef.current?.abort();
         readerAiAbortRef.current = null;
+        inlinePromptAbortRef.current?.abort();
+        resetInlinePromptState();
         setReaderAiSending(false);
         setReaderAiToolStatus(null);
         const loaded = loadReaderAiEntryFromHistory(readerAiHistoryDocumentKey);
@@ -3657,6 +3674,8 @@ export function App() {
     readerAiPrevHistoryKeyRef.current = null;
     readerAiAbortRef.current?.abort();
     readerAiAbortRef.current = null;
+    inlinePromptAbortRef.current?.abort();
+    resetInlinePromptState();
     setReaderAiSending(false);
     setReaderAiToolStatus(null);
     setReaderAiToolLog([]);
@@ -3673,7 +3692,7 @@ export function App() {
     setReaderAiConversationScope(null);
     setReaderAiHasEligibleSelection(false);
     setReaderAiError(null);
-  }, [readerAiHistoryEligible, readerAiHistoryDocumentKey]);
+  }, [readerAiHistoryEligible, readerAiHistoryDocumentKey, resetInlinePromptState]);
 
   useEffect(() => {
     if (!readerAiHistoryEligible || !readerAiHistoryDocumentKey) return;
@@ -4140,6 +4159,8 @@ export function App() {
 
   const onReaderAiClear = useCallback(() => {
     if (readerAiHistoryDocumentKey) clearReaderAiMessagesFromHistory(readerAiHistoryDocumentKey);
+    inlinePromptAbortRef.current?.abort();
+    resetInlinePromptState();
     setReaderAiMessages([]);
     setReaderAiSummary('');
     setReaderAiConversationScope(null);
@@ -4157,7 +4178,7 @@ export function App() {
     setReaderAiStagedFileContents({});
     setReaderAiDocumentEditedContent(null);
     setReaderAiError(null);
-  }, [readerAiHistoryDocumentKey]);
+  }, [readerAiHistoryDocumentKey, resetInlinePromptState]);
 
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
@@ -4479,8 +4500,8 @@ export function App() {
 
   const cancelInlinePrompt = useCallback(() => {
     inlinePromptAbortRef.current?.abort();
-    inlinePromptAbortRef.current = null;
-  }, []);
+    resetInlinePromptState();
+  }, [resetInlinePromptState]);
 
   const onInlinePromptSubmit = useCallback(
     async ({ prompt, from, to, documentContent }: InlinePromptRequest) => {
@@ -4495,6 +4516,7 @@ export function App() {
       inlinePromptAbortRef.current?.abort();
       inlinePromptAbortRef.current = controller;
       setInlinePromptStreaming(true);
+      setInlinePromptProtectedRangeState(null);
 
       let streamed = '';
       let completed = false;
@@ -4524,6 +4546,7 @@ export function App() {
         addToHistory: true,
         isolateHistory: 'before',
       });
+      setInlinePromptProtectedRangeState({ from, to: from });
       setNextEditContent((previousContent) => previousContent.slice(0, from) + previousContent.slice(to), {
         origin: 'streaming',
         selection: { anchor: from, head: from },
@@ -4544,7 +4567,11 @@ export function App() {
             onDelta: (delta) => {
               if (!delta) return;
               logReceiveStart('delta');
-              const insertAt = from + streamed.length;
+              const currentProtectedRange = inlinePromptProtectedRangeRef.current ?? {
+                from,
+                to: from + streamed.length,
+              };
+              const insertAt = currentProtectedRange.to;
               editViewControllerRef.current?.applyExternalChange({
                 from: insertAt,
                 to: insertAt,
@@ -4552,7 +4579,9 @@ export function App() {
                 addToHistory: true,
               });
               streamed += delta;
-              editViewControllerRef.current?.updateStreamingCursorTracking(insertAt + delta.length);
+              const nextProtectedRange = { from: currentProtectedRange.from, to: insertAt + delta.length };
+              setInlinePromptProtectedRangeState(nextProtectedRange);
+              editViewControllerRef.current?.updateStreamingCursorTracking(nextProtectedRange.to);
               setNextEditContent(
                 (previousContent) => previousContent.slice(0, insertAt) + delta + previousContent.slice(insertAt),
                 { origin: 'streaming' },
@@ -4583,7 +4612,7 @@ export function App() {
         if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
         editViewControllerRef.current?.stopStreamingCursorTracking();
         if (completed) {
-          const end = from + streamed.length;
+          const end = inlinePromptProtectedRangeRef.current?.to ?? from + streamed.length;
           editViewControllerRef.current?.applyExternalChange({
             from: end,
             to: end,
@@ -4597,6 +4626,7 @@ export function App() {
             selection: { anchor: end, head: end },
           });
         }
+        setInlinePromptProtectedRangeState(null);
         setInlinePromptStreaming(false);
       }
     },
@@ -4607,6 +4637,7 @@ export function App() {
       readerAiSelectedModel,
       selectedReaderAiModel,
       readerAiSending,
+      setInlinePromptProtectedRangeState,
       setNextEditContent,
       showFailureToast,
       setHasUnsavedChanges,
@@ -4731,11 +4762,14 @@ export function App() {
       inlinePromptAbortRef.current?.abort();
       inlinePromptAbortRef.current = controller;
       setInlinePromptStreaming(true);
+      setInlinePromptProtectedRangeState(null);
 
       let streamedRaw = '';
       let bufferedRaw = '';
       let streamedAnswer = '';
       let completed = false;
+      const protectedPrefixLength = answerFrom - insertFrom;
+      const originalInsertedContent = documentContent.slice(insertFrom, insertTo);
       const sanitizedMessages = messages.map((message) => ({
         role: message.role,
         content: stripCriticMarkupComments(message.content),
@@ -4758,10 +4792,13 @@ export function App() {
       const applyPromptListAnswer = (nextRaw: string) => {
         const nextAnswer = formatPromptListAnswer(nextRaw, answerIndent);
         if (nextAnswer === streamedAnswer) return;
+        const currentProtectedRange = inlinePromptProtectedRangeRef.current;
+        if (!currentProtectedRange) return;
+        const currentAnswerFrom = currentProtectedRange.from + protectedPrefixLength;
         const prefix = commonPrefixLength(streamedAnswer, nextAnswer);
         const suffix = commonSuffixLength(streamedAnswer, nextAnswer, prefix);
-        const replaceFrom = answerFrom + prefix;
-        const replaceTo = answerFrom + streamedAnswer.length - suffix;
+        const replaceFrom = currentAnswerFrom + prefix;
+        const replaceTo = currentAnswerFrom + streamedAnswer.length - suffix;
         const insertText = nextAnswer.slice(prefix, nextAnswer.length - suffix);
         editViewControllerRef.current?.applyExternalChange({
           from: replaceFrom,
@@ -4770,7 +4807,14 @@ export function App() {
           addToHistory: true,
         });
         streamedAnswer = nextAnswer;
-        editViewControllerRef.current?.updateStreamingCursorTracking(answerFrom + streamedAnswer.length);
+        const nextProtectedRange = {
+          from: currentProtectedRange.from,
+          to: currentProtectedRange.from + protectedPrefixLength + streamedAnswer.length,
+        };
+        setInlinePromptProtectedRangeState(nextProtectedRange);
+        editViewControllerRef.current?.updateStreamingCursorTracking(
+          nextProtectedRange.from + protectedPrefixLength + streamedAnswer.length,
+        );
         setNextEditContent(
           (previousContent) => previousContent.slice(0, replaceFrom) + insertText + previousContent.slice(replaceTo),
           { origin: 'streaming' },
@@ -4785,6 +4829,10 @@ export function App() {
         scrollIntoView: true,
         addToHistory: true,
         isolateHistory: 'before',
+      });
+      setInlinePromptProtectedRangeState({
+        from: insertFrom,
+        to: insertFrom + protectedPrefixLength,
       });
       editViewControllerRef.current?.startStreamingCursorTracking(answerFrom);
       setNextEditContent(
@@ -4841,10 +4889,26 @@ export function App() {
           receivedResponseChars: streamedRaw.length + bufferedRaw.length,
         });
         if (streamedAnswer.length === 0) {
-          setNextEditContent(documentContent, {
-            origin: 'appEdits',
-            selection: { anchor: insertFrom, head: insertFrom },
-          });
+          const currentProtectedRange = inlinePromptProtectedRangeRef.current;
+          if (currentProtectedRange) {
+            editViewControllerRef.current?.applyExternalChange({
+              from: currentProtectedRange.from,
+              to: currentProtectedRange.to,
+              insert: originalInsertedContent,
+              selection: { anchor: currentProtectedRange.from, head: currentProtectedRange.from },
+              addToHistory: true,
+            });
+            setNextEditContent(
+              (previousContent) =>
+                previousContent.slice(0, currentProtectedRange.from) +
+                originalInsertedContent +
+                previousContent.slice(currentProtectedRange.to),
+              {
+                origin: 'appEdits',
+                selection: { anchor: currentProtectedRange.from, head: currentProtectedRange.from },
+              },
+            );
+          }
         }
         if (!(err instanceof DOMException && err.name === 'AbortError')) {
           showFailureToast(err instanceof Error ? err.message : 'Prompt question failed');
@@ -4853,7 +4917,11 @@ export function App() {
         if (inlinePromptAbortRef.current === controller) inlinePromptAbortRef.current = null;
         editViewControllerRef.current?.stopStreamingCursorTracking();
         if (completed) {
-          const end = answerFrom + streamedAnswer.length;
+          const currentProtectedRange = inlinePromptProtectedRangeRef.current;
+          const end =
+            currentProtectedRange?.from != null
+              ? currentProtectedRange.from + protectedPrefixLength + streamedAnswer.length
+              : answerFrom + streamedAnswer.length;
           editViewControllerRef.current?.applyExternalChange({
             from: end,
             to: end,
@@ -4867,12 +4935,14 @@ export function App() {
             selection: { anchor: end, head: end },
           });
         }
+        setInlinePromptProtectedRangeState(null);
         setInlinePromptStreaming(false);
       }
     },
     [
       currentEditingDocPath,
       inlinePromptStreaming,
+      setInlinePromptProtectedRangeState,
       readerAiApplyingChanges,
       readerAiSelectedModel,
       selectedReaderAiModel,
@@ -4985,7 +5055,7 @@ export function App() {
   }, [activeView, repoAccessMode]);
 
   const onCancel = useCallback(async () => {
-    if (readerAiEditLocked) return;
+    if (readerAiNavigationLocked) return;
     if (pendingImageUploads.size > 0) {
       void showAlert('Wait for image uploads to finish before leaving the editor.');
       return;
@@ -5022,7 +5092,7 @@ export function App() {
     activeView,
     hasEffectiveUnsavedChanges,
     isScratchDocument,
-    readerAiEditLocked,
+    readerAiNavigationLocked,
     pendingImageUploads,
     showAlert,
     showConfirm,
@@ -5302,7 +5372,7 @@ export function App() {
 
   const commitDocumentContent = useCallback(
     async (options?: { content?: string; title?: string }): Promise<CommitResult | null> => {
-      if (saveInFlightRef.current || readerAiEditLocked) return null;
+      if (saveInFlightRef.current || readerAiSaveLocked) return null;
       if (pendingImageUploads.size > 0) {
         void showAlert('Wait for image uploads to finish before saving.');
         return null;
@@ -5640,7 +5710,7 @@ export function App() {
       editingBackend,
       handleSessionExpired,
       pendingImageUploads,
-      readerAiEditLocked,
+      readerAiSaveLocked,
       renderDocumentContent,
       repoAccessMode,
       repoSidebarFiles,
@@ -5974,7 +6044,7 @@ export function App() {
 
   const handleSelectFile = useCallback(
     async (filePath: string) => {
-      if (activeView === 'edit' && readerAiEditLocked) {
+      if (activeView === 'edit' && readerAiNavigationLocked) {
         showFailureToast('Reader AI is working. Wait for it to finish before switching files.');
         return;
       }
@@ -5991,7 +6061,7 @@ export function App() {
     },
     [
       activeView,
-      readerAiEditLocked,
+      readerAiNavigationLocked,
       pendingImageUploads,
       hasEffectiveUnsavedChanges,
       navigateToSidebarFile,
@@ -6002,7 +6072,7 @@ export function App() {
 
   const handleClearSelectedFile = useCallback(async () => {
     if (!currentRepoDocPath && !currentFileName) return;
-    if (activeView === 'edit' && readerAiEditLocked) {
+    if (activeView === 'edit' && readerAiNavigationLocked) {
       showFailureToast('Reader AI is working. Wait for it to finish before clearing the current file.');
       return;
     }
@@ -6032,7 +6102,7 @@ export function App() {
     currentFileName,
     currentRepoDocPath,
     hasEffectiveUnsavedChanges,
-    readerAiEditLocked,
+    readerAiNavigationLocked,
     pendingImageUploads,
     showConfirm,
     editingBackend,
@@ -6119,7 +6189,7 @@ export function App() {
         focusEditorSoon();
         return;
       }
-      if (activeView === 'edit' && readerAiEditLocked) {
+      if (activeView === 'edit' && readerAiNavigationLocked) {
         showFailureToast('Reader AI is working. Wait for it to finish before creating a file.');
         return;
       }
@@ -6177,7 +6247,7 @@ export function App() {
       editingBackend,
       currentRepoDocPath,
       route,
-      readerAiEditLocked,
+      readerAiNavigationLocked,
       pendingImageUploads,
       hasEffectiveUnsavedChanges,
       currentFileName,
@@ -6311,7 +6381,7 @@ export function App() {
 
   const handleEditFile = useCallback(
     async (filePath: string) => {
-      if (activeView === 'edit' && readerAiEditLocked) {
+      if (activeView === 'edit' && readerAiNavigationLocked) {
         showFailureToast('Reader AI is working. Wait for it to finish before switching files.');
         return;
       }
@@ -6346,7 +6416,7 @@ export function App() {
       selectedRepoRef,
       currentRouteRepoRef,
       activeView,
-      readerAiEditLocked,
+      readerAiNavigationLocked,
       currentFileName,
       hasEffectiveUnsavedChanges,
       onSave,
@@ -7631,17 +7701,22 @@ export function App() {
               editViewControllerRef.current = controller;
             }}
             onEligibleSelectionChange={setReaderAiHasEligibleSelection}
+            protectedEditRange={inlinePromptProtectedRange}
+            onProtectedEditRangeChange={setInlinePromptProtectedRangeState}
+            onProtectedEditRangeBlocked={() => {
+              showFailureToast('Reader AI is editing that range right now. Edit elsewhere or wait for it to finish.');
+            }}
             resolvePreviewImageSrc={(src) =>
               resolveMarkdownImageSrc(src, editingBackend === 'repo' ? currentRepoDocPath : null)
             }
             previewWikiLinkResolver={editPreviewWikiLinkResolver}
             showLoggedOutNewDocPreviewDescription={route.name === 'new' && activeView === 'edit' && !user}
             saving={saving}
-            canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
+            canSave={hasUnsavedChanges && !readerAiSaveLocked && !repoEditLoading && pendingImageUploads.size === 0}
             hasUserTypedUnsavedChanges={hasUserTypedUnsavedChanges}
             onSave={onSave}
-            locked={readerAiEditLocked}
-            showLockIndicator={inlinePromptStreaming || !showReaderAiPanel}
+            locked={readerAiEditorLocked}
+            showLockIndicator={readerAiEditorLocked || !showReaderAiPanel}
             lockLabel={editorLockLabel}
             imageUploadIssue={
               failedImageUpload
@@ -7748,10 +7823,10 @@ export function App() {
     (!!user || repoAccessMode === 'public' || currentGistId !== null || route.name === 'sharefile');
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
   const notifyReaderAiEditLock = useCallback(() => {
-    if (!readerAiEditLocked) return false;
-    showFailureToast('Reader AI is working. Wait for it to finish before editing or switching files.');
+    if (!readerAiNavigationLocked) return false;
+    showFailureToast('Reader AI is working. Wait for it to finish before switching files.');
     return true;
-  }, [readerAiEditLocked, showFailureToast]);
+  }, [readerAiNavigationLocked, showFailureToast]);
   const pendingImageUploadCount = pendingImageUploads.size;
   const handleSidebarDocumentStep = useCallback(
     async (direction: -1 | 1) => {
@@ -7906,7 +7981,7 @@ export function App() {
   }, []);
   const onEditContentChange = useCallback(
     (update: { content: string; origin: 'userEdits'; revision: number }) => {
-      if (readerAiEditLocked) return;
+      if (readerAiEditorLocked) return;
       hasTypedInExternalEditSessionRef.current = true;
       editContentRef.current = update.content;
       pendingGistDraftDirtyRef.current = draftMode && editingBackend === 'gist' && currentGistId === null;
@@ -7919,7 +7994,7 @@ export function App() {
       currentGistId,
       draftMode,
       editingBackend,
-      readerAiEditLocked,
+      readerAiEditorLocked,
       scheduleEditContentSnapshot,
       setHasUnsavedChanges,
       setHasUserTypedUnsavedChanges,
@@ -8191,7 +8266,7 @@ export function App() {
         onCancel={onCancel}
         showSave={showEditorSave}
         saving={saving}
-        canSave={hasUnsavedChanges && !readerAiEditLocked && !repoEditLoading && pendingImageUploads.size === 0}
+        canSave={hasUnsavedChanges && !readerAiSaveLocked && !repoEditLoading && pendingImageUploads.size === 0}
         onSave={onSave}
         onSaveAndExit={onSaveAndExit}
         saveStatusText={saveStatusText}

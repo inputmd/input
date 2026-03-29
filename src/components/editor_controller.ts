@@ -3,6 +3,11 @@ export interface EditorSelectionRange {
   head: number;
 }
 
+export interface EditorProtectedRange {
+  from: number;
+  to: number;
+}
+
 export interface ExternalEditorChange {
   from: number;
   to: number;

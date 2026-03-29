@@ -14,7 +14,7 @@ import {
   search,
   setSearchQuery,
 } from '@codemirror/search';
-import { Compartment, EditorState, Prec } from '@codemirror/state';
+import { type ChangeDesc, Compartment, EditorState, Prec } from '@codemirror/state';
 import {
   drawSelection,
   EditorView,
@@ -36,7 +36,7 @@ import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { type InlinePromptRequest, inlinePromptCompletionSource } from './codemirror_inline_prompt';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codemirror_markdown';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
-import type { EditorController } from './editor_controller';
+import type { EditorController, EditorProtectedRange } from './editor_controller';
 import {
   acceptBracePromptSelectionOnEnter,
   backspacePromptQuestionMarker,
@@ -77,7 +77,34 @@ interface MarkdownEditorProps {
   diffPreview?: EditorDiffPreview | null;
   onEditorReady?: (controller: EditorController | null) => void;
   onEligibleSelectionChange?: (eligible: boolean) => void;
+  protectedEditRange?: EditorProtectedRange | null;
+  onProtectedEditRangeChange?: (range: EditorProtectedRange | null) => void;
+  onProtectedEditRangeBlocked?: () => void;
   class?: string;
+}
+
+function changeTouchesProtectedRange(
+  changeFrom: number,
+  changeTo: number,
+  protectedRange: EditorProtectedRange,
+): boolean {
+  const { from, to } = protectedRange;
+  if (from === to) {
+    if (changeFrom === changeTo) return changeFrom === from;
+    return changeFrom <= from && changeTo >= from;
+  }
+  if (changeFrom === changeTo) return changeFrom >= from && changeFrom <= to;
+  return changeFrom < to && changeTo > from;
+}
+
+function mapProtectedRangeThroughChanges(
+  protectedRange: EditorProtectedRange,
+  changes: ChangeDesc,
+): EditorProtectedRange {
+  return {
+    from: changes.mapPos(protectedRange.from, -1),
+    to: changes.mapPos(protectedRange.to, 1),
+  };
 }
 
 function createHiddenSearchPanel(): Panel {
@@ -105,6 +132,9 @@ export function MarkdownEditor({
   diffPreview = null,
   onEditorReady,
   onEligibleSelectionChange,
+  protectedEditRange = null,
+  onProtectedEditRangeChange,
+  onProtectedEditRangeBlocked,
   class: className,
 }: MarkdownEditorProps) {
   const STREAMING_CURSOR_VIEWPORT_MARGIN_PX = 72;
@@ -162,6 +192,12 @@ export function MarkdownEditor({
   onEditorReadyRef.current = onEditorReady;
   const onEligibleSelectionChangeRef = useRef(onEligibleSelectionChange);
   onEligibleSelectionChangeRef.current = onEligibleSelectionChange;
+  const protectedEditRangeRef = useRef(protectedEditRange);
+  protectedEditRangeRef.current = protectedEditRange;
+  const onProtectedEditRangeChangeRef = useRef(onProtectedEditRangeChange);
+  onProtectedEditRangeChangeRef.current = onProtectedEditRangeChange;
+  const onProtectedEditRangeBlockedRef = useRef(onProtectedEditRangeBlocked);
+  onProtectedEditRangeBlockedRef.current = onProtectedEditRangeBlocked;
 
   const latestLocalRevisionRef = useRef(0);
 
@@ -374,6 +410,22 @@ export function MarkdownEditor({
       }
       if (!update.docChanged) return;
       if (update.transactions.every((tr) => isExternalSyncTransaction(tr))) return;
+      let nextProtectedEditRange = protectedEditRangeRef.current;
+      for (const transaction of update.transactions) {
+        if (!transaction.docChanged || isExternalSyncTransaction(transaction) || nextProtectedEditRange === null)
+          continue;
+        nextProtectedEditRange = mapProtectedRangeThroughChanges(nextProtectedEditRange, transaction.changes);
+      }
+      if (
+        (protectedEditRangeRef.current === null && nextProtectedEditRange !== null) ||
+        (protectedEditRangeRef.current !== null &&
+          nextProtectedEditRange !== null &&
+          (protectedEditRangeRef.current.from !== nextProtectedEditRange.from ||
+            protectedEditRangeRef.current.to !== nextProtectedEditRange.to))
+      ) {
+        protectedEditRangeRef.current = nextProtectedEditRange;
+        onProtectedEditRangeChangeRef.current?.(nextProtectedEditRange);
+      }
       const doc = update.state.doc.toString();
       const revision = latestLocalRevisionRef.current + 1;
       latestLocalRevisionRef.current = revision;
@@ -412,6 +464,19 @@ export function MarkdownEditor({
         EditorView.lineWrapping,
         fencedCodeLineClassExtension,
         continuedIndentExtension({ mode: 'markdown', maxColumns: 10 }),
+        EditorState.transactionFilter.of((transaction) => {
+          if (!transaction.docChanged || isExternalSyncTransaction(transaction)) return transaction;
+          const currentProtectedRange = protectedEditRangeRef.current;
+          if (!currentProtectedRange) return transaction;
+          let blocked = false;
+          transaction.changes.iterChangedRanges((from, to) => {
+            if (blocked) return;
+            blocked = changeTouchesProtectedRange(from, to, currentProtectedRange);
+          });
+          if (!blocked) return transaction;
+          queueMicrotask(() => onProtectedEditRangeBlockedRef.current?.());
+          return [];
+        }),
         EditorView.updateListener.of(onUpdate),
         EditorView.domEventHandlers({
           paste: (event, view) => {
