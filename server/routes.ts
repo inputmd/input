@@ -189,8 +189,8 @@ const OPENROUTER_PAID_MODELS: ReaderAiModelEntry[] = [
     context_length: 1_048_576,
   },
   {
-    id: 'google/gemini-3-pro-preview',
-    name: 'Google: Gemini 3 Pro Preview (Paid)',
+    id: 'google/gemini-3.1-pro-preview',
+    name: 'Google: Gemini 3.1 Pro Preview (Paid)',
     context_length: 1_048_576,
   },
 ];

@@ -399,7 +399,7 @@ test('subagent does not enable prompt caching for paid gemini models', async (t)
   };
   await executeReaderAiSubagent({
     ...defaultOpts,
-    model: 'google/gemini-3-pro-preview',
+    model: 'google/gemini-3.1-pro-preview',
     fetchFn,
   });
   const parsed = JSON.parse(capturedBody) as { cache_control?: unknown };
