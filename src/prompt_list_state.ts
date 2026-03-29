@@ -1,6 +1,11 @@
 const PROMPT_LIST_COLLAPSED_QUERY_PARAM = 'plc';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+interface TogglePromptAnswerExpandedOptions {
+  behavior?: ScrollBehavior;
+  keepTopInViewOnCollapse?: boolean;
+}
+
 export function normalizePromptListIdentifierText(text: string): string {
   return text.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -96,9 +101,73 @@ function shouldHideExpandedPromptAnswerToggle(container: HTMLElement): boolean {
   return container.closest<HTMLElement>('.rendered-markdown')?.dataset.hidePromptAnswerLess === 'true';
 }
 
-export function togglePromptAnswerExpandedState(container: HTMLElement) {
+function getPromptListConversationHeaderGap(target: HTMLElement): number {
+  const conversation = target.closest<HTMLElement>('.prompt-list-conversation');
+  const header = conversation?.querySelector<HTMLElement>('.prompt-list-header');
+  return Math.round((header?.offsetHeight ?? 0) * 1.5);
+}
+
+function isScrollablePromptListContainer(container: HTMLElement): boolean {
+  const view = container.ownerDocument.defaultView;
+  if (!view) return false;
+  const styles = view.getComputedStyle(container);
+  const overflowY = styles.overflowY || styles.overflow;
+  if (!/(auto|scroll|overlay)/.test(overflowY)) return false;
+  return container.scrollHeight > container.clientHeight;
+}
+
+function getPromptListScrollContainer(target: HTMLElement): HTMLElement | null {
+  for (const selector of [
+    '.editor-preview-pane',
+    '.mobile-preview-pane',
+    '.content-view',
+    '.document-stack-layer-content',
+  ]) {
+    const container = target.closest<HTMLElement>(selector);
+    if (container && isScrollablePromptListContainer(container)) return container;
+  }
+  return null;
+}
+
+function getFixedToolbarHeight(document: Document): number {
+  const toolbar = document.querySelector<HTMLElement>('.toolbar');
+  if (toolbar) return toolbar.offsetHeight;
+
+  const view = document.defaultView;
+  if (!view) return 0;
+  const raw = view.getComputedStyle(document.documentElement).getPropertyValue('--toolbar-height').trim();
+  const match = /^(-?\d+(?:\.\d+)?)px$/i.exec(raw);
+  if (match) return Number.parseFloat(match[1] ?? '0');
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function scrollPromptAnswerTopIntoView(container: HTMLElement, behavior: ScrollBehavior = 'auto') {
+  const headerGap = getPromptListConversationHeaderGap(container);
+  const scrollContainer = getPromptListScrollContainer(container);
+  if (scrollContainer) {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const targetRect = container.getBoundingClientRect();
+    const offsetTop = targetRect.top - containerRect.top + scrollContainer.scrollTop;
+    scrollContainer.scrollTo({ top: Math.max(0, offsetTop - headerGap), behavior });
+    return;
+  }
+
+  const view = container.ownerDocument.defaultView;
+  if (!view) return;
+  const targetTop = container.getBoundingClientRect().top + view.scrollY;
+  const toolbarHeight = getFixedToolbarHeight(container.ownerDocument);
+  view.scrollTo({ top: Math.max(0, targetTop - toolbarHeight - headerGap), behavior });
+}
+
+export function togglePromptAnswerExpandedState(container: HTMLElement, options?: TogglePromptAnswerExpandedOptions) {
   const expanded = container.getAttribute('data-expanded') === 'true';
-  setPromptAnswerExpandedState(container, !expanded);
+  const nextExpanded = !expanded;
+  setPromptAnswerExpandedState(container, nextExpanded);
+
+  if (expanded && !nextExpanded && options?.keepTopInViewOnCollapse) {
+    scrollPromptAnswerTopIntoView(container, options.behavior);
+  }
 }
 
 function isPromptListMessage(element: Element | null): element is HTMLElement {

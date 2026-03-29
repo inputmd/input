@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { marked } from 'marked';
 import { BRACE_PROMPT_HINT_LABEL } from '../../src/brace_prompt.ts';
 import { parseMarkdownDocument, parseMarkdownToHtml } from '../../src/markdown.ts';
-import { setPromptAnswerExpandedState } from '../../src/prompt_list_state.ts';
+import { setPromptAnswerExpandedState, togglePromptAnswerExpandedState } from '../../src/prompt_list_state.ts';
 import { EMPTY_PROMPT_QUESTION_PLACEHOLDER } from '../../src/prompt_list_syntax.ts';
 
 function withDom<T>(callback: () => T): T {
@@ -422,6 +422,67 @@ test('setPromptAnswerExpandedState rejoins split paragraph text and moves the to
     t.is(thirdParagraph?.textContent?.trim(), thirdParagraphWords.join(' '));
     t.is(lastParagraph?.textContent?.trim(), 'Final paragraph ends here. Show less');
     t.is(toggle?.parentElement, lastParagraph ?? null);
+  });
+});
+
+test('togglePromptAnswerExpandedState keeps collapsed prompt answers aligned below the toolbar and prompt list header', (t) => {
+  withDom(() => {
+    const thirdParagraphWords = Array.from({ length: 45 }, (_, index) => `word${index + 1}`);
+    const html = parseMarkdownToHtml(
+      [
+        '~ Question',
+        '⏺ First paragraph stays visible here.',
+        '  ',
+        '  Second paragraph also stays visible.',
+        '  ',
+        `  ${thirdParagraphWords.join(' ')}`,
+      ].join('\n'),
+    );
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `<header class="toolbar"></header><div class="content-view"><div class="rendered-markdown">${html}</div></div>`;
+    document.body.append(wrapper);
+
+    const toolbar = wrapper.querySelector<HTMLElement>('.toolbar');
+    const header = wrapper.querySelector<HTMLElement>('.prompt-list-header');
+    const answer = wrapper.querySelector<HTMLElement>('li.prompt-answer');
+    t.truthy(toolbar);
+    t.truthy(header);
+    t.truthy(answer);
+    if (!toolbar || !header || !answer) return;
+
+    setPromptAnswerExpandedState(answer, true);
+
+    Object.defineProperty(toolbar, 'offsetHeight', { configurable: true, value: 52 });
+    Object.defineProperty(header, 'offsetHeight', { configurable: true, value: 20 });
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 300 });
+    Object.defineProperty(answer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () =>
+        ({
+          x: 0,
+          y: 260,
+          top: 260,
+          right: 0,
+          bottom: 320,
+          left: 0,
+          width: 0,
+          height: 60,
+          toJSON: () => ({}),
+        }) satisfies DOMRect,
+    });
+
+    const scrollCalls: ScrollToOptions[] = [];
+    Object.defineProperty(window, 'scrollTo', {
+      configurable: true,
+      value: (options: ScrollToOptions) => {
+        scrollCalls.push(options);
+      },
+    });
+
+    togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
+
+    t.is(answer.getAttribute('data-expanded'), 'false');
+    t.deepEqual(scrollCalls, [{ top: 478, behavior: 'auto' }]);
   });
 });
 

@@ -320,7 +320,7 @@ export function ContentView({
           togglePromptListCollapsedStateInUrl(conversation, true);
           return;
         }
-        togglePromptAnswerExpandedState(answer);
+        togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
       }
       return;
     }

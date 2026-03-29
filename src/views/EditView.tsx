@@ -1205,7 +1205,7 @@ export function EditView({
           handlePreviewPromptListLayoutChange();
           return;
         }
-        togglePromptAnswerExpandedState(answer);
+        togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
         handlePreviewPromptListLayoutChange();
       }
       return;
