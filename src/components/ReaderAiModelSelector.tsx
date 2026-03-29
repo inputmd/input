@@ -60,6 +60,9 @@ export function ReaderAiModelSelector({
   showFreeBadge = false,
   showLoginForMoreModels = false,
 }: ReaderAiModelSelectorProps) {
+  const preventTriggerFocusRestore = (event: Event) => {
+    event.preventDefault();
+  };
   const localModels = models.filter((model) => model.provider === 'codex_local');
   const paidModels = models.filter(
     (model) => model.provider !== 'codex_local' && !model.id.trim().toLowerCase().endsWith(':free'),
@@ -110,7 +113,12 @@ export function ReaderAiModelSelector({
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content class={menuClassName} sideOffset={sideOffset} align={align}>
+        <DropdownMenu.Content
+          class={menuClassName}
+          sideOffset={sideOffset}
+          align={align}
+          onCloseAutoFocus={preventTriggerFocusRestore}
+        >
           {models.length > 0 ? (
             <DropdownMenu.RadioGroup value={selectedModel} onValueChange={onSelectModel}>
               {paidModels.length > 0 ? (

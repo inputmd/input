@@ -257,6 +257,9 @@ export function Toolbar({
   localRateLimit,
   serverRateLimit,
 }: ToolbarProps) {
+  const preventTriggerFocusRestore = (event: Event) => {
+    event.preventDefault();
+  };
   const [authorMenuOpen, setAuthorMenuOpen] = useState(false);
   const [collaboratorsTooltipOpen, setCollaboratorsTooltipOpen] = useState(false);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
@@ -378,7 +381,12 @@ export function Toolbar({
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content class="author-menu-content" sideOffset={6} align="end">
+        <DropdownMenu.Content
+          class="author-menu-content"
+          sideOffset={6}
+          align="end"
+          onCloseAutoFocus={preventTriggerFocusRestore}
+        >
           {shareMetadata ? (
             <>
               <DropdownMenu.Label class="user-menu-label">{shareMetadata}</DropdownMenu.Label>
@@ -503,7 +511,12 @@ export function Toolbar({
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content class="user-menu-content github-signin-menu-content" sideOffset={6} align="end">
+          <DropdownMenu.Content
+            class="user-menu-content github-signin-menu-content"
+            sideOffset={6}
+            align="end"
+            onCloseAutoFocus={preventTriggerFocusRestore}
+          >
             <DropdownMenu.Item class="user-menu-item" onSelect={() => onSignInWithGitHub({ includeGists: false })}>
               Sign in (privacy mode, no gists)
             </DropdownMenu.Item>
@@ -601,7 +614,12 @@ export function Toolbar({
                     </button>
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
-                    <DropdownMenu.Content class="repo-menu-content" sideOffset={6} align="start">
+                    <DropdownMenu.Content
+                      class="repo-menu-content"
+                      sideOffset={6}
+                      align="start"
+                      onCloseAutoFocus={preventTriggerFocusRestore}
+                    >
                       <div class="repo-menu-section-label">Repos</div>
                       {repoListLoading ? (
                         <DropdownMenu.Item class="repo-menu-item" disabled>
@@ -918,6 +936,7 @@ export function Toolbar({
                       class="user-menu-content toolbar-split-button-menu-content"
                       sideOffset={6}
                       align="end"
+                      onCloseAutoFocus={preventTriggerFocusRestore}
                     >
                       <DropdownMenu.Item class="user-menu-item" onSelect={onSaveAndExit} disabled={!canSave}>
                         Save and close
@@ -992,7 +1011,12 @@ export function Toolbar({
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
-              <DropdownMenu.Content class="user-menu-content" sideOffset={6} align="end">
+              <DropdownMenu.Content
+                class="user-menu-content"
+                sideOffset={6}
+                align="end"
+                onCloseAutoFocus={preventTriggerFocusRestore}
+              >
                 <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                   Toggle theme
                 </DropdownMenu.Item>
