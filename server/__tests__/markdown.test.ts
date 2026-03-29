@@ -215,7 +215,7 @@ test('marked renders placeholders for empty prompt question and answer rows', (t
 
   t.true(
     html.includes(
-      '<ul class="prompt-list"><li class="prompt-question"><span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></li><li class="prompt-answer"><span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></li></ul>',
+      '<ul class="prompt-list"><li class="prompt-question"><span class="prompt-list-placeholder">Empty conversation block</span></li><li class="prompt-answer"><span class="prompt-list-placeholder">Empty conversation block</span></li></ul>',
     ),
   );
 });
@@ -437,7 +437,7 @@ test('parseMarkdownToHtml renders placeholders for empty prompt question and ans
 
   t.true(
     html.includes(
-      '<li class="prompt-question"><span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></li><li class="prompt-answer"><span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></li>',
+      '<li class="prompt-question"><span class="prompt-list-placeholder">Empty conversation block</span></li><li class="prompt-answer"><span class="prompt-list-placeholder">Empty conversation block</span></li>',
     ),
   );
 });

@@ -803,7 +803,7 @@ function renderPromptListTree(nodes: PromptListRenderNode[]): string {
       if (node.type === 'item') {
         const contentHtml = node.contentHtml.trim()
           ? node.contentHtml
-          : '<span class="prompt-list-placeholder" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>';
+          : '<span class="prompt-list-placeholder">Empty conversation block</span>';
         return `<li class="${node.className}">${contentHtml}</li>`;
       }
       return `<li class="prompt-list-branch">${renderPromptListBranchNavButton('down')}<ul>${renderPromptListTree(node.children)}</ul>${renderPromptListBranchNavButton('up')}</li>`;
