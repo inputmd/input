@@ -4,33 +4,11 @@ import {
   bracePromptContextRangesForPosition,
   buildBracePromptRequest,
   findBracePromptMatch,
-  findInlinePromptMatch,
   isBracePromptBlockedInCode,
   lineRangeAt,
 } from '../../src/components/codemirror_inline_prompt.ts';
 import { markdownEditorLanguageSupport } from '../../src/components/codemirror_markdown.ts';
 import { READER_AI_SELECTION_MAX_CHARS } from '../../src/reader_ai_limits.ts';
-
-test('findInlinePromptMatch finds slash prompts at valid boundaries', (t) => {
-  const text = 'Ask /rewrite this';
-  const match = findInlinePromptMatch(text, text.length);
-
-  t.deepEqual(match, {
-    from: 4,
-    to: 17,
-    prompt: 'rewrite this',
-  });
-});
-
-test('findInlinePromptMatch ignores slashes inside URLs and paths', (t) => {
-  t.is(findInlinePromptMatch('https://example.com', 'https://example.com'.length), null);
-  t.is(findInlinePromptMatch('path/to/file', 'path/to/file'.length), null);
-});
-
-test('findInlinePromptMatch ignores slash prompts with whitespace immediately after the slash', (t) => {
-  t.is(findInlinePromptMatch('/ rewrite this', '/ rewrite this'.length), null);
-  t.is(findInlinePromptMatch('/\trewrite this', '/\trewrite this'.length), null);
-});
 
 test('findBracePromptMatch finds brace prompts when the cursor is after the closing brace', (t) => {
   const text = 'today {come up with two more examples}';
