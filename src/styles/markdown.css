@@ -215,7 +215,7 @@
 }
 
 .rendered-markdown .prompt-list-conversation {
-  margin: 1.4em 0 0.75em;
+  margin: 0.5em 0;
 }
 
 .rendered-markdown .prompt-list-header {
@@ -486,7 +486,6 @@
 .rendered-markdown .prompt-list-placeholder {
   display: inline-block;
   color: color-mix(in srgb, currentColor 72%, transparent);
-  font-style: italic;
   opacity: 0.6;
 }
 

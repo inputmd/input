@@ -209,23 +209,26 @@ export function navigatePromptListBranch(button: HTMLElement, options?: { behavi
   const target = findPromptListBranchNavigationTarget(branch, direction);
   if (!target) return false;
 
-  const scrollContainer = target.closest<HTMLElement>(
-    '.editor-preview-pane, .mobile-preview-pane, .content-view, .document-stack-layer-content',
-  );
+  const headerGap = getPromptListConversationHeaderGap(target);
+  const directionGap = direction === 'down' ? 10 : 0;
+  const scrollContainer = getPromptListScrollContainer(target);
   if (scrollContainer) {
     const containerRect = scrollContainer.getBoundingClientRect();
     const targetRect = target.getBoundingClientRect();
     const offsetTop = targetRect.top - containerRect.top + scrollContainer.scrollTop;
-    const conversation = target.closest<HTMLElement>('.prompt-list-conversation');
-    const header = conversation?.querySelector<HTMLElement>('.prompt-list-header');
-    const headerGap = Math.round((header?.offsetHeight ?? 0) * 1.5);
-    const directionGap = direction === 'down' ? 10 : 0;
     const nextScrollTop = Math.max(0, offsetTop - headerGap - directionGap);
     scrollContainer.scrollTo({ top: nextScrollTop, behavior: options?.behavior ?? 'smooth' });
     return true;
   }
 
-  target.scrollIntoView({ behavior: options?.behavior ?? 'smooth', block: 'center', inline: 'nearest' });
+  const view = target.ownerDocument.defaultView;
+  if (!view) return false;
+  const targetTop = target.getBoundingClientRect().top + view.scrollY;
+  const toolbarHeight = getFixedToolbarHeight(target.ownerDocument);
+  view.scrollTo({
+    top: Math.max(0, targetTop - toolbarHeight - headerGap - directionGap),
+    behavior: options?.behavior ?? 'smooth',
+  });
   return true;
 }
 

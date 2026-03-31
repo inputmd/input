@@ -150,7 +150,7 @@
 
 .doc-editor .cm-prompt-list-disclosure {
   position: absolute;
-  left: -0.9em;
+  left: calc(-0.9em + 6px);
   width: 1.5em;
   text-align: center;
   color: color-mix(in srgb, var(--text-secondary) 78%, var(--text));
