@@ -876,14 +876,12 @@ export function EditView({
   useLayoutEffect(() => {
     if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked || previewRestorePending)
       return;
-    void previewHtml;
     if (scrollOwnerRef.current == null) scrollOwnerRef.current = 'editor';
     requestPreviewScrollSync();
   }, [
     canRenderPreview,
     loading,
     markdown,
-    previewHtml,
     previewRestorePending,
     previewScrollLocked,
     previewVisible,
