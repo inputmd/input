@@ -503,11 +503,10 @@ export function normalizeBlockquotePaste(state: EditorState, pos: number, text: 
   const context = getMarkdownListContext(state, pos);
   while (context.length && context[context.length - 1].from > pos - line.from) context.pop();
 
-  const blockquotePrefix = context
-    .filter((item) => item.node.name === 'Blockquote')
-    .map((item) => item.blank(null))
-    .join('');
-  if (!blockquotePrefix) return null;
+  const hasBlockquote = context.some((item) => item.node.name === 'Blockquote');
+  if (!hasBlockquote) return null;
+
+  const blockquotePrefix = context.map((item) => item.blank(null)).join('');
 
   const normalized = text.replace(/\r\n?/g, '\n');
   const trimmed = normalized.trim();
@@ -517,7 +516,7 @@ export function normalizeBlockquotePaste(state: EditorState, pos: number, text: 
     return `[^src](${trimmed})`;
   }
 
-  const lines = normalized.split('\n');
+  const lines = trimmed.split('\n');
   if (lines.length < 2) return null;
 
   return lines.map((segment, index) => (index === 0 ? segment : `${blockquotePrefix}${segment}`)).join(state.lineBreak);

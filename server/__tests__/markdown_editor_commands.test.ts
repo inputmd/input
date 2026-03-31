@@ -967,6 +967,26 @@ test('normalizeBlockquotePaste continues blockquote prefixes for pasted multilin
   t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha\n> beta\n> gamma');
 });
 
+test('normalizeBlockquotePaste trims leading and trailing whitespace from pasted multiline text', (t) => {
+  const state = EditorState.create({
+    doc: '> quoted',
+    selection: EditorSelection.cursor('> quo'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, '\n  alpha\nbeta  \n\n'), 'alpha\n> beta');
+});
+
+test('normalizeBlockquotePaste preserves outer indentation for multiline blockquote paste', (t) => {
+  const state = EditorState.create({
+    doc: '- item\n  > quoted',
+    selection: EditorSelection.cursor('- item\n  > quo'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha\n  > beta\n  > gamma');
+});
+
 test('normalizeBlockquotePaste turns pasted links at blockquote end into source citations', (t) => {
   const state = EditorState.create({
     doc: '> quoted line',
