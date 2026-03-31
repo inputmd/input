@@ -24,6 +24,7 @@ const PREVIEW_SCROLL_LOCK_STORAGE_KEY = 'input_preview_scroll_locked_v1';
 const PREVIEW_RESTORE_SELECTOR = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th';
 const PREVIEW_SYNC_SELECTOR = '[data-sync-id]';
 const SCROLL_SYNC_ANCHOR_RATIO = 0.3;
+const PREVIEW_LAYOUT_DRIFT_TOLERANCE_PX = 3;
 
 type ScrollPane = 'editor' | 'preview';
 
@@ -316,6 +317,7 @@ export function EditView({
   const previewSyncElementsRef = useRef<HTMLElement[]>([]);
   const previewSyncElementByIdRef = useRef<Map<string, HTMLElement>>(new Map());
   const lastUnlockedPreviewScrollTopRef = useRef(0);
+  const lastPreviewSyncEditorTopRef = useRef<number | null>(null);
   const pointerDownRef = useRef(false);
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
@@ -468,11 +470,11 @@ export function EditView({
   );
 
   const setPreviewScrollTop = useCallback(
-    (scrollTop: number) => {
+    (scrollTop: number, tolerancePx = 1) => {
       const pane = previewPaneRef.current;
       if (!pane) return;
       const nextScrollTop = clampScrollTop(scrollTop, maxScrollTop(pane));
-      if (Math.abs(pane.scrollTop - nextScrollTop) < 1) return;
+      if (Math.abs(pane.scrollTop - nextScrollTop) < tolerancePx) return;
       ignoreNextPreviewScrollRef.current = true;
       schedulePreviewScrollIgnoreReset();
       pane.scrollTop = nextScrollTop;
@@ -572,7 +574,7 @@ export function EditView({
   }, []);
 
   const scrollPreviewToSyncHit = useCallback(
-    (hit: SyncBlockHit): boolean => {
+    (hit: SyncBlockHit, tolerancePx = 1): boolean => {
       const pane = previewPaneRef.current;
       if (!pane) return false;
 
@@ -587,13 +589,13 @@ export function EditView({
           const fromY = primary.top + primary.height;
           const toY = next.top;
           const interpolatedY = fromY + (toY - fromY) * hit.gapFraction;
-          setPreviewScrollTop(interpolatedY - anchorOffset);
+          setPreviewScrollTop(interpolatedY - anchorOffset, tolerancePx);
           return true;
         }
       }
 
       const nextScrollTop = primary.top + primary.height * hit.progress - anchorOffset;
-      setPreviewScrollTop(nextScrollTop);
+      setPreviewScrollTop(nextScrollTop, tolerancePx);
       return true;
     },
     [getPreviewSyncElementTop, setPreviewScrollTop],
@@ -617,13 +619,18 @@ export function EditView({
     if (!pane) return;
     const { top: sourceTop, max: sourceMax } = getEditorScrollMetrics();
     const previewMax = maxScrollTop(pane);
+    const editorScrollStable =
+      lastPreviewSyncEditorTopRef.current != null && Math.abs(sourceTop - lastPreviewSyncEditorTopRef.current) < 0.5;
+    const driftTolerancePx = editorScrollStable ? PREVIEW_LAYOUT_DRIFT_TOLERANCE_PX : 1;
 
     if (sourceTop <= 1 || sourceMax <= 0) {
       setPreviewScrollTop(0);
+      lastPreviewSyncEditorTopRef.current = sourceTop;
       return;
     }
     if (previewMax > 0 && sourceTop >= sourceMax - 1) {
       setPreviewScrollTop(previewMax);
+      lastPreviewSyncEditorTopRef.current = sourceTop;
       return;
     }
 
@@ -631,16 +638,21 @@ export function EditView({
     if (controller && previewSyncBlocks.length > 0 && previewSyncElementByIdRef.current.size > 0) {
       const position = controller.getViewportAnchorPosition(SCROLL_SYNC_ANCHOR_RATIO);
       const hit = findSyncBlockForPosition(previewSyncBlocks, position);
-      if (hit && scrollPreviewToSyncHit(hit)) return;
+      if (hit && scrollPreviewToSyncHit(hit, driftTolerancePx)) {
+        lastPreviewSyncEditorTopRef.current = sourceTop;
+        return;
+      }
     }
 
     if (previewMax <= 0) {
       setPreviewScrollTop(0);
+      lastPreviewSyncEditorTopRef.current = sourceTop;
       return;
     }
 
     const progress = sourceMax <= 0 ? 0 : Math.max(0, Math.min(1, sourceTop / sourceMax));
-    setPreviewScrollTop(progress * previewMax);
+    setPreviewScrollTop(progress * previewMax, driftTolerancePx);
+    lastPreviewSyncEditorTopRef.current = sourceTop;
   }, [
     canRenderPreview,
     getEditorScrollMetrics,
