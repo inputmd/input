@@ -146,6 +146,7 @@ interface ToolbarProps {
   onSaveAndExit: () => void;
   saveStatusText?: string | null;
   saveStatusPlain?: boolean;
+  saveStatusSpinner?: boolean;
   saveStatusTone?: 'pending' | 'warning';
   onSignInWithGitHub: (options?: { includeGists?: boolean }) => void;
   navigate: (route: string, options?: { replace?: boolean; state?: unknown }) => void;
@@ -233,6 +234,7 @@ export function Toolbar({
   onSaveAndExit,
   saveStatusText = null,
   saveStatusPlain = false,
+  saveStatusSpinner = false,
   saveStatusTone = 'pending',
   onSignInWithGitHub,
   navigate,
@@ -850,7 +852,8 @@ export function Toolbar({
               role="status"
               aria-live="polite"
             >
-              {saveStatusText}
+              <span>{saveStatusText}</span>
+              {saveStatusSpinner ? <span class="toolbar-spinner" aria-hidden="true" /> : null}
             </div>
           ) : null}
           {showGoToWorkspace && (

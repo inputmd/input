@@ -8242,7 +8242,8 @@ export function App() {
         onSave={onSave}
         onSaveAndExit={onSaveAndExit}
         saveStatusText={saveStatusText}
-        saveStatusPlain={isScratchDocument}
+        saveStatusPlain={isScratchDocument || Boolean(postSaveVerification)}
+        saveStatusSpinner={postSaveVerification?.status === 'verifying'}
         saveStatusTone={saveStatusTone}
         onSignInWithGitHub={handleSignInWithGitHub}
       />
