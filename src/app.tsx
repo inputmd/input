@@ -196,6 +196,8 @@ const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const READER_AI_VISIBLE_KEY = 'reader_ai_visible';
 const READER_AI_MODEL_KEY = 'reader_ai_model';
 const READER_AI_WIDTH_KEY = 'reader_ai_width_px';
+const SIDE_PANE_MODE_KEY = 'side_pane_mode';
+const SIDE_PANE_WIDTH_KEY = 'side_pane_width_px';
 const SIDEBAR_VISIBLE_KEY = 'sidebar_visible';
 const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
 const DESKTOP_MEDIA_QUERY = '(min-width: 769px)';
@@ -208,9 +210,9 @@ const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft_v2';
 const DEFAULT_SIDEBAR_WIDTH_PX = 220;
 const MIN_SIDEBAR_WIDTH_PX = 180;
 const MAX_SIDEBAR_WIDTH_PX = 420;
-const DEFAULT_READER_AI_WIDTH_PX = 360;
-const MIN_READER_AI_WIDTH_PX = 280;
-const MAX_READER_AI_WIDTH_PX = 640;
+const DEFAULT_SIDE_PANE_WIDTH_PX = 360;
+const MIN_SIDE_PANE_WIDTH_PX = 280;
+const MAX_SIDE_PANE_WIDTH_PX = 640;
 const SIDEBAR_FILE_FILTER_KEY = 'sidebar_file_filter';
 const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -232,6 +234,8 @@ interface RecentRepoVisit {
   installationId: string | null;
   source: 'installed' | 'public';
 }
+
+type SidePane = 'none' | 'preview' | 'reader-ai';
 
 interface ForkRepoDialogState {
   installations: LinkedInstallation[];
@@ -454,8 +458,38 @@ function clampSidebarWidth(width: number): number {
   return Math.max(MIN_SIDEBAR_WIDTH_PX, Math.min(MAX_SIDEBAR_WIDTH_PX, width));
 }
 
-function clampReaderAiWidth(width: number): number {
-  return Math.max(MIN_READER_AI_WIDTH_PX, Math.min(MAX_READER_AI_WIDTH_PX, width));
+function clampSidePaneWidth(width: number): number {
+  return Math.max(MIN_SIDE_PANE_WIDTH_PX, Math.min(MAX_SIDE_PANE_WIDTH_PX, width));
+}
+
+function defaultSidePaneForViewport(): SidePane {
+  if (typeof window === 'undefined') return 'none';
+  return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'preview' : 'none';
+}
+
+function readStoredSidePanePreference(): SidePane {
+  if (typeof window === 'undefined') return 'none';
+  try {
+    const stored = localStorage.getItem(SIDE_PANE_MODE_KEY);
+    if (stored === 'reader-ai' || stored === 'none') return stored;
+    if (stored === 'preview') return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'preview' : 'none';
+    if (localStorage.getItem(READER_AI_VISIBLE_KEY) === 'true') return 'reader-ai';
+    if (window.matchMedia(DESKTOP_MEDIA_QUERY).matches && localStorage.getItem(EDITOR_PREVIEW_VISIBLE_KEY) === 'true') {
+      return 'preview';
+    }
+  } catch {}
+  return 'none';
+}
+
+function readStoredSidePaneWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_SIDE_PANE_WIDTH_PX;
+  try {
+    const stored = Number(localStorage.getItem(SIDE_PANE_WIDTH_KEY));
+    if (Number.isFinite(stored)) return clampSidePaneWidth(stored);
+    const legacy = Number(localStorage.getItem(READER_AI_WIDTH_KEY));
+    if (Number.isFinite(legacy)) return clampSidePaneWidth(legacy);
+  } catch {}
+  return DEFAULT_SIDE_PANE_WIDTH_PX;
 }
 
 function isPaidReaderAiModel(model: ReaderAiModel): boolean {
@@ -894,15 +928,9 @@ export function App() {
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
   const [contentAlertDownloadHref, setContentAlertDownloadHref] = useState<string | null>(null);
   const [contentAlertDownloadName, setContentAlertDownloadName] = useState<string | null>(null);
-  const [readerAiVisible, setReaderAiVisible] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    if (route.name === 'new') return false;
-    try {
-      return localStorage.getItem(READER_AI_VISIBLE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [sidePane, setSidePane] = useState<SidePane>(() =>
+    route.name === 'new' ? defaultSidePaneForViewport() : readStoredSidePanePreference(),
+  );
   const [readerAiSource, setReaderAiSource] = useState('');
   const [readerAiModels, setReaderAiModels] = useState<ReaderAiModel[]>([]);
   const [readerAiModelsLoading, setReaderAiModelsLoading] = useState(false);
@@ -917,14 +945,7 @@ export function App() {
       return '';
     }
   });
-  const [readerAiWidth, setReaderAiWidth] = useState<number>(() => {
-    if (typeof window === 'undefined') return DEFAULT_READER_AI_WIDTH_PX;
-    try {
-      const raw = Number(localStorage.getItem(READER_AI_WIDTH_KEY));
-      if (Number.isFinite(raw)) return clampReaderAiWidth(raw);
-    } catch {}
-    return DEFAULT_READER_AI_WIDTH_PX;
-  });
+  const [sidePaneWidth, setSidePaneWidth] = useState<number>(() => readStoredSidePaneWidth());
   const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
   const [readerAiSummary, setReaderAiSummary] = useState<string>('');
   const [readerAiConversationScope, setReaderAiConversationScope] = useState<ReaderAiConversationScope | null>(null);
@@ -1012,24 +1033,13 @@ export function App() {
   const [readerAiSelectedHunkIdsByChangeId, setReaderAiSelectedHunkIdsByChangeId] = useState<
     Record<string, Set<string>>
   >(() => ({}));
-  const [previewVisible, setPreviewVisible] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && !window.matchMedia(DESKTOP_MEDIA_QUERY).matches) {
-      return false;
-    }
-    try {
-      return localStorage.getItem(EDITOR_PREVIEW_VISIBLE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
   const [isDesktopWidth, setIsDesktopWidth] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
   });
-  const defaultPreviewVisible = useCallback(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
-  }, []);
+  const defaultSidePane = useCallback(() => defaultSidePaneForViewport(), []);
+  const previewVisible = sidePane === 'preview';
+  const readerAiVisible = sidePane === 'reader-ai';
   const effectiveReaderAiStagedChanges = useMemo(() => {
     if (readerAiEditProposals.length > 0) {
       const latestAcceptedByPath = new Map<string, ReaderAiStagedChange>();
@@ -1074,7 +1084,7 @@ export function App() {
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const prevRouteNameRef = useRef(route.name);
-  const readerAiSkipPersistVisibleRef = useRef(false);
+  const sidePaneSkipPersistRef = useRef(false);
   const pendingGistDraftDirtyRef = useRef(false);
   const editContentRef = useRef(editContent);
   const editContentSnapshotTimerRef = useRef<number | null>(null);
@@ -3106,7 +3116,7 @@ export function App() {
           setHasUnsavedChanges(false);
           setEditTitle(UNSAVED_FILE_LABEL);
           setNextEditContent('', { origin: 'external' });
-          setPreviewVisible(defaultPreviewVisible());
+          setSidePane(defaultSidePane());
           const pendingForkRepoDraft = parsePendingForkRepoDraftState(routeState);
           const titleDraftKey = repoNewDraftKey(instId, repoName, path, 'title');
           const contentDraftKey = repoNewDraftKey(instId, repoName, path, 'content');
@@ -3169,7 +3179,7 @@ export function App() {
           setRepoFiles([]);
           setRepoSidebarFiles([]);
           setCurrentDocumentSavedContent(null);
-          setPreviewVisible(defaultPreviewVisible());
+          setSidePane(defaultSidePane());
           const shouldHydrateDraftTitle = shouldHydrateLocalDraftForRoute(DRAFT_TITLE_KEY);
           const shouldHydrateDraftContent = shouldHydrateLocalDraftForRoute(DRAFT_CONTENT_KEY);
           if (shouldHydrateDraftTitle) {
@@ -3422,7 +3432,7 @@ export function App() {
       handleSessionExpired,
       showRateLimitToastIfNeeded,
       showAlert,
-      defaultPreviewVisible,
+      defaultSidePane,
       selectedRepo,
       installationRepos,
       loadedReposInstallationId,
@@ -3566,12 +3576,6 @@ export function App() {
     });
   }, []);
 
-  useLayoutEffect(() => {
-    try {
-      localStorage.setItem(EDITOR_PREVIEW_VISIBLE_KEY, previewVisible ? 'true' : 'false');
-    } catch {}
-  }, [previewVisible]);
-
   useEffect(() => {
     if (currentGistId !== null) return;
     setCurrentGistCreatedAt(null);
@@ -3585,30 +3589,26 @@ export function App() {
     prevRouteNameRef.current = route.name;
 
     if (onNewRoute) {
-      setReaderAiVisible(false);
+      setSidePane(defaultSidePane());
       return;
     }
 
     if (!leftNewRoute) return;
 
-    readerAiSkipPersistVisibleRef.current = true;
-    try {
-      setReaderAiVisible(localStorage.getItem(READER_AI_VISIBLE_KEY) === 'true');
-    } catch {
-      setReaderAiVisible(false);
-    }
-  }, [route.name]);
+    sidePaneSkipPersistRef.current = true;
+    setSidePane(readStoredSidePanePreference());
+  }, [defaultSidePane, route.name]);
 
   useLayoutEffect(() => {
     if (route.name === 'new') return;
-    if (readerAiSkipPersistVisibleRef.current) {
-      readerAiSkipPersistVisibleRef.current = false;
+    if (sidePaneSkipPersistRef.current) {
+      sidePaneSkipPersistRef.current = false;
       return;
     }
     try {
-      localStorage.setItem(READER_AI_VISIBLE_KEY, readerAiVisible ? 'true' : 'false');
+      localStorage.setItem(SIDE_PANE_MODE_KEY, sidePane);
     } catch {}
-  }, [readerAiVisible, route.name]);
+  }, [route.name, sidePane]);
 
   useLayoutEffect(() => {
     try {
@@ -3618,9 +3618,9 @@ export function App() {
 
   useLayoutEffect(() => {
     try {
-      localStorage.setItem(READER_AI_WIDTH_KEY, String(readerAiWidth));
+      localStorage.setItem(SIDE_PANE_WIDTH_KEY, String(sidePaneWidth));
     } catch {}
-  }, [readerAiWidth]);
+  }, [sidePaneWidth]);
 
   useLayoutEffect(() => {
     try {
@@ -3679,31 +3679,15 @@ export function App() {
   ]);
 
   const onTogglePreview = useCallback(() => {
-    setPreviewVisible((visible) => {
-      const nextVisible = !visible;
-      if (nextVisible) {
-        setReaderAiVisible(false);
-      }
-      return nextVisible;
-    });
+    setSidePane((pane) => (pane === 'preview' ? 'none' : 'preview'));
   }, []);
 
   const onToggleReaderAi = useCallback(() => {
-    setReaderAiVisible((visible) => {
-      const nextVisible = !visible;
-      if (nextVisible) {
-        setPreviewVisible(false);
-      }
-      return nextVisible;
-    });
+    setSidePane((pane) => (pane === 'reader-ai' ? 'none' : 'reader-ai'));
   }, []);
 
   const onOpenReaderAi = useCallback(() => {
-    setReaderAiVisible((visible) => {
-      if (visible) return true;
-      setPreviewVisible(false);
-      return true;
-    });
+    setSidePane('reader-ai');
   }, []);
 
   const focusReaderAiComposerInput = useCallback(() => {
@@ -7578,9 +7562,11 @@ export function App() {
               previewHtml=""
               previewVisible={false}
               canRenderPreview={false}
+              sidePaneWidth={sidePaneWidth}
               scrollStorageKey={currentDocumentScrollKey}
               loading={contentLoadPending}
               onTogglePreview={() => {}}
+              onSidePaneResize={() => {}}
               onContentChange={() => {}}
               saving={false}
               canSave={false}
@@ -7654,9 +7640,11 @@ export function App() {
             changeMarkers={currentEditorChangeMarkers}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
+            sidePaneWidth={sidePaneWidth}
             scrollStorageKey={currentDocumentScrollKey}
             loading={repoEditLoading}
             onTogglePreview={onTogglePreview}
+            onSidePaneResize={(width) => setSidePaneWidth(clampSidePaneWidth(width))}
             onContentChange={onEditContentChange}
             onBracePromptStream={onBracePromptStream}
             onPromptListSubmit={onPromptListSubmit}
@@ -7915,7 +7903,7 @@ export function App() {
     (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
       if (!isDesktopWidth) return;
       const onMove = (moveEvent: globalThis.PointerEvent) => {
-        setReaderAiWidth(clampReaderAiWidth(window.innerWidth - moveEvent.clientX));
+        setSidePaneWidth(clampSidePaneWidth(window.innerWidth - moveEvent.clientX));
       };
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
@@ -8249,7 +8237,7 @@ export function App() {
           showSidebar || showReaderAiPanel
             ? ({
                 ...(showSidebar ? { '--sidebar-width': `${sidebarWidth}px` } : {}),
-                ...(showReaderAiPanel ? { '--reader-ai-width': `${readerAiWidth}px` } : {}),
+                ...(showReaderAiPanel ? { '--reader-ai-width': `${sidePaneWidth}px` } : {}),
               } as JSX.CSSProperties)
             : undefined
         }
@@ -8316,6 +8304,7 @@ export function App() {
         </ErrorBoundary>
         {showReaderAiPanel ? (
           <>
+            <div class="reader-ai-backdrop" onClick={onToggleReaderAi} />
             <div
               class="reader-ai-splitter"
               role="separator"

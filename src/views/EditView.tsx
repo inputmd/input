@@ -222,9 +222,11 @@ export interface EditViewProps {
   previewSyncBlocks?: MarkdownSyncBlock[];
   previewVisible: boolean;
   canRenderPreview: boolean;
+  sidePaneWidth?: number;
   scrollStorageKey?: string | null;
   loading?: boolean;
   onTogglePreview: () => void;
+  onSidePaneResize?: (width: number) => void;
   onContentChange: (update: { content: string; origin: 'userEdits'; revision: number }) => void;
   onBracePromptStream?: (
     request: BracePromptRequest,
@@ -275,9 +277,11 @@ export function EditView({
   previewSyncBlocks = [],
   previewVisible,
   canRenderPreview,
+  sidePaneWidth = 360,
   scrollStorageKey = null,
   loading = false,
   onTogglePreview,
+  onSidePaneResize,
   onContentChange,
   onBracePromptStream,
   onPromptListSubmit,
@@ -326,7 +330,6 @@ export function EditView({
   const pointerDownRef = useRef(false);
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
-  const [splitPercent, setSplitPercent] = useState(52);
   const [previewScrollLocked, setPreviewScrollLocked] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
@@ -1027,15 +1030,13 @@ export function EditView({
   }, [markdown, previewVisible]);
 
   const onSplitPointerDown = (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
-    if (!previewVisible || !canRenderPreview) return;
+    if (!previewVisible || !canRenderPreview || !onSidePaneResize) return;
     const container = splitRef.current;
     if (!container) return;
 
     const startRect = container.getBoundingClientRect();
     const onMove = (moveEvent: globalThis.PointerEvent) => {
-      const relativeX = moveEvent.clientX - startRect.left;
-      const next = (relativeX / startRect.width) * 100;
-      setSplitPercent(Math.max(25, Math.min(75, next)));
+      onSidePaneResize(startRect.right - moveEvent.clientX);
     };
     const cleanupPointerListeners = () => {
       window.removeEventListener('pointermove', onMove);
@@ -1051,7 +1052,7 @@ export function EditView({
 
   const layoutStyle =
     markdown && previewVisible && canRenderPreview
-      ? { gridTemplateColumns: `${splitPercent}% 7px minmax(0, 1fr)` }
+      ? { gridTemplateColumns: `minmax(0, 1fr) 7px ${sidePaneWidth}px` }
       : undefined;
 
   const resolveInternalRoute = useCallback((anchor: HTMLAnchorElement): string | null => {

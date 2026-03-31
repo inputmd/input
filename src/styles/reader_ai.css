@@ -2,6 +2,10 @@
   margin-right: var(--reader-ai-width, 360px);
 }
 
+.reader-ai-backdrop {
+  display: none;
+}
+
 .reader-ai-panel {
   --reader-ai-active-border: var(--field-focus-border);
   --reader-ai-active-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-shadow) 50%, transparent);
@@ -43,6 +47,33 @@
 .reader-ai-splitter:hover::after {
   background: var(--btn-hover);
   opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .app-body--with-reader-ai main {
+    margin-right: 0;
+  }
+
+  .reader-ai-backdrop {
+    display: block;
+    position: fixed;
+    top: var(--toolbar-height);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 14;
+  }
+
+  .reader-ai-panel {
+    width: min(85vw, 480px);
+    z-index: 15;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .reader-ai-splitter {
+    display: none;
+  }
 }
 
 .reader-ai-model-trigger {
