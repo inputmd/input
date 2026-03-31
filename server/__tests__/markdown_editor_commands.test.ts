@@ -1087,7 +1087,7 @@ test('normalizeBlockquotePaste continues blockquote prefixes for pasted multilin
     extensions: [markdown({ base: markdownLanguage })],
   });
 
-  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha\n> beta\n> gamma');
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha beta gamma');
 });
 
 test('normalizeBlockquotePaste trims leading and trailing whitespace from pasted multiline text', (t) => {
@@ -1097,7 +1097,7 @@ test('normalizeBlockquotePaste trims leading and trailing whitespace from pasted
     extensions: [markdown({ base: markdownLanguage })],
   });
 
-  t.is(normalizeBlockquotePaste(state, state.selection.main.from, '\n  alpha\nbeta  \n\n'), 'alpha\n> beta');
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, '\n  alpha\nbeta  \n\n'), 'alpha beta');
 });
 
 test('normalizeBlockquotePaste preserves outer indentation for multiline blockquote paste', (t) => {
@@ -1107,7 +1107,7 @@ test('normalizeBlockquotePaste preserves outer indentation for multiline blockqu
     extensions: [markdown({ base: markdownLanguage })],
   });
 
-  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha\n  > beta\n  > gamma');
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha beta gamma');
 });
 
 test('normalizeBlockquotePaste removes hanging indent inside pasted blockquote prose', (t) => {
@@ -1117,7 +1117,30 @@ test('normalizeBlockquotePaste removes hanging indent inside pasted blockquote p
     extensions: [markdown({ base: markdownLanguage })],
   });
 
-  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\n  beta\n  gamma'), 'alpha\n> beta\n> gamma');
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\n  beta\n  gamma'), 'alpha beta gamma');
+});
+
+test('normalizeBlockquotePaste keeps multiline blockquote paste at the start of a line', (t) => {
+  const state = EditorState.create({
+    doc: '> quoted\n> next',
+    selection: EditorSelection.cursor('> quoted\n'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha\n> beta\n> gamma');
+});
+
+test('normalizeBlockquotePaste preserves blockquote prefixes on later flattened paragraphs', (t) => {
+  const state = EditorState.create({
+    doc: '> quoted',
+    selection: EditorSelection.cursor('> quo'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(
+    normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\n\ngamma\ndelta'),
+    'alpha beta\n\n> gamma delta',
+  );
 });
 
 test('normalizeBlockquotePaste turns pasted links at blockquote end into source citations', (t) => {
@@ -1192,12 +1215,12 @@ test('normalizeSimpleWrappedParagraphPaste ignores paragraphs with inconsistent 
   t.is(normalizeSimpleWrappedParagraphPaste('alpha\nbeta\n gamma'), null);
 });
 
-test('normalizeSimpleWrappedParagraphPaste tolerates up to two extra continuation spaces', (t) => {
-  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n    gamma\n   delta'), 'alpha\nbeta\n  gamma\n delta');
+test('normalizeSimpleWrappedParagraphPaste tolerates one extra continuation space', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n   gamma\n  delta'), 'alpha\nbeta\n gamma\ndelta');
 });
 
-test('normalizeSimpleWrappedParagraphPaste ignores paragraphs with more than two extra continuation spaces', (t) => {
-  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n     gamma'), null);
+test('normalizeSimpleWrappedParagraphPaste ignores paragraphs with more than one extra continuation space', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n    gamma'), null);
 });
 
 test('normalizeSimpleWrappedParagraphPaste normalizes multiple paragraphs sharing the same hanging indent', (t) => {
@@ -1234,10 +1257,27 @@ test('normalizeSimpleWrappedParagraphPaste ignores later paragraphs missing the 
   t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n\n delta\n epsilon'), null);
 });
 
-test('normalizeSimpleWrappedParagraphPaste ignores later paragraphs with more than two extra shared-indent spaces', (t) => {
-  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n\n     delta\n     epsilon'), null);
+test('normalizeSimpleWrappedParagraphPaste ignores later paragraphs with more than one extra shared-indent space', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n\n    delta\n    epsilon'), null);
 });
 
 test('normalizeSimpleWrappedParagraphPaste ignores multiple paragraphs separated by more than one blank line', (t) => {
   t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n\n\ngamma\n  delta'), null);
+});
+
+test('normalizeSimpleWrappedParagraphPaste can flatten each normalized paragraph to a single line', (t) => {
+  t.is(
+    normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n  gamma\n\n  delta\n  epsilon', { flattenParagraphs: true }),
+    'alpha beta gamma\n\ndelta epsilon',
+  );
+});
+
+test('normalizeSimpleWrappedParagraphPaste can preserve a continuation prefix on later flattened paragraphs', (t) => {
+  t.is(
+    normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n  gamma\n\n  delta\n  epsilon', {
+      flattenParagraphs: true,
+      continuationPrefix: '  ',
+    }),
+    'alpha beta gamma\n\n  delta epsilon',
+  );
 });

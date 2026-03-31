@@ -1989,10 +1989,15 @@ export function App() {
         });
         return;
       }
-      const normalizedParagraphPaste = normalizeSimpleWrappedParagraphPaste(pastedText);
+      const { from, to } = view.state.selection.main;
+      const line = view.state.doc.lineAt(from);
+      const lineIndent = line.text.match(/^[ \t]*/u)?.[0] ?? '';
+      const normalizedParagraphPaste = normalizeSimpleWrappedParagraphPaste(pastedText, {
+        flattenParagraphs: from !== line.from && (from === line.to || /^[ \t]+/u.test(line.text)),
+        continuationPrefix: from !== line.from && /^[ \t]+/u.test(line.text) ? lineIndent : '',
+      });
       if (normalizedParagraphPaste !== null) {
         event.preventDefault();
-        const { from, to } = view.state.selection.main;
         const head = from + normalizedParagraphPaste.length;
         view.dispatch({
           changes: { from, to, insert: normalizedParagraphPaste },
