@@ -855,7 +855,7 @@ export function EditView({
     scrollPreviewToSyncHit,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = renderedMarkdownRef.current;
     if (!markdown || !previewVisible || !previewHtml || !root) {
       previewSyncElementsRef.current = [];
@@ -891,6 +891,23 @@ export function EditView({
     requestPreviewScrollSync,
   ]);
 
+  useLayoutEffect(() => {
+    if (!previewHtml) return;
+    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked || previewRestorePending)
+      return;
+    if (scrollOwnerRef.current == null) scrollOwnerRef.current = 'editor';
+    requestPreviewScrollSync();
+  }, [
+    canRenderPreview,
+    loading,
+    markdown,
+    previewHtml,
+    previewRestorePending,
+    previewScrollLocked,
+    previewVisible,
+    requestPreviewScrollSync,
+  ]);
+
   useEffect(() => {
     if (!markdown || !previewVisible || !canRenderPreview || loading || previewRestorePending) return;
     if (!previewScrollLocked) return;
@@ -919,7 +936,40 @@ export function EditView({
       if (scrollOwnerRef.current !== 'preview') return;
       requestEditorScrollSync();
     };
-    const handlePreviewLayoutChange = () => {
+    requestPreviewScrollSync();
+    const unsubscribeEditorScroll = controller.subscribeScroll(requestEditorDrivenSync);
+    const unsubscribeEditorInteraction = controller.subscribeInteraction(handleEditorInteraction);
+    pane.addEventListener('wheel', handlePreviewInteraction, { passive: true });
+    pane.addEventListener('touchmove', handlePreviewInteraction, { passive: true });
+    pane.addEventListener('pointerdown', handlePreviewPointerDown, { passive: true });
+    pane.addEventListener('scroll', requestPreviewDrivenSync, { passive: true });
+
+    return () => {
+      unsubscribeEditorScroll();
+      unsubscribeEditorInteraction();
+      pane.removeEventListener('wheel', handlePreviewInteraction);
+      pane.removeEventListener('touchmove', handlePreviewInteraction);
+      pane.removeEventListener('pointerdown', handlePreviewPointerDown);
+      pane.removeEventListener('scroll', requestPreviewDrivenSync);
+    };
+  }, [
+    canRenderPreview,
+    claimScrollOwnership,
+    editorControllerReadyVersion,
+    loading,
+    markdown,
+    previewRestorePending,
+    previewScrollLocked,
+    previewVisible,
+    requestEditorScrollSync,
+    requestPreviewScrollSync,
+  ]);
+
+  useEffect(() => {
+    if (!markdown || !previewVisible || !canRenderPreview || loading || previewRestorePending) return;
+    if (!previewScrollLocked) return;
+
+    const handleWindowResize = () => {
       if (scrollOwnerRef.current === 'preview') {
         requestEditorScrollSync();
         return;
@@ -927,36 +977,10 @@ export function EditView({
       requestPreviewScrollSync();
     };
 
-    requestPreviewScrollSync();
-    const unsubscribeEditorScroll = controller.subscribeScroll(requestEditorDrivenSync);
-    const unsubscribeEditorInteraction = controller.subscribeInteraction(handleEditorInteraction);
-    const unsubscribeEditorLayout = controller.subscribeLayoutChange(handlePreviewLayoutChange);
-    pane.addEventListener('wheel', handlePreviewInteraction, { passive: true });
-    pane.addEventListener('touchmove', handlePreviewInteraction, { passive: true });
-    pane.addEventListener('pointerdown', handlePreviewPointerDown, { passive: true });
-    pane.addEventListener('scroll', requestPreviewDrivenSync, { passive: true });
-    window.addEventListener('resize', handlePreviewLayoutChange);
-
-    const resizeObserver = new ResizeObserver(handlePreviewLayoutChange);
-    resizeObserver.observe(pane);
-    const root = renderedMarkdownRef.current;
-    if (root) resizeObserver.observe(root);
-
-    return () => {
-      unsubscribeEditorScroll();
-      unsubscribeEditorInteraction();
-      unsubscribeEditorLayout();
-      pane.removeEventListener('wheel', handlePreviewInteraction);
-      pane.removeEventListener('touchmove', handlePreviewInteraction);
-      pane.removeEventListener('pointerdown', handlePreviewPointerDown);
-      pane.removeEventListener('scroll', requestPreviewDrivenSync);
-      window.removeEventListener('resize', handlePreviewLayoutChange);
-      resizeObserver.disconnect();
-    };
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
   }, [
     canRenderPreview,
-    claimScrollOwnership,
-    editorControllerReadyVersion,
     loading,
     markdown,
     previewRestorePending,

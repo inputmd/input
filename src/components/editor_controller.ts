@@ -35,7 +35,6 @@ export interface EditorController {
   getScrollMetrics: () => EditorScrollMetrics;
   setScrollTop: (scrollTop: number) => void;
   subscribeScroll: (listener: () => void) => () => void;
-  subscribeLayoutChange: (listener: () => void) => () => void;
   subscribeInteraction: (listener: (kind: EditorInteractionKind) => void) => () => void;
   startStreamingCursorTracking: (position: number) => void;
   updateStreamingCursorTracking: (position: number) => void;

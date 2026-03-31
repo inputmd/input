@@ -245,13 +245,6 @@ export function TextEditor({
     };
   };
 
-  const subscribeLayoutChange = (view: EditorView, listener: () => void) => {
-    const observer = new ResizeObserver(listener);
-    observer.observe(view.scrollDOM);
-    observer.observe(view.contentDOM);
-    return () => observer.disconnect();
-  };
-
   const subscribeInteraction = (listener: (kind: EditorInteractionKind) => void) => {
     interactionListenersRef.current.add(listener);
     const root = rootRef.current;
@@ -499,7 +492,6 @@ export function TextEditor({
         setScrollTop(view, scrollTop);
       },
       subscribeScroll: (listener) => subscribeScroll(view, listener),
-      subscribeLayoutChange: (listener) => subscribeLayoutChange(view, listener),
       subscribeInteraction: (listener) => subscribeInteraction(listener),
       startStreamingCursorTracking: (position) => {
         const clampedPosition = clampPosition(view, position);
