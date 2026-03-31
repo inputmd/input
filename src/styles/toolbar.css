@@ -683,6 +683,20 @@
   -webkit-user-select: none;
 }
 
+.user-menu-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  flex: 0 0 22px;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.user-menu-avatar--placeholder {
+  display: inline-block;
+  background: var(--border);
+}
+
 .user-menu-trigger:hover {
   background: var(--btn-hover);
 }

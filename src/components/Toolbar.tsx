@@ -14,7 +14,6 @@ import {
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
-  Settings,
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
@@ -432,8 +431,20 @@ export function Toolbar({
               runAuthorMenuAction(event, onViewInGitHub);
             }}
           >
-            View in GitHub <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
+            Open in GitHub <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
           </DropdownMenu.Item>
+          {openInInputMdUrl && !showHomeOnlyActions ? (
+            <DropdownMenu.Item
+              class="author-menu-item"
+              onSelect={(event: Event) => {
+                runAuthorMenuAction(event, () => {
+                  window.open(openInInputMdUrl, '_blank', 'noopener,noreferrer');
+                });
+              }}
+            >
+              Open in input.md <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
+            </DropdownMenu.Item>
+          ) : null}
           {showCompactCommits ? (
             <DropdownMenu.Item
               class="author-menu-item"
@@ -445,21 +456,6 @@ export function Toolbar({
             >
               Compact recent commits
             </DropdownMenu.Item>
-          ) : null}
-          {openInInputMdUrl && !showHomeOnlyActions ? (
-            <>
-              <DropdownMenu.Separator class="user-menu-separator" />
-              <DropdownMenu.Item
-                class="author-menu-item"
-                onSelect={(event: Event) => {
-                  runAuthorMenuAction(event, () => {
-                    window.open(openInInputMdUrl, '_blank', 'noopener,noreferrer');
-                  });
-                }}
-              >
-                Open in input.md <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
-              </DropdownMenu.Item>
-            </>
           ) : null}
           {showDraftActions ? (
             <>
@@ -1009,7 +1005,18 @@ export function Toolbar({
           <DropdownMenu.Root onOpenChange={blurOnClose}>
             <DropdownMenu.Trigger asChild>
               <button type="button" class="user-menu-trigger" aria-label="Settings menu" title="Settings menu">
-                <Settings size={18} aria-hidden="true" />
+                {user.avatar_url ? (
+                  <img
+                    class="user-menu-avatar"
+                    src={user.avatar_url}
+                    alt=""
+                    aria-hidden="true"
+                    width={22}
+                    height={22}
+                  />
+                ) : (
+                  <span class="user-menu-avatar user-menu-avatar--placeholder" aria-hidden="true" />
+                )}
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>

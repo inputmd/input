@@ -5105,6 +5105,7 @@ export function App() {
 
   const onShareLink = useCallback(async () => {
     const isGistRoute = route.name === 'gist' || route.name === 'edit';
+    const shareToastId = showLoadingToast('Generating share link...');
 
     try {
       let url: string;
@@ -5120,6 +5121,7 @@ export function App() {
         if (selectedRepoPrivate === true) {
           const instId = activeInstalledRepoInstallationId ?? getInstallationId();
           if (!instId) {
+            dismissToast(shareToastId);
             showFailureToast('Sharing is not available for this file');
             return;
           }
@@ -5128,6 +5130,7 @@ export function App() {
         } else {
           const [owner, repo] = selectedRepo.split('/');
           if (!owner || !repo) {
+            dismissToast(shareToastId);
             showFailureToast('Failed to build public link');
             return;
           }
@@ -5135,6 +5138,7 @@ export function App() {
           url = `${window.location.origin}/${sharePath}`;
         }
       } else {
+        dismissToast(shareToastId);
         showFailureToast('Sharing is not available for this file');
         return;
       }
@@ -5152,8 +5156,10 @@ export function App() {
         document.execCommand('copy');
         input.remove();
       }
+      dismissToast(shareToastId);
       showSuccessToast('Copied share link');
     } catch (err) {
+      dismissToast(shareToastId);
       if (err instanceof SessionExpiredError) {
         handleSessionExpired();
         return;
@@ -5177,6 +5183,8 @@ export function App() {
     showRateLimitToastIfNeeded,
     showSuccessToast,
     showFailureToast,
+    showLoadingToast,
+    dismissToast,
     activeInstalledRepoInstallationId,
   ]);
 
@@ -5746,7 +5754,7 @@ export function App() {
       ],
       {
         title: 'Reset changes',
-        secondaryActionLabel: 'Reset without commit',
+        secondaryActionLabel: 'Reset',
         primaryActionLabel: 'Reset and commit',
         primaryActionInSecondaryMenu: true,
         cancelLabel: 'Cancel',
@@ -5868,7 +5876,7 @@ export function App() {
       ],
       {
         title: 'Restore previous changes',
-        secondaryActionLabel: 'Restore without commit',
+        secondaryActionLabel: 'Restore',
         primaryActionLabel: 'Restore and commit',
         primaryActionInSecondaryMenu: true,
         cancelLabel: 'Cancel',
