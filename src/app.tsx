@@ -2189,6 +2189,44 @@ export function App() {
     return repoDocFilesFromTree(result, false);
   }, []);
 
+  const primeInstalledRepoSidebar = useCallback(
+    async (instId: string, repoName: string) => {
+      const allFiles = await loadRepoAllFiles(instId, repoName);
+      setSelectedRepo(repoName);
+      setSelectedRepoInstallationId(instId);
+      storeSelectedRepo({ full_name: repoName, installationId: instId });
+      setRepoAccessMode('installed');
+      setPublicRepoRef(null);
+      setSharedRepoInstallationId(null);
+      setCurrentGistId(null);
+      setGistFiles(null);
+      setCurrentFileName(null);
+      setCurrentRepoDocPath(null);
+      setCurrentRepoDocSha(null);
+      setRepoSidebarFiles(allFiles);
+      setRepoFiles(allFiles.filter((file) => isMarkdownFileName(file.path)));
+    },
+    [loadRepoAllFiles],
+  );
+
+  const primePublicRepoSidebar = useCallback(
+    async (owner: string, repo: string) => {
+      const allFiles = await loadPublicRepoAllFiles(owner, repo);
+      setRepoAccessMode('public');
+      setPublicRepoRef({ owner, repo });
+      setSharedRepoInstallationId(null);
+      setCurrentGistId(null);
+      setGistFiles(null);
+      setCurrentFileName(null);
+      setCurrentRepoDocPath(null);
+      setCurrentRepoDocSha(null);
+      setEditingBackend(null);
+      setRepoSidebarFiles(allFiles);
+      setRepoFiles(allFiles.filter((file) => isMarkdownFileName(file.path)));
+    },
+    [loadPublicRepoAllFiles],
+  );
+
   const refreshRepoTreeAfterWrite = useCallback(async (): Promise<RepoDocFile[] | null> => {
     if (repoAccessMode !== 'installed' || !activeInstalledRepoInstallationId || !selectedRepo) return null;
     const files = await loadRepoAllFiles(activeInstalledRepoInstallationId, selectedRepo);
@@ -2599,6 +2637,13 @@ export function App() {
           handleSessionExpired();
           return false;
         }
+        if (err instanceof ApiError && err.status === 404) {
+          try {
+            await primeInstalledRepoSidebar(instId, repoName);
+          } catch {
+            /* preserve the original file-not-found error */
+          }
+        }
         showRateLimitToastIfNeeded(err);
         if (!options?.suppressError) {
           showError(err instanceof Error ? err.message : 'Failed to load file');
@@ -2616,6 +2661,7 @@ export function App() {
       activeInstalledRepoInstallationId,
       activeView,
       currentFileName,
+      primeInstalledRepoSidebar,
       showRateLimitToastIfNeeded,
       canApplyExternalEditSession,
     ],
@@ -2675,6 +2721,13 @@ export function App() {
         setViewPhase(null);
         return true;
       } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          try {
+            await primePublicRepoSidebar(owner, repo);
+          } catch {
+            /* preserve the original file-not-found error */
+          }
+        }
         showRateLimitToastIfNeeded(err);
         if (!options?.suppressError) {
           showError(err instanceof Error ? err.message : 'Failed to load file');
@@ -2686,6 +2739,7 @@ export function App() {
       activeView,
       currentFileName,
       loadPublicRepoMarkdownFiles,
+      primePublicRepoSidebar,
       renderDocumentContent,
       renderImageFileContent,
       renderBinaryFileContent,
