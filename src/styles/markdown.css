@@ -1045,6 +1045,14 @@
   color: inherit;
 }
 
+.rendered-markdown mark.double-colon-highlight,
+.markdown-link-preview-body mark.double-colon-highlight {
+  padding: 0 0.12em;
+  border-radius: 0.2em;
+  background: var(--highlighter-bg);
+  color: inherit;
+}
+
 .rendered-markdown .critic-comment,
 .markdown-link-preview-body .critic-comment {
   color: var(--text-secondary);

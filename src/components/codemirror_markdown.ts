@@ -5,6 +5,7 @@ import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate
 import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
 import { BRACE_PROMPT_HINT_LABEL } from '../brace_prompt.ts';
+import { parseHighlightMarkupAt } from '../highlight_markup.ts';
 import { EMPTY_PROMPT_QUESTION_PLACEHOLDER, matchPromptListLine, parsePromptListBlock } from '../prompt_list_syntax.ts';
 import { criticMarkupDecorationExtension } from './codemirror_criticmarkup.ts';
 import {
@@ -84,6 +85,29 @@ const htmlCommentMarkdownExtension: MarkdownExtension = {
   parseInline: [htmlCommentInlineParser],
 };
 
+const highlightMarkupInlineParser: InlineParser = {
+  name: 'HighlightMarkup',
+  before: 'Emphasis',
+  parse(cx, next, pos) {
+    if (next !== 58 || cx.char(pos + 1) !== 58) return -1;
+    const lineEnd = cx.text.indexOf('\n', pos);
+    const sliceEnd = lineEnd === -1 ? cx.end : Math.min(cx.end, lineEnd);
+    const match = parseHighlightMarkupAt(cx.text.slice(0, sliceEnd), pos);
+    if (!match) return -1;
+    return cx.addElement(
+      cx.elt('HighlightMarkup', pos, match.to, [
+        cx.elt('HighlightMark', pos, pos + 2),
+        cx.elt('HighlightMark', match.closerFrom, match.closerTo),
+      ]),
+    );
+  },
+};
+
+const highlightMarkupMarkdownExtension: MarkdownExtension = {
+  defineNodes: [{ name: 'HighlightMarkup' }, { name: 'HighlightMark', style: tags.processingInstruction }],
+  parseInline: [highlightMarkupInlineParser],
+};
+
 const markdownParserExtensions: MarkdownExtension = [
   {
     // Leaving HTML parsing enabled makes unfinished `<!--` comments
@@ -96,6 +120,7 @@ const markdownParserExtensions: MarkdownExtension = [
     remove: ['SetextHeading', 'IndentedCode'],
   },
   htmlCommentMarkdownExtension,
+  highlightMarkupMarkdownExtension,
   wikiLinkMarkdownExtension,
 ];
 
@@ -660,7 +685,43 @@ function rangeTouchesSelection(state: EditorState, from: number, to: number): bo
   });
 }
 
-const COLLAPSIBLE_INLINE_NODE_NAMES = new Set(['Link', 'Emphasis', 'StrongEmphasis']);
+const COLLAPSIBLE_INLINE_NODE_NAMES = new Set(['Link', 'Emphasis', 'StrongEmphasis', 'HighlightMarkup']);
+
+const CODE_NODE_NAMES = new Set(['FencedCode', 'InlineCode', 'CodeText', 'CodeMark']);
+
+function hasAncestorNamed(
+  node:
+    | {
+        name?: string;
+        parent: unknown;
+      }
+    | null
+    | undefined,
+  names: ReadonlySet<string>,
+): boolean {
+  for (
+    let current = node;
+    current && typeof current === 'object';
+    current =
+      'parent' in current
+        ? (current.parent as {
+            name?: string;
+            parent: unknown;
+          } | null)
+        : null
+  ) {
+    if (current.name && names.has(current.name)) return true;
+  }
+  return false;
+}
+
+function isCodePosition(state: EditorState, pos: number): boolean {
+  const tree = syntaxTree(state);
+  return (
+    hasAncestorNamed(tree.resolveInner(pos, 1), CODE_NODE_NAMES) ||
+    hasAncestorNamed(tree.resolveInner(Math.max(0, pos - 1), -1), CODE_NODE_NAMES)
+  );
+}
 
 function selectionTouchesAncestorRange(
   state: EditorState,
@@ -721,6 +782,40 @@ function buildCollapsedInlineMarkdownDecorations(view: EditorView): DecorationSe
         builder.add(node.from, node.to, Decoration.replace({}));
       },
     });
+  }
+
+  for (const { from, to } of view.visibleRanges) {
+    const text = view.state.doc.sliceString(from, to);
+    let cursor = 0;
+    while (cursor < text.length) {
+      const colonIndex = text.indexOf('::', cursor);
+      if (colonIndex === -1) break;
+
+      const absoluteFrom = from + colonIndex;
+      cursor = colonIndex + 2;
+
+      if (isCodePosition(view.state, absoluteFrom)) continue;
+
+      const match = parseHighlightMarkupAt(text, colonIndex);
+      if (!match) continue;
+
+      const absoluteTo = from + match.to;
+      const selected = rangeTouchesSelection(view.state, absoluteFrom, absoluteTo);
+
+      if (!selected) {
+        builder.add(from + match.openerFrom, from + match.openerTo, Decoration.replace({}));
+      }
+      builder.add(
+        from + match.contentFrom,
+        from + match.contentTo,
+        Decoration.mark({ class: 'cm-double-colon-highlight' }),
+      );
+      if (!selected) {
+        builder.add(from + match.closerFrom, from + match.closerTo, Decoration.replace({}));
+      }
+
+      cursor = match.to;
+    }
   }
 
   return builder.finish();

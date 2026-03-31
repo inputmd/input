@@ -121,6 +121,8 @@
   --error-color: #f85149;
   --warning-color: #d29922;
   --success-color: #3fb950;
+  --highlighter-color: #ffd400;
+  --highlighter-bg: color-mix(in srgb, var(--highlighter-color) 26%, transparent);
   --success-bg: rgba(63, 185, 80, 0.18);
   --success-border: #3fb950;
   --danger-bg: #490202;
@@ -186,6 +188,8 @@
   --error-color: #cf222e;
   --warning-color: #9a6700;
   --success-color: #1a7f37;
+  --highlighter-color: #ffcc00;
+  --highlighter-bg: color-mix(in srgb, var(--highlighter-color) 28%, transparent);
   --success-bg: #dafbe1;
   --success-border: #1a7f37;
   --danger-bg: #ffebe9;

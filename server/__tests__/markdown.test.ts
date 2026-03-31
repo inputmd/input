@@ -151,6 +151,13 @@ test('marked leaves malformed CriticMarkup literal', (t) => {
   t.true(html.includes('Keep {--this literal.'));
 });
 
+test('marked renders double-colon highlight markup', (t) => {
+  const html = marked.parse('Use ::highlighted text:: here.');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('Use <mark class="double-colon-highlight">highlighted text</mark> here.'));
+});
+
 test('marked renders bare bracketed text without brackets', (t) => {
   const html = marked.parse('Use [draft] status.');
 

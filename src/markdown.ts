@@ -5,6 +5,7 @@ import { marked, Renderer, type RendererThis, Tokenizer, type TokenizerThis } fr
 import { BRACE_PROMPT_HINT_LABEL } from './brace_prompt.ts';
 import { parseCriticMarkupAt } from './criticmarkup.ts';
 import { parseMarkdownFrontMatterBlock } from './document_permissions.ts';
+import { parseHighlightMarkupAt } from './highlight_markup.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
 import {
   hashPromptListIdentifierText,
@@ -56,6 +57,11 @@ interface CriticMarkupToken extends Tokens.Generic {
   oldTokens?: Token[];
   newTokens?: Token[];
   text?: string;
+}
+
+interface HighlightMarkupToken extends Tokens.Generic {
+  type: 'highlightMarkup';
+  tokens?: Token[];
 }
 
 export interface MarkdownSyncBlock {
@@ -428,6 +434,25 @@ marked.use({
           return `<span class="critic-comment">${escapeHtmlAttr(criticToken.text ?? '')}</span>`;
         }
         return `<span class="critic-substitution"><del class="critic-deletion">${this.parser.parseInline(criticToken.oldTokens ?? [])}</del><ins class="critic-addition">${this.parser.parseInline(criticToken.newTokens ?? [])}</ins></span>`;
+      },
+    },
+    {
+      name: 'highlightMarkup',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf('::');
+      },
+      tokenizer(src: string) {
+        const match = parseHighlightMarkupAt(src, 0);
+        if (!match) return undefined;
+        return {
+          type: 'highlightMarkup',
+          raw: match.raw,
+          tokens: this.lexer.inlineTokens(match.text),
+        } satisfies HighlightMarkupToken;
+      },
+      renderer(token) {
+        return `<mark class="double-colon-highlight">${this.parser.parseInline((token as HighlightMarkupToken).tokens ?? [])}</mark>`;
       },
     },
     {

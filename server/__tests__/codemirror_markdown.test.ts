@@ -186,6 +186,35 @@ test('markdown editor collapses emphasis markers until the selection enters the 
   }
 });
 
+test('markdown editor collapses double-colon highlight markers until the selection enters the span', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc = 'Use ::highlighted text:: here.';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.regex(view.dom.textContent ?? '', /Use highlighted text here\./);
+    t.false((view.dom.textContent ?? '').includes('::highlighted text::'));
+    t.truthy(view.dom.querySelector('.cm-double-colon-highlight'));
+
+    const highlightedFrom = doc.indexOf('highlighted');
+    view.dispatch({ selection: EditorSelection.cursor(highlightedFrom + 1) });
+
+    t.regex(view.dom.textContent ?? '', /Use ::highlighted text:: here\./);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
 test('promptListHintLabelForText returns question hint labels', (t) => {
   t.is(promptListHintLabelForText('~ '), 'Type to ask AI');
   t.is(promptListHintLabelForText('~ Explain Solomonoff induction'), null);

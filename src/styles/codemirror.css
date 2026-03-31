@@ -819,7 +819,7 @@
 }
 
 .cm-editor .tok-url {
-  color: color-mix(in srgb, var(--accent-text) 70%, var(--text-secondary));
+  color: var(--text-secondary);
 }
 
 .cm-editor .cm-collapsed-link-bracket {
@@ -934,6 +934,10 @@
 .cm-editor .cm-critic-highlight {
   border-radius: 3px;
   background: color-mix(in srgb, var(--warning-color) 20%, transparent);
+}
+
+.cm-editor .cm-double-colon-highlight {
+  color: var(--highlighter-color);
 }
 
 .cm-editor .cm-critic-comment {
