@@ -781,11 +781,13 @@
 
 /* Bold */
 .cm-editor .tok-strong {
+  color: var(--text-secondary);
   font-weight: 700;
 }
 
 /* Italic */
 .cm-editor .tok-emphasis {
+  color: var(--text-secondary);
   font-style: italic;
 }
 
@@ -818,6 +820,10 @@
 
 .cm-editor .tok-url {
   color: color-mix(in srgb, var(--accent-text) 70%, var(--text-secondary));
+}
+
+.cm-editor .cm-collapsed-link-bracket {
+  color: var(--text-secondary);
 }
 
 /* List markers */

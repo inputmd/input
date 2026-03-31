@@ -1,4 +1,5 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { syntaxTree } from '@codemirror/language';
 import { EditorState, Facet, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
@@ -652,6 +653,79 @@ function buildBracePromptDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
+function rangeTouchesSelection(state: EditorState, from: number, to: number): boolean {
+  return state.selection.ranges.some((range) => {
+    if (range.empty) return range.from >= from && range.from <= to;
+    return range.from < to && range.to > from;
+  });
+}
+
+const COLLAPSIBLE_INLINE_NODE_NAMES = new Set(['Link', 'Emphasis', 'StrongEmphasis']);
+
+function selectionTouchesAncestorRange(
+  state: EditorState,
+  parent: { from: number; to: number; parent: unknown } | null,
+): boolean {
+  for (
+    let current = parent;
+    current && typeof current === 'object';
+    current =
+      'parent' in current
+        ? (current.parent as {
+            from: number;
+            to: number;
+            parent: unknown;
+          } | null)
+        : null
+  ) {
+    if (!('from' in current) || !('to' in current) || !('name' in current)) continue;
+    const name = (current as { name?: string }).name;
+    if (!name || !COLLAPSIBLE_INLINE_NODE_NAMES.has(name)) continue;
+    if (rangeTouchesSelection(state, current.from, current.to)) return true;
+  }
+  return false;
+}
+
+function buildCollapsedInlineMarkdownDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  const tree = syntaxTree(view.state);
+
+  for (const { from, to } of view.visibleRanges) {
+    tree.iterate({
+      from,
+      to,
+      enter(node) {
+        if (node.name === 'URL' || node.name === 'LinkMark') {
+          const parent = node.node.parent;
+          if (!parent || parent.name !== 'Link') return;
+          if (rangeTouchesSelection(view.state, parent.from, parent.to)) return;
+          if (node.name === 'LinkMark') {
+            const text = view.state.doc.sliceString(node.from, node.to);
+            if (text === '[' || text === ']') {
+              builder.add(
+                node.from,
+                node.to,
+                Decoration.mark({
+                  class: 'cm-collapsed-link-bracket',
+                }),
+              );
+              return;
+            }
+          }
+          builder.add(node.from, node.to, Decoration.replace({}));
+          return;
+        }
+
+        if (node.name !== 'EmphasisMark') return;
+        if (selectionTouchesAncestorRange(view.state, node.node.parent)) return;
+        builder.add(node.from, node.to, Decoration.replace({}));
+      },
+    });
+  }
+
+  return builder.finish();
+}
+
 const promptListHintExtension = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
@@ -701,6 +775,25 @@ const bracePromptDecorationExtension = ViewPlugin.fromClass(
   },
 );
 
+const collapsedLinkDecorationExtension = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildCollapsedInlineMarkdownDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.selectionSet || update.viewportChanged) {
+        this.decorations = buildCollapsedInlineMarkdownDecorations(update.view);
+      }
+    }
+  },
+  {
+    decorations: (value) => value.decorations,
+  },
+);
+
 export function markdownEditorLanguageSupport() {
   return [
     markdown({
@@ -710,6 +803,7 @@ export function markdownEditorLanguageSupport() {
     }),
     promptListCollapseField,
     promptListAtomicRangesExtension,
+    collapsedLinkDecorationExtension,
     criticMarkupDecorationExtension,
     bracePromptDecorationExtension,
     promptListLineClassExtension,
@@ -733,6 +827,7 @@ export function markdownCodeLanguageSupport() {
     }),
     promptListCollapseField,
     promptListAtomicRangesExtension,
+    collapsedLinkDecorationExtension,
     criticMarkupDecorationExtension,
     promptListLineClassExtension,
   ];

@@ -1,6 +1,8 @@
 import { syntaxTree } from '@codemirror/language';
-import { EditorState } from '@codemirror/state';
+import { EditorSelection, EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import test from 'ava';
+import { JSDOM } from 'jsdom';
 import {
   bracePromptHintForText,
   bracePromptHintLabelForText,
@@ -18,6 +20,45 @@ function syntaxNodeNames(state: EditorState): Set<string> {
     },
   });
   return names;
+}
+
+function installDomGlobals(dom: JSDOM): () => void {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousMutationObserver = globalThis.MutationObserver;
+  const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
+  const previousCancelAnimationFrame = globalThis.cancelAnimationFrame;
+  const previousHTMLElement = globalThis.HTMLElement;
+  const previousNode = globalThis.Node;
+  const previousWindowCtor = (globalThis as typeof globalThis & { Window?: typeof Window }).Window;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+  dom.window.requestAnimationFrame = () => 0;
+  dom.window.cancelAnimationFrame = () => {};
+  globalThis.window = dom.window as typeof globalThis.window;
+  globalThis.document = dom.window.document;
+  globalThis.MutationObserver = dom.window.MutationObserver as typeof globalThis.MutationObserver;
+  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
+  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
+  Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
+  globalThis.HTMLElement = dom.window.HTMLElement as typeof globalThis.HTMLElement;
+  globalThis.Node = dom.window.Node as typeof globalThis.Node;
+  (globalThis as typeof globalThis & { Window?: typeof Window }).Window = dom.window.Window as typeof Window;
+  globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+
+  return () => {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.MutationObserver = previousMutationObserver;
+    globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+    globalThis.cancelAnimationFrame = previousCancelAnimationFrame;
+    globalThis.HTMLElement = previousHTMLElement;
+    globalThis.Node = previousNode;
+    (globalThis as typeof globalThis & { Window?: typeof Window }).Window = previousWindowCtor;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+    if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+  };
 }
 
 test('markdown editor language does not parse html comments', (t) => {
@@ -82,6 +123,67 @@ test('markdown editor language keeps inline comment content opaque to emphasis p
   const names = syntaxNodeNames(state);
   t.true(names.has('HtmlComment'));
   t.false(names.has('Emphasis'));
+});
+
+test('markdown editor collapses markdown links until the selection enters them', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc = 'See [docs](https://example.com) here.';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.regex(view.dom.textContent ?? '', /See \[docs\] here\./);
+    t.false((view.dom.textContent ?? '').includes('https://example.com'));
+    t.truthy(view.dom.querySelector('.cm-collapsed-link-bracket'));
+
+    const linkLabelFrom = doc.indexOf('docs');
+    view.dispatch({ selection: EditorSelection.cursor(linkLabelFrom + 1) });
+
+    t.regex(view.dom.textContent ?? '', /\[docs\]\(https:\/\/example\.com\)/);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('markdown editor collapses emphasis markers until the selection enters the formatted span', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc = 'Use *italic* and **bold** here.';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.regex(view.dom.textContent ?? '', /Use italic and bold here\./);
+    t.false((view.dom.textContent ?? '').includes('*italic*'));
+    t.false((view.dom.textContent ?? '').includes('**bold**'));
+
+    const italicFrom = doc.indexOf('italic');
+    view.dispatch({ selection: EditorSelection.cursor(italicFrom + 1) });
+    t.regex(view.dom.textContent ?? '', /Use \*italic\* and bold here\./);
+
+    const boldFrom = doc.indexOf('bold');
+    view.dispatch({ selection: EditorSelection.cursor(boldFrom + 1) });
+    t.regex(view.dom.textContent ?? '', /Use italic and \*\*bold\*\* here\./);
+    view.destroy();
+  } finally {
+    restore();
+  }
 });
 
 test('promptListHintLabelForText returns question hint labels', (t) => {
