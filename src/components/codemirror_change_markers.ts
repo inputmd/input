@@ -124,12 +124,6 @@ class ChangeMarkerGutterMarker extends GutterMarker {
       element.title = label;
     }
 
-    if (this.marker.kind) {
-      const bar = document.createElement('div');
-      bar.className = `cm-change-marker__bar cm-change-marker__bar--${this.marker.kind}`;
-      element.append(bar);
-    }
-
     if (this.marker.deletedBefore) {
       const anchor = document.createElement('div');
       anchor.className = 'cm-change-marker__delete-anchor cm-change-marker__delete-anchor--top';
@@ -140,6 +134,12 @@ class ChangeMarkerGutterMarker extends GutterMarker {
       const anchor = document.createElement('div');
       anchor.className = 'cm-change-marker__delete-anchor cm-change-marker__delete-anchor--bottom';
       element.append(anchor);
+    }
+
+    if (this.marker.kind) {
+      const bar = document.createElement('div');
+      bar.className = `cm-change-marker__bar cm-change-marker__bar--${this.marker.kind}`;
+      element.append(bar);
     }
 
     return element;
