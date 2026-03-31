@@ -94,7 +94,11 @@ import {
   recordServerLocalRateLimitFromResponse,
   subscribeGitHubRateLimitUpdates,
 } from './github_rate_limit';
-import { removeDocumentDraft, useDocumentPersistence } from './hooks/useDocumentPersistence';
+import {
+  removeDocumentDraft,
+  shouldAutoRestoreDocumentDraft,
+  useDocumentPersistence,
+} from './hooks/useDocumentPersistence';
 import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown } from './image_markdown';
@@ -5938,6 +5942,32 @@ export function App() {
   const onSaveAndExit = useCallback(async () => {
     await commitAndExitEdit();
   }, [commitAndExitEdit]);
+
+  useEffect(() => {
+    if (activeView !== 'edit' || !currentDocumentDraftKey || !currentDocumentDraft) return;
+    if (
+      !shouldAutoRestoreDocumentDraft({
+        draftContent: currentDocumentDraft.content,
+        savedContent: currentDocumentSavedContent,
+        editorContent: editContentRef.current,
+        hasPendingRestore: parsePendingDraftRestore(routeState)?.documentDraftKey === currentDocumentDraftKey,
+      })
+    ) {
+      return;
+    }
+    setNextEditContent(currentDocumentDraft.content, { origin: 'appEdits' });
+    setHasUserTypedUnsavedChanges(false);
+    setHasUnsavedChanges(currentDocumentDraft.content !== currentDocumentSavedContent);
+  }, [
+    activeView,
+    currentDocumentDraft,
+    currentDocumentDraftKey,
+    currentDocumentSavedContent,
+    routeState,
+    setNextEditContent,
+    setHasUnsavedChanges,
+    setHasUserTypedUnsavedChanges,
+  ]);
 
   useEffect(() => {
     if (activeView !== 'edit' || !currentDocumentDraftKey || currentDocumentSavedContent === null) return;

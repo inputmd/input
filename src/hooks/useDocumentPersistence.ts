@@ -4,6 +4,9 @@ import type { GitHubUser } from '../github';
 import { getGist } from '../github';
 import { getRepoContents, isRepoFile, SessionExpiredError } from '../github_app';
 
+export type { AutoRestoreDocumentDraftInput } from '../document_draft_restore';
+export { shouldAutoRestoreDocumentDraft } from '../document_draft_restore';
+
 // --- Types ---
 
 export interface PersistedDocumentDraft {
