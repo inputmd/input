@@ -67,6 +67,7 @@ export function ReaderAiModelSelector({
   const paidModels = models.filter(
     (model) => model.provider !== 'codex_local' && !model.id.trim().toLowerCase().endsWith(':free'),
   );
+  const displayedPaidModels = [...paidModels].reverse();
   const freeModels = models.filter(
     (model) => model.provider !== 'codex_local' && model.id.trim().toLowerCase().endsWith(':free'),
   );
@@ -126,7 +127,7 @@ export function ReaderAiModelSelector({
                   <DropdownMenu.Item class="reader-ai-model-menu-heading" disabled>
                     Recommended models
                   </DropdownMenu.Item>
-                  {paidModels.map((model) => (
+                  {displayedPaidModels.map((model) => (
                     <DropdownMenu.RadioItem key={model.id} class="reader-ai-model-menu-item" value={model.id}>
                       {displayModelName(model)}
                     </DropdownMenu.RadioItem>

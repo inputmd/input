@@ -454,6 +454,11 @@ function isPaidReaderAiModel(model: ReaderAiModel): boolean {
   return model.provider !== 'codex_local' && !model.id.trim().toLowerCase().endsWith(':free');
 }
 
+function readerAiDefaultModelRank(model: ReaderAiModel): number {
+  if (model.id === 'anthropic/claude-sonnet-4.6') return 0;
+  return 1;
+}
+
 function readerAiModelPenalty(model: ReaderAiModel): number {
   const normalized = `${model.id} ${model.name}`.toLowerCase();
   return /\b(?:trinity|opus|sonnet)\b/u.test(normalized) ? 1 : 0;
@@ -479,6 +484,9 @@ function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
       const aLocal = a.model.provider === 'codex_local';
       const bLocal = b.model.provider === 'codex_local';
       if (aLocal !== bLocal) return aLocal ? -1 : 1;
+      const aDefaultRank = readerAiDefaultModelRank(a.model);
+      const bDefaultRank = readerAiDefaultModelRank(b.model);
+      if (aDefaultRank !== bDefaultRank) return aDefaultRank - bDefaultRank;
       if (a.rank !== b.rank) {
         if (a.rank === -1) return 1;
         if (b.rank === -1) return -1;
