@@ -8010,9 +8010,6 @@ export function App() {
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
-  const headerSidebarToggleAvailable =
-    (activeView === 'content' || activeView === 'edit') &&
-    !(showHeaderLeftLoading && preserveHeaderLeftControlsWhileLoading);
   const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;
   const headerReaderAiToggleAvailable = showReaderAiToggle && !readerAiToggleDisabled;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
@@ -8026,8 +8023,8 @@ export function App() {
   const showDraftMenuActions = currentDocumentDraft !== null && (currentGistId !== null || currentRepoDocPath !== null);
   useEffect(() => {
     const bindings = [
-      { key: 't', available: headerSidebarToggleAvailable, action: onToggleSidebar },
-      { key: 'i', available: headerReaderAiToggleAvailable, action: onToggleReaderAi },
+      { key: 'o', available: headerReaderAiToggleAvailable, action: onToggleReaderAi },
+      { key: 'i', available: true, action: toggleTheme },
       { key: 'p', available: headerPreviewToggleAvailable, action: onTogglePreview },
       { key: 'e', available: showHeaderEdit, action: onEdit },
     ] as const;
@@ -8046,12 +8043,11 @@ export function App() {
   }, [
     headerPreviewToggleAvailable,
     headerReaderAiToggleAvailable,
-    headerSidebarToggleAvailable,
     onTogglePreview,
     onToggleReaderAi,
-    onToggleSidebar,
     onEdit,
     showHeaderEdit,
+    toggleTheme,
   ]);
   const shareMenuMetadata = useMemo(() => {
     if (!showHeaderShare) return null;

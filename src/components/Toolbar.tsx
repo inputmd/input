@@ -285,7 +285,6 @@ export function Toolbar({
   const selectedRepoName = selectedRepo?.split('/').at(-1) ?? selectedRepo;
   const showHeaderToggleGroup = showPreviewToggle || showAiToggle;
   const showAiModelSelector = showAiToggle;
-  const modelSelectorShortcutAvailable = showAiModelSelector && !aiDisabled && !aiModelsLoading && aiModels.length > 0;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const showHeaderForkRepoButton = showForkRepo && view !== 'edit' && view !== 'workspaces';
@@ -329,20 +328,6 @@ export function Toolbar({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onOpenRepoMenu, repoMenuShortcutAvailable]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (!modelSelectorShortcutAvailable || !matchesControlShortcut(event, 'o')) return;
-      if (isEditableShortcutTarget(event.target)) return;
-
-      event.preventDefault();
-      setModelSelectorOpen((open) => !open);
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [modelSelectorShortcutAvailable]);
 
   const openCollaboratorsTooltip = (): void => {
     if (collaboratorsTooltipCloseTimeoutRef.current !== null) {
