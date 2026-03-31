@@ -226,9 +226,7 @@ export function MarkdownEditor({
     : null;
 
   const getTopVisibleText = (view: EditorView, maxChars = 240): string | null => {
-    const viewportTop = editorUsesOwnScroll(view)
-      ? view.scrollDOM.scrollTop
-      : Math.max(0, -view.scrollDOM.getBoundingClientRect().top);
+    const viewportTop = editorUsesOwnScroll(view) ? view.scrollDOM.scrollTop : getWindowViewportTopWithinEditor(view);
     let position = clampPosition(view, view.lineBlockAtHeight(Math.max(0, viewportTop + 4)).from);
     let combined = '';
     let scannedLines = 0;
@@ -254,7 +252,7 @@ export function MarkdownEditor({
     const clampedRatio = Math.min(1, Math.max(0, anchorRatio));
     const anchorY = editorUsesOwnScroll(view)
       ? view.scrollDOM.scrollTop + view.scrollDOM.clientHeight * clampedRatio
-      : Math.max(0, -view.scrollDOM.getBoundingClientRect().top) + window.innerHeight * clampedRatio;
+      : getWindowViewportTopWithinEditor(view) + getWindowContentViewportHeight() * clampedRatio;
     const lineBlock = view.lineBlockAtHeight(Math.max(0, anchorY));
     const blockHeight = Math.max(1, lineBlock.height);
     const fraction = Math.max(0, Math.min(1, (anchorY - lineBlock.top) / blockHeight));
@@ -288,6 +286,26 @@ export function MarkdownEditor({
 
   const editorUsesOwnScroll = (view: EditorView): boolean => {
     return view.scrollDOM.scrollHeight > view.scrollDOM.clientHeight + 1;
+  };
+
+  const getFixedToolbarHeight = (): number => {
+    const toolbar = document.querySelector<HTMLElement>('.toolbar');
+    if (toolbar) return toolbar.offsetHeight;
+
+    const raw = window.getComputedStyle(document.documentElement).getPropertyValue('--toolbar-height').trim();
+    const match = /^(-?\d+(?:\.\d+)?)px$/i.exec(raw);
+    if (match) return Number.parseFloat(match[1] ?? '0');
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const getWindowContentViewportHeight = (): number => {
+    return Math.max(0, window.innerHeight - getFixedToolbarHeight());
+  };
+
+  const getWindowViewportTopWithinEditor = (view: EditorView): number => {
+    const toolbarHeight = getFixedToolbarHeight();
+    return Math.max(0, toolbarHeight - view.scrollDOM.getBoundingClientRect().top);
   };
 
   const getScrollMetrics = (view: EditorView) => {
@@ -368,8 +386,9 @@ export function MarkdownEditor({
   const scrollWindowToKeepPositionVisible = (view: EditorView, position: number) => {
     const coords = view.coordsAtPos(clampPosition(view, position));
     if (!coords) return;
-    const viewportTop = window.scrollY;
-    const viewportBottom = viewportTop + window.innerHeight;
+    const toolbarHeight = getFixedToolbarHeight();
+    const viewportTop = window.scrollY + toolbarHeight;
+    const viewportBottom = window.scrollY + window.innerHeight;
     const targetTop = coords.top + window.scrollY;
     const targetBottom = coords.bottom + window.scrollY;
     const minVisibleTop = viewportTop + STREAMING_CURSOR_VIEWPORT_MARGIN_PX;
@@ -380,7 +399,7 @@ export function MarkdownEditor({
       return;
     }
     if (targetTop < minVisibleTop) {
-      window.scrollTo({ top: Math.max(0, targetTop - STREAMING_CURSOR_VIEWPORT_MARGIN_PX) });
+      window.scrollTo({ top: Math.max(0, targetTop - toolbarHeight - STREAMING_CURSOR_VIEWPORT_MARGIN_PX) });
     }
   };
 
@@ -393,7 +412,9 @@ export function MarkdownEditor({
     }
     const coords = view.coordsAtPos(clampedPosition);
     if (!coords) return null;
-    return Math.max(0, coords.top + window.scrollY - window.innerHeight * clampedRatio);
+    const toolbarHeight = getFixedToolbarHeight();
+    const viewportHeight = getWindowContentViewportHeight();
+    return Math.max(0, coords.top + window.scrollY - toolbarHeight - viewportHeight * clampedRatio);
   };
 
   const scrollPositionToViewportAnchor = (view: EditorView, position: number, anchorRatio = 0.3) => {
@@ -407,8 +428,9 @@ export function MarkdownEditor({
     if (!editorUsesOwnScroll(view)) {
       const coords = view.coordsAtPos(clampedPosition);
       if (!coords) return true;
+      const toolbarHeight = getFixedToolbarHeight();
       return (
-        coords.top >= STREAMING_CURSOR_VIEWPORT_MARGIN_PX &&
+        coords.top >= toolbarHeight + STREAMING_CURSOR_VIEWPORT_MARGIN_PX &&
         coords.bottom <= window.innerHeight - STREAMING_CURSOR_VIEWPORT_MARGIN_PX
       );
     }
