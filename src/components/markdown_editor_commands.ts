@@ -305,6 +305,13 @@ function isNonTightList(
   return line1.number + (empty ? 0 : 1) < line2.number;
 }
 
+function blankPrefixWithoutLists(context: MarkdownListContext[]): string {
+  return context
+    .filter((item) => item.node.name === 'Blockquote')
+    .map((item) => item.blank(null))
+    .join('');
+}
+
 function promptListIndentWidth(indent: string): number {
   let width = 0;
   for (const ch of indent) width += ch === '\t' ? 2 : 1;
@@ -482,6 +489,70 @@ export function insertNewlineContinueLooseListItem(view: EditorView): boolean {
   if (!inner.item || !isNonTightList(inner.node, state.doc)) return false;
 
   const insert = state.lineBreak;
+  view.dispatch(
+    state.update({
+      changes: { from: range.from, to: range.to, insert },
+      selection: EditorSelection.cursor(range.from + insert.length),
+      scrollIntoView: true,
+      userEvent: 'input',
+    }),
+  );
+  return true;
+}
+
+export function insertNewlineExitLooseNestedListItem(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty) return false;
+
+  const line = state.doc.lineAt(range.from);
+  if (range.from !== line.to) return false;
+  const currentLineContext = getMarkdownListContext(state, range.from);
+  while (currentLineContext.length && currentLineContext[currentLineContext.length - 1].from > range.from - line.from) {
+    currentLineContext.pop();
+  }
+
+  const currentInner = currentLineContext[currentLineContext.length - 1];
+  const currentParent = [...currentLineContext]
+    .slice(0, -1)
+    .reverse()
+    .find((item) => item.item !== null);
+
+  if (currentInner?.item && currentParent?.item && !/\S/.test(line.text.slice(currentInner.to))) {
+    const insert = blankPrefixWithoutLists(currentLineContext);
+    view.dispatch(
+      state.update({
+        changes: { from: line.from, to: line.to, insert },
+        selection: EditorSelection.cursor(line.from + insert.length),
+        scrollIntoView: true,
+        userEvent: 'input',
+      }),
+    );
+    return true;
+  }
+
+  if (/\S/.test(line.text)) return false;
+  if (line.number <= 1) return false;
+
+  const previousLine = state.doc.line(line.number - 1);
+  const inMarkdown =
+    markdownLanguage.isActiveAt(state, range.from, -1) ||
+    markdownLanguage.isActiveAt(state, range.from, 1) ||
+    markdownLanguage.isActiveAt(state, previousLine.to, -1) ||
+    markdownLanguage.isActiveAt(state, previousLine.to, 1);
+  if (!inMarkdown) return false;
+  if (!/\S/.test(previousLine.text)) return false;
+
+  const previousLineContext = getMarkdownListContext(state, previousLine.to);
+  const previousInner = previousLineContext[previousLineContext.length - 1];
+  const previousParent = [...previousLineContext]
+    .slice(0, -1)
+    .reverse()
+    .find((item) => item.item !== null);
+
+  if (!previousInner?.item || !previousParent?.item) return false;
+
+  const insert = `${state.lineBreak}${blankPrefixWithoutLists(previousLineContext)}`;
   view.dispatch(
     state.update({
       changes: { from: range.from, to: range.to, insert },

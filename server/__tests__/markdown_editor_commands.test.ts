@@ -1,4 +1,4 @@
-import { history, undo, undoDepth } from '@codemirror/commands';
+import { defaultKeymap, history, undo, undoDepth } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   EditorSelection,
@@ -25,6 +25,7 @@ import {
   insertNewlineContinuePromptAnswer,
   insertNewlineContinuePromptComment,
   insertNewlineExitBlockquote,
+  insertNewlineExitLooseNestedListItem,
   insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
   normalizeBlockquotePaste,
@@ -281,6 +282,126 @@ test('insertNewlineContinueLooseListItem ignores tight lists', (t) => {
   ]);
 
   t.false(insertNewlineContinueLooseListItem(view));
+});
+
+test('insertNewlineExitLooseNestedListItem exits one nesting level from a blank nested loose-list line', (t) => {
+  const doc = '- a\n\n  - b\n  ';
+  const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
+
+  const handled = insertNewlineExitLooseNestedListItem(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '- a\n\n  - b\n  \n');
+  t.is(view.state.selection.main.head, '- a\n\n  - b\n  \n'.length);
+});
+
+test('insertNewlineExitLooseNestedListItem also works from an empty blank nested line', (t) => {
+  const doc = '- a\n\n  - b\n';
+  const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
+
+  const handled = insertNewlineExitLooseNestedListItem(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '- a\n\n  - b\n\n');
+  t.is(view.state.selection.main.head, '- a\n\n  - b\n\n'.length);
+});
+
+test('insertNewlineExitLooseNestedListItem exits an empty nested list marker line', (t) => {
+  const doc = '- a\n  - b\n  - ';
+  const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
+
+  const handled = insertNewlineExitLooseNestedListItem(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '- a\n  - b\n');
+  t.is(view.state.selection.main.head, '- a\n  - b\n'.length);
+});
+
+test('pressing Enter twice at the end of a nested list item exits one level on the second Enter', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
+  const restoreDom = installDomGlobals(dom);
+
+  try {
+    const parent = document.getElementById('root');
+    t.truthy(parent);
+
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: '- a\n  - b',
+        selection: EditorSelection.cursor('- a\n  - b'.length),
+        extensions: [
+          markdown({ base: markdownLanguage }),
+          Prec.highest(
+            keymap.of([
+              { key: 'Enter', run: insertNewlineExitBlockquote },
+              { key: 'Enter', run: insertNewlineExitLooseNestedListItem },
+              { key: 'Enter', run: insertNewlineContinueLooseListItem },
+            ]),
+          ),
+          keymap.of(defaultKeymap),
+        ],
+      }),
+      parent: parent!,
+    });
+
+    try {
+      const firstHandled = runScopeHandlers(view, new window.KeyboardEvent('keydown', { key: 'Enter' }), 'editor');
+      const secondHandled = runScopeHandlers(view, new window.KeyboardEvent('keydown', { key: 'Enter' }), 'editor');
+
+      t.true(firstHandled);
+      t.true(secondHandled);
+      t.is(view.state.doc.toString(), '- a\n  - b\n');
+      t.is(view.state.selection.main.head, '- a\n  - b\n'.length);
+    } finally {
+      view.destroy();
+    }
+  } finally {
+    restoreDom();
+  }
+});
+
+test('pressing Enter twice at the end of a deeply nested list item exits the list block', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
+  const restoreDom = installDomGlobals(dom);
+
+  try {
+    const parent = document.getElementById('root');
+    t.truthy(parent);
+
+    const doc = `- Key items\n  - Is Claude aligned?\n    - How does this question change as Claude gets more capable?\n    - What will Claude be used for as it gets more capable?`;
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(doc.length),
+        extensions: [
+          markdown({ base: markdownLanguage }),
+          Prec.highest(
+            keymap.of([
+              { key: 'Enter', run: insertNewlineExitBlockquote },
+              { key: 'Enter', run: insertNewlineExitLooseNestedListItem },
+              { key: 'Enter', run: insertNewlineContinueLooseListItem },
+            ]),
+          ),
+          keymap.of(defaultKeymap),
+        ],
+      }),
+      parent: parent!,
+    });
+
+    try {
+      const firstHandled = runScopeHandlers(view, new window.KeyboardEvent('keydown', { key: 'Enter' }), 'editor');
+      const secondHandled = runScopeHandlers(view, new window.KeyboardEvent('keydown', { key: 'Enter' }), 'editor');
+
+      t.true(firstHandled);
+      t.true(secondHandled);
+      t.is(view.state.doc.toString(), `${doc}\n`);
+      t.is(view.state.selection.main.head, `${doc}\n`.length);
+    } finally {
+      view.destroy();
+    }
+  } finally {
+    restoreDom();
+  }
 });
 
 test('insertNewlineExitBlockquote exits a plain blockquote at line end', (t) => {
