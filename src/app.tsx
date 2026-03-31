@@ -462,6 +462,18 @@ function clampSidePaneWidth(width: number): number {
   return Math.max(MIN_SIDE_PANE_WIDTH_PX, Math.min(MAX_SIDE_PANE_WIDTH_PX, width));
 }
 
+function readStoredClampedPaneWidth(storageKey: string): number | null {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (raw === null) return null;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < MIN_SIDE_PANE_WIDTH_PX) return null;
+    return clampSidePaneWidth(parsed);
+  } catch {
+    return null;
+  }
+}
+
 function defaultSidePaneForViewport(): SidePane {
   if (typeof window === 'undefined') return 'none';
   return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'preview' : 'none';
@@ -483,12 +495,10 @@ function readStoredSidePanePreference(): SidePane {
 
 function readStoredSidePaneWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_SIDE_PANE_WIDTH_PX;
-  try {
-    const stored = Number(localStorage.getItem(SIDE_PANE_WIDTH_KEY));
-    if (Number.isFinite(stored)) return clampSidePaneWidth(stored);
-    const legacy = Number(localStorage.getItem(READER_AI_WIDTH_KEY));
-    if (Number.isFinite(legacy)) return clampSidePaneWidth(legacy);
-  } catch {}
+  const stored = readStoredClampedPaneWidth(SIDE_PANE_WIDTH_KEY);
+  if (stored !== null) return stored;
+  const legacy = readStoredClampedPaneWidth(READER_AI_WIDTH_KEY);
+  if (legacy !== null) return legacy;
   return DEFAULT_SIDE_PANE_WIDTH_PX;
 }
 
