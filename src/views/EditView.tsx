@@ -25,7 +25,7 @@ const PREVIEW_SCROLL_LOCK_STORAGE_KEY = 'input_preview_scroll_locked_v1';
 const PREVIEW_RESTORE_SELECTOR = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th';
 const PREVIEW_SYNC_SELECTOR = '[data-sync-id]';
 const SCROLL_SYNC_ANCHOR_RATIO = 0.3;
-const PREVIEW_LAYOUT_DRIFT_TOLERANCE_PX = 3;
+const PREVIEW_LAYOUT_DRIFT_TOLERANCE_PX = 8;
 
 type ScrollPane = 'editor' | 'preview';
 
