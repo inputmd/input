@@ -123,6 +123,33 @@ function escapeHtmlAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function isToggleListItemToken(item: Tokens.ListItem): boolean {
+  return /^\s*\+\s+/.test(item.raw);
+}
+
+function renderMarkdownListItem(renderer: RendererThis<string, string>, item: Tokens.ListItem, syncAttr = ''): string {
+  if (!isToggleListItemToken(item)) {
+    let body = renderer.parser.parse(item.tokens);
+    if (item.task) {
+      const checkbox = `<input disabled="" type="checkbox"${item.checked ? ' checked=""' : ''}> `;
+      if (item.loose) {
+        body = body.replace(/^(<p[^>]*>)/, `$1${checkbox}`);
+      } else {
+        body = checkbox + body;
+      }
+    }
+    return `<li${syncAttr}>${body}</li>\n`;
+  }
+
+  const [summaryToken, ...bodyTokens] = item.tokens;
+  const summaryHtml =
+    summaryToken && 'tokens' in summaryToken
+      ? renderer.parser.parseInline(summaryToken.tokens ?? [])
+      : escapeHtmlAttr(item.text.split('\n', 1)[0] ?? '');
+  const bodyHtml = bodyTokens.length > 0 ? renderer.parser.parse(bodyTokens) : '';
+  return `<li class="toggle-list-item"${syncAttr}><details class="toggle-list" data-open="false"><summary class="toggle-list-summary" aria-expanded="false">${summaryHtml}</summary>${bodyHtml ? `<div class="toggle-list-body">${bodyHtml}</div>` : ''}</details></li>\n`;
+}
+
 function markdownSyncAttr(token: { syncId?: string } | null | undefined): string {
   return token?.syncId ? ` data-sync-id="${escapeHtmlAttr(token.syncId)}"` : '';
 }
@@ -211,6 +238,11 @@ function deriveSuperscriptLinkLabel(text: string, href: string): string {
 }
 
 marked.use({
+  renderer: {
+    listitem(token) {
+      return renderMarkdownListItem(this, token);
+    },
+  },
   tokenizer: {
     list(this: TokenizerThis, src: string) {
       const state = this.lexer.state as PromptListAwareLexerState;
@@ -2540,6 +2572,10 @@ function createMarkdownSyncRenderer(): Renderer {
     const tagName = token.ordered ? 'ol' : 'ul';
     const startAttr = token.ordered && token.start !== 1 ? ` start="${token.start}"` : '';
     return `<${tagName}${markdownSyncAttr(token as MarkdownSyncToken)}${startAttr}>\n${body}</${tagName}>\n`;
+  };
+
+  renderer.listitem = function (item: Tokens.ListItem) {
+    return renderMarkdownListItem(this, item);
   };
 
   renderer.paragraph = function (token: Tokens.Paragraph) {

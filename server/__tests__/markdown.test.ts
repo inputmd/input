@@ -6,15 +6,17 @@ import { BRACE_PROMPT_HINT_LABEL } from '../../src/brace_prompt.ts';
 import { parseMarkdownDocument, parseMarkdownToHtml } from '../../src/markdown.ts';
 import { setPromptAnswerExpandedState, togglePromptAnswerExpandedState } from '../../src/prompt_list_state.ts';
 import { EMPTY_PROMPT_QUESTION_PLACEHOLDER } from '../../src/prompt_list_syntax.ts';
+import { syncToggleListPersistedState, toggleToggleListState } from '../../src/toggle_list_state.ts';
 
 function withDom<T>(callback: () => T): T {
-  const dom = new JSDOM('<!doctype html><html><body></body></html>');
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://input.test/doc' });
   const previous = {
     window: globalThis.window,
     document: globalThis.document,
     Node: globalThis.Node,
     NodeFilter: globalThis.NodeFilter,
     HTMLElement: globalThis.HTMLElement,
+    HTMLDetailsElement: globalThis.HTMLDetailsElement,
     HTMLAnchorElement: globalThis.HTMLAnchorElement,
     HTMLImageElement: globalThis.HTMLImageElement,
     SVGElement: globalThis.SVGElement,
@@ -28,6 +30,7 @@ function withDom<T>(callback: () => T): T {
     Node: dom.window.Node,
     NodeFilter: dom.window.NodeFilter,
     HTMLElement: dom.window.HTMLElement,
+    HTMLDetailsElement: dom.window.HTMLDetailsElement,
     HTMLAnchorElement: dom.window.HTMLAnchorElement,
     HTMLImageElement: dom.window.HTMLImageElement,
     SVGElement: dom.window.SVGElement,
@@ -245,6 +248,16 @@ test('marked does not treat tilde content inside blockquotes as prompt-list synt
   t.false(html.includes('prompt-list'));
 });
 
+test('marked renders plus-prefixed list items as collapsed toggle lists', (t) => {
+  const html = marked.parse('+ Parent\n  - Child');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<li class="toggle-list-item"><details class="toggle-list" data-open="false">'));
+  t.true(html.includes('<summary class="toggle-list-summary" aria-expanded="false">Parent</summary>'));
+  t.true(html.includes('<div class="toggle-list-body"><ul>'));
+  t.true(html.includes('<li>Child</li>'));
+});
+
 test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('~ Ask about **Solomonoff induction**'));
 
@@ -284,6 +297,39 @@ test('parseMarkdownToHtml does not treat tilde content inside blockquotes as pro
   t.regex(html, /<blockquote(?:\s+data-sync-id="[^"]+")?>/);
   t.regex(html, /<p(?:\s+data-sync-id="[^"]+")?>~ Enter to generate a first response<\/p>/);
   t.false(html.includes('prompt-list-conversation'));
+});
+
+test('toggle lists restore their persisted open state from localStorage', (t) => {
+  withDom(() => {
+    const first = parseMarkdownDocument('+ Parent\n  - Child');
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `<div class="rendered-markdown" data-toggle-list-storage-key="doc-1">${first.html}</div>`;
+    const root = wrapper.firstElementChild;
+    t.true(root instanceof HTMLElement);
+    if (!(root instanceof HTMLElement)) return;
+
+    syncToggleListPersistedState(root);
+    const details = root.querySelector('details.toggle-list');
+    t.true(details instanceof HTMLDetailsElement);
+    if (!(details instanceof HTMLDetailsElement)) return;
+    t.false(details.open);
+
+    toggleToggleListState(details);
+    t.true(details.open);
+
+    const second = parseMarkdownDocument('+ Parent\n  - Child');
+    const nextWrapper = document.createElement('div');
+    nextWrapper.innerHTML = `<div class="rendered-markdown" data-toggle-list-storage-key="doc-1">${second.html}</div>`;
+    const nextRoot = nextWrapper.firstElementChild;
+    t.true(nextRoot instanceof HTMLElement);
+    if (!(nextRoot instanceof HTMLElement)) return;
+
+    syncToggleListPersistedState(nextRoot);
+    const nextDetails = nextRoot.querySelector('details.toggle-list');
+    t.true(nextDetails instanceof HTMLDetailsElement);
+    if (!(nextDetails instanceof HTMLDetailsElement)) return;
+    t.true(nextDetails.open);
+  });
 });
 
 test('prompt-list styles do not strip ordinary nested markdown lists inside prompt answers', (t) => {

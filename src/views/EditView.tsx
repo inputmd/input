@@ -18,6 +18,7 @@ import {
   togglePromptListCollapsedStateInUrl,
 } from '../prompt_list_state';
 import { getStoredScrollPosition } from '../scroll_positions';
+import { findToggleListFromTarget, syncToggleListPersistedState, toggleToggleListState } from '../toggle_list_state';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
 
@@ -1013,6 +1014,7 @@ export function EditView({
     const root = renderedMarkdownRef.current;
     if (!markdown || !previewVisible || !previewHtml || !root) return;
 
+    syncToggleListPersistedState(root);
     syncPromptListCollapsedStateFromUrl(root, false);
     syncPromptListBranchNavigationButtons(root);
   }, [markdown, previewHtml, previewVisible]);
@@ -1283,6 +1285,15 @@ export function EditView({
       return;
     }
 
+    const toggleList = findToggleListFromTarget(target);
+    if (toggleList) {
+      event.preventDefault();
+      claimScrollOwnership('preview');
+      toggleToggleListState(toggleList);
+      handlePreviewPromptListLayoutChange();
+      return;
+    }
+
     const toggle = target?.closest('.prompt-list-caption');
     if (toggle instanceof HTMLElement) {
       event.preventDefault();
@@ -1315,6 +1326,15 @@ export function EditView({
 
   const onPreviewKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
+    const toggleList = findToggleListFromTarget(target);
+    if (toggleList && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      claimScrollOwnership('preview');
+      toggleToggleListState(toggleList);
+      handlePreviewPromptListLayoutChange();
+      return;
+    }
+
     const toggle = target?.closest('.prompt-list-caption');
     if (!(toggle instanceof HTMLElement)) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -1463,6 +1483,7 @@ export function EditView({
                 class="rendered-markdown"
                 data-markdown-custom-css={previewCustomCssScope ?? undefined}
                 data-hide-prompt-answer-less="true"
+                data-toggle-list-storage-key={scrollStorageKey ?? undefined}
                 onClick={onPreviewClick}
                 onKeyDown={onPreviewKeyDown}
                 onMouseDown={onRenderedMarkdownMouseDown}
@@ -1491,6 +1512,7 @@ export function EditView({
               class="rendered-markdown"
               data-markdown-custom-css={previewCustomCssScope ?? undefined}
               data-hide-prompt-answer-less="true"
+              data-toggle-list-storage-key={scrollStorageKey ?? undefined}
               onClick={onPreviewClick}
               onKeyDown={onPreviewKeyDown}
               onMouseDown={onRenderedMarkdownMouseDown}

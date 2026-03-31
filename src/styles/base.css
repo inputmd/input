@@ -114,6 +114,7 @@
   --accent-text: #7dcea0;
   --field-focus-border: #59616b;
   --focus-border: #1a6e3e;
+  --rendered-focus-border: #0a84ff;
   --focus-shadow: rgba(26, 110, 62, 0.35);
   --missing-link-color: #c48888;
   --bracketed-text-underline-color: color-mix(in srgb, currentColor 58%, transparent);
@@ -178,6 +179,7 @@
   --accent-text: #1d7a45;
   --field-focus-border: #9ea7b1;
   --focus-border: #4a9e6e;
+  --rendered-focus-border: #0a84ff;
   --focus-shadow: rgba(74, 158, 110, 0.3);
   --missing-link-color: #ab4d4d;
   --bracketed-text-underline-color: color-mix(in srgb, currentColor 44%, transparent);

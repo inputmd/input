@@ -241,8 +241,10 @@
 }
 
 .rendered-markdown .prompt-list-caption:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--rendered-focus-border);
+  outline-offset: 1px;
+  box-shadow: none;
+  border-radius: 2px;
 }
 
 .rendered-markdown li + li {
@@ -479,8 +481,10 @@
 }
 
 .rendered-markdown .prompt-answer-toggle:focus-visible {
-  outline: 2px solid var(--focus-border);
-  outline-offset: 2px;
+  outline: 1px solid var(--rendered-focus-border);
+  outline-offset: 1px;
+  box-shadow: none;
+  border-radius: 2px;
 }
 
 .rendered-markdown .prompt-list-placeholder {
@@ -511,6 +515,73 @@
 .rendered-markdown li > ol {
   margin-top: 0.2em;
   margin-bottom: 0.2em;
+}
+
+.rendered-markdown li.toggle-list-item {
+  list-style: none;
+}
+
+.rendered-markdown details.toggle-list {
+  margin: 0.15em 0;
+}
+
+.rendered-markdown details.toggle-list > summary.toggle-list-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rendered-markdown details.toggle-list > summary.toggle-list-summary::-webkit-details-marker {
+  display: none;
+}
+
+.rendered-markdown details.toggle-list > summary.toggle-list-summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  margin-top: calc(0.42em + 2px);
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent color-mix(in srgb, var(--text-secondary) 88%, transparent);
+  transition:
+    transform 0.14s ease,
+    border-left-color 0.14s ease;
+}
+
+.rendered-markdown details.toggle-list[data-open="true"] > summary.toggle-list-summary::before {
+  transform: rotate(90deg);
+  border-left-color: color-mix(in srgb, var(--text-secondary) 78%, var(--text) 22%);
+}
+
+.rendered-markdown details.toggle-list > summary.toggle-list-summary:hover::before {
+  border-left-color: color-mix(in srgb, var(--text-secondary) 66%, var(--text) 34%);
+}
+
+.rendered-markdown details.toggle-list > summary.toggle-list-summary:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.rendered-markdown details.toggle-list > summary.toggle-list-summary:focus-visible {
+  outline: 1px solid var(--rendered-focus-border);
+  outline-offset: 1px;
+  box-shadow: none;
+  border-radius: 2px;
+}
+
+.rendered-markdown .toggle-list-body {
+  margin-left: 1.05rem;
+}
+
+.rendered-markdown .toggle-list-body > :first-child {
+  margin-top: 0.25em;
+}
+
+.rendered-markdown .toggle-list-body > :last-child {
+  margin-bottom: 0;
 }
 
 .rendered-markdown li:has(> input[type="checkbox"]) {
@@ -615,6 +686,18 @@
 
 .rendered-markdown a {
   color: var(--accent-text);
+}
+
+.rendered-markdown a:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.rendered-markdown a:focus-visible {
+  outline: 1px solid var(--rendered-focus-border);
+  outline-offset: 1px;
+  box-shadow: none;
+  border-radius: 2px;
 }
 
 .rendered-markdown a:hover {
@@ -1050,6 +1133,10 @@
 }
 
 .rendered-markdown img {
+  display: block;
+  border: 0;
+  outline: none;
+  box-shadow: none;
   max-width: 100%;
   height: auto;
   cursor: zoom-in;

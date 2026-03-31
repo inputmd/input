@@ -10,6 +10,7 @@ import {
   togglePromptListCollapsedStateInUrl,
 } from '../prompt_list_state';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
+import { findToggleListFromTarget, syncToggleListPersistedState, toggleToggleListState } from '../toggle_list_state';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
 
@@ -235,6 +236,7 @@ export function ContentView({
     const root = renderedMarkdownRef.current;
     if (!markdown || !html || !root) return;
 
+    syncToggleListPersistedState(root);
     syncPromptListCollapsedStateFromUrl(root, true);
     syncPromptListBranchNavigationButtons(root);
   }, [html, markdown]);
@@ -325,6 +327,13 @@ export function ContentView({
       return;
     }
 
+    const toggleList = findToggleListFromTarget(target);
+    if (toggleList) {
+      event.preventDefault();
+      toggleToggleListState(toggleList);
+      return;
+    }
+
     const toggle = target?.closest('.prompt-list-caption');
     if (toggle instanceof HTMLElement) {
       event.preventDefault();
@@ -384,6 +393,13 @@ export function ContentView({
 
   const onRenderedMarkdownKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
+    const toggleList = findToggleListFromTarget(target);
+    if (toggleList && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      toggleToggleListState(toggleList);
+      return;
+    }
+
     const toggle = target?.closest('.prompt-list-caption');
     if (!(toggle instanceof HTMLElement)) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -636,6 +652,7 @@ export function ContentView({
             ref={renderedMarkdownRef}
             class="rendered-markdown"
             data-markdown-custom-css={markdownCustomCssScope ?? undefined}
+            data-toggle-list-storage-key={scrollStorageKey ?? undefined}
             onClick={onRenderedMarkdownClick}
             onKeyDown={onRenderedMarkdownKeyDown}
             onMouseDown={onRenderedMarkdownMouseDown}
