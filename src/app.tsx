@@ -14,7 +14,11 @@ import type { EditorController, EditorProtectedRange } from './components/editor
 import { ForkRepoDialog } from './components/ForkRepoDialog';
 import { ImageLightbox } from './components/ImageLightbox';
 import type { PromptListRequest } from './components/markdown_editor_commands';
-import { normalizeBlockquotePaste, normalizeStandaloneUrlPaste } from './components/markdown_editor_commands';
+import {
+  normalizeBlockquotePaste,
+  normalizeSimpleWrappedParagraphPaste,
+  normalizeStandaloneUrlPaste,
+} from './components/markdown_editor_commands';
 import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFile, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
@@ -1977,6 +1981,17 @@ export function App() {
         const head = from + normalizedBlockquotePaste.length;
         view.dispatch({
           changes: { from, to, insert: normalizedBlockquotePaste },
+          selection: { anchor: head, head },
+        });
+        return;
+      }
+      const normalizedParagraphPaste = normalizeSimpleWrappedParagraphPaste(pastedText);
+      if (normalizedParagraphPaste !== null) {
+        event.preventDefault();
+        const { from, to } = view.state.selection.main;
+        const head = from + normalizedParagraphPaste.length;
+        view.dispatch({
+          changes: { from, to, insert: normalizedParagraphPaste },
           selection: { anchor: head, head },
         });
         return;

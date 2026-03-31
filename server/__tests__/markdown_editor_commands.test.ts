@@ -29,6 +29,7 @@ import {
   insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
   normalizeBlockquotePaste,
+  normalizeSimpleWrappedParagraphPaste,
   normalizeStandaloneUrlPaste,
   wrapWithMarker,
 } from '../../src/components/markdown_editor_commands.ts';
@@ -1109,6 +1110,16 @@ test('normalizeBlockquotePaste preserves outer indentation for multiline blockqu
   t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\nbeta\ngamma'), 'alpha\n  > beta\n  > gamma');
 });
 
+test('normalizeBlockquotePaste removes hanging indent inside pasted blockquote prose', (t) => {
+  const state = EditorState.create({
+    doc: '> quoted',
+    selection: EditorSelection.cursor('> quo'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'alpha\n  beta\n  gamma'), 'alpha\n> beta\n> gamma');
+});
+
 test('normalizeBlockquotePaste turns pasted links at blockquote end into source citations', (t) => {
   const state = EditorState.create({
     doc: '> quoted line',
@@ -1152,4 +1163,81 @@ test('normalizeStandaloneUrlPaste collapses wrapped whitespace inside a pasted u
 
 test('normalizeStandaloneUrlPaste ignores ordinary multiline text', (t) => {
   t.is(normalizeStandaloneUrlPaste('first line\nsecond line'), null);
+});
+
+test('normalizeSimpleWrappedParagraphPaste removes a uniform hanging indent from prose blocks', (t) => {
+  t.is(
+    normalizeSimpleWrappedParagraphPaste(
+      "Wang's argument is that Dario's essay is heavy on category 1 and light on category\n" +
+        '  2. "Participatory defenses" means things like: democratic input into AI\n' +
+        '  constitutions (which Anthropic has explored but is not the norm), legislative\n' +
+        '  processes that reflect informed public will.',
+    ),
+    "Wang's argument is that Dario's essay is heavy on category 1 and light on category\n" +
+      '2. "Participatory defenses" means things like: democratic input into AI\n' +
+      'constitutions (which Anthropic has explored but is not the norm), legislative\n' +
+      'processes that reflect informed public will.',
+  );
+});
+
+test('normalizeSimpleWrappedParagraphPaste ignores blocks with structural markers', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('- item\n  continuation'), null);
+});
+
+test('normalizeSimpleWrappedParagraphPaste preserves base indent for indented blocks', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('  alpha\n    beta\n    gamma'), '  alpha\n  beta\n  gamma');
+});
+
+test('normalizeSimpleWrappedParagraphPaste ignores paragraphs with inconsistent continuation indent', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\nbeta\n gamma'), null);
+});
+
+test('normalizeSimpleWrappedParagraphPaste tolerates up to two extra continuation spaces', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n    gamma\n   delta'), 'alpha\nbeta\n  gamma\n delta');
+});
+
+test('normalizeSimpleWrappedParagraphPaste ignores paragraphs with more than two extra continuation spaces', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n     gamma'), null);
+});
+
+test('normalizeSimpleWrappedParagraphPaste normalizes multiple paragraphs sharing the same hanging indent', (t) => {
+  t.is(
+    normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n  gamma\n\n  delta\n  epsilon\n   zeta'),
+    'alpha\nbeta\ngamma\n\ndelta\nepsilon\n zeta',
+  );
+});
+
+test('normalizeSimpleWrappedParagraphPaste normalizes later paragraphs with the shared hanging indent on every line', (t) => {
+  t.is(
+    normalizeSimpleWrappedParagraphPaste(
+      'The opening paragraph introduces the topic and continues onto wrapped lines for\n' +
+        '   readability while preserving the same basic prose structure throughout the\n' +
+        '  remainder of the paragraph so the indentation cleanup can be evaluated\n' +
+        '  without depending on any content-specific language or examples.\n' +
+        '\n' +
+        '  The next paragraph carries the shared indent on every line so the later-block\n' +
+        '  rule can remove that indent consistently while still allowing the first\n' +
+        '  paragraph to keep one extra leading space on a tolerated continuation line.',
+    ),
+    'The opening paragraph introduces the topic and continues onto wrapped lines for\n' +
+      ' readability while preserving the same basic prose structure throughout the\n' +
+      'remainder of the paragraph so the indentation cleanup can be evaluated\n' +
+      'without depending on any content-specific language or examples.\n' +
+      '\n' +
+      'The next paragraph carries the shared indent on every line so the later-block\n' +
+      'rule can remove that indent consistently while still allowing the first\n' +
+      'paragraph to keep one extra leading space on a tolerated continuation line.',
+  );
+});
+
+test('normalizeSimpleWrappedParagraphPaste ignores later paragraphs missing the shared hanging indent', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n\n delta\n epsilon'), null);
+});
+
+test('normalizeSimpleWrappedParagraphPaste ignores later paragraphs with more than two extra shared-indent spaces', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n\n     delta\n     epsilon'), null);
+});
+
+test('normalizeSimpleWrappedParagraphPaste ignores multiple paragraphs separated by more than one blank line', (t) => {
+  t.is(normalizeSimpleWrappedParagraphPaste('alpha\n  beta\n\n\ngamma\n  delta'), null);
 });

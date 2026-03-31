@@ -123,6 +123,106 @@ export function normalizeStandaloneUrlPaste(pastedText: string): string | null {
   return null;
 }
 
+interface SimpleWrappedParagraphNormalization {
+  baseIndent: number;
+  hangingIndent: number;
+  normalizedText: string;
+}
+
+function normalizeSimpleWrappedParagraph(
+  lines: string[],
+  lineBreak: string,
+): SimpleWrappedParagraphNormalization | null {
+  if (lines.length < 2 || lines.some((line) => line.trim() === '')) return null;
+
+  const firstLineStructural = /^(?:>|\s*[-*+]\s|\s*\d+\.\s|```)/u;
+  if (firstLineStructural.test(lines[0].trimStart())) return null;
+
+  const continuationStructural = /^(?:>|\s*[-*+]\s|```)/u;
+  if (lines.slice(1).some((line) => continuationStructural.test(line.trimStart()))) return null;
+
+  const indents = lines.map((line) => line.match(/^ */u)?.[0].length ?? 0);
+  const baseIndent = indents[0];
+  const continuationIndents = indents.slice(1);
+  const hangingIndent = Math.min(...continuationIndents) - baseIndent;
+  if (hangingIndent < 1 || hangingIndent > 4) return null;
+  if (
+    continuationIndents.some((indent) => indent < baseIndent + hangingIndent || indent > baseIndent + hangingIndent + 2)
+  ) {
+    return null;
+  }
+
+  const normalizedLines = [lines[0], ...lines.slice(1).map((line) => line.slice(hangingIndent))];
+  return { baseIndent, hangingIndent, normalizedText: normalizedLines.join(lineBreak) };
+}
+
+function normalizeSimpleWrappedContinuationParagraph(
+  lines: string[],
+  lineBreak: string,
+  baseIndent: number,
+  hangingIndent: number,
+): string | null {
+  if (lines.length < 1 || lines.some((line) => line.trim() === '')) return null;
+
+  const firstLineStructural = /^(?:>|\s*[-*+]\s|\s*\d+\.\s|```)/u;
+  if (firstLineStructural.test(lines[0].trimStart())) return null;
+
+  const continuationStructural = /^(?:>|\s*[-*+]\s|```)/u;
+  if (lines.slice(1).some((line) => continuationStructural.test(line.trimStart()))) return null;
+
+  const minimumIndent = baseIndent + hangingIndent;
+  const indents = lines.map((line) => line.match(/^ */u)?.[0].length ?? 0);
+  if (indents.some((indent) => indent < minimumIndent || indent > minimumIndent + 2)) return null;
+
+  return lines.map((line) => line.slice(hangingIndent)).join(lineBreak);
+}
+
+export function normalizeSimpleWrappedParagraphPaste(pastedText: string): string | null {
+  if (!/[\r\n]/u.test(pastedText)) return null;
+
+  const lineBreakMatch = pastedText.match(/\r\n|\r|\n/u);
+  const lineBreak = lineBreakMatch?.[0] ?? '\n';
+  const normalized = pastedText.replace(/\r\n?/gu, '\n');
+  const lines = normalized.split('\n');
+  if (lines.length < 2) return null;
+
+  const paragraphs: string[][] = [];
+  let currentParagraph: string[] = [];
+  let sawBlank = false;
+  for (const line of lines) {
+    if (line === '') {
+      if (sawBlank) return null;
+      if (currentParagraph.length === 0) return null;
+      paragraphs.push(currentParagraph);
+      currentParagraph = [];
+      sawBlank = true;
+      continue;
+    }
+    currentParagraph.push(line);
+    sawBlank = false;
+  }
+  if (currentParagraph.length === 0) return null;
+  paragraphs.push(currentParagraph);
+
+  const firstParagraph = normalizeSimpleWrappedParagraph(paragraphs[0], lineBreak);
+  if (firstParagraph === null) return null;
+
+  const normalizedParagraphs = [firstParagraph.normalizedText];
+  for (const paragraph of paragraphs.slice(1)) {
+    const normalizedParagraph = normalizeSimpleWrappedContinuationParagraph(
+      paragraph,
+      lineBreak,
+      firstParagraph.baseIndent,
+      firstParagraph.hangingIndent,
+    );
+    if (normalizedParagraph === null) return null;
+    normalizedParagraphs.push(normalizedParagraph);
+  }
+
+  const result = normalizedParagraphs.join(`${lineBreak}${lineBreak}`);
+  return result === pastedText ? null : result;
+}
+
 export function buildExternalContentSyncTransaction(
   state: EditorState,
   content: string,
@@ -616,7 +716,8 @@ export function normalizeBlockquotePaste(state: EditorState, pos: number, text: 
     return `[^src](${trimmed})`;
   }
 
-  const lines = trimmed.split('\n');
+  const normalizedParagraph = normalizeSimpleWrappedParagraphPaste(trimmed) ?? trimmed;
+  const lines = normalizedParagraph.split('\n');
   if (lines.length < 2) return null;
 
   return lines.map((segment, index) => (index === 0 ? segment : `${blockquotePrefix}${segment}`)).join(state.lineBreak);
