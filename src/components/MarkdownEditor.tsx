@@ -294,9 +294,6 @@ export function MarkdownEditor({
   };
 
   const getFixedToolbarHeight = (): number => {
-    const toolbar = document.querySelector<HTMLElement>('.toolbar');
-    if (toolbar) return toolbar.offsetHeight;
-
     const raw = window.getComputedStyle(document.documentElement).getPropertyValue('--toolbar-height').trim();
     const match = /^(-?\d+(?:\.\d+)?)px$/i.exec(raw);
     if (match) return Number.parseFloat(match[1] ?? '0');

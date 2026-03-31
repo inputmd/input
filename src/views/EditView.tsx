@@ -26,6 +26,7 @@ const PREVIEW_RESTORE_SELECTOR = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, pre
 const PREVIEW_SYNC_SELECTOR = '[data-sync-id]';
 const SCROLL_SYNC_ANCHOR_RATIO = 0.3;
 const PREVIEW_LAYOUT_DRIFT_TOLERANCE_PX = 8;
+const PREVIEW_RESTORE_MIN_SCROLL_TOP_PX = 24;
 
 type ScrollPane = 'editor' | 'preview';
 
@@ -80,7 +81,7 @@ function shouldAttemptPreviewScrollRestore({
 }): boolean {
   if (typeof window === 'undefined') return false;
   if (!markdown || !previewVisible || !canRenderPreview || loading || !scrollStorageKey) return false;
-  return (getStoredScrollPosition(scrollStorageKey) ?? 0) > 0;
+  return (getStoredScrollPosition(scrollStorageKey) ?? 0) > PREVIEW_RESTORE_MIN_SCROLL_TOP_PX;
 }
 
 function normalizePreviewAnchorText(text: string): string {
@@ -617,7 +618,8 @@ export function EditView({
   );
 
   const syncPreviewToEditorScroll = useCallback(() => {
-    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
+    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked || previewRestorePending)
+      return;
     const pane = previewPaneRef.current;
     if (!pane) return;
     const { top: sourceTop, max: sourceMax } = getEditorScrollMetrics();
@@ -661,6 +663,7 @@ export function EditView({
     getEditorScrollMetrics,
     loading,
     markdown,
+    previewRestorePending,
     previewScrollLocked,
     previewSyncBlocks,
     previewVisible,
@@ -677,7 +680,8 @@ export function EditView({
   }, [syncPreviewToEditorScroll]);
 
   const syncEditorToPreviewScroll = useCallback(() => {
-    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
+    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked || previewRestorePending)
+      return;
     const pane = previewPaneRef.current;
     if (!pane) return;
     const previewMax = maxScrollTop(pane);
@@ -710,6 +714,7 @@ export function EditView({
     getEditorScrollMetrics,
     loading,
     markdown,
+    previewRestorePending,
     previewScrollLocked,
     previewSyncBlocks,
     previewVisible,
@@ -802,14 +807,28 @@ export function EditView({
         previewRestoreFrameRef.current = window.requestAnimationFrame(() => {
           previewRestoreFrameRef.current = null;
           if (cancelled) return;
-          const topVisibleText = controller.getTopVisibleText(240);
-          const target = topVisibleText ? findPreviewRestoreTarget(root, topVisibleText) : null;
-          if (target) {
-            ignoreNextPreviewScrollRef.current = true;
-            schedulePreviewScrollIgnoreReset();
-            scrollOwnerRef.current = null;
-            pane.scrollTop = Math.max(0, target.offsetTop - 8);
+          ignoreNextPreviewScrollRef.current = true;
+          schedulePreviewScrollIgnoreReset();
+          scrollOwnerRef.current = null;
+
+          let restored = false;
+          if (previewSyncBlocks.length > 0 && previewSyncElementByIdRef.current.size > 0) {
+            const position = controller.getViewportAnchorPosition(SCROLL_SYNC_ANCHOR_RATIO);
+            const hit = findSyncBlockForPosition(previewSyncBlocks, position);
+            if (hit) {
+              restored = scrollPreviewToSyncHit(hit, 0);
+            }
           }
+
+          if (!restored) {
+            const topVisibleText = controller.getTopVisibleText(240);
+            const target = topVisibleText ? findPreviewRestoreTarget(root, topVisibleText) : null;
+            if (target) {
+              pane.scrollTop = Math.max(0, target.offsetTop - 8);
+              restored = true;
+            }
+          }
+
           scrollOwnerRef.current = 'editor';
           setPreviewRestorePending(false);
         });
@@ -824,7 +843,13 @@ export function EditView({
         previewRestoreFrameRef.current = null;
       }
     };
-  }, [editorControllerReadyVersion, previewRestorePending, schedulePreviewScrollIgnoreReset]);
+  }, [
+    editorControllerReadyVersion,
+    previewRestorePending,
+    previewSyncBlocks,
+    schedulePreviewScrollIgnoreReset,
+    scrollPreviewToSyncHit,
+  ]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
@@ -848,14 +873,24 @@ export function EditView({
   }, [markdown, previewHtml, previewVisible]);
 
   useLayoutEffect(() => {
-    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
+    if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked || previewRestorePending)
+      return;
     void previewHtml;
     if (scrollOwnerRef.current == null) scrollOwnerRef.current = 'editor';
     requestPreviewScrollSync();
-  }, [canRenderPreview, loading, markdown, previewHtml, previewScrollLocked, previewVisible, requestPreviewScrollSync]);
+  }, [
+    canRenderPreview,
+    loading,
+    markdown,
+    previewHtml,
+    previewRestorePending,
+    previewScrollLocked,
+    previewVisible,
+    requestPreviewScrollSync,
+  ]);
 
   useEffect(() => {
-    if (!markdown || !previewVisible || !canRenderPreview || loading) return;
+    if (!markdown || !previewVisible || !canRenderPreview || loading || previewRestorePending) return;
     if (!previewScrollLocked) return;
     void editorControllerReadyVersion;
     const pane = previewPaneRef.current;
@@ -922,6 +957,7 @@ export function EditView({
     editorControllerReadyVersion,
     loading,
     markdown,
+    previewRestorePending,
     previewScrollLocked,
     previewVisible,
     requestEditorScrollSync,
