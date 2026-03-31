@@ -35,7 +35,7 @@ import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codemirror_markdown';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
-import type { EditorController, EditorProtectedRange } from './editor_controller';
+import type { EditorController, EditorInteractionKind, EditorProtectedRange } from './editor_controller';
 import {
   acceptBracePromptSelectionOnEnter,
   backspacePromptQuestionMarker,
@@ -146,6 +146,7 @@ export function MarkdownEditor({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const editorControllerRef = useRef<EditorController | null>(null);
+  const interactionListenersRef = useRef(new Set<(kind: EditorInteractionKind) => void>());
   const readOnlyCompartment = useRef(new Compartment());
   const placeholderCompartment = useRef(new Compartment());
   const promptListAnsweringCompartment = useRef(new Compartment());
@@ -195,6 +196,10 @@ export function MarkdownEditor({
   onProtectedEditRangeBlockedRef.current = onProtectedEditRangeBlocked;
 
   const latestLocalRevisionRef = useRef(0);
+
+  const notifyInteractionListeners = (kind: EditorInteractionKind) => {
+    for (const listener of interactionListenersRef.current) listener(kind);
+  };
 
   const reportEligibleSelection = (view: EditorView) => {
     const selection = view.state.selection.main;
@@ -324,6 +329,42 @@ export function MarkdownEditor({
     return () => observer.disconnect();
   };
 
+  const subscribeInteraction = (listener: (kind: EditorInteractionKind) => void) => {
+    interactionListenersRef.current.add(listener);
+    const root = rootRef.current;
+    if (!root) {
+      return () => {
+        interactionListenersRef.current.delete(listener);
+      };
+    }
+
+    const onWheel = () => notifyInteractionListeners('wheel');
+    const onPointerDown = () => notifyInteractionListeners('pointer');
+    const onTouch = () => notifyInteractionListeners('touch');
+    const onFocus = () => notifyInteractionListeners('focus');
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      notifyInteractionListeners('keyboard');
+    };
+
+    root.addEventListener('wheel', onWheel, { passive: true });
+    root.addEventListener('pointerdown', onPointerDown, { passive: true });
+    root.addEventListener('touchstart', onTouch, { passive: true });
+    root.addEventListener('touchmove', onTouch, { passive: true });
+    root.addEventListener('focusin', onFocus);
+    root.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      interactionListenersRef.current.delete(listener);
+      root.removeEventListener('wheel', onWheel);
+      root.removeEventListener('pointerdown', onPointerDown);
+      root.removeEventListener('touchstart', onTouch);
+      root.removeEventListener('touchmove', onTouch);
+      root.removeEventListener('focusin', onFocus);
+      root.removeEventListener('keydown', onKeyDown);
+    };
+  };
+
   const scrollWindowToKeepPositionVisible = (view: EditorView, position: number) => {
     const coords = view.coordsAtPos(clampPosition(view, position));
     if (!coords) return;
@@ -424,6 +465,9 @@ export function MarkdownEditor({
     const onUpdate = (update: ViewUpdate) => {
       if (update.selectionSet || update.docChanged) {
         reportEligibleSelection(update.view);
+      }
+      if (update.selectionSet) {
+        notifyInteractionListeners('selection');
       }
       if (
         update.docChanged ||
@@ -653,6 +697,7 @@ export function MarkdownEditor({
       },
       subscribeScroll: (listener) => subscribeScroll(view, listener),
       subscribeLayoutChange: (listener) => subscribeLayoutChange(view, listener),
+      subscribeInteraction: (listener) => subscribeInteraction(listener),
       startStreamingCursorTracking: (position) => {
         const clampedPosition = clampPosition(view, position);
         streamingCursorPositionRef.current = clampedPosition;

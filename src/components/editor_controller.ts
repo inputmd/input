@@ -23,6 +23,8 @@ export interface EditorScrollMetrics {
   max: number;
 }
 
+export type EditorInteractionKind = 'wheel' | 'pointer' | 'touch' | 'focus' | 'selection' | 'keyboard';
+
 export interface EditorController {
   applyExternalChange: (change: ExternalEditorChange) => boolean;
   getSelectionText: (maxChars?: number) => string | null;
@@ -34,6 +36,7 @@ export interface EditorController {
   setScrollTop: (scrollTop: number) => void;
   subscribeScroll: (listener: () => void) => () => void;
   subscribeLayoutChange: (listener: () => void) => () => void;
+  subscribeInteraction: (listener: (kind: EditorInteractionKind) => void) => () => void;
   startStreamingCursorTracking: (position: number) => void;
   updateStreamingCursorTracking: (position: number) => void;
   stopStreamingCursorTracking: () => void;

@@ -24,31 +24,8 @@ const PREVIEW_SCROLL_LOCK_STORAGE_KEY = 'input_preview_scroll_locked_v1';
 const PREVIEW_RESTORE_SELECTOR = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th';
 const PREVIEW_SYNC_SELECTOR = '[data-sync-id]';
 const SCROLL_SYNC_ANCHOR_RATIO = 0.3;
-const PROGRAMMATIC_SCROLL_EVENT_WINDOW_MS = 180;
-const REVERSE_SYNC_LOOP_WINDOW_MS = 180;
-const REVERSE_SYNC_SUPPRESSION_MS = 320;
-const PROGRAMMATIC_SCROLL_TOLERANCE_PX = 10;
-const BRANCH_NAV_PREVIEW_SYNC_SUPPRESSION_MS = 700;
-const BRANCH_NAV_PREVIEW_SYNC_SETTLE_TIMEOUT_MS = 1800;
-const PREVIEW_REVERSE_SYNC_INTERACTION_WINDOW_MS = 240;
 
 type ScrollPane = 'editor' | 'preview';
-
-interface PendingProgrammaticScroll {
-  sourcePane: ScrollPane;
-  targetScrollTop: number;
-  until: number;
-}
-
-interface RecentUserScroll {
-  pane: ScrollPane;
-  at: number;
-}
-
-interface ReverseSyncSuppression {
-  sourcePane: ScrollPane;
-  until: number;
-}
 
 interface MarkdownLinkPreview {
   title: string;
@@ -170,6 +147,13 @@ function maxScrollTop(node: { scrollHeight: number; clientHeight: number }): num
 
 function clampScrollTop(scrollTop: number, max: number): number {
   return Math.min(max, Math.max(0, scrollTop));
+}
+
+function isPointerDownOnVerticalScrollbar(pane: HTMLDivElement, event: PointerEvent): boolean {
+  const scrollbarWidth = pane.offsetWidth - pane.clientWidth;
+  if (scrollbarWidth <= 0) return false;
+  const rect = pane.getBoundingClientRect();
+  return event.clientX >= rect.right - scrollbarWidth;
 }
 
 interface SyncBlockHit {
@@ -319,22 +303,11 @@ export function EditView({
   const editorControllerRef = useRef<EditorController | null>(null);
   const editorToPreviewScrollFrameRef = useRef<number | null>(null);
   const previewToEditorScrollFrameRef = useRef<number | null>(null);
-  const branchNavPreviewSyncFrameRef = useRef<number | null>(null);
   const ignorePreviewScrollFrameRef = useRef<number | null>(null);
   const ignoreEditorScrollFrameRef = useRef<number | null>(null);
   const editorScrollLerpTargetRef = useRef<number | null>(null);
   const editorScrollLerpFrameRef = useRef<number | null>(null);
-  const pendingProgrammaticScrollRef = useRef<Record<ScrollPane, PendingProgrammaticScroll | null>>({
-    editor: null,
-    preview: null,
-  });
-  const lastUserScrollRef = useRef<RecentUserScroll | null>(null);
-  const reverseSyncSuppressionRef = useRef<Record<ScrollPane, ReverseSyncSuppression | null>>({
-    editor: null,
-    preview: null,
-  });
-  const lastPreviewInteractionAtRef = useRef(0);
-  const suppressPreviewReverseSyncUntilRef = useRef(0);
+  const scrollOwnerRef = useRef<ScrollPane | null>('editor');
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
   const hoverDelayTimerRef = useRef<number | null>(null);
@@ -431,7 +404,6 @@ export function EditView({
 
   const ignoreNextPreviewScrollRef = useRef(false);
   const ignoreNextEditorScrollRef = useRef(false);
-  const branchNavPreviewSyncSuppressionUntilRef = useRef(0);
 
   const schedulePreviewScrollIgnoreReset = useCallback(() => {
     if (ignorePreviewScrollFrameRef.current != null) {
@@ -453,75 +425,47 @@ export function EditView({
     });
   }, []);
 
-  const recordProgrammaticScroll = useCallback((pane: ScrollPane, sourcePane: ScrollPane, targetScrollTop: number) => {
-    pendingProgrammaticScrollRef.current[pane] = {
-      sourcePane,
-      targetScrollTop,
-      until: performance.now() + PROGRAMMATIC_SCROLL_EVENT_WINDOW_MS,
-    };
+  const cancelPendingPreviewSyncFromEditor = useCallback(() => {
+    if (editorToPreviewScrollFrameRef.current != null) {
+      window.cancelAnimationFrame(editorToPreviewScrollFrameRef.current);
+      editorToPreviewScrollFrameRef.current = null;
+    }
+    if (ignorePreviewScrollFrameRef.current != null) {
+      window.cancelAnimationFrame(ignorePreviewScrollFrameRef.current);
+      ignorePreviewScrollFrameRef.current = null;
+    }
+    ignoreNextPreviewScrollRef.current = false;
   }, []);
 
-  const getScrollEventMetadata = useCallback(
-    (pane: ScrollPane, scrollTop: number): { isProgrammatic: boolean; sourcePane: ScrollPane | null } => {
-      const pending = pendingProgrammaticScrollRef.current[pane];
-      if (!pending) return { isProgrammatic: false, sourcePane: null };
+  const cancelPendingEditorSyncFromPreview = useCallback(() => {
+    if (previewToEditorScrollFrameRef.current != null) {
+      window.cancelAnimationFrame(previewToEditorScrollFrameRef.current);
+      previewToEditorScrollFrameRef.current = null;
+    }
+    if (editorScrollLerpFrameRef.current != null) {
+      window.cancelAnimationFrame(editorScrollLerpFrameRef.current);
+      editorScrollLerpFrameRef.current = null;
+    }
+    if (ignoreEditorScrollFrameRef.current != null) {
+      window.cancelAnimationFrame(ignoreEditorScrollFrameRef.current);
+      ignoreEditorScrollFrameRef.current = null;
+    }
+    editorScrollLerpTargetRef.current = null;
+    ignoreNextEditorScrollRef.current = false;
+  }, []);
 
-      const now = performance.now();
-      if (now > pending.until) {
-        pendingProgrammaticScrollRef.current[pane] = null;
-        return { isProgrammatic: false, sourcePane: null };
+  const claimScrollOwnership = useCallback(
+    (pane: ScrollPane) => {
+      if (scrollOwnerRef.current === pane) return;
+      scrollOwnerRef.current = pane;
+      if (pane === 'editor') {
+        cancelPendingEditorSyncFromPreview();
+        return;
       }
-
-      if (Math.abs(scrollTop - pending.targetScrollTop) <= PROGRAMMATIC_SCROLL_TOLERANCE_PX) {
-        return { isProgrammatic: true, sourcePane: pending.sourcePane };
-      }
-
-      return { isProgrammatic: false, sourcePane: null };
+      cancelPendingPreviewSyncFromEditor();
     },
-    [],
+    [cancelPendingEditorSyncFromPreview, cancelPendingPreviewSyncFromEditor],
   );
-
-  const shouldSuppressReverseSync = useCallback((pane: ScrollPane, sourcePane: ScrollPane | null) => {
-    if (!sourcePane) return false;
-    const now = performance.now();
-    const suppression = reverseSyncSuppressionRef.current[pane];
-    if (suppression && suppression.sourcePane === sourcePane) {
-      if (now <= suppression.until) return true;
-      reverseSyncSuppressionRef.current[pane] = null;
-    }
-
-    const lastUserScroll = lastUserScrollRef.current;
-    if (!lastUserScroll || lastUserScroll.pane !== sourcePane) return false;
-    if (now - lastUserScroll.at > REVERSE_SYNC_LOOP_WINDOW_MS) return false;
-
-    reverseSyncSuppressionRef.current[pane] = {
-      sourcePane,
-      until: now + REVERSE_SYNC_SUPPRESSION_MS,
-    };
-    return true;
-  }, []);
-
-  const markPreviewInteraction = useCallback(() => {
-    lastPreviewInteractionAtRef.current = performance.now();
-  }, []);
-
-  const cancelBranchNavPreviewSync = useCallback(() => {
-    if (branchNavPreviewSyncFrameRef.current != null) {
-      window.cancelAnimationFrame(branchNavPreviewSyncFrameRef.current);
-      branchNavPreviewSyncFrameRef.current = null;
-    }
-    branchNavPreviewSyncSuppressionUntilRef.current = 0;
-  }, []);
-
-  const suppressPreviewReverseSync = useCallback((durationMs = REVERSE_SYNC_SUPPRESSION_MS) => {
-    suppressPreviewReverseSyncUntilRef.current = performance.now() + durationMs;
-  }, []);
-
-  const shouldAllowPreviewReverseSync = useCallback(() => {
-    const now = performance.now();
-    if (now < suppressPreviewReverseSyncUntilRef.current) return false;
-    return now - lastPreviewInteractionAtRef.current <= PREVIEW_REVERSE_SYNC_INTERACTION_WINDOW_MS;
-  }, []);
 
   const setPreviewScrollTop = useCallback(
     (scrollTop: number) => {
@@ -529,12 +473,11 @@ export function EditView({
       if (!pane) return;
       const nextScrollTop = clampScrollTop(scrollTop, maxScrollTop(pane));
       if (Math.abs(pane.scrollTop - nextScrollTop) < 1) return;
-      recordProgrammaticScroll('preview', 'editor', nextScrollTop);
       ignoreNextPreviewScrollRef.current = true;
       schedulePreviewScrollIgnoreReset();
       pane.scrollTop = nextScrollTop;
     },
-    [recordProgrammaticScroll, schedulePreviewScrollIgnoreReset],
+    [schedulePreviewScrollIgnoreReset],
   );
 
   const applyEditorScrollTop = useCallback(
@@ -544,12 +487,11 @@ export function EditView({
       const { top, max } = controller.getScrollMetrics();
       const clampedScrollTop = clampScrollTop(nextScrollTop, max);
       if (Math.abs(top - clampedScrollTop) < 1) return;
-      recordProgrammaticScroll('editor', 'preview', clampedScrollTop);
       ignoreNextEditorScrollRef.current = true;
       scheduleEditorScrollIgnoreReset();
       controller.setScrollTop(clampedScrollTop);
     },
-    [recordProgrammaticScroll, scheduleEditorScrollIgnoreReset],
+    [scheduleEditorScrollIgnoreReset],
   );
 
   const editorScrollLerpTick = useCallback(() => {
@@ -749,50 +691,6 @@ export function EditView({
     });
   }, [syncEditorToPreviewScroll]);
 
-  const scheduleBranchNavPreviewSync = useCallback(() => {
-    if (!previewScrollLocked) return;
-
-    cancelBranchNavPreviewSync();
-    branchNavPreviewSyncSuppressionUntilRef.current = performance.now() + BRANCH_NAV_PREVIEW_SYNC_SUPPRESSION_MS;
-
-    const pane = previewPaneRef.current;
-    if (!pane) return;
-
-    let lastScrollTop = pane.scrollTop;
-    let stableFrames = 0;
-    const startedAt = performance.now();
-
-    const settle = () => {
-      const nextPane = previewPaneRef.current;
-      if (!nextPane) {
-        cancelBranchNavPreviewSync();
-        return;
-      }
-
-      const currentScrollTop = nextPane.scrollTop;
-      if (Math.abs(currentScrollTop - lastScrollTop) < 0.5) {
-        stableFrames += 1;
-      } else {
-        stableFrames = 0;
-      }
-      lastScrollTop = currentScrollTop;
-
-      const now = performance.now();
-      const reachedMinimumSuppression = now >= branchNavPreviewSyncSuppressionUntilRef.current;
-      const timedOut = now - startedAt >= BRANCH_NAV_PREVIEW_SYNC_SETTLE_TIMEOUT_MS;
-      if ((reachedMinimumSuppression && stableFrames >= 2) || timedOut) {
-        cancelBranchNavPreviewSync();
-        lastUserScrollRef.current = { pane: 'preview', at: performance.now() };
-        requestEditorScrollSync();
-        return;
-      }
-
-      branchNavPreviewSyncFrameRef.current = window.requestAnimationFrame(settle);
-    };
-
-    branchNavPreviewSyncFrameRef.current = window.requestAnimationFrame(settle);
-  }, [cancelBranchNavPreviewSync, previewScrollLocked, requestEditorScrollSync]);
-
   useEffect(() => {
     return () => {
       clearHoverDelay();
@@ -816,6 +714,23 @@ export function EditView({
       // Best-effort only.
     }
   }, [previewScrollLocked]);
+
+  useEffect(() => {
+    if (!previewScrollLocked) {
+      scrollOwnerRef.current = null;
+      cancelPendingPreviewSyncFromEditor();
+      cancelPendingEditorSyncFromPreview();
+      return;
+    }
+    claimScrollOwnership('editor');
+    requestPreviewScrollSync();
+  }, [
+    cancelPendingEditorSyncFromPreview,
+    cancelPendingPreviewSyncFromEditor,
+    claimScrollOwnership,
+    previewScrollLocked,
+    requestPreviewScrollSync,
+  ]);
 
   useEffect(() => {
     if (!scrollStorageKey) {
@@ -856,9 +771,12 @@ export function EditView({
           const topVisibleText = controller.getTopVisibleText(240);
           const target = topVisibleText ? findPreviewRestoreTarget(root, topVisibleText) : null;
           if (target) {
-            suppressPreviewReverseSync();
+            ignoreNextPreviewScrollRef.current = true;
+            schedulePreviewScrollIgnoreReset();
+            scrollOwnerRef.current = null;
             pane.scrollTop = Math.max(0, target.offsetTop - 8);
           }
+          scrollOwnerRef.current = 'editor';
           setPreviewRestorePending(false);
         });
       });
@@ -872,7 +790,7 @@ export function EditView({
         previewRestoreFrameRef.current = null;
       }
     };
-  }, [editorControllerReadyVersion, previewRestorePending, suppressPreviewReverseSync]);
+  }, [editorControllerReadyVersion, previewRestorePending, schedulePreviewScrollIgnoreReset]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
@@ -898,18 +816,9 @@ export function EditView({
   useLayoutEffect(() => {
     if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
     void previewHtml;
-    suppressPreviewReverseSync();
+    if (scrollOwnerRef.current == null) scrollOwnerRef.current = 'editor';
     requestPreviewScrollSync();
-  }, [
-    canRenderPreview,
-    loading,
-    markdown,
-    previewHtml,
-    previewScrollLocked,
-    previewVisible,
-    requestPreviewScrollSync,
-    suppressPreviewReverseSync,
-  ]);
+  }, [canRenderPreview, loading, markdown, previewHtml, previewScrollLocked, previewVisible, requestPreviewScrollSync]);
 
   useEffect(() => {
     if (!markdown || !previewVisible || !canRenderPreview || loading) return;
@@ -919,46 +828,41 @@ export function EditView({
     const controller = editorControllerRef.current;
     if (!pane || !controller) return;
 
+    const handleEditorInteraction = () => {
+      claimScrollOwnership('editor');
+    };
+    const handlePreviewInteraction = () => {
+      claimScrollOwnership('preview');
+    };
+    const handlePreviewPointerDown = (event: PointerEvent) => {
+      if (!isPointerDownOnVerticalScrollbar(pane, event)) return;
+      claimScrollOwnership('preview');
+    };
     const requestEditorDrivenSync = () => {
       if (ignoreNextEditorScrollRef.current) return;
-      const { top } = getEditorScrollMetrics();
-      const metadata = getScrollEventMetadata('editor', top);
-      if (metadata.isProgrammatic) {
-        if (shouldSuppressReverseSync('editor', metadata.sourcePane)) return;
-      } else {
-        lastUserScrollRef.current = { pane: 'editor', at: performance.now() };
-      }
+      if (scrollOwnerRef.current !== 'editor') return;
       requestPreviewScrollSync();
     };
     const requestPreviewDrivenSync = () => {
       if (ignoreNextPreviewScrollRef.current) return;
-      if (branchNavPreviewSyncFrameRef.current != null) return;
-      if (performance.now() < branchNavPreviewSyncSuppressionUntilRef.current) return;
-      const scrollTop = pane.scrollTop;
-      const metadata = getScrollEventMetadata('preview', scrollTop);
-      if (metadata.isProgrammatic) {
-        if (shouldSuppressReverseSync('preview', metadata.sourcePane)) return;
-      } else {
-        if (!shouldAllowPreviewReverseSync()) {
-          suppressPreviewReverseSync();
-          requestPreviewScrollSync();
-          return;
-        }
-        lastUserScrollRef.current = { pane: 'preview', at: performance.now() };
-      }
+      if (scrollOwnerRef.current !== 'preview') return;
       requestEditorScrollSync();
     };
     const handlePreviewLayoutChange = () => {
-      suppressPreviewReverseSync();
+      if (scrollOwnerRef.current === 'preview') {
+        requestEditorScrollSync();
+        return;
+      }
       requestPreviewScrollSync();
     };
 
     requestPreviewScrollSync();
     const unsubscribeEditorScroll = controller.subscribeScroll(requestEditorDrivenSync);
+    const unsubscribeEditorInteraction = controller.subscribeInteraction(handleEditorInteraction);
     const unsubscribeEditorLayout = controller.subscribeLayoutChange(handlePreviewLayoutChange);
-    pane.addEventListener('wheel', markPreviewInteraction, { passive: true });
-    pane.addEventListener('touchmove', markPreviewInteraction, { passive: true });
-    pane.addEventListener('pointerdown', markPreviewInteraction, { passive: true });
+    pane.addEventListener('wheel', handlePreviewInteraction, { passive: true });
+    pane.addEventListener('touchmove', handlePreviewInteraction, { passive: true });
+    pane.addEventListener('pointerdown', handlePreviewPointerDown, { passive: true });
     pane.addEventListener('scroll', requestPreviewDrivenSync, { passive: true });
     window.addEventListener('resize', handlePreviewLayoutChange);
 
@@ -969,29 +873,25 @@ export function EditView({
 
     return () => {
       unsubscribeEditorScroll();
+      unsubscribeEditorInteraction();
       unsubscribeEditorLayout();
-      pane.removeEventListener('wheel', markPreviewInteraction);
-      pane.removeEventListener('touchmove', markPreviewInteraction);
-      pane.removeEventListener('pointerdown', markPreviewInteraction);
+      pane.removeEventListener('wheel', handlePreviewInteraction);
+      pane.removeEventListener('touchmove', handlePreviewInteraction);
+      pane.removeEventListener('pointerdown', handlePreviewPointerDown);
       pane.removeEventListener('scroll', requestPreviewDrivenSync);
       window.removeEventListener('resize', handlePreviewLayoutChange);
       resizeObserver.disconnect();
     };
   }, [
     canRenderPreview,
+    claimScrollOwnership,
     editorControllerReadyVersion,
-    getEditorScrollMetrics,
-    getScrollEventMetadata,
     loading,
-    markPreviewInteraction,
     markdown,
     previewScrollLocked,
     previewVisible,
     requestEditorScrollSync,
     requestPreviewScrollSync,
-    shouldAllowPreviewReverseSync,
-    shouldSuppressReverseSync,
-    suppressPreviewReverseSync,
   ]);
 
   useEffect(() => {
@@ -1003,10 +903,6 @@ export function EditView({
       if (previewToEditorScrollFrameRef.current != null) {
         window.cancelAnimationFrame(previewToEditorScrollFrameRef.current);
         previewToEditorScrollFrameRef.current = null;
-      }
-      if (branchNavPreviewSyncFrameRef.current != null) {
-        window.cancelAnimationFrame(branchNavPreviewSyncFrameRef.current);
-        branchNavPreviewSyncFrameRef.current = null;
       }
       if (ignorePreviewScrollFrameRef.current != null) {
         window.cancelAnimationFrame(ignorePreviewScrollFrameRef.current);
@@ -1020,10 +916,7 @@ export function EditView({
         window.cancelAnimationFrame(editorScrollLerpFrameRef.current);
         editorScrollLerpFrameRef.current = null;
       }
-      pendingProgrammaticScrollRef.current = { editor: null, preview: null };
-      reverseSyncSuppressionRef.current = { editor: null, preview: null };
-      branchNavPreviewSyncSuppressionUntilRef.current = 0;
-      lastUserScrollRef.current = null;
+      scrollOwnerRef.current = null;
     };
   }, []);
 
@@ -1264,17 +1157,20 @@ export function EditView({
     const pane = previewPaneRef.current;
     if (!pane) return;
 
-    suppressPreviewReverseSync();
     ignoreNextPreviewScrollRef.current = true;
     schedulePreviewScrollIgnoreReset();
 
     if (previewScrollLocked) {
-      requestPreviewScrollSync();
+      if (scrollOwnerRef.current === 'preview') {
+        requestEditorScrollSync();
+      } else {
+        requestPreviewScrollSync();
+      }
       return;
     }
 
     pane.scrollTop = clampScrollTop(pane.scrollTop, maxScrollTop(pane));
-  }, [previewScrollLocked, requestPreviewScrollSync, schedulePreviewScrollIgnoreReset, suppressPreviewReverseSync]);
+  }, [previewScrollLocked, requestEditorScrollSync, requestPreviewScrollSync, schedulePreviewScrollIgnoreReset]);
 
   const handlePreviewPaneScroll = useCallback((event: JSX.TargetedEvent<HTMLDivElement, Event>) => {
     lastUnlockedPreviewScrollTopRef.current = (event.currentTarget as HTMLDivElement).scrollTop;
@@ -1294,23 +1190,15 @@ export function EditView({
     const branchNav = target?.closest('.prompt-list-branch-nav');
     if (branchNav instanceof HTMLElement) {
       event.preventDefault();
-      markPreviewInteraction();
-      const navigated = navigatePromptListBranch(branchNav, { behavior: 'smooth' });
-      if (navigated) {
-        scheduleBranchNavPreviewSync();
-      } else {
-        cancelBranchNavPreviewSync();
-      }
+      claimScrollOwnership('preview');
+      navigatePromptListBranch(branchNav, { behavior: 'smooth' });
       return;
-    }
-
-    if (branchNavPreviewSyncFrameRef.current != null) {
-      cancelBranchNavPreviewSync();
     }
 
     const answerToggle = target?.closest('.prompt-answer-toggle');
     if (answerToggle instanceof HTMLElement) {
       event.preventDefault();
+      claimScrollOwnership('preview');
       const answer = answerToggle.closest('li.prompt-answer');
       if (answer instanceof HTMLElement) {
         const conversation = answer.closest('.prompt-list-conversation');
@@ -1328,6 +1216,7 @@ export function EditView({
     const toggle = target?.closest('.prompt-list-caption');
     if (toggle instanceof HTMLElement) {
       event.preventDefault();
+      claimScrollOwnership('preview');
       const container = toggle.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
         togglePromptListCollapsedStateInUrl(container, false);
@@ -1341,6 +1230,7 @@ export function EditView({
       const route = resolveInternalRoute(anchor);
       if (route && onInternalLinkNavigate) {
         event.preventDefault();
+        claimScrollOwnership('preview');
         onInternalLinkNavigate(route);
         return;
       }
@@ -1359,6 +1249,7 @@ export function EditView({
     if (!(toggle instanceof HTMLElement)) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
+    claimScrollOwnership('preview');
     const container = toggle.closest('.prompt-list-conversation');
     if (container instanceof HTMLElement) {
       togglePromptListCollapsedStateInUrl(container, false);
