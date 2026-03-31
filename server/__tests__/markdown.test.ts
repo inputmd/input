@@ -335,9 +335,10 @@ test('parseMarkdownToHtml keeps multiline prompt answer content inside the promp
     t.is(preview?.textContent?.trim(), thirdParagraphWords.slice(0, 30).join(' '));
     t.true(inlineRest?.hidden ?? false);
     t.is(inlineRest?.textContent?.trim(), thirdParagraphWords.slice(30).join(' '));
-    t.is(toggle?.textContent, 'Show more');
+    t.truthy(toggle?.querySelector('.prompt-answer-toggle-badge'));
     t.is(toggle?.getAttribute('href'), '#');
     t.is(toggle?.getAttribute('aria-expanded'), 'false');
+    t.is(toggle?.getAttribute('aria-label'), 'More');
     t.true(rest?.hidden ?? false);
   });
 });
@@ -358,8 +359,9 @@ test('parseMarkdownToHtml breaks after a long first paragraph instead of splitti
     const hiddenParagraph = rest?.querySelector<HTMLElement>('p');
 
     t.truthy(answer);
-    t.is(previewParagraph?.textContent?.trim(), `${firstParagraphWords.join(' ')} Show more`);
+    t.is(previewParagraph?.textContent?.trim(), firstParagraphWords.join(' '));
     t.is(preview?.textContent?.trim(), firstParagraphWords.join(' '));
+    t.is(answer?.querySelector('.prompt-answer-toggle')?.getAttribute('aria-label'), 'More');
     t.falsy(answer?.querySelector('.prompt-answer-inline-rest'));
     t.true(rest?.hidden ?? false);
     t.is(hiddenParagraph?.textContent?.trim(), 'Second paragraph starts hidden.');
@@ -420,8 +422,9 @@ test('setPromptAnswerExpandedState rejoins split paragraph text and moves the to
     t.truthy(lastParagraph);
     t.false(inlineRest?.hidden ?? true);
     t.is(thirdParagraph?.textContent?.trim(), thirdParagraphWords.join(' '));
-    t.is(lastParagraph?.textContent?.trim(), 'Final paragraph ends here. Show less');
+    t.is(lastParagraph?.textContent?.trim(), 'Final paragraph ends here. Less');
     t.is(toggle?.parentElement, lastParagraph ?? null);
+    t.is(toggle?.getAttribute('aria-label'), 'Less');
   });
 });
 
@@ -567,6 +570,21 @@ test('parseMarkdownToHtml preserves leading indentation after wrapped lines in l
   t.false(html.includes('<br>'));
 });
 
+test('parseMarkdownToHtml splits unordered lists at <!-- list-break --> sentinels', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('- a\n\n<!-- list-break -->\n\n- b\n'));
+
+  t.regex(html, /<\/ul>\s*<ul/);
+  t.false(html.includes('<!-- list-break -->'));
+  t.false(html.includes('<p>a</p>'));
+  t.false(html.includes('<p>b</p>'));
+});
+
+test('parseMarkdownDocument keeps separate sync blocks for lists split by <!-- list-break -->', (t) => {
+  const parsed = withDom(() => parseMarkdownDocument('- a\n\n<!-- list-break -->\n\n- b\n'));
+
+  t.is(parsed.syncBlocks.filter((block) => block.type === 'list').length, 2);
+});
+
 test('parseMarkdownToHtml does not preserve repeated inline spaces as indentation', (t) => {
   const html = withDom(() => parseMarkdownToHtml('keep  inline spaces'));
 
@@ -623,7 +641,7 @@ test('parseMarkdownToHtml does not parse CriticMarkup inside fenced code blocks'
 test('parseMarkdownToHtml renders empty tilde prompt placeholders inside io code blocks', (t) => {
   const html = withDom(() => parseMarkdownToHtml('```io\n~ \n⏺ Answer\n```'));
 
-  t.true(html.includes('<code class="language-io">'));
+  t.true(html.includes('<code class="language-io'));
   t.true(
     html.includes(
       `<span class="io-hl-prompt-question-marker io-hl-prompt-prefix">~ </span><span class="io-hl-prompt-question-placeholder">${EMPTY_PROMPT_QUESTION_PLACEHOLDER}</span>`,
