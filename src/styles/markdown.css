@@ -511,6 +511,11 @@
   margin-bottom: 0;
 }
 
+.rendered-markdown li > p:only-child {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
 .rendered-markdown li > ul,
 .rendered-markdown li > ol {
   margin-top: 0.2em;
