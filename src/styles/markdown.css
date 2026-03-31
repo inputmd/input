@@ -523,6 +523,10 @@
   border-left: 4px solid var(--border);
 }
 
+[data-theme="dark"] .rendered-markdown blockquote {
+  color: color-mix(in srgb, var(--text-secondary) 70%, var(--text) 30%);
+}
+
 .rendered-markdown blockquote:has(> blockquote:first-child) {
   padding-top: 0;
 }
@@ -764,6 +768,10 @@
   padding: 0.08em 0.75em;
   border-left: 3px solid var(--border);
   color: var(--text-secondary);
+}
+
+[data-theme="dark"] .markdown-link-preview-body blockquote {
+  color: color-mix(in srgb, var(--text-secondary) 70%, var(--text) 30%);
 }
 
 .markdown-link-preview-body blockquote:has(> blockquote:first-child) {
