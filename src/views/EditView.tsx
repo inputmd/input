@@ -615,6 +615,17 @@ export function EditView({
     if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
     const pane = previewPaneRef.current;
     if (!pane) return;
+    const { top: sourceTop, max: sourceMax } = getEditorScrollMetrics();
+    const previewMax = maxScrollTop(pane);
+
+    if (sourceTop <= 1 || sourceMax <= 0) {
+      setPreviewScrollTop(0);
+      return;
+    }
+    if (previewMax > 0 && sourceTop >= sourceMax - 1) {
+      setPreviewScrollTop(previewMax);
+      return;
+    }
 
     const controller = editorControllerRef.current;
     if (controller && previewSyncBlocks.length > 0 && previewSyncElementByIdRef.current.size > 0) {
@@ -623,13 +634,11 @@ export function EditView({
       if (hit && scrollPreviewToSyncHit(hit)) return;
     }
 
-    const previewMax = maxScrollTop(pane);
     if (previewMax <= 0) {
       setPreviewScrollTop(0);
       return;
     }
 
-    const { top: sourceTop, max: sourceMax } = getEditorScrollMetrics();
     const progress = sourceMax <= 0 ? 0 : Math.max(0, Math.min(1, sourceTop / sourceMax));
     setPreviewScrollTop(progress * previewMax);
   }, [
@@ -656,6 +665,18 @@ export function EditView({
     if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked) return;
     const pane = previewPaneRef.current;
     if (!pane) return;
+    const previewMax = maxScrollTop(pane);
+
+    if (pane.scrollTop <= 1 || previewMax <= 0) {
+      setEditorScrollTop(0);
+      return;
+    }
+
+    const { max: editorMax } = getEditorScrollMetrics();
+    if (pane.scrollTop >= previewMax - 1) {
+      setEditorScrollTop(editorMax);
+      return;
+    }
 
     if (previewSyncBlocks.length > 0) {
       const anchor = getPreviewSyncAnchor();
@@ -666,8 +687,6 @@ export function EditView({
       }
     }
 
-    const previewMax = maxScrollTop(pane);
-    const { max: editorMax } = getEditorScrollMetrics();
     const progress = previewMax <= 0 ? 0 : Math.max(0, Math.min(1, pane.scrollTop / previewMax));
     setEditorScrollTop(progress * editorMax);
   }, [
