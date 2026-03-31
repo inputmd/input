@@ -29,6 +29,7 @@ import { Eye } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
+import { type EditorChangeMarker, editorChangeMarkersExtension } from './codemirror_change_markers';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
@@ -73,6 +74,7 @@ interface MarkdownEditorProps {
   placeholder?: string;
   scrollStorageKey?: string | null;
   diffPreview?: EditorDiffPreview | null;
+  changeMarkers?: EditorChangeMarker[] | null;
   onEditorReady?: (controller: EditorController | null) => void;
   onEligibleSelectionChange?: (eligible: boolean) => void;
   protectedEditRange?: EditorProtectedRange | null;
@@ -127,6 +129,7 @@ export function MarkdownEditor({
   placeholder = 'Write here, or use ~ to prompt...',
   scrollStorageKey = null,
   diffPreview = null,
+  changeMarkers = null,
   onEditorReady,
   onEligibleSelectionChange,
   protectedEditRange = null,
@@ -152,6 +155,7 @@ export function MarkdownEditor({
   const promptListAnsweringCompartment = useRef(new Compartment());
   const bracePromptPreviewCompartment = useRef(new Compartment());
   const diffPreviewCompartment = useRef(new Compartment());
+  const changeMarkersCompartment = useRef(new Compartment());
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
@@ -547,6 +551,7 @@ export function MarkdownEditor({
         promptListAnsweringCompartment.current.of(promptListAnsweringFacet.of(inlinePromptActive)),
         bracePromptPreviewCompartment.current.of([]),
         diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
+        changeMarkersCompartment.current.of(editorChangeMarkersExtension(changeMarkers)),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
@@ -924,6 +929,14 @@ export function MarkdownEditor({
       effects: diffPreviewCompartment.current.reconfigure(editorDiffPreviewExtension(diffPreview)),
     });
   }, [diffPreview]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: changeMarkersCompartment.current.reconfigure(editorChangeMarkersExtension(changeMarkers)),
+    });
+  }, [changeMarkers]);
 
   useEffect(() => {
     if (!bracePrompt.panel) return;

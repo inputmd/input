@@ -5,6 +5,7 @@ import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
+import { buildEditorChangeMarkers } from './components/codemirror_change_markers';
 import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './components/codemirror_diff_preview';
 import type { BracePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
@@ -1229,6 +1230,14 @@ export function App() {
     const currentChange = effectiveReaderAiStagedChanges.find((change) => change.path === currentEditingDocPath);
     return buildEditorDiffPreview(currentChange);
   }, [activeView, currentEditingDocPath, effectiveReaderAiStagedChanges]);
+  const currentEditorChangeMarkers = useMemo(() => {
+    if (activeView !== 'edit') return null;
+    if (currentDocumentSavedContent === null) return null;
+    if (!hasUnsavedChanges) return null;
+    if (currentEditorDiffPreview) return null;
+    const markers = buildEditorChangeMarkers(currentDocumentSavedContent, editContent);
+    return markers.length > 0 ? markers : null;
+  }, [activeView, currentDocumentSavedContent, editContent, hasUnsavedChanges, currentEditorDiffPreview]);
   const isScratchDocument = useMemo(
     () =>
       activeView === 'edit' &&
@@ -7522,6 +7531,7 @@ export function App() {
             contentRevision={editContentRevision}
             contentSelection={editContentSelection}
             diffPreview={currentEditorDiffPreview}
+            changeMarkers={currentEditorChangeMarkers}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             scrollStorageKey={currentDocumentScrollKey}

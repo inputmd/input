@@ -17,6 +17,7 @@
 }
 
 .doc-editor .cm-editor {
+  --change-gutter-width: 4px;
   height: 100%;
   font-family: var(--font-mono);
   font-size: var(--editor-font-size);
@@ -38,6 +39,63 @@
   font-family: inherit;
   font-size: inherit;
   line-height: var(--reader-editor-line-height);
+}
+
+.doc-editor .cm-gutters {
+  background: transparent;
+  border: 0;
+}
+
+.doc-editor .cm-change-marker-gutter {
+  margin-left: calc(-1 * var(--editor-padding-x));
+  width: var(--change-gutter-width);
+  min-width: var(--change-gutter-width);
+  background: transparent;
+}
+
+.doc-editor .cm-gutter.cm-change-marker-gutter .cm-gutterElement {
+  padding: 0;
+}
+
+.doc-editor .cm-change-marker {
+  position: relative;
+  width: var(--change-gutter-width);
+  height: 100%;
+  min-height: 1.35em;
+}
+
+.doc-editor .cm-change-marker__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--change-gutter-width);
+  opacity: 0.4;
+}
+
+.doc-editor .cm-change-marker__bar--add {
+  background: color-mix(in srgb, var(--success-color) 82%, white 18%);
+}
+
+.doc-editor .cm-change-marker__bar--modify {
+  background: color-mix(in srgb, var(--text-secondary) 78%, black 22%);
+}
+
+.doc-editor .cm-change-marker__delete-anchor {
+  position: absolute;
+  left: 0;
+  width: var(--change-gutter-width);
+  height: calc(1em * var(--reader-editor-line-height));
+  background: color-mix(in srgb, var(--danger-border) 84%, white 16%);
+  opacity: 0.4;
+}
+
+.doc-editor .cm-change-marker__delete-anchor--top {
+  top: 0;
+}
+
+.doc-editor .cm-change-marker__delete-anchor--bottom {
+  bottom: 0;
 }
 
 .doc-editor .cm-content {
@@ -114,7 +172,7 @@
 
 .doc-editor .cm-line.cm-prompt-list-item::before {
   position: absolute;
-  left: 0.2em;
+  left: calc(0.2em - 4px);
   color: color-mix(in srgb, var(--text-secondary) 78%, var(--text));
   opacity: 0.25;
   content: "•";

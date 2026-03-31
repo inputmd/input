@@ -27,6 +27,7 @@ import {
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
+import { type EditorChangeMarker, editorChangeMarkersExtension } from './codemirror_change_markers';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { detectedLanguageForFileName } from './codemirror_languages';
@@ -45,6 +46,7 @@ interface TextEditorProps {
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   diffPreview?: EditorDiffPreview | null;
+  changeMarkers?: EditorChangeMarker[] | null;
   onContentChange: (update: { content: string; origin: 'userEdits'; revision: number }) => void;
   readOnly?: boolean;
   placeholder?: string;
@@ -68,6 +70,7 @@ export function TextEditor({
   contentRevision = 0,
   contentSelection = null,
   diffPreview = null,
+  changeMarkers = null,
   onContentChange,
   readOnly = false,
   placeholder = 'Write your text here...',
@@ -89,6 +92,7 @@ export function TextEditor({
   const placeholderCompartment = useRef(new Compartment());
   const languageCompartment = useRef(new Compartment());
   const diffPreviewCompartment = useRef(new Compartment());
+  const changeMarkersCompartment = useRef(new Compartment());
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
@@ -423,6 +427,7 @@ export function TextEditor({
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         languageCompartment.current.of(detectedLanguage?.extensions ?? []),
         diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
+        changeMarkersCompartment.current.of(editorChangeMarkersExtension(changeMarkers)),
         EditorState.tabSize.of(2),
         EditorView.lineWrapping,
         continuedIndentExtension({ mode: 'indent', maxColumns: 10 }),
@@ -684,6 +689,14 @@ export function TextEditor({
       effects: diffPreviewCompartment.current.reconfigure(editorDiffPreviewExtension(diffPreview)),
     });
   }, [diffPreview]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: changeMarkersCompartment.current.reconfigure(editorChangeMarkersExtension(changeMarkers)),
+    });
+  }, [changeMarkers]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: helper is stable enough for this local sync effect
   useEffect(() => {

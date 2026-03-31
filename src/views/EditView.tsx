@@ -3,6 +3,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { ArrowUpDown, ExternalLink, LockOpen } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import type { EditorChangeMarker } from '../components/codemirror_change_markers';
 import type { BracePromptRequest } from '../components/codemirror_inline_prompt';
 import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
@@ -210,6 +211,7 @@ export interface EditViewProps {
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   diffPreview?: EditorDiffPreview | null;
+  changeMarkers?: EditorChangeMarker[] | null;
   previewHtml: string;
   previewCustomCss?: string | null;
   previewCustomCssScope?: string | null;
@@ -262,6 +264,7 @@ export function EditView({
   contentRevision = 0,
   contentSelection = null,
   diffPreview = null,
+  changeMarkers = null,
   previewHtml,
   previewCustomCss = null,
   previewCustomCssScope = null,
@@ -1333,6 +1336,7 @@ export function EditView({
             contentRevision={contentRevision}
             contentSelection={contentSelection}
             diffPreview={diffPreview}
+            changeMarkers={changeMarkers}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}
@@ -1356,6 +1360,7 @@ export function EditView({
             contentRevision={contentRevision}
             contentSelection={contentSelection}
             diffPreview={diffPreview}
+            changeMarkers={changeMarkers}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}
