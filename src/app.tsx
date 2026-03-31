@@ -13,7 +13,7 @@ import type { EditorController, EditorProtectedRange } from './components/editor
 import { ForkRepoDialog } from './components/ForkRepoDialog';
 import { ImageLightbox } from './components/ImageLightbox';
 import type { PromptListRequest } from './components/markdown_editor_commands';
-import { normalizeBlockquotePaste } from './components/markdown_editor_commands';
+import { normalizeBlockquotePaste, normalizeStandaloneUrlPaste } from './components/markdown_editor_commands';
 import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFile, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
@@ -1938,6 +1938,17 @@ export function App() {
   const handleEditorPaste = useCallback(
     async (event: ClipboardEvent, view: import('@codemirror/view').EditorView) => {
       const pastedText = event.clipboardData?.getData('text/plain') ?? '';
+      const normalizedUrlPaste = normalizeStandaloneUrlPaste(pastedText);
+      if (normalizedUrlPaste !== null) {
+        event.preventDefault();
+        const { from, to } = view.state.selection.main;
+        const head = from + normalizedUrlPaste.length;
+        view.dispatch({
+          changes: { from, to, insert: normalizedUrlPaste },
+          selection: { anchor: head, head },
+        });
+        return;
+      }
       const normalizedBlockquotePaste = normalizeBlockquotePaste(
         view.state,
         view.state.selection.main.from,

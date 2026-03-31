@@ -28,6 +28,7 @@ import {
   insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
   normalizeBlockquotePaste,
+  normalizeStandaloneUrlPaste,
   wrapWithMarker,
 } from '../../src/components/markdown_editor_commands.ts';
 
@@ -1008,4 +1009,26 @@ test('normalizeBlockquotePaste does not create a citation inside a markdown link
   });
 
   t.is(normalizeBlockquotePaste(state, state.selection.main.from, 'https://example.com/source'), null);
+});
+
+test('normalizeStandaloneUrlPaste trims surrounding whitespace around a pasted url', (t) => {
+  t.is(
+    normalizeStandaloneUrlPaste(
+      '\nhttps://www.lesswrong.com/posts/HE3Styo9vpk7m8zi4/evhub-s-shortform?commentId=auzYDb3JeZEEkpxB3  \n',
+    ),
+    'https://www.lesswrong.com/posts/HE3Styo9vpk7m8zi4/evhub-s-shortform?commentId=auzYDb3JeZEEkpxB3',
+  );
+});
+
+test('normalizeStandaloneUrlPaste collapses wrapped whitespace inside a pasted url', (t) => {
+  t.is(
+    normalizeStandaloneUrlPaste(
+      'https://www.lesswrong.com/posts/HE3Styo9vpk7m8zi4/evhub-s-shortform?\ncommentId=auzYDb3JeZEEkpxB3',
+    ),
+    'https://www.lesswrong.com/posts/HE3Styo9vpk7m8zi4/evhub-s-shortform?commentId=auzYDb3JeZEEkpxB3',
+  );
+});
+
+test('normalizeStandaloneUrlPaste ignores ordinary multiline text', (t) => {
+  t.is(normalizeStandaloneUrlPaste('first line\nsecond line'), null);
 });

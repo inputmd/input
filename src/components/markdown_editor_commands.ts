@@ -94,6 +94,35 @@ export function isExternalSyncTransaction(transaction: Transaction): boolean {
   return transaction.annotation(Transaction.userEvent) === 'external';
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeStandaloneUrlPaste(pastedText: string): string | null {
+  if (!/\s/u.test(pastedText)) return null;
+
+  const trimmed = pastedText.trim();
+  if (!trimmed) return null;
+
+  if (trimmed !== pastedText && isHttpUrl(trimmed)) {
+    return trimmed;
+  }
+
+  if (!/[\r\n\t ]/u.test(trimmed)) return null;
+
+  const collapsed = trimmed.replace(/\s+/gu, '');
+  if (collapsed !== trimmed && isHttpUrl(collapsed)) {
+    return collapsed;
+  }
+
+  return null;
+}
+
 export function buildExternalContentSyncTransaction(
   state: EditorState,
   content: string,
