@@ -4630,6 +4630,7 @@ export function App() {
           ? 'The source contains a document with an inline brace query inside a paragraph.'
           : 'The source contains a document ending with an inline brace query.',
         `Brace query: ${requestPrompt}`,
+        'Do not try to complete the brace query itself; treat the brace query as a question or statement describing the desired replacement.',
         hasParagraphTail ? `Text after the brace in the same paragraph:\n${sanitizedParagraphTail}` : null,
         `Return exactly ${candidateCount} candidate replacement fragments for the text inside the braces.`,
         excludeOptions.length > 0
