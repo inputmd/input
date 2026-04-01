@@ -121,6 +121,10 @@
   background: var(--btn-hover);
 }
 
+.sidebar-filter-menu-item[data-disabled] {
+  opacity: 0.6;
+}
+
 .sidebar-filter-menu-item[data-state="checked"] {
   font-weight: 600;
 }

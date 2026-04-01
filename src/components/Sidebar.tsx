@@ -617,6 +617,18 @@ export function Sidebar({
     });
   };
 
+  const expandAllFolders = () => {
+    setCollapsedFolders({});
+  };
+
+  const collapseAllFolders = () => {
+    setCollapsedFolders(() => {
+      const next: Record<string, true> = {};
+      for (const path of folderPaths) next[path] = true;
+      return next;
+    });
+  };
+
   const focusTreeRow = (path: string) => {
     setCreateAtRoot(false);
     setFocusedPath(path);
@@ -1239,6 +1251,27 @@ export function Sidebar({
                     onSelect={() => startCreate('directory', resolveCreateParentFromFocus())}
                   >
                     Add directory
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator class="sidebar-context-menu-separator" />
+                  <DropdownMenu.Item
+                    class="sidebar-filter-menu-item"
+                    disabled={!hasFolders}
+                    onSelect={() => {
+                      if (!hasFolders) return;
+                      expandAllFolders();
+                    }}
+                  >
+                    Expand all
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    class="sidebar-filter-menu-item"
+                    disabled={!hasFolders}
+                    onSelect={() => {
+                      if (!hasFolders) return;
+                      collapseAllFolders();
+                    }}
+                  >
+                    Collapse all
                   </DropdownMenu.Item>
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
