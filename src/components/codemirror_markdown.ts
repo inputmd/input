@@ -680,7 +680,7 @@ function buildBracePromptDecorations(view: EditorView): DecorationSet {
 
 function rangeTouchesSelection(state: EditorState, from: number, to: number): boolean {
   return state.selection.ranges.some((range) => {
-    if (range.empty) return range.from >= from && range.from <= to;
+    if (range.empty) return range.from >= from && range.from < to;
     return range.from < to && range.to > from;
   });
 }
@@ -784,14 +784,22 @@ function buildCollapsedInlineMarkdownDecorations(view: EditorView): DecorationSe
     });
   }
 
-  for (const { from, to } of view.visibleRanges) {
-    const text = view.state.doc.sliceString(from, to);
+  return builder.finish();
+}
+
+function buildDoubleColonHighlightDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+
+  for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber += 1) {
+    const line = view.state.doc.line(lineNumber);
+    const text = line.text;
     let cursor = 0;
+
     while (cursor < text.length) {
       const colonIndex = text.indexOf('::', cursor);
       if (colonIndex === -1) break;
 
-      const absoluteFrom = from + colonIndex;
+      const absoluteFrom = line.from + colonIndex;
       cursor = colonIndex + 2;
 
       if (isCodePosition(view.state, absoluteFrom)) continue;
@@ -799,19 +807,19 @@ function buildCollapsedInlineMarkdownDecorations(view: EditorView): DecorationSe
       const match = parseHighlightMarkupAt(text, colonIndex);
       if (!match) continue;
 
-      const absoluteTo = from + match.to;
+      const absoluteTo = line.from + match.to;
       const selected = rangeTouchesSelection(view.state, absoluteFrom, absoluteTo);
 
       if (!selected) {
-        builder.add(from + match.openerFrom, from + match.openerTo, Decoration.replace({}));
+        builder.add(line.from + match.openerFrom, line.from + match.openerTo, Decoration.replace({}));
       }
       builder.add(
-        from + match.contentFrom,
-        from + match.contentTo,
+        line.from + match.contentFrom,
+        line.from + match.contentTo,
         Decoration.mark({ class: 'cm-double-colon-highlight' }),
       );
       if (!selected) {
-        builder.add(from + match.closerFrom, from + match.closerTo, Decoration.replace({}));
+        builder.add(line.from + match.closerFrom, line.from + match.closerTo, Decoration.replace({}));
       }
 
       cursor = match.to;
@@ -889,6 +897,25 @@ const collapsedLinkDecorationExtension = ViewPlugin.fromClass(
   },
 );
 
+const doubleColonHighlightDecorationExtension = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildDoubleColonHighlightDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.selectionSet) {
+        this.decorations = buildDoubleColonHighlightDecorations(update.view);
+      }
+    }
+  },
+  {
+    decorations: (value) => value.decorations,
+  },
+);
+
 export function markdownEditorLanguageSupport() {
   return [
     markdown({
@@ -898,6 +925,7 @@ export function markdownEditorLanguageSupport() {
     }),
     promptListCollapseField,
     promptListAtomicRangesExtension,
+    doubleColonHighlightDecorationExtension,
     collapsedLinkDecorationExtension,
     criticMarkupDecorationExtension,
     bracePromptDecorationExtension,
@@ -922,6 +950,7 @@ export function markdownCodeLanguageSupport() {
     }),
     promptListCollapseField,
     promptListAtomicRangesExtension,
+    doubleColonHighlightDecorationExtension,
     collapsedLinkDecorationExtension,
     criticMarkupDecorationExtension,
     promptListLineClassExtension,

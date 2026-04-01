@@ -1,6 +1,7 @@
 import type { EditorView } from '@codemirror/view';
+import * as Popover from '@radix-ui/react-popover';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { ArrowUpDown, ExternalLink, LockOpen } from 'lucide-react';
+import { ArrowUpDown, ExternalLink, Highlighter, LockOpen, Pin } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { EditorChangeMarker } from '../components/codemirror_change_markers';
@@ -44,6 +45,79 @@ interface LinkPreviewState {
   title: string;
   html: string;
   url: string | null;
+}
+
+interface PreviewHighlightEntry {
+  id: string;
+  prefix: string;
+  text: string;
+  suffix: string;
+}
+
+function getHighlightPrefixText(element: HTMLElement, maxChars = 160): string {
+  const listItem = element.closest('li');
+  const parentListItem = listItem?.parentElement?.closest('li');
+  if (!parentListItem) return '';
+
+  const clone = parentListItem.cloneNode(true);
+  if (!(clone instanceof HTMLElement)) return '';
+  clone.querySelectorAll('ul, ol').forEach((childList) => {
+    childList.remove();
+  });
+
+  const prefix = (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+  if (!prefix) return '';
+  return prefix.slice(0, maxChars);
+}
+
+function getHighlightSuffixText(element: HTMLElement, maxChars = 140): string {
+  const ownerDocument = element.ownerDocument;
+  const container =
+    element.closest('p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6, figcaption') ?? element.parentElement;
+  if (!ownerDocument || !container || !container.lastChild) return '';
+
+  const range = ownerDocument.createRange();
+  range.selectNodeContents(container);
+  range.setStartAfter(element);
+
+  const suffix = range.toString().replace(/\s+/g, ' ').trimEnd();
+  if (!suffix.trim()) return '';
+  return suffix.slice(0, maxChars);
+}
+
+function PreviewHighlightsPopoverContent({
+  entries,
+  onSelect,
+}: {
+  entries: PreviewHighlightEntry[];
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div class="editor-preview-highlights-popover">
+      {entries.length > 0 ? (
+        <div class="editor-preview-highlights-popover-list">
+          {entries.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              class="editor-preview-highlights-popover-item"
+              onClick={() => onSelect(entry.id)}
+            >
+              {entry.prefix ? <span class="editor-preview-highlights-popover-item-prefix">{entry.prefix}</span> : null}
+              <span class="editor-preview-highlights-popover-item-copy">
+                <span class="editor-preview-highlights-popover-item-text">{entry.text}</span>
+                {entry.suffix ? (
+                  <span class="editor-preview-highlights-popover-item-suffix">{entry.suffix}</span>
+                ) : null}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div class="editor-preview-highlights-popover-empty">No highlights in this document.</div>
+      )}
+    </div>
+  );
 }
 
 function isMarkdownHref(href: string): boolean {
@@ -323,8 +397,10 @@ export function EditView({
   const hoverDelayTimerRef = useRef<number | null>(null);
   const previewRestoreFrameRef = useRef<number | null>(null);
   const previewScrollTooltipCloseTimeoutRef = useRef<number | null>(null);
+  const previewHighlightsPopoverCloseTimeoutRef = useRef<number | null>(null);
   const previewSyncElementsRef = useRef<HTMLElement[]>([]);
   const previewSyncElementByIdRef = useRef<Map<string, HTMLElement>>(new Map());
+  const previewHighlightElementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const lastUnlockedPreviewScrollTopRef = useRef(0);
   const lastPreviewSyncEditorTopRef = useRef<number | null>(null);
   const pointerDownRef = useRef(false);
@@ -349,6 +425,10 @@ export function EditView({
     }),
   );
   const [previewScrollTooltipOpen, setPreviewScrollTooltipOpen] = useState(false);
+  const [desktopHighlightsPopoverOpen, setDesktopHighlightsPopoverOpen] = useState(false);
+  const [desktopHighlightsPopoverPinned, setDesktopHighlightsPopoverPinned] = useState(false);
+  const [mobileHighlightsPopoverOpen, setMobileHighlightsPopoverOpen] = useState(false);
+  const [previewHighlightEntries, setPreviewHighlightEntries] = useState<PreviewHighlightEntry[]>([]);
   const [editorControllerReadyVersion, setEditorControllerReadyVersion] = useState(0);
   const lastPreviewRestoreKeyRef = useRef<string | null>(null);
   const [preview, setPreview] = useState<LinkPreviewState>({
@@ -402,6 +482,58 @@ export function EditView({
       setPreviewScrollTooltipOpen(false);
     }, 120);
   }, []);
+
+  const clearPreviewHighlightsPopoverCloseTimeout = useCallback(() => {
+    if (previewHighlightsPopoverCloseTimeoutRef.current == null) return;
+    window.clearTimeout(previewHighlightsPopoverCloseTimeoutRef.current);
+    previewHighlightsPopoverCloseTimeoutRef.current = null;
+  }, []);
+
+  const openDesktopHighlightsPopover = useCallback(() => {
+    clearPreviewHighlightsPopoverCloseTimeout();
+    setMobileHighlightsPopoverOpen(false);
+    setDesktopHighlightsPopoverOpen(true);
+  }, [clearPreviewHighlightsPopoverCloseTimeout]);
+
+  const closeDesktopHighlightsPopoverSoon = useCallback(() => {
+    if (desktopHighlightsPopoverPinned) return;
+    clearPreviewHighlightsPopoverCloseTimeout();
+    previewHighlightsPopoverCloseTimeoutRef.current = window.setTimeout(() => {
+      previewHighlightsPopoverCloseTimeoutRef.current = null;
+      setDesktopHighlightsPopoverOpen(false);
+    }, 120);
+  }, [clearPreviewHighlightsPopoverCloseTimeout, desktopHighlightsPopoverPinned]);
+
+  const toggleDesktopHighlightsPopoverPinned = useCallback(() => {
+    clearPreviewHighlightsPopoverCloseTimeout();
+    setMobileHighlightsPopoverOpen(false);
+    setDesktopHighlightsPopoverPinned((pinned) => {
+      const nextPinned = !pinned;
+      setDesktopHighlightsPopoverOpen(nextPinned);
+      return nextPinned;
+    });
+  }, [clearPreviewHighlightsPopoverCloseTimeout]);
+
+  const handleDesktopHighlightsPopoverOpenChange = useCallback(
+    (open: boolean) => {
+      clearPreviewHighlightsPopoverCloseTimeout();
+      setDesktopHighlightsPopoverOpen(open);
+      if (!open) setDesktopHighlightsPopoverPinned(false);
+      if (open) setMobileHighlightsPopoverOpen(false);
+    },
+    [clearPreviewHighlightsPopoverCloseTimeout],
+  );
+
+  const handleMobileHighlightsPopoverOpenChange = useCallback(
+    (open: boolean) => {
+      setMobileHighlightsPopoverOpen(open);
+      if (open) {
+        clearPreviewHighlightsPopoverCloseTimeout();
+        setDesktopHighlightsPopoverOpen(false);
+      }
+    },
+    [clearPreviewHighlightsPopoverCloseTimeout],
+  );
 
   const getEditorScrollMetrics = useCallback(() => {
     return (
@@ -475,6 +607,31 @@ export function EditView({
       cancelPendingPreviewSyncFromEditor();
     },
     [cancelPendingEditorSyncFromPreview, cancelPendingPreviewSyncFromEditor],
+  );
+
+  const handlePreviewHighlightSelect = useCallback(
+    (id: string) => {
+      const pane = canRenderPreview ? previewPaneRef.current : mobilePreviewPaneRef.current;
+      const element = previewHighlightElementsRef.current.get(id);
+      if (!pane || !element) return;
+
+      if (canRenderPreview && previewScrollLocked) {
+        claimScrollOwnership('preview');
+      }
+
+      const paneRect = pane.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const nextScrollTop = clampScrollTop(
+        elementRect.top - paneRect.top + pane.scrollTop - pane.clientHeight / 2 + elementRect.height / 2,
+        maxScrollTop(pane),
+      );
+
+      pane.scrollTop = nextScrollTop;
+      lastUnlockedPreviewScrollTopRef.current = nextScrollTop;
+      setDesktopHighlightsPopoverOpen(false);
+      setMobileHighlightsPopoverOpen(false);
+    },
+    [canRenderPreview, claimScrollOwnership, previewScrollLocked],
   );
 
   const setPreviewScrollTop = useCallback(
@@ -1280,6 +1437,43 @@ export function EditView({
     pane.scrollTop = clampScrollTop(lastUnlockedPreviewScrollTopRef.current, maxScrollTop(pane));
   }, [canRenderPreview, loading, markdown, previewHtml, previewVisible, previewScrollLocked]);
 
+  useEffect(() => {
+    const pane = canRenderPreview ? previewPaneRef.current : mobilePreviewPaneRef.current;
+    const root = renderedMarkdownRef.current;
+    previewHighlightElementsRef.current.clear();
+
+    if (!markdown || !previewVisible || !previewHtml || !pane || !root) {
+      setPreviewHighlightEntries([]);
+      return;
+    }
+
+    const entries = Array.from(
+      root.querySelectorAll<HTMLElement>('mark.critic-highlight, mark.double-colon-highlight'),
+    ).map((element, index) => {
+      const prefix = getHighlightPrefixText(element);
+      const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim() || `Highlight ${index + 1}`;
+      const suffix = getHighlightSuffixText(element);
+      const id = `preview-highlight-${index}`;
+      previewHighlightElementsRef.current.set(id, element);
+      return { id, prefix, text, suffix };
+    });
+
+    setPreviewHighlightEntries(entries);
+  }, [canRenderPreview, markdown, previewHtml, previewVisible]);
+
+  useEffect(() => {
+    if (previewVisible) return;
+    setDesktopHighlightsPopoverOpen(false);
+    setDesktopHighlightsPopoverPinned(false);
+    setMobileHighlightsPopoverOpen(false);
+  }, [previewVisible]);
+
+  useEffect(() => {
+    return () => {
+      clearPreviewHighlightsPopoverCloseTimeout();
+    };
+  }, [clearPreviewHighlightsPopoverCloseTimeout]);
+
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
     const branchNav = target?.closest('.prompt-list-branch-nav');
@@ -1449,40 +1643,92 @@ export function EditView({
         )}
         {markdown && previewVisible && canRenderPreview && !loading && (
           <>
-            <Tooltip.Provider delayDuration={150}>
-              <Tooltip.Root open={previewScrollTooltipOpen} onOpenChange={setPreviewScrollTooltipOpen}>
-                <Tooltip.Trigger asChild>
-                  <button
-                    type="button"
-                    class={`editor-preview-scroll-toggle${previewScrollLocked ? ' is-locked' : ' is-unlocked'}${showModelStatusIndicator ? ' is-model-status-below' : ''}`}
-                    aria-pressed={previewScrollLocked}
-                    aria-label={previewScrollLocked ? 'Lock preview scroll' : 'Unlock preview scroll'}
-                    onMouseEnter={openPreviewScrollTooltip}
-                    onMouseLeave={closePreviewScrollTooltipSoon}
-                    onClick={() => setPreviewScrollLocked((locked) => !locked)}
-                  >
-                    {previewScrollLocked ? (
-                      <ArrowUpDown size={14} aria-hidden="true" />
-                    ) : (
-                      <LockOpen size={14} aria-hidden="true" />
-                    )}
-                  </button>
-                </Tooltip.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content
-                    class="editor-preview-scroll-toggle-tooltip"
-                    side="left"
-                    align="center"
-                    sideOffset={8}
-                    onMouseEnter={openPreviewScrollTooltip}
-                    onMouseLeave={closePreviewScrollTooltipSoon}
-                  >
-                    {previewScrollLocked ? 'Scroll sync on' : 'Scroll sync off'}
-                    <Tooltip.Arrow class="editor-preview-scroll-toggle-tooltip-arrow" />
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
-            </Tooltip.Provider>
+            <div class={`editor-preview-controls${showModelStatusIndicator ? ' is-model-status-below' : ''}`}>
+              {previewHighlightEntries.length > 0 ? (
+                <Popover.Root
+                  open={desktopHighlightsPopoverOpen}
+                  onOpenChange={handleDesktopHighlightsPopoverOpenChange}
+                >
+                  <Popover.Anchor asChild>
+                    <button
+                      type="button"
+                      class="editor-preview-highlights-toggle"
+                      aria-label="Show document highlights"
+                      aria-haspopup="dialog"
+                      aria-expanded={desktopHighlightsPopoverOpen}
+                      onMouseEnter={openDesktopHighlightsPopover}
+                      onMouseLeave={closeDesktopHighlightsPopoverSoon}
+                      onClick={toggleDesktopHighlightsPopoverPinned}
+                    >
+                      {desktopHighlightsPopoverPinned ? (
+                        <Pin size={14} aria-hidden="true" />
+                      ) : (
+                        <Highlighter size={14} aria-hidden="true" />
+                      )}
+                    </button>
+                  </Popover.Anchor>
+                  <Popover.Portal>
+                    <Popover.Content
+                      class="editor-preview-highlights-popover-content"
+                      side="top"
+                      align="end"
+                      sideOffset={8}
+                      collisionPadding={12}
+                      onOpenAutoFocus={(event: Event) => {
+                        event.preventDefault();
+                      }}
+                      onCloseAutoFocus={(event: Event) => {
+                        event.preventDefault();
+                      }}
+                      onInteractOutside={(event: Event) => {
+                        if (!desktopHighlightsPopoverPinned) return;
+                        event.preventDefault();
+                      }}
+                      onMouseEnter={openDesktopHighlightsPopover}
+                      onMouseLeave={closeDesktopHighlightsPopoverSoon}
+                    >
+                      <PreviewHighlightsPopoverContent
+                        entries={previewHighlightEntries}
+                        onSelect={handlePreviewHighlightSelect}
+                      />
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              ) : null}
+              <Tooltip.Provider delayDuration={150}>
+                <Tooltip.Root open={previewScrollTooltipOpen} onOpenChange={setPreviewScrollTooltipOpen}>
+                  <Tooltip.Trigger asChild>
+                    <button
+                      type="button"
+                      class={`editor-preview-scroll-toggle${previewScrollLocked ? ' is-locked' : ' is-unlocked'}`}
+                      aria-pressed={previewScrollLocked}
+                      aria-label={previewScrollLocked ? 'Lock preview scroll' : 'Unlock preview scroll'}
+                      onMouseEnter={openPreviewScrollTooltip}
+                      onMouseLeave={closePreviewScrollTooltipSoon}
+                      onClick={() => setPreviewScrollLocked((locked) => !locked)}
+                    >
+                      {previewScrollLocked ? (
+                        <ArrowUpDown size={14} aria-hidden="true" />
+                      ) : (
+                        <LockOpen size={14} aria-hidden="true" />
+                      )}
+                    </button>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      class="editor-preview-scroll-toggle-tooltip"
+                      side="top"
+                      align="end"
+                      sideOffset={8}
+                      onMouseEnter={openPreviewScrollTooltip}
+                      onMouseLeave={closePreviewScrollTooltipSoon}
+                    >
+                      {previewScrollLocked ? 'Scroll sync on' : 'Scroll sync off'}
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              </Tooltip.Provider>
+            </div>
             <div
               class="editor-splitter"
               role="separator"
@@ -1523,6 +1769,45 @@ export function EditView({
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane" ref={mobilePreviewPaneRef} onScroll={handlePreviewPaneScroll}>
+            {previewHighlightEntries.length > 0 ? (
+              <div class="mobile-preview-controls">
+                <Popover.Root open={mobileHighlightsPopoverOpen} onOpenChange={handleMobileHighlightsPopoverOpenChange}>
+                  <Popover.Anchor asChild>
+                    <button
+                      type="button"
+                      class="mobile-preview-highlights-toggle"
+                      aria-label="Show document highlights"
+                      aria-haspopup="dialog"
+                      aria-expanded={mobileHighlightsPopoverOpen}
+                      onClick={() => setMobileHighlightsPopoverOpen(true)}
+                    >
+                      <Highlighter size={14} aria-hidden="true" />
+                      <span>Highlights</span>
+                    </button>
+                  </Popover.Anchor>
+                  <Popover.Portal>
+                    <Popover.Content
+                      class="editor-preview-highlights-popover-content mobile-preview-highlights-popover-content"
+                      side="top"
+                      align="end"
+                      sideOffset={8}
+                      collisionPadding={16}
+                      onOpenAutoFocus={(event: Event) => {
+                        event.preventDefault();
+                      }}
+                      onCloseAutoFocus={(event: Event) => {
+                        event.preventDefault();
+                      }}
+                    >
+                      <PreviewHighlightsPopoverContent
+                        entries={previewHighlightEntries}
+                        onSelect={handlePreviewHighlightSelect}
+                      />
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              </div>
+            ) : null}
             {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
             {!previewFrontMatterError && previewCssWarning ? (
               <div class="editor-preview-alert">{previewCssWarning}</div>

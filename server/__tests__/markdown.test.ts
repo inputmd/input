@@ -223,8 +223,7 @@ test('marked renders comment-prefixed rows inside prompt lists', (t) => {
 test('marked renders tool-call-shaped assistant messages as prompt comments with only the tool name', (t) => {
   const html = marked.parse(
     [
-      '⏺ Fetch(https://zhengdongwang.com/2026/01/30/a-straussian-reading-of-the-adolesc',
-      '  ence-of-technology.html)',
+      '⏺ Fetch(https://www.example.com/2026/01/30/sample-essay-about-technology.html)',
       '  ⎿  Received 12.3KB (200 OK)',
     ].join('\n'),
   );

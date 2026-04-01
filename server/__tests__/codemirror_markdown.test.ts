@@ -215,6 +215,54 @@ test('markdown editor collapses double-colon highlight markers until the selecti
   }
 });
 
+test('markdown editor keeps double-colon highlights decorated when the cursor sits just after the closing marker', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc = '- ::signal lantern:: stays highlighted when typing finishes.';
+    const highlightEnd = doc.indexOf(' stays highlighted');
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(highlightEnd),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.truthy(view.dom.querySelector('.cm-double-colon-highlight'));
+    t.false((view.dom.textContent ?? '').includes('::signal lantern::'));
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('markdown editor decorates double-colon highlights inside long list items', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc =
+      '- ::"Lantern systems":: are described here as a coordination pattern for nested teams, with enough trailing prose to keep the list item long and exercise the wrapped-line decoration path in CodeMirror.';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.truthy(view.dom.querySelector('.cm-double-colon-highlight'));
+    t.false((view.dom.textContent ?? '').includes('::"Lantern systems"::'));
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
 test('promptListHintLabelForText returns question hint labels', (t) => {
   t.is(promptListHintLabelForText('~ '), 'Type to ask AI');
   t.is(promptListHintLabelForText('~ Explain Solomonoff induction'), null);

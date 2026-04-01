@@ -936,14 +936,19 @@
   background: color-mix(in srgb, var(--warning-color) 20%, transparent);
 }
 
-.cm-editor .cm-double-colon-highlight {
-  color: color-mix(in srgb, var(--text) 38%, var(--highlighter-color));
+.cm-editor .cm-double-colon-highlight,
+.cm-editor .cm-double-colon-highlight * {
+  color: var(--highlighter-bright-color);
 }
 
 [data-theme="light"] .cm-editor .cm-double-colon-highlight {
   color: inherit;
   border-radius: 3px;
   background: var(--highlighter-bg);
+}
+
+[data-theme="light"] .cm-editor .cm-double-colon-highlight * {
+  color: inherit;
 }
 
 .cm-editor .cm-critic-comment {

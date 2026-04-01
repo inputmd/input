@@ -1074,6 +1074,12 @@
 .markdown-link-preview-body mark.double-colon-highlight {
   padding: 0 0.12em;
   border-radius: 0.2em;
+  background: transparent;
+  color: var(--highlighter-bright-color);
+}
+
+[data-theme="light"] .rendered-markdown mark.double-colon-highlight,
+[data-theme="light"] .markdown-link-preview-body mark.double-colon-highlight {
   background: var(--highlighter-bg);
   color: inherit;
 }
