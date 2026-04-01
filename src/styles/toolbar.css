@@ -813,6 +813,22 @@
 @media (max-width: 768px) {
   .toolbar {
     padding: 8px 9px;
+    touch-action: manipulation;
+  }
+
+  .toolbar-left,
+  .toolbar-right,
+  .toolbar button,
+  .toolbar a,
+  .document-menu-trigger,
+  .repo-menu-trigger,
+  .author-menu-trigger,
+  .user-menu-trigger,
+  .toolbar-split-button-main,
+  .toolbar-split-button-toggle,
+  .preview-toggle-btn,
+  .reader-ai-model-trigger {
+    touch-action: manipulation;
   }
 
   .toolbar button:not(.github-signin-btn-toggle):not(.toolbar-split-button-toggle) {

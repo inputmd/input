@@ -234,6 +234,22 @@
   margin: calc(var(--editor-padding-y) - 2px) auto 0;
 }
 
+@media (max-width: 768px) {
+  .edit-view,
+  .editor-workspace,
+  .doc-editor,
+  .doc-editor-shell,
+  .doc-editor-shell__editor,
+  .doc-editor .cm-editor,
+  .doc-editor .cm-scroller,
+  .editor-preview-pane,
+  .mobile-preview-pane,
+  .editor-preview-pane .rendered-markdown,
+  .mobile-preview-pane .rendered-markdown {
+    touch-action: manipulation;
+  }
+}
+
 @media (min-width: 769px) {
   .mobile-preview-backdrop,
   .mobile-preview-pane,

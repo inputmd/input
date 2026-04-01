@@ -266,6 +266,14 @@ body {
   flex-direction: column;
 }
 
+@media (max-width: 768px) {
+  html,
+  body,
+  #app {
+    touch-action: manipulation;
+  }
+}
+
 .app-body {
   display: flex;
   flex: 1;
