@@ -17,6 +17,7 @@ import {
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
+import { persistSidebarCollapsedFolders, readPersistedSidebarCollapsedFolders } from '../sidebar_state';
 
 export interface SidebarFile {
   path: string;
@@ -30,6 +31,7 @@ export interface SidebarFile {
 export type SidebarFileFilter = 'markdown' | 'text' | 'all';
 
 interface SidebarProps {
+  workspaceKey: string;
   files: SidebarFile[];
   markdownFileCount: number;
   textFileCount: number;
@@ -375,6 +377,7 @@ function IndentGuides({ depth }: { depth: number }) {
 }
 
 export function Sidebar({
+  workspaceKey,
   files,
   markdownFileCount,
   textFileCount,
@@ -430,9 +433,11 @@ export function Sidebar({
   const defaultCollapsedPaths = useMemo(() => defaultCollapsedFolderPaths(folderPaths), [folderPaths]);
   const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
   const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
-  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>(() =>
-    filterExpandedFolderPaths(defaultCollapsedPaths, new Set(activeAncestors)),
-  );
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>(() => {
+    const persisted = readPersistedSidebarCollapsedFolders(workspaceKey);
+    if (persisted !== null) return persisted;
+    return filterExpandedFolderPaths(defaultCollapsedPaths, new Set(activeAncestors));
+  });
   const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set(defaultCollapsedPaths));
   const hasFolders = folderPaths.size > 0;
   const visibleNodes = useMemo(() => flattenVisibleTree(tree.children, collapsedFolders), [tree, collapsedFolders]);
@@ -516,6 +521,10 @@ export function Sidebar({
       return changed ? next : prev;
     });
   }, [activeAncestors]);
+
+  useEffect(() => {
+    persistSidebarCollapsedFolders(workspaceKey, collapsedFolders);
+  }, [collapsedFolders, workspaceKey]);
 
   const handleCreateSubmit = async () => {
     if (createInFlightRef.current) return;

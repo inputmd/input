@@ -8326,6 +8326,7 @@ export function App() {
             <div class="sidebar-backdrop" onClick={onToggleSidebar} />
             <Sidebar
               key={sidebarWorkspaceKey}
+              workspaceKey={sidebarWorkspaceKey}
               files={sidebarFiles}
               markdownFileCount={sidebarFileCounts.markdown}
               textFileCount={sidebarFileCounts.text}
