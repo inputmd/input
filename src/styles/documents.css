@@ -66,12 +66,17 @@
   align-items: center;
   padding: 12px 16px;
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   background: var(--toolbar-bg);
   transition:
-    border-color 0.15s,
-    background 0.15s;
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
   cursor: pointer;
+}
+
+.document-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .document-card:hover {
@@ -176,10 +181,11 @@
   min-width: 140px;
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--toolbar-bg);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.24),
+    0 12px 32px rgba(0, 0, 0, 0.28),
+    0 4px 12px rgba(0, 0, 0, 0.1),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
   z-index: 20;
 }
@@ -188,7 +194,7 @@
   width: 100%;
   min-height: 34px;
   padding: 0 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   outline: none;
   background: transparent;
   color: var(--text);
@@ -402,7 +408,7 @@
 .workspaces-empty-state {
   margin-top: 0;
   border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--toolbar-bg) 28%, transparent);
   color: color-mix(in srgb, var(--text) 76%, var(--text-secondary) 24%);
 }

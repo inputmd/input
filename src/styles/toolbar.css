@@ -11,7 +11,9 @@
   padding: 8px 16px;
   background: var(--toolbar-bg);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 12%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--border) 12%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .toolbar-left,
@@ -49,9 +51,10 @@
 
 .toolbar button:focus,
 .toolbar button:focus-visible {
-  outline: 1px solid var(--focus-border);
-  outline-offset: 0;
-  box-shadow: none;
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--toolbar-bg),
+    0 0 0 4px color-mix(in srgb, var(--focus-border) 55%, transparent);
 }
 
 .repo-menu-trigger {
@@ -100,10 +103,11 @@
   max-width: 260px;
   padding: 12px 12px 12px;
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--toolbar-bg);
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.22),
+    0 2px 6px rgba(0, 0, 0, 0.08),
     0 0 0 1px color-mix(in srgb, var(--border) 15%, transparent);
   color: var(--text);
   z-index: 30;
@@ -177,9 +181,10 @@
 
 .repo-menu-trigger:focus,
 .repo-menu-trigger:focus-visible {
-  outline: 1px solid var(--focus-border);
-  outline-offset: 0;
-  box-shadow: none;
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--toolbar-bg),
+    0 0 0 4px color-mix(in srgb, var(--focus-border) 55%, transparent);
 }
 
 .repo-menu-content {
@@ -188,10 +193,11 @@
   overflow-y: auto;
   padding: 4px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--toolbar-bg);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.24),
+    0 12px 32px rgba(0, 0, 0, 0.28),
+    0 4px 12px rgba(0, 0, 0, 0.1),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
   z-index: 20;
 }
@@ -204,11 +210,12 @@
   gap: 10px;
   min-height: 34px;
   padding: 0 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   outline: none;
   cursor: pointer;
   user-select: none;
   font-size: 14px;
+  transition: background 0.1s ease;
 }
 
 .repo-menu-item[data-highlighted] {
@@ -392,10 +399,11 @@
   min-width: 165px;
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--toolbar-bg);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.24),
+    0 12px 32px rgba(0, 0, 0, 0.28),
+    0 4px 12px rgba(0, 0, 0, 0.1),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
   z-index: 40;
 }
@@ -404,7 +412,7 @@
   width: 100%;
   min-height: 34px;
   padding: 0 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   outline: none;
   background: transparent;
   color: var(--text);
@@ -415,6 +423,7 @@
   display: flex;
   align-items: center;
   user-select: none;
+  transition: background 0.1s ease;
 }
 
 .author-menu-item-static,
@@ -501,7 +510,7 @@
   gap: 4px;
   padding: 6px 16px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--btn-bg);
   color: var(--btn-text);
   font-size: 14px;
@@ -679,13 +688,13 @@
 }
 
 .toggle-button-group .preview-toggle-btn:first-child {
-  border-top-left-radius: 3px;
-  border-bottom-left-radius: 3px;
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
 }
 
 .toggle-button-group .preview-toggle-btn:last-child {
-  border-top-right-radius: 3px;
-  border-bottom-right-radius: 3px;
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
 }
 
 .toggle-button-group .preview-toggle-btn + .preview-toggle-btn {
@@ -733,9 +742,10 @@
 
 .document-menu-trigger:focus,
 .document-menu-trigger:focus-visible {
-  outline: 1px solid var(--focus-border);
-  outline-offset: 0;
-  box-shadow: none;
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--toolbar-bg),
+    0 0 0 4px color-mix(in srgb, var(--focus-border) 55%, transparent);
 }
 
 .user-menu {
@@ -750,7 +760,7 @@
   min-width: 31px;
   padding: 4px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--btn-bg);
   color: var(--btn-text);
   cursor: pointer;
@@ -758,6 +768,9 @@
   font-family: inherit;
   user-select: none;
   -webkit-user-select: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .user-menu-avatar {
@@ -780,19 +793,21 @@
 
 .user-menu-trigger:focus,
 .user-menu-trigger:focus-visible {
-  outline: 1px solid var(--focus-border);
-  outline-offset: 0;
-  box-shadow: none;
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--toolbar-bg),
+    0 0 0 4px color-mix(in srgb, var(--focus-border) 55%, transparent);
 }
 
 .user-menu-content {
   min-width: 140px;
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--toolbar-bg);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.24),
+    0 12px 32px rgba(0, 0, 0, 0.28),
+    0 4px 12px rgba(0, 0, 0, 0.1),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
   z-index: 60;
 }
@@ -832,11 +847,12 @@
   justify-content: space-between;
   min-height: 34px;
   padding: 0 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   outline: none;
   cursor: pointer;
   user-select: none;
   font-size: 14px;
+  transition: background 0.1s ease;
 }
 
 .user-menu-item-shortcut {

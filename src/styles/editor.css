@@ -21,7 +21,7 @@
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--btn-bg) 72%, transparent);
   color: var(--text-secondary);
   font-size: 13px;
@@ -36,7 +36,7 @@
   border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
   background: var(--btn-bg);
   color: var(--text);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 4px 8px;
   font-size: 12px;
   cursor: pointer;
@@ -91,7 +91,7 @@
   z-index: 16;
   max-width: min(360px, calc(100vw - 24px));
   padding: 10px 12px;
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   color: #7a4700;
   font-size: 13px;
   font-weight: 400;

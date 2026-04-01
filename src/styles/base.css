@@ -148,6 +148,10 @@
   --document-stack-collapsed-shadow:
     -10px 0 30px rgba(0, 0, 0, 0.42), -1px 0 0 color-mix(in srgb, var(--border) 90%, transparent);
 
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
   --ansi-black: #555555;
   --ansi-red: #f44747;
   --ansi-green: #0dbc79;
@@ -329,7 +333,7 @@ button {
   padding: 6px 16px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-width: 1px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--btn-bg);
   color: var(--btn-text);
   cursor: pointer;
@@ -337,9 +341,10 @@ button {
   font-family: inherit;
   line-height: 1.5;
   transition:
-    background 0.15s,
-    border-color 0.15s,
-    box-shadow 0.15s;
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.2s ease,
+    transform 0.1s ease;
 }
 
 button:hover {
@@ -347,11 +352,16 @@ button:hover {
   border-color: color-mix(in srgb, var(--border) 90%, var(--text) 10%);
 }
 
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
 button:focus,
 button:focus-visible {
-  outline: 1px solid color-mix(in srgb, var(--focus-border) 65%, transparent);
-  outline-offset: 0;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-border) 12%, transparent);
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px color-mix(in srgb, var(--focus-border) 55%, transparent);
 }
 
 @media (max-width: 768px) {
