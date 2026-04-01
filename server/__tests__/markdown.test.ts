@@ -4,7 +4,11 @@ import { JSDOM } from 'jsdom';
 import { marked } from 'marked';
 import { BRACE_PROMPT_HINT_LABEL } from '../../src/brace_prompt.ts';
 import { parseMarkdownDocument, parseMarkdownToHtml } from '../../src/markdown.ts';
-import { setPromptAnswerExpandedState, togglePromptAnswerExpandedState } from '../../src/prompt_list_state.ts';
+import {
+  setPromptAnswerExpandedState,
+  setPromptListCollapsedStateInUrl,
+  togglePromptAnswerExpandedState,
+} from '../../src/prompt_list_state.ts';
 import { EMPTY_PROMPT_QUESTION_PLACEHOLDER } from '../../src/prompt_list_syntax.ts';
 import { syncToggleListPersistedState, toggleToggleListState } from '../../src/toggle_list_state.ts';
 
@@ -609,6 +613,47 @@ test('togglePromptAnswerExpandedState keeps collapsed prompt answers aligned bel
 
     t.is(answer.getAttribute('data-expanded'), 'false');
     t.deepEqual(scrollCalls, [{ top: 478, behavior: 'auto' }]);
+  });
+});
+
+test('setPromptListCollapsedStateInUrl can clear conversation collapse without expanding sibling answers', (t) => {
+  withDom(() => {
+    const html = parseMarkdownToHtml(
+      [
+        '~ First question',
+        '⏺ First answer paragraph.',
+        '  ',
+        '  First answer hidden tail.',
+        '~ Second question',
+        '⏺ Second answer paragraph.',
+        '  ',
+        '  Second answer hidden tail.',
+      ].join('\n'),
+    );
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `<div class="rendered-markdown">${html}</div>`;
+
+    const conversation = wrapper.querySelector<HTMLElement>('.prompt-list-conversation');
+    const answers = Array.from(wrapper.querySelectorAll<HTMLElement>('li.prompt-answer'));
+    t.truthy(conversation);
+    t.is(answers.length, 2);
+    if (!conversation || answers.length !== 2) return;
+
+    setPromptListCollapsedStateInUrl(conversation, true);
+    t.is(conversation.getAttribute('data-collapsed'), 'true');
+    t.deepEqual(
+      answers.map((answer) => answer.getAttribute('data-expanded')),
+      ['false', 'false'],
+    );
+
+    setPromptListCollapsedStateInUrl(conversation, false, true, { syncAnswers: false });
+    togglePromptAnswerExpandedState(answers[0]);
+
+    t.is(conversation.getAttribute('data-collapsed'), 'false');
+    t.deepEqual(
+      answers.map((answer) => answer.getAttribute('data-expanded')),
+      ['true', 'false'],
+    );
   });
 });
 

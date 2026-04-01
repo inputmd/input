@@ -4,6 +4,7 @@ import { ContentAlert } from '../components/ContentAlert';
 import { TextCodeView } from '../components/TextCodeView';
 import {
   navigatePromptListBranch,
+  setPromptListCollapsedStateInUrl,
   syncPromptListBranchNavigationButtons,
   syncPromptListCollapsedStateFromUrl,
   togglePromptAnswerExpandedState,
@@ -319,8 +320,7 @@ export function ContentView({
       if (answer instanceof HTMLElement) {
         const conversation = answer.closest('.prompt-list-conversation');
         if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
-          togglePromptListCollapsedStateInUrl(conversation, true);
-          return;
+          setPromptListCollapsedStateInUrl(conversation, false, true, { syncAnswers: false });
         }
         togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
       }

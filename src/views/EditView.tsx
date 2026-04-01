@@ -13,6 +13,7 @@ import { TextEditor } from '../components/TextEditor';
 import type { MarkdownSyncBlock } from '../markdown';
 import {
   navigatePromptListBranch,
+  setPromptListCollapsedStateInUrl,
   syncPromptListBranchNavigationButtons,
   syncPromptListCollapsedStateFromUrl,
   togglePromptAnswerExpandedState,
@@ -1492,9 +1493,7 @@ export function EditView({
       if (answer instanceof HTMLElement) {
         const conversation = answer.closest('.prompt-list-conversation');
         if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
-          togglePromptListCollapsedStateInUrl(conversation, false);
-          handlePreviewPromptListLayoutChange();
-          return;
+          setPromptListCollapsedStateInUrl(conversation, false, false, { syncAnswers: false });
         }
         togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
         handlePreviewPromptListLayoutChange();

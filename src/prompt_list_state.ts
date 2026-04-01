@@ -6,6 +6,10 @@ interface TogglePromptAnswerExpandedOptions {
   keepTopInViewOnCollapse?: boolean;
 }
 
+interface SetPromptListCollapsedStateOptions {
+  syncAnswers?: boolean;
+}
+
 export function normalizePromptListIdentifierText(text: string): string {
   return text.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
@@ -19,7 +23,11 @@ export function hashPromptListIdentifierText(text: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-export function setPromptListCollapsedState(container: HTMLElement, collapsed: boolean) {
+export function setPromptListCollapsedState(
+  container: HTMLElement,
+  collapsed: boolean,
+  options?: SetPromptListCollapsedStateOptions,
+) {
   container.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
   const toggle = container.querySelector<HTMLElement>('.prompt-list-caption');
   if (toggle) {
@@ -27,6 +35,7 @@ export function setPromptListCollapsedState(container: HTMLElement, collapsed: b
     const action = toggle.querySelector<HTMLElement>('.prompt-list-caption-action');
     if (action) action.textContent = collapsed ? 'Expand' : 'Collapse';
   }
+  if (options?.syncAnswers === false) return;
   container.querySelectorAll<HTMLElement>('li.prompt-answer').forEach((answer) => {
     setPromptAnswerExpandedState(answer, !collapsed);
   });
@@ -313,23 +322,32 @@ export function syncPromptListCollapsedStateFromUrl(root: ParentNode, defaultCol
   });
 }
 
-export function togglePromptListCollapsedStateInUrl(container: HTMLElement, defaultCollapsed = true) {
-  const nextCollapsed = container.getAttribute('data-collapsed') !== 'true';
+export function setPromptListCollapsedStateInUrl(
+  container: HTMLElement,
+  collapsed: boolean,
+  defaultCollapsed = true,
+  options?: SetPromptListCollapsedStateOptions,
+) {
   if (defaultCollapsed) {
-    setPromptListCollapsedState(container, nextCollapsed);
+    setPromptListCollapsedState(container, collapsed, options);
     return;
   }
 
   const collapsedIds = readCollapsedPromptListIdsFromLocation();
   const id = container.getAttribute('data-prompt-list-id')?.trim() ?? '';
   if (!id) {
-    setPromptListCollapsedState(container, nextCollapsed);
+    setPromptListCollapsedState(container, collapsed, options);
     return;
   }
 
-  if (nextCollapsed) collapsedIds.add(id);
+  if (collapsed) collapsedIds.add(id);
   else collapsedIds.delete(id);
 
   writeCollapsedPromptListIdsToLocation(collapsedIds);
-  setPromptListCollapsedState(container, nextCollapsed);
+  setPromptListCollapsedState(container, collapsed, options);
+}
+
+export function togglePromptListCollapsedStateInUrl(container: HTMLElement, defaultCollapsed = true) {
+  const nextCollapsed = container.getAttribute('data-collapsed') !== 'true';
+  setPromptListCollapsedStateInUrl(container, nextCollapsed, defaultCollapsed);
 }
