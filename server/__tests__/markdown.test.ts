@@ -220,6 +220,20 @@ test('marked renders comment-prefixed rows inside prompt lists', (t) => {
   );
 });
 
+test('marked renders tool-call-shaped assistant messages as prompt comments with only the tool name', (t) => {
+  const html = marked.parse(
+    [
+      '⏺ Fetch(https://zhengdongwang.com/2026/01/30/a-straussian-reading-of-the-adolesc',
+      '  ence-of-technology.html)',
+      '  ⎿  Received 12.3KB (200 OK)',
+    ].join('\n'),
+  );
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<ul class="prompt-list"><li class="prompt-comment">Fetch</li></ul>'));
+  t.false(html.includes('Received 12.3KB'));
+});
+
 test('marked renders placeholders for empty prompt question and answer rows', (t) => {
   const html = marked.parse('~ \n⏺ ');
 
@@ -287,6 +301,23 @@ test('parseMarkdownToHtml renders prompt-list header metadata and collapse actio
 
   t.true(html.includes('<span class="prompt-list-caption-meta">2 messages</span>'));
   t.true(html.includes('<span class="prompt-list-caption-action">Collapse</span>'));
+});
+
+test('parseMarkdownToHtml renders tool-call-shaped assistant messages as comment blocks', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml(
+      [
+        '~ Review this article',
+        '⏺ Fetch(https://zhengdongwang.com/2026/01/30/a-straussian-reading-of-the-adolesc',
+        '  ence-of-technology.html)',
+        '  ⎿  Received 12.3KB (200 OK)',
+      ].join('\n'),
+    ),
+  );
+
+  t.true(html.includes('<li class="prompt-question">Review this article</li>'));
+  t.true(html.includes('<li class="prompt-comment">Fetch</li>'));
+  t.false(html.includes('Received 12.3KB'));
 });
 
 test('parseMarkdownToHtml keeps liquid-style template tag lines out of prompt lists', (t) => {

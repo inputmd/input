@@ -79,6 +79,19 @@ interface PromptListAwareLexerState {
   promptListContainerDepth?: number;
 }
 
+function promptListToolCallName(sourceText: string): string | null {
+  const lines = sourceText.replace(/\r\n?/g, '\n').split('\n');
+  const firstNonEmptyLine = lines.find((line) => line.trim().length > 0)?.trim() ?? '';
+  const match = /^([A-Z][A-Za-z0-9_-]{1,})(?:\s*)\(/.exec(firstNonEmptyLine);
+  if (!match) return null;
+
+  const hasToolTrace = lines.some((line, index) => index > 0 && line.trimStart().startsWith('⎿'));
+  const looksWrappedCall = lines.length > 1 && !hasToolTrace;
+  if (!hasToolTrace && !looksWrappedCall) return null;
+
+  return match[1];
+}
+
 function promptListContainerDepth(thisRef: TokenizerThis): number {
   return (thisRef.lexer.state as typeof thisRef.lexer.state & PromptListAwareLexerState).promptListContainerDepth ?? 0;
 }
@@ -319,14 +332,16 @@ marked.use({
         const depths = promptListDepths(block.items.map((item) => item.match.indent));
         const items: PromptListToken['items'] = [];
         for (const [index, item] of block.items.entries()) {
-          const content = item.content;
+          const toolCallName = item.match.kind === 'answer' ? promptListToolCallName(item.content) : null;
+          const content = toolCallName ?? item.content;
           const renderAsBlock = content.includes('\n') || /^\s*$/.test(content);
           const tokens = renderAsBlock ? this.lexer.blockTokens(content) : this.lexer.inlineTokens(content);
 
           items.push({
             kind: item.match.kind,
-            className:
-              item.match.kind === 'question'
+            className: toolCallName
+              ? 'prompt-comment'
+              : item.match.kind === 'question'
                 ? 'prompt-question'
                 : item.match.kind === 'answer'
                   ? 'prompt-answer'
