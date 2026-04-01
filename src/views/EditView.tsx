@@ -13,6 +13,7 @@ import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlights
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextEditor } from '../components/TextEditor';
 import type { MarkdownSyncBlock } from '../markdown';
+import { toggleNthMarkdownTaskCheckbox } from '../preview_task_list';
 import {
   navigatePromptListBranch,
   setPromptListCollapsedStateInUrl,
@@ -964,6 +965,16 @@ export function EditView({
   }, [markdown, previewHtml, previewVisible]);
 
   useLayoutEffect(() => {
+    const root = renderedMarkdownRef.current;
+    if (!markdown || !previewVisible || !previewHtml || !root) return;
+
+    root.querySelectorAll<HTMLInputElement>('input[type="checkbox"][disabled]').forEach((checkbox) => {
+      checkbox.disabled = false;
+      checkbox.setAttribute('aria-label', checkbox.checked ? 'Mark task incomplete' : 'Mark task complete');
+    });
+  }, [markdown, previewHtml, previewVisible]);
+
+  useLayoutEffect(() => {
     if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked || previewRestorePending)
       return;
     if (scrollOwnerRef.current == null) scrollOwnerRef.current = 'editor';
@@ -1395,8 +1406,49 @@ export function EditView({
     };
   }, [clearPreviewHighlightsPopoverCloseTimeout]);
 
+  const togglePreviewTaskCheckbox = useCallback(
+    (checkbox: HTMLInputElement) => {
+      const controller = editorControllerRef.current;
+      if (!controller) return false;
+
+      const syncElement = checkbox.closest<HTMLElement>('[data-sync-id]');
+      const syncId = syncElement?.dataset.syncId?.trim() ?? '';
+      if (!syncElement || !syncId) return false;
+
+      const syncBlock = findSyncBlockById(previewSyncBlocks, syncId);
+      if (!syncBlock) return false;
+
+      const checkboxIndex = Array.from(
+        syncElement.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+      ).indexOf(checkbox);
+      if (checkboxIndex < 0) return false;
+
+      const blockSource = content.slice(syncBlock.from, syncBlock.to);
+      const toggle = toggleNthMarkdownTaskCheckbox(blockSource, checkboxIndex);
+      if (!toggle) return false;
+
+      return controller.applyExternalChange({
+        from: syncBlock.from + toggle.from,
+        to: syncBlock.from + toggle.to,
+        insert: toggle.insert,
+        addToHistory: true,
+      });
+    },
+    [content, previewSyncBlocks],
+  );
+
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
+    const taskCheckbox = target?.closest('input[type="checkbox"]');
+    if (taskCheckbox instanceof HTMLInputElement) {
+      event.preventDefault();
+      claimScrollOwnership('preview');
+      if (togglePreviewTaskCheckbox(taskCheckbox)) {
+        handlePreviewPromptListLayoutChange();
+      }
+      return;
+    }
+
     const branchNav = target?.closest('.prompt-list-branch-nav');
     if (branchNav instanceof HTMLElement) {
       event.preventDefault();
@@ -1665,6 +1717,7 @@ export function EditView({
                 ref={renderedMarkdownRef}
                 class="rendered-markdown"
                 data-markdown-custom-css={previewCustomCssScope ?? undefined}
+                data-enable-task-list-toggles="true"
                 data-hide-prompt-answer-less="true"
                 data-toggle-list-storage-key={scrollStorageKey ?? undefined}
                 onClick={onPreviewClick}
@@ -1731,6 +1784,7 @@ export function EditView({
               ref={renderedMarkdownRef}
               class="rendered-markdown"
               data-markdown-custom-css={previewCustomCssScope ?? undefined}
+              data-enable-task-list-toggles="true"
               data-hide-prompt-answer-less="true"
               data-toggle-list-storage-key={scrollStorageKey ?? undefined}
               onClick={onPreviewClick}

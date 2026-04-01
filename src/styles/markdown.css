@@ -1233,6 +1233,10 @@
   transform-origin: left center;
 }
 
+.rendered-markdown[data-enable-task-list-toggles="true"] input[type="checkbox"] {
+  cursor: pointer;
+}
+
 .rendered-markdown li:has(> input[type="checkbox"]) > input[type="checkbox"] {
   margin-left: -1.3em;
 }
