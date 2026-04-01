@@ -354,6 +354,28 @@ test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t
   t.false(html.includes('mailto:'));
 });
 
+test('parseMarkdownToHtml marks rendered URL labels for aggressive wrapping', (t) => {
+  withDom(() => {
+    const html = parseMarkdownToHtml(
+      [
+        'From https://zhengdongwang.com/2025/12/30/2025-letter.html',
+        '',
+        '[https://example.com/deep/path](https://example.com/deep/path)',
+        '',
+        '[docs](https://example.com/deep/path)',
+      ].join('\n'),
+    );
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    const anchors = wrapper.querySelectorAll('a');
+
+    t.is(anchors.length, 3);
+    t.true(anchors[0]?.classList.contains('url-display-link') ?? false);
+    t.true(anchors[1]?.classList.contains('url-display-link') ?? false);
+    t.false(anchors[2]?.classList.contains('url-display-link') ?? true);
+  });
+});
+
 test('parseMarkdownToHtml keeps multiline prompt answer content inside the prompt-answer list item', (t) => {
   withDom(() => {
     const thirdParagraphWords = Array.from({ length: 35 }, (_, index) => `word${index + 1}`);

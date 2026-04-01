@@ -693,6 +693,10 @@
   color: var(--accent-text);
 }
 
+.rendered-markdown a.url-display-link {
+  word-break: break-all;
+}
+
 .rendered-markdown a:focus {
   outline: none;
   box-shadow: none;

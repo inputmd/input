@@ -650,6 +650,28 @@ function sanitizeMarkdownHref(href: string): string | null {
   return normalized;
 }
 
+function comparableExternalUrl(raw: string): string | null {
+  const sanitized = sanitizeMarkdownHref(raw);
+  if (!sanitized || !isExternalHttpHref(sanitized)) return null;
+
+  try {
+    const url = new URL(sanitized);
+    const pathname = url.pathname === '/' ? '' : url.pathname;
+    return `${url.protocol}//${url.host}${pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+function isRenderedUrlLabel(anchor: HTMLAnchorElement, href: string): boolean {
+  const label = (anchor.textContent ?? '').replace(/\u200b/g, '').trim();
+  if (!label) return false;
+
+  const comparableLabel = comparableExternalUrl(label);
+  const comparableHref = comparableExternalUrl(href);
+  return comparableLabel != null && comparableHref != null && comparableLabel === comparableHref;
+}
+
 interface ParseMarkdownOptions {
   breaks?: boolean;
   resolveImageSrc?: (src: string) => string | null;
@@ -2688,6 +2710,7 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
     }
 
     anchor.setAttribute('href', href);
+    anchor.classList.toggle('url-display-link', isRenderedUrlLabel(anchor, href));
 
     const isWikiLink = anchor.getAttribute('data-wikilink') === 'true';
     if (isWikiLink && options?.resolveWikiLinkMeta) {
