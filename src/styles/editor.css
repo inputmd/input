@@ -200,6 +200,12 @@
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
 }
 
+@media (max-width: 768px) {
+  .mobile-preview-pane {
+    overscroll-behavior: contain;
+  }
+}
+
 .mobile-preview-controls {
   position: sticky;
   top: 0;
