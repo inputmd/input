@@ -14,11 +14,7 @@ import type { EditorController, EditorProtectedRange } from './components/editor
 import { ForkRepoDialog } from './components/ForkRepoDialog';
 import { ImageLightbox } from './components/ImageLightbox';
 import type { PromptListRequest } from './components/markdown_editor_commands';
-import {
-  normalizeBlockquotePaste,
-  normalizeSimpleWrappedParagraphPaste,
-  normalizeStandaloneUrlPaste,
-} from './components/markdown_editor_commands';
+import { formatMarkdownEditorPaste } from './components/markdown_editor_paste';
 import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFile, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
@@ -1983,44 +1979,13 @@ export function App() {
   const handleEditorPaste = useCallback(
     async (event: ClipboardEvent, view: import('@codemirror/view').EditorView) => {
       const pastedText = event.clipboardData?.getData('text/plain') ?? '';
-      const normalizedUrlPaste = normalizeStandaloneUrlPaste(pastedText);
-      if (normalizedUrlPaste !== null) {
+      const formattedPaste = formatMarkdownEditorPaste(view.state, pastedText);
+      if (formattedPaste !== null) {
         event.preventDefault();
         const { from, to } = view.state.selection.main;
-        const head = from + normalizedUrlPaste.length;
+        const head = from + formattedPaste.length;
         view.dispatch({
-          changes: { from, to, insert: normalizedUrlPaste },
-          selection: { anchor: head, head },
-        });
-        return;
-      }
-      const normalizedBlockquotePaste = normalizeBlockquotePaste(
-        view.state,
-        view.state.selection.main.from,
-        pastedText,
-      );
-      if (normalizedBlockquotePaste !== null) {
-        event.preventDefault();
-        const { from, to } = view.state.selection.main;
-        const head = from + normalizedBlockquotePaste.length;
-        view.dispatch({
-          changes: { from, to, insert: normalizedBlockquotePaste },
-          selection: { anchor: head, head },
-        });
-        return;
-      }
-      const { from, to } = view.state.selection.main;
-      const line = view.state.doc.lineAt(from);
-      const lineIndent = line.text.match(/^[ \t]*/u)?.[0] ?? '';
-      const normalizedParagraphPaste = normalizeSimpleWrappedParagraphPaste(pastedText, {
-        flattenParagraphs: from !== line.from && (from === line.to || /^[ \t]+/u.test(line.text)),
-        continuationPrefix: from !== line.from && /^[ \t]+/u.test(line.text) ? lineIndent : '',
-      });
-      if (normalizedParagraphPaste !== null) {
-        event.preventDefault();
-        const head = from + normalizedParagraphPaste.length;
-        view.dispatch({
-          changes: { from, to, insert: normalizedParagraphPaste },
+          changes: { from, to, insert: formattedPaste },
           selection: { anchor: head, head },
         });
         return;

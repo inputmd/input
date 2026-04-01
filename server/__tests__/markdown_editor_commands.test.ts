@@ -28,11 +28,15 @@ import {
   insertNewlineExitLooseNestedListItem,
   insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
-  normalizeBlockquotePaste,
-  normalizeSimpleWrappedParagraphPaste,
-  normalizeStandaloneUrlPaste,
   wrapWithMarker,
 } from '../../src/components/markdown_editor_commands.ts';
+import {
+  formatMarkdownEditorPaste,
+  normalizeBlockquotePaste,
+  normalizeClaudeCodeTranscriptPaste,
+  normalizeSimpleWrappedParagraphPaste,
+  normalizeStandaloneUrlPaste,
+} from '../../src/components/markdown_editor_paste.ts';
 
 function makeMockView(doc: string, selection?: EditorSelection, extensions: Extension[] = []): EditorView {
   let currentState = EditorState.create({ doc, selection, extensions });
@@ -1186,6 +1190,57 @@ test('normalizeStandaloneUrlPaste collapses wrapped whitespace inside a pasted u
 
 test('normalizeStandaloneUrlPaste ignores ordinary multiline text', (t) => {
   t.is(normalizeStandaloneUrlPaste('first line\nsecond line'), null);
+});
+
+test('normalizeClaudeCodeTranscriptPaste wraps the Claude Code header in a fenced block', (t) => {
+  const transcript = [
+    ' ▐▛███▜▌   Claude Code v2.1.87',
+    '▝▜█████▛▘  Opus 4.6 (1M context) · Claude Max',
+    '  ▘▘ ▝▝    ~/selkie/input',
+    '',
+    '❯ Can you read...',
+  ].join('\n');
+
+  t.is(
+    normalizeClaudeCodeTranscriptPaste(transcript),
+    [
+      '```',
+      ' ▐▛███▜▌   Claude Code v2.1.87',
+      '▝▜█████▛▘  Opus 4.6 (1M context) · Claude Max',
+      '  ▘▘ ▝▝    ~/selkie/input',
+      '```',
+      '',
+      '❯ Can you read...',
+    ].join('\n'),
+  );
+});
+
+test('formatMarkdownEditorPaste prioritizes Claude transcript wrapping before prose flattening', (t) => {
+  const transcript = [
+    ' ▐▛███▜▌   Claude Code v2.1.87',
+    '▝▜█████▛▘  Opus 4.6 (1M context) · Claude Max',
+    '  ▘▘ ▝▝    ~/selkie/input',
+    '',
+    '❯ Can you read...',
+  ].join('\n');
+  const state = EditorState.create({
+    doc: '',
+    selection: EditorSelection.cursor(0),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.is(
+    formatMarkdownEditorPaste(state, transcript),
+    [
+      '```',
+      ' ▐▛███▜▌   Claude Code v2.1.87',
+      '▝▜█████▛▘  Opus 4.6 (1M context) · Claude Max',
+      '  ▘▘ ▝▝    ~/selkie/input',
+      '```',
+      '',
+      '❯ Can you read...',
+    ].join('\n'),
+  );
 });
 
 test('normalizeSimpleWrappedParagraphPaste removes a uniform hanging indent from prose blocks', (t) => {
