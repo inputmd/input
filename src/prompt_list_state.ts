@@ -24,6 +24,8 @@ export function setPromptListCollapsedState(container: HTMLElement, collapsed: b
   const toggle = container.querySelector<HTMLElement>('.prompt-list-caption');
   if (toggle) {
     toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    const action = toggle.querySelector<HTMLElement>('.prompt-list-caption-action');
+    if (action) action.textContent = collapsed ? 'Expand' : 'Collapse';
   }
   container.querySelectorAll<HTMLElement>('li.prompt-answer').forEach((answer) => {
     setPromptAnswerExpandedState(answer, !collapsed);

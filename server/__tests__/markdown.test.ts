@@ -282,6 +282,13 @@ test('parseMarkdownToHtml does not render a conversation header for a single pro
   t.false(html.includes('Conversation with 1 message'));
 });
 
+test('parseMarkdownToHtml renders prompt-list header metadata and collapse action labels', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('~ One\n⏺ Two'));
+
+  t.true(html.includes('<span class="prompt-list-caption-meta">2 messages</span>'));
+  t.true(html.includes('<span class="prompt-list-caption-action">Collapse</span>'));
+});
+
 test('parseMarkdownToHtml keeps liquid-style template tag lines out of prompt lists', (t) => {
   const html = withDom(() => parseMarkdownToHtml('{% TODO %}'));
 

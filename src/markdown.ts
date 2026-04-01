@@ -371,7 +371,7 @@ marked.use({
         if (itemCount <= 1) {
           return `<ul class="prompt-list">${itemsHtml}</ul>`;
         }
-        const caption = `${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
+        const metadataLabel = `${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
         const firstQuestion =
           promptListToken.items.find((item) => item.kind === 'question')?.sourceText ??
           promptListToken.items[0]?.sourceText ??
@@ -380,7 +380,7 @@ marked.use({
         const duplicateIndex = promptListConversationDuplicateCounts.get(promptHash) ?? 0;
         promptListConversationDuplicateCounts.set(promptHash, duplicateIndex + 1);
         const promptListId = `${promptHash}-${duplicateIndex}`;
-        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}"${markdownSyncAttr(promptListToken as PromptListToken & { syncId?: string })}><div class="prompt-list-header"><div class="prompt-list-caption" role="button" tabindex="0" aria-expanded="true">${caption}</div></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
+        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}"${markdownSyncAttr(promptListToken as PromptListToken & { syncId?: string })}><div class="prompt-list-header"><div class="prompt-list-caption" role="button" tabindex="0" aria-expanded="true"><span class="prompt-list-caption-meta">${metadataLabel}</span><span class="prompt-list-caption-action">Collapse</span></div></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
       },
     },
     {
