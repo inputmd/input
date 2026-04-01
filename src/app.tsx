@@ -6034,6 +6034,11 @@ export function App() {
     ],
   );
 
+  const closeSidebarAfterMobileFileSelection = useCallback(() => {
+    if (isDesktopWidth) return;
+    setSidebarVisibilityOverride((prev) => (prev === false ? false : null));
+  }, [isDesktopWidth]);
+
   const handleSelectFile = useCallback(
     async (filePath: string) => {
       if (activeView === 'edit' && readerAiNavigationLocked) {
@@ -6046,13 +6051,18 @@ export function App() {
       }
       if (activeView === 'edit' && hasEffectiveUnsavedChanges) {
         const action = await showConfirm('You have unsaved changes. Discard and switch files?');
-        if (action) navigateToSidebarFile(filePath);
+        if (action) {
+          navigateToSidebarFile(filePath);
+          closeSidebarAfterMobileFileSelection();
+        }
         return;
       }
       navigateToSidebarFile(filePath);
+      closeSidebarAfterMobileFileSelection();
     },
     [
       activeView,
+      closeSidebarAfterMobileFileSelection,
       readerAiNavigationLocked,
       pendingImageUploads,
       hasEffectiveUnsavedChanges,
