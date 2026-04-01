@@ -369,7 +369,7 @@ test('parseMarkdownToHtml marks rendered URL labels for aggressive wrapping', (t
   withDom(() => {
     const html = parseMarkdownToHtml(
       [
-        'From https://zhengdongwang.com/2025/12/30/2025-letter.html',
+        'From https://example.com',
         '',
         '[https://example.com/deep/path](https://example.com/deep/path)',
         '',
@@ -640,6 +640,15 @@ test('parseMarkdownToHtml does not preserve an extra leading space on resumed pr
 
   t.true(html.includes("<p>It's worth noting that prompts are customizable.</p>"));
   t.false(html.includes('<span class="leading-indent"> </span>It'));
+});
+
+test('parseMarkdownToHtml preserves thematic breaks inside prompt answers', (t) => {
+  const html = withDom(() =>
+    parseMarkdownToHtml(['~ Question', '⏺ Intro paragraph.', '  ', '  ---', '  Following section.'].join('\n')),
+  );
+
+  t.true(html.includes('<hr'));
+  t.true(html.includes('<p>Following section.</p>'));
 });
 
 test('parseMarkdownToHtml preserves leading indentation in paragraphs', (t) => {
