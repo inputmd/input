@@ -346,6 +346,17 @@ test('prompt-list styles do not strip ordinary nested markdown lists inside prom
   t.true(css.includes('.rendered-markdown li.prompt-list-branch > ul {'));
 });
 
+test('prompt-list styles preserve spacing after the first visible paragraph in question and answer items', (t) => {
+  const css = readFileSync(new URL('../../src/styles/markdown.css', import.meta.url), 'utf8');
+
+  t.true(
+    css.includes(
+      '.rendered-markdown\n  :is(li.prompt-question, li.prompt-answer)\n  > p:first-child:not(:last-child):not(:has(+ .prompt-answer-rest)) {',
+    ),
+  );
+  t.true(css.includes('margin-bottom: 0.65em;'));
+});
+
 test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t) => {
   const html = withDom(() => parseMarkdownToHtml('Email test@example.com for details.'));
 

@@ -502,6 +502,12 @@
   margin-top: 0;
 }
 
+.rendered-markdown
+  :is(li.prompt-question, li.prompt-answer)
+  > p:first-child:not(:last-child):not(:has(+ .prompt-answer-rest)) {
+  margin-bottom: 0.65em;
+}
+
 .rendered-markdown :is(li.prompt-question, li.prompt-answer) > p:is(:last-child, :has(+ .prompt-answer-rest)) {
   margin-bottom: 1px;
 }
