@@ -818,6 +818,13 @@
 
   .toolbar-left,
   .toolbar-right,
+  .action-buttons,
+  .toolbar-toggle-controls {
+    gap: 6px;
+  }
+
+  .toolbar-left,
+  .toolbar-right,
   .toolbar button,
   .toolbar a,
   .document-menu-trigger,
@@ -833,6 +840,10 @@
 
   .toolbar button:not(.github-signin-btn-toggle):not(.toolbar-split-button-toggle) {
     min-width: 38px;
+  }
+
+  .repo-menu-trigger {
+    padding-inline: 10px;
   }
 
   .toolbar-close-btn {

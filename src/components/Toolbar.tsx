@@ -909,7 +909,16 @@ export function Toolbar({
                 aria-label={`Save (${saveShortcutLabel})`}
                 title={`Save (${saveShortcutLabel})`}
               >
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? (
+                  <>
+                    <span class="toolbar-desktop-only">Saving...</span>
+                    <span class="toolbar-mobile-only" aria-hidden="true">
+                      <span class="toolbar-spinner" aria-hidden="true" />
+                    </span>
+                  </>
+                ) : (
+                  'Save'
+                )}
               </button>
               {!canOpenSaveMenu ? (
                 <button
