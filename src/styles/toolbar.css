@@ -505,6 +505,9 @@
 
 .github-signin-btn-main,
 .toolbar-split-button-main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
@@ -766,6 +769,13 @@
   cursor: pointer;
   user-select: none;
   font-size: 14px;
+}
+
+.user-menu-item-shortcut {
+  margin-left: 16px;
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+  font-size: 14px;
+  font-weight: 400;
 }
 
 .user-menu-subtrigger[data-state="open"] {

@@ -258,6 +258,12 @@ export function Toolbar({
   localRateLimit,
   serverRateLimit,
 }: ToolbarProps) {
+  const isMac = typeof navigator !== 'undefined' && /(mac|iphone|ipad|ipod)/i.test(navigator.platform ?? '');
+  const saveShortcutLabel = isMac ? '⌘S' : 'Ctrl+S';
+  const themeShortcutLabel = '^I';
+  const sidebarShortcutLabel = '^B';
+  const previewShortcutLabel = 'Ctrl+P';
+  const readerAiShortcutLabel = 'Ctrl+O';
   const preventTriggerFocusRestore = (event: Event) => {
     event.preventDefault();
   };
@@ -288,6 +294,9 @@ export function Toolbar({
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const showHeaderForkRepoButton = showForkRepo && view !== 'edit' && view !== 'workspaces';
+  const sidebarToggleLabel = `${sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'} (${sidebarShortcutLabel})`;
+  const previewToggleLabel = `${previewVisible ? 'Hide preview' : 'Show preview'} (${previewShortcutLabel})`;
+  const readerAiToggleLabel = `${aiVisible ? 'Hide Reader AI' : 'Show Reader AI'} (${readerAiShortcutLabel})`;
   const resolvedLocalRateLimit = localRateLimit ?? readStoredGitHubRateLimitSnapshot('serverLocal');
   const resolvedServerRateLimit = serverRateLimit ?? readStoredGitHubRateLimitSnapshot('server');
   const localRateLimitAnimated = useMemo(
@@ -530,8 +539,8 @@ export function Toolbar({
                 class="document-menu-trigger"
                 onClick={onToggleSidebar}
                 disabled={disableLeftControls}
-                aria-label={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
-                title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
+                aria-label={sidebarToggleLabel}
+                title={sidebarToggleLabel}
               >
                 {sidebarVisible ? (
                   <PanelLeftClose size={20} aria-hidden="true" />
@@ -892,7 +901,14 @@ export function Toolbar({
           )}
           {showSave && (
             <div class="toolbar-split-button-group" role="group" aria-label="Save options">
-              <button type="button" class="toolbar-split-button-main" onClick={onSave} disabled={saving || !canSave}>
+              <button
+                type="button"
+                class="toolbar-split-button-main"
+                onClick={onSave}
+                disabled={saving || !canSave}
+                aria-label={`Save (${saveShortcutLabel})`}
+                title={`Save (${saveShortcutLabel})`}
+              >
                 {saving ? 'Saving...' : 'Save'}
               </button>
               {!canOpenSaveMenu ? (
@@ -947,8 +963,8 @@ export function Toolbar({
                 <button
                   type="button"
                   class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
-                  title={previewVisible ? 'Hide preview' : 'Show preview'}
-                  aria-label={previewVisible ? 'Hide preview' : 'Show preview'}
+                  title={previewToggleLabel}
+                  aria-label={previewToggleLabel}
                   onClick={onTogglePreview}
                 >
                   <Eye size={16} />
@@ -958,8 +974,8 @@ export function Toolbar({
                 <button
                   type="button"
                   class={`preview-toggle-btn toolbar-ai-toggle${aiVisible ? '' : ' preview-toggle-btn-off'}`}
-                  title={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
-                  aria-label={aiVisible ? 'Hide Reader AI' : 'Show Reader AI'}
+                  title={readerAiToggleLabel}
+                  aria-label={readerAiToggleLabel}
                   disabled={aiDisabled}
                   onClick={onToggleAi}
                 >
@@ -1015,8 +1031,15 @@ export function Toolbar({
                 onCloseAutoFocus={preventTriggerFocusRestore}
               >
                 <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
-                  Toggle theme
+                  <span>Toggle Theme</span>
+                  <span class="user-menu-item-shortcut">{themeShortcutLabel}</span>
                 </DropdownMenu.Item>
+                {showSidebarToggle ? (
+                  <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleSidebar()}>
+                    <span>{sidebarVisible ? 'Hide Files' : 'Show Files'}</span>
+                    <span class="user-menu-item-shortcut">{sidebarShortcutLabel}</span>
+                  </DropdownMenu.Item>
+                ) : null}
                 <DropdownMenu.Separator class="user-menu-separator" />
                 <DropdownMenu.Sub>
                   <DropdownMenu.SubTrigger class="user-menu-item user-menu-subtrigger">

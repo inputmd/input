@@ -7978,6 +7978,7 @@ export function App() {
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
+  const headerSidebarToggleAvailable = activeView === 'content' || activeView === 'edit';
   const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;
   const headerReaderAiToggleAvailable = showReaderAiToggle && !readerAiToggleDisabled;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
@@ -7991,6 +7992,7 @@ export function App() {
   const showDraftMenuActions = currentDocumentDraft !== null && (currentGistId !== null || currentRepoDocPath !== null);
   useEffect(() => {
     const bindings = [
+      { key: 'b', available: headerSidebarToggleAvailable, action: onToggleSidebar },
       { key: 'o', available: headerReaderAiToggleAvailable, action: onToggleReaderAi },
       { key: 'i', available: true, action: toggleTheme },
       { key: 'p', available: headerPreviewToggleAvailable, action: onTogglePreview },
@@ -8009,8 +8011,10 @@ export function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
+    headerSidebarToggleAvailable,
     headerPreviewToggleAvailable,
     headerReaderAiToggleAvailable,
+    onToggleSidebar,
     onTogglePreview,
     onToggleReaderAi,
     onEdit,
