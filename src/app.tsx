@@ -110,6 +110,7 @@ import {
 } from './image_processing';
 import { isEditableShortcutTarget, matchesControlShortcut } from './keyboard_shortcuts';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
+import { listMarkdownFilesNearAsset, rewriteMovedAssetLinks } from './markdown_asset_links';
 import {
   commonPrefixLength,
   commonSuffixLength,
@@ -245,12 +246,33 @@ interface ForkRepoDialogState {
   sourceContent: string;
 }
 
+interface ImageMoveLinkRepairUpdate {
+  path: string;
+  content: string;
+  replacements: number;
+}
+
+interface ImageMoveLinkRepairPlan {
+  updates: ImageMoveLinkRepairUpdate[];
+  fileCount: number;
+  replacementCount: number;
+}
+
+interface RenameFileOptions {
+  linkRepairPlan?: ImageMoveLinkRepairPlan | null;
+}
+
 function autoOnceGuardStorageKey(key: string): string {
   return `${AUTO_ONCE_GUARD_KEY_PREFIX}${key}`;
 }
 
 function moveFileConfirmMessage(nextPath: string): string {
   return nextPath.includes('/') ? `Move this file to "${nextPath}"?` : 'Move this file to the root directory?';
+}
+
+function imageMoveLinkRepairSummary(fileCount: number, replacementCount: number): string {
+  if (fileCount <= 0 || replacementCount <= 0) return 'No nearby Markdown links need updates.';
+  return `${fileCount} Markdown file${fileCount === 1 ? '' : 's'} will be updated (${replacementCount} link change${replacementCount === 1 ? '' : 's'}).`;
 }
 
 function isRecentRepoVisit(value: unknown): value is RecentRepoVisit {
@@ -848,7 +870,7 @@ function getReaderAiProposalStatusesFromHistory(
 export function App() {
   const { route, routeState, navigate, setNavigationPrompt } = useRoute();
   const documentStack = useDocumentStack();
-  const { showAlert, showConfirm, showDiffChoice, showPrompt } = useDialogs();
+  const { showAlert, showConfirm, showConfirmWithCheckbox, showDiffChoice, showPrompt } = useDialogs();
   const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
 
   // --- Shared state ---
@@ -2286,6 +2308,48 @@ export function App() {
     setRepoFiles(files.filter((file) => isMarkdownFileName(file.path)));
     return files;
   }, [repoAccessMode, activeInstalledRepoInstallationId, selectedRepo, loadRepoAllFiles]);
+
+  const planRepoImageMoveLinkRepairs = useCallback(
+    async (oldPath: string, newPath: string): Promise<ImageMoveLinkRepairPlan> => {
+      if (!activeInstalledRepoInstallationId || !selectedRepo) {
+        return { updates: [], fileCount: 0, replacementCount: 0 };
+      }
+
+      const candidatePaths = listMarkdownFilesNearAsset(
+        repoFiles.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path),
+        oldPath,
+      );
+      if (candidatePaths.length === 0) {
+        return { updates: [], fileCount: 0, replacementCount: 0 };
+      }
+
+      const updates = (
+        await Promise.all(
+          candidatePaths.map(async (path): Promise<ImageMoveLinkRepairUpdate | null> => {
+            const contents = await getRepoContents(activeInstalledRepoInstallationId, selectedRepo, path);
+            if (!isRepoFile(contents)) return null;
+            const contentBytes = contents.content ? decodeBase64ToBytes(contents.content) : new Uint8Array();
+            if (isLikelyBinaryBytes(contentBytes)) return null;
+            const markdown = new TextDecoder().decode(contentBytes);
+            const rewritten = rewriteMovedAssetLinks(markdown, path, oldPath, newPath);
+            if (rewritten.replacements === 0 || rewritten.content === markdown) return null;
+            return {
+              path,
+              content: rewritten.content,
+              replacements: rewritten.replacements,
+            };
+          }),
+        )
+      ).filter((update): update is ImageMoveLinkRepairUpdate => update !== null);
+
+      return {
+        updates,
+        fileCount: updates.length,
+        replacementCount: updates.reduce((sum, update) => sum + update.replacements, 0),
+      };
+    },
+    [activeInstalledRepoInstallationId, selectedRepo, repoFiles],
+  );
 
   const onSelectRepo = useCallback(
     (fullName: string, id: number, isPrivate: boolean) => {
@@ -6643,7 +6707,7 @@ export function App() {
   );
 
   const handleRenameFile = useCallback(
-    async (oldPath: string, newPath: string) => {
+    async (oldPath: string, newPath: string, options?: RenameFileOptions) => {
       try {
         const store = getActiveDocumentStore();
         if (!store) return;
@@ -6659,15 +6723,53 @@ export function App() {
         } else {
           if (!activeInstalledRepoInstallationId || !selectedRepo) return;
           const renames = [{ from: oldPath, to: newPath }];
+          const linkRepairPlan = options?.linkRepairPlan;
+          const hasLinkRepairs = Boolean(linkRepairPlan && linkRepairPlan.updates.length > 0);
           await renameRepoPathsAtomic(
             activeInstalledRepoInstallationId,
             selectedRepo,
             renames,
             `Rename ${oldPath} to ${newPath}`,
+            linkRepairPlan?.updates.map((update) => ({ path: update.path, content: update.content })),
           );
-          const nextSidebarFiles = renameRepoDocFiles(repoSidebarFiles, renames);
-          setRepoSidebarFiles(nextSidebarFiles);
-          setRepoFiles(nextSidebarFiles.filter((file) => isMarkdownFileName(file.path)));
+          const refreshedSidebarFiles = hasLinkRepairs ? await refreshRepoTreeAfterWrite() : null;
+          const nextSidebarFiles = refreshedSidebarFiles ?? renameRepoDocFiles(repoSidebarFiles, renames);
+          if (!refreshedSidebarFiles) {
+            setRepoSidebarFiles(nextSidebarFiles);
+            setRepoFiles(nextSidebarFiles.filter((file) => isMarkdownFileName(file.path)));
+          }
+
+          if (linkRepairPlan && currentRepoDocPath) {
+            const updatedDoc = linkRepairPlan.updates.find((update) => update.path === currentRepoDocPath);
+            if (updatedDoc) {
+              if (activeView === 'content') {
+                const knownMarkdownPaths = nextSidebarFiles
+                  .filter((file) => isMarkdownFileName(file.path))
+                  .map((file) => file.path);
+                renderDocumentContent(
+                  updatedDoc.content,
+                  fileNameFromPath(currentRepoDocPath),
+                  currentRepoDocPath,
+                  undefined,
+                  {
+                    currentDocPath: currentRepoDocPath,
+                    knownMarkdownPaths,
+                  },
+                );
+              } else if (activeView === 'edit' && editingBackend === 'repo' && !hasEffectiveUnsavedChanges) {
+                setNextEditContent(updatedDoc.content, { origin: 'appEdits' });
+                setCurrentDocumentSavedContent(updatedDoc.content);
+                setHasUnsavedChanges(false);
+              }
+            }
+          }
+
+          const nextCurrentPath = currentFileNameRef.current === oldPath ? newPath : currentRepoDocPath;
+          if (nextCurrentPath) {
+            const nextCurrentSha = nextSidebarFiles.find((file) => file.path === nextCurrentPath)?.sha ?? null;
+            if (nextCurrentSha) setCurrentRepoDocSha(nextCurrentSha);
+          }
+
           if (currentFileNameRef.current === oldPath) {
             if (selectedRepoRef) {
               navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, newPath));
@@ -6702,6 +6804,15 @@ export function App() {
       activeInstalledRepoInstallationId,
       selectedRepo,
       repoSidebarFiles,
+      refreshRepoTreeAfterWrite,
+      currentRepoDocPath,
+      activeView,
+      editingBackend,
+      hasEffectiveUnsavedChanges,
+      renderDocumentContent,
+      setNextEditContent,
+      setCurrentDocumentSavedContent,
+      setHasUnsavedChanges,
     ],
   );
 
@@ -6922,6 +7033,37 @@ export function App() {
       const canRename = await handleBeforeRenameFile(filePath);
       if (!canRename) return;
 
+      const store = getActiveDocumentStore();
+      if (!store) return;
+
+      let linkRepairPlan: ImageMoveLinkRepairPlan | null = null;
+      if (store.kind === 'repo' && isSafeImageFileName(filePath)) {
+        let repairScanToastId = -1;
+        try {
+          repairScanToastId = showLoadingToast('Checking nearby Markdown links...');
+          linkRepairPlan = await planRepoImageMoveLinkRepairs(filePath, nextPath);
+        } finally {
+          if (repairScanToastId >= 0) dismissToast(repairScanToastId);
+        }
+      }
+
+      if (linkRepairPlan) {
+        const confirmation = await showConfirmWithCheckbox(moveFileConfirmMessage(nextPath), {
+          title: 'Move file',
+          confirmLabel: 'Move',
+          defaultFocus: 'action',
+          checkboxLabel: 'Repair broken Markdown links in nearby docs',
+          checkboxDescription: imageMoveLinkRepairSummary(linkRepairPlan.fileCount, linkRepairPlan.replacementCount),
+          checkboxChecked: linkRepairPlan.fileCount > 0,
+          checkboxDisabled: linkRepairPlan.fileCount === 0,
+        });
+        if (!confirmation.confirmed) return;
+        await handleRenameFile(filePath, nextPath, {
+          linkRepairPlan: confirmation.checked ? linkRepairPlan : null,
+        });
+        return;
+      }
+
       const confirmed = await showConfirm(moveFileConfirmMessage(nextPath), {
         title: 'Move file',
         confirmLabel: 'Move',
@@ -6935,13 +7077,18 @@ export function App() {
       activeInstalledRepoInstallationId,
       activeScratchFile,
       editTitle,
+      getActiveDocumentStore,
       handleBeforeRenameFile,
       handleRenameFile,
       navigate,
+      dismissToast,
+      planRepoImageMoveLinkRepairs,
       routeState,
       selectedRepo,
       selectedRepoRef,
       showConfirm,
+      showConfirmWithCheckbox,
+      showLoadingToast,
     ],
   );
 

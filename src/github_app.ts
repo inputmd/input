@@ -297,6 +297,11 @@ export interface RepoBatchCreateFile {
   content: string;
 }
 
+export interface RepoBatchUpdateFile {
+  path: string;
+  content: string;
+}
+
 export interface SharedRepoFile {
   owner: string;
   repo: string;
@@ -686,8 +691,9 @@ export async function renameRepoPathsAtomic(
   repoFullName: string,
   renames: RepoBatchRename[],
   message: string,
+  updates?: RepoBatchUpdateFile[],
 ): Promise<void> {
-  await runRepoGitBatchMutation(installationId, repoFullName, { renames, message });
+  await runRepoGitBatchMutation(installationId, repoFullName, { renames, updates, message });
 }
 
 async function runRepoGitBatchMutation(
@@ -698,6 +704,7 @@ async function runRepoGitBatchMutation(
     renames?: RepoBatchRename[];
     deletes?: string[];
     creates?: RepoBatchCreateFile[];
+    updates?: RepoBatchUpdateFile[];
   },
 ): Promise<void> {
   const { owner, repo } = splitFullName(repoFullName);

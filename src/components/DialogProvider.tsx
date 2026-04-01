@@ -12,6 +12,10 @@ import { SideBySideDiffView } from './DiffViewer';
 interface DialogContextValue {
   showAlert: (message: string) => Promise<void>;
   showConfirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
+  showConfirmWithCheckbox: (
+    message: string,
+    options: ConfirmCheckboxDialogOptions,
+  ) => Promise<{ confirmed: boolean; checked: boolean }>;
   showDiffChoice: (
     message: string,
     changes: DiffChangeEntry[],
@@ -29,6 +33,13 @@ interface ConfirmDialogOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   defaultFocus?: ConfirmDialogFocus;
+}
+
+interface ConfirmCheckboxDialogOptions extends ConfirmDialogOptions {
+  checkboxLabel: string;
+  checkboxDescription?: string;
+  checkboxChecked?: boolean;
+  checkboxDisabled?: boolean;
 }
 
 interface DiffConfirmDialogOptions extends ConfirmDialogOptions {
@@ -63,6 +74,17 @@ type DialogState =
       options: Required<ConfirmDialogOptions>;
     }
   | {
+      type: 'confirm-checkbox';
+      message: string;
+      resolve: (value: { confirmed: boolean; checked: boolean }) => void;
+      options: Required<ConfirmDialogOptions> & {
+        checkboxLabel: string;
+        checkboxDescription?: string;
+        checkboxChecked: boolean;
+        checkboxDisabled: boolean;
+      };
+    }
+  | {
       type: 'diff-choice';
       message: string;
       changes: DiffChangeEntry[];
@@ -86,6 +108,7 @@ type DialogState =
 export function DialogProvider({ children }: { children: ComponentChildren }) {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [promptValue, setPromptValue] = useState('');
+  const [confirmCheckboxChecked, setConfirmCheckboxChecked] = useState(false);
   const promptInputRef = useRef<HTMLInputElement>(null);
   const confirmCancelRef = useRef<HTMLButtonElement>(null);
   const confirmTertiaryActionRef = useRef<HTMLButtonElement>(null);
@@ -117,6 +140,33 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
       });
     });
   }, []);
+
+  const showConfirmWithCheckbox = useCallback(
+    (message: string, options: ConfirmCheckboxDialogOptions): Promise<{ confirmed: boolean; checked: boolean }> => {
+      return new Promise((resolve) => {
+        const intent = options.intent ?? 'default';
+        const checkboxChecked = options.checkboxDisabled ? false : (options.checkboxChecked ?? false);
+        setConfirmCheckboxChecked(checkboxChecked);
+        setDialog({
+          type: 'confirm-checkbox',
+          message,
+          resolve,
+          options: {
+            intent,
+            title: options.title ?? 'Confirm',
+            confirmLabel: options.confirmLabel ?? (intent === 'danger' ? 'Delete' : 'OK'),
+            cancelLabel: options.cancelLabel ?? 'Cancel',
+            defaultFocus: options.defaultFocus ?? (intent === 'danger' ? 'action' : 'cancel'),
+            checkboxLabel: options.checkboxLabel,
+            checkboxDescription: options.checkboxDescription,
+            checkboxChecked,
+            checkboxDisabled: options.checkboxDisabled ?? false,
+          },
+        });
+      });
+    },
+    [],
+  );
 
   const showPrompt = useCallback((message: string, defaultValue = ''): Promise<string | null> => {
     return new Promise((resolve) => {
@@ -165,7 +215,7 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
   };
 
   return (
-    <DialogContext.Provider value={{ showAlert, showConfirm, showDiffChoice, showPrompt }}>
+    <DialogContext.Provider value={{ showAlert, showConfirm, showConfirmWithCheckbox, showDiffChoice, showPrompt }}>
       {children}
 
       {/* Alert Dialog */}
@@ -262,6 +312,73 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
             </AlertDialogPrimitive.Content>
           </AlertDialogPrimitive.Portal>
         </AlertDialogPrimitive.Root>
+      )}
+
+      {dialog?.type === 'confirm-checkbox' && (
+        <DialogPrimitive.Root
+          open
+          onOpenChange={(open: boolean) => {
+            if (!open) {
+              dialog.resolve({ confirmed: false, checked: confirmCheckboxChecked });
+              close();
+            }
+          }}
+        >
+          <DialogPrimitive.Portal>
+            <DialogPrimitive.Overlay class="dialog-overlay" />
+            <DialogPrimitive.Content
+              class="dialog-content"
+              onOpenAutoFocus={(e: Event) => {
+                if (dialog.options.defaultFocus === 'action') {
+                  e.preventDefault();
+                  setTimeout(() => confirmActionRef.current?.focus(), 0);
+                  return;
+                }
+                setTimeout(() => confirmCancelRef.current?.focus(), 0);
+              }}
+            >
+              <DialogPrimitive.Title class="dialog-title">{dialog.options.title}</DialogPrimitive.Title>
+              <DialogPrimitive.Description class="dialog-message">{dialog.message}</DialogPrimitive.Description>
+              <label class={`dialog-checkbox-row${dialog.options.checkboxDisabled ? ' is-disabled' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={confirmCheckboxChecked}
+                  disabled={dialog.options.checkboxDisabled}
+                  onInput={(e) => setConfirmCheckboxChecked((e.target as HTMLInputElement).checked)}
+                />
+                <span class="dialog-checkbox-copy">
+                  <span class="dialog-checkbox-label">{dialog.options.checkboxLabel}</span>
+                  {dialog.options.checkboxDescription ? (
+                    <span class="dialog-checkbox-description">{dialog.options.checkboxDescription}</span>
+                  ) : null}
+                </span>
+              </label>
+              <div class="dialog-actions">
+                <button
+                  ref={confirmCancelRef}
+                  type="button"
+                  onClick={() => {
+                    dialog.resolve({ confirmed: false, checked: confirmCheckboxChecked });
+                    close();
+                  }}
+                >
+                  {dialog.options.cancelLabel}
+                </button>
+                <button
+                  ref={confirmActionRef}
+                  class={dialogActionClassName(dialog.options.intent)}
+                  type="button"
+                  onClick={() => {
+                    dialog.resolve({ confirmed: true, checked: confirmCheckboxChecked });
+                    close();
+                  }}
+                >
+                  {dialog.options.confirmLabel}
+                </button>
+              </div>
+            </DialogPrimitive.Content>
+          </DialogPrimitive.Portal>
+        </DialogPrimitive.Root>
       )}
 
       {dialog?.type === 'diff-choice' && (

@@ -1890,8 +1890,16 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
         return { path, content };
       })
     : [];
-  if (renames.length === 0 && deletes.length === 0 && creates.length === 0) {
-    throw new ClientError('At least one of renames, deletes, or creates is required', 400);
+  const updates = Array.isArray(body?.updates)
+    ? body.updates.map((item) => {
+        if (!item || typeof item !== 'object') throw new ClientError('Invalid update entry', 400);
+        const path = normalizeRepoRelativePath(requireString(item, 'path'));
+        const content = typeof item.content === 'string' ? item.content : '';
+        return { path, content };
+      })
+    : [];
+  if (renames.length === 0 && deletes.length === 0 && creates.length === 0 && updates.length === 0) {
+    throw new ClientError('At least one of renames, deletes, creates, or updates is required', 400);
   }
   if (renames.some((entry) => entry.from === entry.to)) {
     throw new ClientError('Rename source and destination must differ', 400);
@@ -1915,6 +1923,7 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
   const renameSources = new Set(renames.map((entry) => entry.from));
   const plannedDeletes = new Set<string>([...deletes, ...renameSources]);
   const plannedCreates = new Set<string>();
+  const plannedUpdates = new Set<string>();
 
   for (const entry of renames) {
     if (plannedCreates.has(entry.to)) throw new ClientError(`Duplicate destination path: ${entry.to}`, 400);
@@ -1923,6 +1932,10 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
   for (const entry of creates) {
     if (plannedCreates.has(entry.path)) throw new ClientError(`Duplicate create path: ${entry.path}`, 400);
     plannedCreates.add(entry.path);
+  }
+  for (const entry of updates) {
+    if (plannedUpdates.has(entry.path)) throw new ClientError(`Duplicate update path: ${entry.path}`, 400);
+    plannedUpdates.add(entry.path);
   }
 
   for (const entry of renames) {
@@ -1937,6 +1950,20 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
   for (const entry of creates) {
     if (blobsByPath.has(entry.path) && !plannedDeletes.has(entry.path)) {
       throw new ClientError(`Create destination already exists: ${entry.path}`, 409);
+    }
+  }
+  for (const entry of updates) {
+    if (!blobsByPath.has(entry.path) && !plannedCreates.has(entry.path)) {
+      throw new ClientError(`Update target not found: ${entry.path}`, 404);
+    }
+    if (plannedDeletes.has(entry.path)) {
+      throw new ClientError(`Update conflicts with delete target: ${entry.path}`, 409);
+    }
+    if (renameSources.has(entry.path)) {
+      throw new ClientError(`Update conflicts with rename source: ${entry.path}`, 409);
+    }
+    if (plannedCreates.has(entry.path) && !creates.some((create) => create.path === entry.path)) {
+      throw new ClientError(`Update conflicts with rename destination: ${entry.path}`, 409);
     }
   }
 
@@ -1962,6 +1989,10 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
   }
   for (const entry of creates) {
     treeMutations.push({ path: entry.path, mode: '100644', type: 'blob', content: entry.content });
+  }
+  for (const entry of updates) {
+    const source = blobsByPath.get(entry.path);
+    treeMutations.push({ path: entry.path, mode: source?.mode ?? '100644', type: 'blob', content: entry.content });
   }
 
   const createTreePath = `${repoPath}/git/trees`;
@@ -2015,6 +2046,7 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
     renamed: renames.length,
     deleted: deletes.length,
     created: creates.length,
+    updated: updates.length,
   });
 }
 

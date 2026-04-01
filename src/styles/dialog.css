@@ -136,6 +136,40 @@
   gap: 8px;
 }
 
+.dialog-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.dialog-checkbox-row.is-disabled {
+  opacity: 0.72;
+}
+
+.dialog-checkbox-row input[type="checkbox"] {
+  margin: 2px 0 0;
+}
+
+.dialog-checkbox-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dialog-checkbox-label {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.dialog-checkbox-description {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
 .dialog-split-button-group {
   flex: 0 0 auto;
 }
