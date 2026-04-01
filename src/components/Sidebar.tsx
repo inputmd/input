@@ -17,7 +17,7 @@ import {
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
-import { persistSidebarCollapsedFolders, readPersistedSidebarCollapsedFolders } from '../sidebar_state';
+import { loadSidebarCollapsedFoldersState, persistSidebarCollapsedFolders } from '../sidebar_state';
 
 export interface SidebarFile {
   path: string;
@@ -278,14 +278,6 @@ function defaultCollapsedFolderPaths(folderPaths: Set<string>): Set<string> {
   return defaults;
 }
 
-function filterExpandedFolderPaths(paths: Iterable<string>, expandedPaths: Set<string>): Record<string, true> {
-  const record: Record<string, true> = {};
-  for (const path of paths) {
-    if (!expandedPaths.has(path)) record[path] = true;
-  }
-  return record;
-}
-
 function resolveRenamePath(oldPath: string, input: string): string {
   const next = sanitizePathInput(input);
   if (!next) return '';
@@ -433,12 +425,16 @@ export function Sidebar({
   const defaultCollapsedPaths = useMemo(() => defaultCollapsedFolderPaths(folderPaths), [folderPaths]);
   const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
   const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
+  const initialCollapsedFoldersState = useMemo(
+    () => loadSidebarCollapsedFoldersState(workspaceKey, defaultCollapsedPaths, activeAncestors),
+    [activeAncestors, defaultCollapsedPaths, workspaceKey],
+  );
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, true>>(() => {
-    const persisted = readPersistedSidebarCollapsedFolders(workspaceKey);
-    if (persisted !== null) return persisted;
-    return filterExpandedFolderPaths(defaultCollapsedPaths, new Set(activeAncestors));
+    return initialCollapsedFoldersState.collapsedFolders;
   });
   const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set(defaultCollapsedPaths));
+  const workspaceKeyRef = useRef(workspaceKey);
+  const skipNextActiveAncestorsExpandRef = useRef(initialCollapsedFoldersState.loadedFromPersistence);
   const hasFolders = folderPaths.size > 0;
   const visibleNodes = useMemo(() => flattenVisibleTree(tree.children, collapsedFolders), [tree, collapsedFolders]);
   const visibleIndexByPath = useMemo(() => {
@@ -485,6 +481,16 @@ export function Sidebar({
   }, [activeFilePath, visibleIndexByPath, visibleNodes]);
 
   useEffect(() => {
+    if (workspaceKeyRef.current === workspaceKey) return;
+    workspaceKeyRef.current = workspaceKey;
+
+    const nextState = loadSidebarCollapsedFoldersState(workspaceKey, defaultCollapsedPaths, activeAncestors);
+    skipNextActiveAncestorsExpandRef.current = nextState.loadedFromPersistence;
+    autoCollapsedDefaultsRef.current = new Set(defaultCollapsedPaths);
+    setCollapsedFolders(nextState.collapsedFolders);
+  }, [activeAncestors, defaultCollapsedPaths, workspaceKey]);
+
+  useEffect(() => {
     setCollapsedFolders((prev) => {
       const next: Record<string, true> = {};
       let changed = false;
@@ -509,6 +515,10 @@ export function Sidebar({
 
   useEffect(() => {
     if (activeAncestors.length === 0) return;
+    if (skipNextActiveAncestorsExpandRef.current) {
+      skipNextActiveAncestorsExpandRef.current = false;
+      return;
+    }
     setCollapsedFolders((prev) => {
       const next = { ...prev };
       let changed = false;
