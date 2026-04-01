@@ -177,7 +177,7 @@ interface ReaderAiModelEntry {
  * Featured free model patterns — matched case-insensitively against model id/name.
  * Maintained server-side so updates don't require client deploys.
  */
-const FEATURED_MODEL_PATTERNS = ['nemotron 3 nano 30b', 'nemotron 3 super', 'trinity mini', 'trinity large preview'];
+const FEATURED_MODEL_PATTERNS = ['nemotron 3 nano', 'nemotron 3 super', 'trinity mini'];
 
 const OPENROUTER_PAID_MODELS: ReaderAiModelEntry[] = [
   {
