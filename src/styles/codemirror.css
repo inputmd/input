@@ -937,7 +937,13 @@
 }
 
 .cm-editor .cm-double-colon-highlight {
-  color: var(--highlighter-color);
+  color: color-mix(in srgb, var(--text) 38%, var(--highlighter-color));
+}
+
+[data-theme="light"] .cm-editor .cm-double-colon-highlight {
+  color: inherit;
+  border-radius: 3px;
+  background: var(--highlighter-bg);
 }
 
 .cm-editor .cm-critic-comment {
