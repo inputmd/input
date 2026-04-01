@@ -7705,6 +7705,7 @@ export function App() {
         return (
           <ErrorView
             message={errorMessage}
+            tone={errorMessage === 'Sign in with GitHub to edit this document.' ? 'neutral' : 'error'}
             onRetry={() => {
               void handleRoute(route);
             }}

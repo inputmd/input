@@ -1,12 +1,13 @@
 interface ErrorViewProps {
   message: string;
   onRetry: () => void;
+  tone?: 'error' | 'neutral';
 }
 
-export function ErrorView({ message, onRetry }: ErrorViewProps) {
+export function ErrorView({ message, onRetry, tone = 'error' }: ErrorViewProps) {
   return (
     <div class="error-view">
-      <p class="error-message">{message}</p>
+      <p class={`error-message${tone === 'neutral' ? ' error-message--neutral' : ''}`}>{message}</p>
       <div class="error-actions">
         <button type="button" onClick={onRetry}>
           Try Again

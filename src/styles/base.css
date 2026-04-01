@@ -392,6 +392,10 @@ select:disabled,
   padding: 0 20px;
 }
 
+.error-message--neutral {
+  color: var(--text);
+}
+
 .error-actions {
   display: flex;
   gap: 8px;
