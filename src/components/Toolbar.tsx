@@ -19,7 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import type { GistSummary, GitHubUser } from '../github';
-import type { InstallationRepo, LinkedInstallation } from '../github_app';
+import type { InstallationRepo, LinkedInstallation, RepoFileShareLink } from '../github_app';
 import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
 import { isEditableShortcutTarget, matchesControlShortcut } from '../keyboard_shortcuts';
 import type { ReaderAiModel } from '../reader_ai';
@@ -34,6 +34,46 @@ function getOpenInInputMdUrl(): string | null {
   const { hostname, pathname, search, hash } = window.location;
   if (!isLocalhostHostname(hostname)) return null;
   return `https://input.md${pathname}${search}${hash}`;
+}
+
+function formatShareLinkTime(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function formatShareLinkExpiry(expiresAt: string, nowMs: number): string | null {
+  const expiresAtMs = Date.parse(expiresAt);
+  if (!Number.isFinite(expiresAtMs)) return null;
+
+  const remainingMs = Math.max(0, expiresAtMs - nowMs);
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+
+  if (remainingMs >= dayMs) return `${Math.ceil(remainingMs / dayMs)}d`;
+  if (remainingMs >= hourMs) return `${Math.ceil(remainingMs / hourMs)}h`;
+  return `${Math.max(1, Math.ceil(remainingMs / minuteMs))}m`;
+}
+
+function formatShareLinkRemainingDetailed(expiresAt: string, nowMs: number): string | null {
+  const expiresAtMs = Date.parse(expiresAt);
+  if (!Number.isFinite(expiresAtMs)) return null;
+
+  const remainingMs = Math.max(0, expiresAtMs - nowMs);
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+
+  if (remainingMs >= dayMs) {
+    const days = Math.floor(remainingMs / dayMs);
+    const hours = Math.ceil((remainingMs - days * dayMs) / hourMs);
+    return `${days}d ${hours}h`;
+  }
+
+  const hours = Math.floor(remainingMs / hourMs);
+  const minutes = Math.max(1, Math.ceil((remainingMs - hours * hourMs) / minuteMs));
+  return `${hours}h ${minutes}m`;
 }
 
 export type ActiveView = 'workspaces' | 'loading' | 'error' | 'content' | 'edit';
@@ -103,6 +143,8 @@ interface ToolbarProps {
   sidebarVisible: boolean;
   showActionsMenu: boolean;
   showShare: boolean;
+  activeShareLinks?: RepoFileShareLink[];
+  shareLinksLoading?: boolean;
   showViewSource: boolean;
   viewSourceLabel?: string;
   shareMetadata: string | null;
@@ -111,6 +153,7 @@ interface ToolbarProps {
   showRestoreDraft?: boolean;
   showForkRepo?: boolean;
   onShare: () => void;
+  onCopyShareLink?: (link: RepoFileShareLink) => void;
   onViewSource: () => void;
   onForkRepo?: () => void;
   onResetDraftChanges?: () => void;
@@ -191,6 +234,8 @@ export function Toolbar({
   sidebarVisible,
   showActionsMenu,
   showShare,
+  activeShareLinks = [],
+  shareLinksLoading = false,
   showViewSource,
   viewSourceLabel = 'View Source',
   shareMetadata,
@@ -199,6 +244,7 @@ export function Toolbar({
   showRestoreDraft = false,
   showForkRepo = false,
   onShare,
+  onCopyShareLink,
   onViewSource,
   onForkRepo,
   onResetDraftChanges,
@@ -362,6 +408,7 @@ export function Toolbar({
     setAuthorMenuOpen(false);
     action();
   };
+  const showShareLinksSection = showShare && (shareLinksLoading || activeShareLinks.length > 0);
   const authorMenu = (
     <DropdownMenu.Root
       open={authorMenuOpen}
@@ -398,6 +445,89 @@ export function Toolbar({
             >
               Share
             </DropdownMenu.Item>
+          ) : null}
+          {showShareLinksSection ? (
+            <>
+              {shareLinksLoading ? (
+                <DropdownMenu.Item class="author-menu-item author-menu-item-static" disabled>
+                  Loading share links...
+                </DropdownMenu.Item>
+              ) : (
+                activeShareLinks.map((link) => {
+                  const expiryLabel = formatShareLinkExpiry(link.expiresAt, nowMs);
+                  const createdLabel = formatShareLinkTime(link.createdAt);
+                  const expiresLabel = formatShareLinkTime(link.expiresAt);
+                  const expiresRemainingLabel = formatShareLinkRemainingDetailed(link.expiresAt, nowMs);
+                  return (
+                    <DropdownMenu.Sub key={link.token}>
+                      <DropdownMenu.SubTrigger
+                        class="author-menu-item author-menu-share-link-item"
+                        onClick={(event: Event) => {
+                          runAuthorMenuAction(
+                            event,
+                            () => {
+                              onCopyShareLink?.(link);
+                            },
+                            { preventDefault: true },
+                          );
+                        }}
+                      >
+                        <span class="author-menu-share-link-label">Copy share link</span>
+                        {expiryLabel ? <span class="author-menu-share-link-expiry">{expiryLabel}</span> : null}
+                      </DropdownMenu.SubTrigger>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.SubContent
+                          class="user-menu-content user-menu-subcontent"
+                          side="left"
+                          sideOffset={6}
+                          alignOffset={-6}
+                        >
+                          <div class="share-link-menu-content">
+                            <div class="share-link-menu-row">
+                              <span class="share-link-menu-label">Link</span>
+                              <span class="share-link-menu-value">{link.url}</span>
+                            </div>
+                            {createdLabel ? (
+                              <div class="share-link-menu-row">
+                                <span class="share-link-menu-label">Created</span>
+                                <span class="share-link-menu-value">{createdLabel}</span>
+                              </div>
+                            ) : null}
+                            {expiresLabel ? (
+                              <div class="share-link-menu-row">
+                                <span class="share-link-menu-label">Expires</span>
+                                <span class="share-link-menu-value">
+                                  <span>{expiresLabel}</span>
+                                  {expiresRemainingLabel ? (
+                                    <span class="share-link-menu-value-secondary">{` ${expiresRemainingLabel}`}</span>
+                                  ) : null}
+                                </span>
+                              </div>
+                            ) : null}
+                          </div>
+                          <DropdownMenu.Separator class="user-menu-separator" />
+                          <DropdownMenu.Item
+                            class="author-menu-item"
+                            onSelect={(event: Event) => {
+                              runAuthorMenuAction(
+                                event,
+                                () => {
+                                  onCopyShareLink?.(link);
+                                },
+                                { preventDefault: true },
+                              );
+                            }}
+                          >
+                            Copy link
+                          </DropdownMenu.Item>
+                        </DropdownMenu.SubContent>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Sub>
+                  );
+                })
+              )}
+              <DropdownMenu.Separator class="user-menu-separator" />
+            </>
           ) : null}
           {showForkRepo && !showHeaderForkRepoButton ? (
             <DropdownMenu.Item

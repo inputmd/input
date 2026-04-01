@@ -3,8 +3,8 @@ import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
-import { canGitHubUserEditMarkdownDocument, validateEditorsPreserved } from '../src/document_permissions';
-import { resolveCommitCompactionSelection } from './commit_compaction';
+import { canGitHubUserEditMarkdownDocument, validateEditorsPreserved } from '../src/document_permissions.ts';
+import { resolveCommitCompactionSelection } from './commit_compaction.ts';
 import {
   APP_URL,
   CLIENT_PORT,
@@ -18,10 +18,10 @@ import {
   READER_AI_TIMEOUT_MS,
   SHARE_TOKEN_SECRET,
   SHARE_TOKEN_TTL_SECONDS,
-} from './config';
+} from './config.ts';
 import { stripCriticMarkupComments } from './criticmarkup.js';
-import { ClientError } from './errors';
-import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache';
+import { ClientError } from './errors.ts';
+import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache.ts';
 import {
   atomicForceUpdateGitHubRef,
   createAppJwt,
@@ -30,16 +30,16 @@ import {
   getRepoInstallationId,
   githubFetchWithInstallationToken,
   githubGraphqlWithInstallationToken,
-} from './github_client';
-import { json, readJson, requireEnv, requireString } from './http_helpers';
-import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit';
+} from './github_client.ts';
+import { json, readJson, requireEnv, requireString } from './http_helpers.ts';
+import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit.ts';
 import {
   canAccessReaderAiModel,
   getReaderAiModelSource,
   type ReaderAiModelAccessScope,
   readerAiModelAccessScopeForAuthenticated,
   shouldUseOpenRouterPromptCaching,
-} from './reader_ai_access';
+} from './reader_ai_access.ts';
 import {
   buildReaderAiPromptListSystemPrompt,
   buildReaderAiSystemPrompt,
@@ -59,7 +59,8 @@ import {
   type ReaderAiToolCall,
   readUpstreamError,
   readUpstreamRateLimitMessage,
-} from './reader_ai_tools';
+} from './reader_ai_tools.ts';
+import { createOrReuseRepoFileShareLink, listRepoFileShareLinkResponses } from './repo_file_share_links.ts';
 import {
   clearRememberedInstallationForUser,
   consumeOAuthState,
@@ -74,10 +75,10 @@ import {
   rememberInstallationForUser,
   removeInstallationForUser,
   selectInstallationForUser,
-} from './session';
-import { createRepoFileShareToken, verifyRepoFileShareToken } from './share_tokens';
-import { stripManagedSubdomain } from './subdomain';
-import type { Session, UserInstallation } from './types';
+} from './session.ts';
+import { verifyRepoFileShareToken } from './share_tokens.ts';
+import { stripManagedSubdomain } from './subdomain.ts';
+import type { Session, UserInstallation } from './types.ts';
 
 interface RouteContext {
   req: http.IncomingMessage;
@@ -128,6 +129,12 @@ interface ShareRepoFileCreateBody {
   installationId?: unknown;
   repoFullName?: unknown;
   path?: unknown;
+}
+
+interface ShareRepoFileListQuery {
+  installationId: string;
+  repoFullName: string;
+  path: string;
 }
 
 interface EditorShareRepoFileUpdateBody extends Record<string, unknown> {
@@ -274,6 +281,16 @@ function splitRepoFullName(repoFullName: string): { owner: string; repo: string 
   const [owner, repo] = repoFullName.split('/');
   if (!owner || !repo) throw new ClientError('Invalid repoFullName', 400);
   return { owner, repo };
+}
+
+function parseShareRepoFileListQuery(url: URL): ShareRepoFileListQuery {
+  const installationId = url.searchParams.get('installationId')?.trim() ?? '';
+  const repoFullName = url.searchParams.get('repoFullName')?.trim() ?? '';
+  const path = url.searchParams.get('path')?.trim() ?? '';
+  if (!installationId || !repoFullName || !path) {
+    throw new ClientError('installationId, repoFullName, and path are required', 400);
+  }
+  return { installationId, repoFullName, path };
 }
 
 function requireAuthSession(ctx: RouteContext): Session {
@@ -1267,21 +1284,41 @@ async function handleCreateRepoFileShare(ctx: RouteContext): Promise<void> {
   copyGitHubRateLimitHeaders(ctx.res, ghRes);
   if (!data.path.toLowerCase().endsWith('.md')) throw new ClientError('Only markdown files can be shared', 400);
 
-  const token = createRepoFileShareToken(SHARE_TOKEN_SECRET, {
+  const shareLink = createOrReuseRepoFileShareLink({
+    githubUserId: session.githubUserId,
     installationId,
     owner,
     repo,
     path: data.path,
+    baseUrl: canonicalAppBaseUrl(ctx.req),
     nowMs: Date.now(),
     ttlSeconds: SHARE_TOKEN_TTL_SECONDS,
+    secret: SHARE_TOKEN_SECRET,
   });
-  const expiresAt = new Date(Date.now() + SHARE_TOKEN_TTL_SECONDS * 1000).toISOString();
-  const sharePath = `s/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(data.path)}`;
-  json(ctx.res, 200, {
-    token,
-    url: `${canonicalAppBaseUrl(ctx.req)}/${sharePath}?t=${encodeURIComponent(token)}`,
-    expiresAt,
+  json(ctx.res, 200, shareLink);
+}
+
+async function handleListRepoFileShares(ctx: RouteContext): Promise<void> {
+  const session = requireAuthSession(ctx);
+  if (!checkRateLimitForSession(ctx, session)) return;
+  if (!SHARE_TOKEN_SECRET) {
+    json(ctx.res, 503, SHARE_LINKS_NOT_CONFIGURED_ERROR);
+    return;
+  }
+
+  const { installationId, repoFullName, path } = parseShareRepoFileListQuery(ctx.url);
+  if (!path.toLowerCase().endsWith('.md')) throw new ClientError('Only markdown files can be shared', 400);
+  if (!isInstallationLinkedForUser(session.githubUserId, installationId)) throw new ClientError('Forbidden', 403);
+
+  const { owner, repo } = splitRepoFullName(repoFullName);
+  const links = listRepoFileShareLinkResponses({
+    githubUserId: session.githubUserId,
+    installationId,
+    owner,
+    repo,
+    path,
   });
+  json(ctx.res, 200, { links });
 }
 
 async function handleGetSharedRepoFile(ctx: RouteContext): Promise<void> {
@@ -3339,6 +3376,7 @@ const PUBLIC_REPO_RAW_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/raw$/;
 const PUBLIC_REPO_TREE_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tree$/;
 const TARBALL_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/tarball$/;
 const PUBLIC_REPO_TARBALL_PATTERN = /^\/api\/public\/repos\/([^/]+)\/([^/]+)\/tarball$/;
+const SHARE_REPO_FILE_LIST_PATTERN = /^\/api\/share\/repo-file-links$/;
 const SHARE_REPO_FILE_PATTERN = /^\/api\/share\/repo-file\/([^/]+)$/;
 const SHARE_REPO_FILE_REF_PATTERN = /^\/api\/share\/repo-file\/([^/]+)\/([^/]+)\/(.+)$/;
 const EDITOR_SHARE_REPO_FILE_PATTERN = /^\/api\/editor-share\/repo-file\/([^/]+)\/([^/]+)\/(.+)$/;
@@ -3359,6 +3397,7 @@ const routes: RouteDef[] = [
   { method: 'POST', pattern: /^\/api\/github-app\/installations\/select$/, handler: handleSelectInstallation },
   { method: 'POST', pattern: /^\/api\/github-app\/disconnect$/, handler: handleDisconnectInstallation },
   { method: 'POST', pattern: /^\/api\/share\/repo-file$/, handler: handleCreateRepoFileShare },
+  { method: 'GET', pattern: SHARE_REPO_FILE_LIST_PATTERN, handler: handleListRepoFileShares },
   { method: 'GET', pattern: SHARE_REPO_FILE_PATTERN, handler: handleGetSharedRepoFile },
   { method: 'GET', pattern: SHARE_REPO_FILE_REF_PATTERN, handler: handleGetSharedRepoFileByRef },
   { method: 'GET', pattern: EDITOR_SHARE_REPO_FILE_PATTERN, handler: handleGetEditorSharedRepoFile },

@@ -37,7 +37,8 @@
 | `DELETE` | `/api/github-app/installations/:id/repos/:owner/:repo/contents` | Deletes a file |
 | `GET` | `/api/github-app/installations/:id/repos/:owner/:repo/raw?path=...` | Reads an installed repo file as raw bytes |
 | `GET` | `/api/github-app/installations/:id/repos/:owner/:repo/tree?ref=...&markdown_only=...` | Lists files from an installed repo tree |
-| `POST` | `/api/share/repo-file` | Creates a private share token for an installed markdown file |
+| `POST` | `/api/share/repo-file` | Creates or reuses a private share link for an installed markdown file |
+| `GET` | `/api/share/repo-file-links?installationId=...&repoFullName=...&path=...` | Lists known unexpired private share links for an installed markdown file |
 | `POST` | `/api/ai/chat` | Streams Reader AI chat completions for markdown content |
 | `POST` | `/api/ai/apply` | Applies Reader AI staged changes to a gist or installed repo |
 

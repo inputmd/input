@@ -4,7 +4,7 @@ import type http from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATABASE_PATH, SESSION_MAX_LIFETIME_SECONDS, SESSION_TTL_SECONDS } from './config.ts';
-import type { Session, UserInstallation } from './types.ts';
+import type { RepoFileShareLinkRecord, Session, UserInstallation } from './types.ts';
 
 const SESSION_COOKIE_NAME = 'input_session_id';
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -84,6 +84,30 @@ db.exec(`
     github_user_id INTEGER PRIMARY KEY,
     selected_installation_id TEXT,
     updated_at_ms INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS repo_file_share_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    github_user_id INTEGER NOT NULL,
+    installation_id TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    path TEXT NOT NULL,
+    token TEXT NOT NULL,
+    url TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    expires_at_ms INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_repo_file_share_links_lookup
+  ON repo_file_share_links (
+    github_user_id,
+    installation_id,
+    owner,
+    repo,
+    path,
+    expires_at_ms DESC,
+    created_at_ms DESC
   );
 `);
 
@@ -172,6 +196,76 @@ const sessionByIdStmt = db.prepare(`
 const deleteSessionByIdStmt = db.prepare('DELETE FROM sessions WHERE id = ?');
 const deleteExpiredSessionsStmt = db.prepare('DELETE FROM sessions WHERE expires_at_ms <= ?');
 const sessionStoreHealthStmt = db.prepare('SELECT 1');
+const insertRepoFileShareLinkStmt = db.prepare(`
+  INSERT INTO repo_file_share_links (
+    github_user_id,
+    installation_id,
+    owner,
+    repo,
+    path,
+    token,
+    url,
+    created_at_ms,
+    expires_at_ms
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  RETURNING
+    id,
+    github_user_id,
+    installation_id,
+    owner,
+    repo,
+    path,
+    token,
+    url,
+    created_at_ms,
+    expires_at_ms
+`);
+const selectLatestActiveRepoFileShareLinkStmt = db.prepare(`
+  SELECT
+    id,
+    github_user_id,
+    installation_id,
+    owner,
+    repo,
+    path,
+    token,
+    url,
+    created_at_ms,
+    expires_at_ms
+  FROM repo_file_share_links
+  WHERE
+    github_user_id = ?
+    AND installation_id = ?
+    AND owner = ?
+    AND repo = ?
+    AND path = ?
+    AND expires_at_ms > ?
+  ORDER BY created_at_ms DESC, id DESC
+  LIMIT 1
+`);
+const selectActiveRepoFileShareLinksStmt = db.prepare(`
+  SELECT
+    id,
+    github_user_id,
+    installation_id,
+    owner,
+    repo,
+    path,
+    token,
+    url,
+    created_at_ms,
+    expires_at_ms
+  FROM repo_file_share_links
+  WHERE
+    github_user_id = ?
+    AND installation_id = ?
+    AND owner = ?
+    AND repo = ?
+    AND path = ?
+    AND expires_at_ms > ?
+  ORDER BY created_at_ms DESC, id DESC
+`);
+const deleteExpiredRepoFileShareLinksStmt = db.prepare('DELETE FROM repo_file_share_links WHERE expires_at_ms <= ?');
 
 const upsertInstallationStmt = db.prepare(`
   INSERT INTO user_installations (
@@ -387,6 +481,19 @@ type InstallationRow = {
   updated_at_ms?: number;
 };
 
+type RepoFileShareLinkRow = {
+  id?: number;
+  github_user_id?: number;
+  installation_id?: string;
+  owner?: string;
+  repo?: string;
+  path?: string;
+  token?: string;
+  url?: string;
+  created_at_ms?: number;
+  expires_at_ms?: number;
+};
+
 function rowToUserInstallation(row: InstallationRow): UserInstallation {
   return {
     installationId: String(row.installation_id),
@@ -395,6 +502,21 @@ function rowToUserInstallation(row: InstallationRow): UserInstallation {
     accountAvatarUrl: row.account_avatar_url == null ? null : String(row.account_avatar_url),
     accountHtmlUrl: row.account_html_url == null ? null : String(row.account_html_url),
     updatedAtMs: Number(row.updated_at_ms ?? 0),
+  };
+}
+
+function rowToRepoFileShareLinkRecord(row: RepoFileShareLinkRow): RepoFileShareLinkRecord {
+  return {
+    id: Number(row.id ?? 0),
+    githubUserId: Number(row.github_user_id ?? 0),
+    installationId: String(row.installation_id),
+    owner: String(row.owner),
+    repo: String(row.repo),
+    path: String(row.path),
+    token: String(row.token),
+    url: String(row.url),
+    createdAtMs: Number(row.created_at_ms ?? 0),
+    expiresAtMs: Number(row.expires_at_ms ?? 0),
   };
 }
 
@@ -470,6 +592,71 @@ export function clearRememberedInstallationForUser(githubUserId: number): void {
   deleteInstallationPreferenceStmt.run(githubUserId);
 }
 
+interface CreateRepoFileShareLinkRecordInput {
+  installationId: string;
+  owner: string;
+  repo: string;
+  path: string;
+  token: string;
+  url: string;
+  createdAtMs: number;
+  expiresAtMs: number;
+}
+
+export function createRepoFileShareLinkRecord(
+  githubUserId: number,
+  input: CreateRepoFileShareLinkRecordInput,
+): RepoFileShareLinkRecord {
+  const row = insertRepoFileShareLinkStmt.get(
+    githubUserId,
+    input.installationId,
+    input.owner,
+    input.repo,
+    input.path,
+    input.token,
+    input.url,
+    input.createdAtMs,
+    input.expiresAtMs,
+  ) as RepoFileShareLinkRow | undefined;
+  if (!row) throw new Error('Failed to persist repo file share link');
+  return rowToRepoFileShareLinkRecord(row);
+}
+
+export function getLatestActiveRepoFileShareLink(
+  githubUserId: number,
+  installationId: string,
+  owner: string,
+  repo: string,
+  path: string,
+  nowMs = Date.now(),
+): RepoFileShareLinkRecord | null {
+  deleteExpiredRepoFileShareLinksStmt.run(nowMs);
+  const row = selectLatestActiveRepoFileShareLinkStmt.get(githubUserId, installationId, owner, repo, path, nowMs) as
+    | RepoFileShareLinkRow
+    | undefined;
+  return row ? rowToRepoFileShareLinkRecord(row) : null;
+}
+
+export function listActiveRepoFileShareLinks(
+  githubUserId: number,
+  installationId: string,
+  owner: string,
+  repo: string,
+  path: string,
+  nowMs = Date.now(),
+): RepoFileShareLinkRecord[] {
+  deleteExpiredRepoFileShareLinksStmt.run(nowMs);
+  const rows = selectActiveRepoFileShareLinksStmt.all(
+    githubUserId,
+    installationId,
+    owner,
+    repo,
+    path,
+    nowMs,
+  ) as RepoFileShareLinkRow[];
+  return rows.map(rowToRepoFileShareLinkRecord);
+}
+
 export function createOAuthState(returnTo: string): string {
   const state = crypto.randomBytes(16).toString('hex');
   oauthStates.set(state, { returnTo, expiresAtMs: Date.now() + OAUTH_STATE_TTL_MS });
@@ -488,6 +675,7 @@ export function startSessionCleanup(): void {
   setInterval(() => {
     const now = Date.now();
     deleteExpiredSessionsStmt.run(now);
+    deleteExpiredRepoFileShareLinksStmt.run(now);
     for (const [state, rec] of oauthStates) {
       if (rec.expiresAtMs <= now) oauthStates.delete(state);
     }

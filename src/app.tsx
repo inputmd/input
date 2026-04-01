@@ -68,10 +68,12 @@ import {
   isRepoFile,
   type LinkedInstallation,
   listInstallationRepos,
+  listRepoFileShareLinks,
   listRepoRecentCommits,
   publicRepoRawFileUrl,
   putEditorSharedRepoFile,
   putRepoFile,
+  type RepoFileShareLink,
   type RepoRecentCommitsResult,
   type RepoTreeResult,
   rememberInstallState,
@@ -841,6 +843,29 @@ function getReaderAiProposalStatusesFromHistory(
   );
 }
 
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.setAttribute('readonly', '');
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  document.body.append(input);
+  input.select();
+  document.execCommand('copy');
+  input.remove();
+}
+
+function mergeTrackedShareLinks(links: RepoFileShareLink[], nextLink: RepoFileShareLink): RepoFileShareLink[] {
+  const next = [nextLink, ...links.filter((link) => link.token !== nextLink.token)];
+  next.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return next;
+}
+
 export function App() {
   const { route, routeState, navigate, setNavigationPrompt } = useRoute();
   const documentStack = useDocumentStack();
@@ -869,6 +894,8 @@ export function App() {
   const [menuGistsPage, setMenuGistsPage] = useState(1);
   const [menuGistsAllLoaded, setMenuGistsAllLoaded] = useState(false);
   const [recentRepos, setRecentRepos] = useState<RecentRepoVisit[]>(() => readStoredRecentRepos());
+  const [trackedRepoShareLinks, setTrackedRepoShareLinks] = useState<RepoFileShareLink[]>([]);
+  const [trackedRepoShareLinksLoading, setTrackedRepoShareLinksLoading] = useState(false);
   const [forkRepoDialog, setForkRepoDialog] = useState<ForkRepoDialogState | null>(null);
   const [forkRepoSubmitting, setForkRepoSubmitting] = useState(false);
   const [autoLoadAttemptedGists, setAutoLoadAttemptedGists] = useState(false);
@@ -5067,6 +5094,69 @@ export function App() {
     hasUnsavedChanges,
   ]);
 
+  const canTrackRepoShareLinks =
+    repoAccessMode === 'installed' &&
+    selectedRepoPrivate === true &&
+    selectedRepo !== null &&
+    currentRepoDocPath !== null &&
+    (route.name === 'repofile' || route.name === 'repoedit');
+
+  useEffect(() => {
+    if (!canTrackRepoShareLinks || !selectedRepo || !currentRepoDocPath) {
+      setTrackedRepoShareLinks([]);
+      setTrackedRepoShareLinksLoading(false);
+      return;
+    }
+
+    const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+    if (!instId) {
+      setTrackedRepoShareLinks([]);
+      setTrackedRepoShareLinksLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setTrackedRepoShareLinksLoading(true);
+
+    void (async () => {
+      try {
+        const links = await listRepoFileShareLinks(instId, selectedRepo, currentRepoDocPath);
+        if (!cancelled) setTrackedRepoShareLinks(links);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof SessionExpiredError) {
+          handleSessionExpired();
+          return;
+        }
+        setTrackedRepoShareLinks([]);
+      } finally {
+        if (!cancelled) setTrackedRepoShareLinksLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeInstalledRepoInstallationId,
+    canTrackRepoShareLinks,
+    currentRepoDocPath,
+    handleSessionExpired,
+    selectedRepo,
+  ]);
+
+  const onCopyTrackedShareLink = useCallback(
+    async (shareLink: RepoFileShareLink) => {
+      try {
+        await copyTextToClipboard(shareLink.url);
+        showSuccessToast('Copied share link');
+      } catch (err) {
+        showFailureToast(err instanceof Error ? err.message : 'Failed to copy share link');
+      }
+    },
+    [showFailureToast, showSuccessToast],
+  );
+
   const onShareLink = useCallback(async () => {
     const isGistRoute = route.name === 'gist' || route.name === 'edit';
     const shareToastId = showLoadingToast('Generating share link...');
@@ -5090,6 +5180,7 @@ export function App() {
             return;
           }
           const shareLink = await createRepoFileShareLink(instId, selectedRepo, currentRepoDocPath);
+          setTrackedRepoShareLinks((current) => mergeTrackedShareLinks(current, shareLink));
           url = shareLink.url;
         } else {
           const [owner, repo] = selectedRepo.split('/');
@@ -5107,19 +5198,7 @@ export function App() {
         return;
       }
 
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-      } else {
-        const input = document.createElement('textarea');
-        input.value = url;
-        input.setAttribute('readonly', '');
-        input.style.position = 'fixed';
-        input.style.opacity = '0';
-        document.body.append(input);
-        input.select();
-        document.execCommand('copy');
-        input.remove();
-      }
+      await copyTextToClipboard(url);
       dismissToast(shareToastId);
       showSuccessToast('Copied share link');
     } catch (err) {
@@ -8139,6 +8218,8 @@ export function App() {
         sidebarVisible={showSidebar}
         showActionsMenu={showHeaderActionsMenu}
         showShare={showHeaderShare}
+        activeShareLinks={canTrackRepoShareLinks ? trackedRepoShareLinks : []}
+        shareLinksLoading={canTrackRepoShareLinks && trackedRepoShareLinksLoading}
         showViewSource={showHeaderSourceAction}
         viewSourceLabel={headerSourceActionLabel}
         shareMetadata={shareMenuMetadata}
@@ -8148,6 +8229,9 @@ export function App() {
         showForkRepo={showHeaderForkRepo}
         onShare={() => {
           void onShareLink();
+        }}
+        onCopyShareLink={(link) => {
+          void onCopyTrackedShareLink(link);
         }}
         onForkRepo={() => {
           void onOpenForkRepoDialog();

@@ -19,6 +19,19 @@ export interface UserInstallation {
   updatedAtMs: number;
 }
 
+export interface RepoFileShareLinkRecord {
+  id: number;
+  githubUserId: number;
+  installationId: string;
+  owner: string;
+  repo: string;
+  path: string;
+  token: string;
+  url: string;
+  createdAtMs: number;
+  expiresAtMs: number;
+}
+
 export interface TokenCacheRecord {
   token: string;
   expires_at: string;

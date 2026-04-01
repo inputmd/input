@@ -284,6 +284,7 @@ export interface PutFileResult {
 export interface RepoFileShareLink {
   token: string;
   url: string;
+  createdAt: string;
   expiresAt: string;
 }
 
@@ -751,6 +752,17 @@ export async function createRepoFileShareLink(
     body: JSON.stringify({ installationId, repoFullName, path }),
   });
   return (await res.json()) as RepoFileShareLink;
+}
+
+export async function listRepoFileShareLinks(
+  installationId: string,
+  repoFullName: string,
+  path: string,
+): Promise<RepoFileShareLink[]> {
+  const qs = new URLSearchParams({ installationId, repoFullName, path });
+  const res = await authFetch(`/api/share/repo-file-links?${qs.toString()}`);
+  const data = (await res.json()) as { links?: RepoFileShareLink[] };
+  return Array.isArray(data.links) ? data.links : [];
 }
 
 export async function getSharedRepoFile(token: string): Promise<SharedRepoFile> {

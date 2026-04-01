@@ -417,9 +417,77 @@
   user-select: none;
 }
 
+.author-menu-item-static,
+.author-menu-item[data-disabled] {
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+  cursor: default;
+}
+
 .author-menu-item:hover,
 .author-menu-item[data-highlighted] {
   background: var(--btn-hover);
+}
+
+.author-menu-item-static:hover,
+.author-menu-item-static[data-highlighted],
+.author-menu-item[data-disabled]:hover,
+.author-menu-item[data-disabled][data-highlighted] {
+  background: transparent;
+}
+
+.author-menu-share-link-item {
+  min-height: 34px;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.author-menu-share-link-label {
+  font: inherit;
+  color: inherit;
+  line-height: inherit;
+}
+
+.author-menu-share-link-expiry {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 68%, transparent);
+  flex: none;
+}
+
+.share-link-menu-content {
+  min-width: 220px;
+  max-width: 320px;
+  display: grid;
+  gap: 8px;
+  padding: 2px 4px 1px;
+}
+
+.share-link-menu-content + .user-menu-separator {
+  margin-top: 6px;
+}
+
+.share-link-menu-row {
+  display: grid;
+  gap: 3px;
+}
+
+.share-link-menu-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.share-link-menu-value {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.share-link-menu-value-secondary {
+  margin-left: 2px;
+  color: var(--text-secondary);
 }
 
 .author-menu-item-icon {
@@ -820,7 +888,7 @@
   .toolbar-right,
   .action-buttons,
   .toolbar-toggle-controls {
-    gap: 6px;
+    gap: 4px;
   }
 
   .toolbar-left,
@@ -844,6 +912,7 @@
 
   .repo-menu-trigger {
     padding-inline: 10px;
+    margin-right: 4px;
   }
 
   .toolbar-close-btn {
@@ -875,6 +944,13 @@
     min-width: 35px;
     width: 35px;
     padding: 0 2px;
+  }
+
+  .toolbar .toolbar-toggle-controls .preview-toggle-btn.preview-toggle-btn-model {
+    min-width: 28px;
+    width: 28px;
+    max-width: 28px;
+    padding: 0 4px;
   }
 
   .toolbar-mobile-source-icon svg {
