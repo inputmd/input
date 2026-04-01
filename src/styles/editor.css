@@ -207,14 +207,13 @@
 }
 
 .mobile-preview-controls {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  position: fixed;
+  right: 12px;
+  bottom: var(--editor-bottom-right-overlay-bottom, 12px);
+  z-index: 16;
   display: flex;
   justify-content: flex-end;
-  padding-top: 12px;
-  margin-bottom: 10px;
-  background: linear-gradient(to bottom, var(--bg) 70%, transparent);
+  pointer-events: none;
 }
 
 .mobile-preview-highlights-toggle {
@@ -233,6 +232,7 @@
   cursor: pointer;
   outline: none;
   -webkit-tap-highlight-color: transparent;
+  pointer-events: auto;
 }
 
 .mobile-preview-pane .rendered-markdown {

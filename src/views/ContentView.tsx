@@ -1,6 +1,9 @@
-import { ExternalLink } from 'lucide-react';
+import * as Popover from '@radix-ui/react-popover';
+import { ExternalLink, Highlighter, Pin } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
+import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlightsPopover';
+import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextCodeView } from '../components/TextCodeView';
 import {
   navigatePromptListBranch,
@@ -114,10 +117,15 @@ export function ContentView({
   const hoverAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const hoverRequestIdRef = useRef(0);
   const hoverDelayTimerRef = useRef<number | null>(null);
+  const previewHighlightsPopoverCloseTimeoutRef = useRef<number | null>(null);
+  const previewHighlightElementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const pointerDownRef = useRef(false);
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
   const currentScrollStorageKeyRef = useRef<string | null>(null);
+  const [previewHighlightEntries, setPreviewHighlightEntries] = useState<PreviewHighlightEntry[]>([]);
+  const [previewHighlightsPopoverOpen, setPreviewHighlightsPopoverOpen] = useState(false);
+  const [previewHighlightsPopoverPinned, setPreviewHighlightsPopoverPinned] = useState(false);
   const [preview, setPreview] = useState<LinkPreviewState>({
     visible: false,
     loading: false,
@@ -154,11 +162,55 @@ export function ContentView({
     setPreview((prev) => (prev.visible || prev.loading ? { ...prev, visible: false, loading: false } : prev));
   }, [clearHoverDelay]);
 
+  const clearPreviewHighlightsPopoverCloseTimeout = useCallback(() => {
+    if (previewHighlightsPopoverCloseTimeoutRef.current == null) return;
+    window.clearTimeout(previewHighlightsPopoverCloseTimeoutRef.current);
+    previewHighlightsPopoverCloseTimeoutRef.current = null;
+  }, []);
+
+  const openPreviewHighlightsPopover = useCallback(() => {
+    clearPreviewHighlightsPopoverCloseTimeout();
+    setPreviewHighlightsPopoverOpen(true);
+  }, [clearPreviewHighlightsPopoverCloseTimeout]);
+
+  const closePreviewHighlightsPopoverSoon = useCallback(() => {
+    if (previewHighlightsPopoverPinned) return;
+    clearPreviewHighlightsPopoverCloseTimeout();
+    previewHighlightsPopoverCloseTimeoutRef.current = window.setTimeout(() => {
+      previewHighlightsPopoverCloseTimeoutRef.current = null;
+      setPreviewHighlightsPopoverOpen(false);
+    }, 120);
+  }, [clearPreviewHighlightsPopoverCloseTimeout, previewHighlightsPopoverPinned]);
+
+  const togglePreviewHighlightsPopoverPinned = useCallback(() => {
+    clearPreviewHighlightsPopoverCloseTimeout();
+    setPreviewHighlightsPopoverPinned((pinned) => {
+      const nextPinned = !pinned;
+      setPreviewHighlightsPopoverOpen(nextPinned);
+      return nextPinned;
+    });
+  }, [clearPreviewHighlightsPopoverCloseTimeout]);
+
+  const handlePreviewHighlightsPopoverOpenChange = useCallback(
+    (open: boolean) => {
+      clearPreviewHighlightsPopoverCloseTimeout();
+      setPreviewHighlightsPopoverOpen(open);
+      if (!open) setPreviewHighlightsPopoverPinned(false);
+    },
+    [clearPreviewHighlightsPopoverCloseTimeout],
+  );
+
   useEffect(() => {
     return () => {
       clearHoverDelay();
     };
   }, [clearHoverDelay]);
+
+  useEffect(() => {
+    return () => {
+      clearPreviewHighlightsPopoverCloseTimeout();
+    };
+  }, [clearPreviewHighlightsPopoverCloseTimeout]);
 
   useEffect(() => {
     const syncScrollPosition = () => {
@@ -241,6 +293,28 @@ export function ContentView({
     syncPromptListCollapsedStateFromUrl(root, true);
     syncPromptListBranchNavigationButtons(root);
   }, [html, markdown]);
+
+  useEffect(() => {
+    const root = renderedMarkdownRef.current;
+    previewHighlightElementsRef.current.clear();
+
+    if (!markdown || !html || !root) {
+      setPreviewHighlightEntries([]);
+      return;
+    }
+
+    const { entries, elementsById } = collectPreviewHighlights(root);
+    previewHighlightElementsRef.current = elementsById;
+    setPreviewHighlightEntries(entries);
+  }, [html, markdown]);
+
+  const handlePreviewHighlightSelect = useCallback((id: string) => {
+    const target = previewHighlightElementsRef.current.get(id);
+    if (!target) return;
+    setPreviewHighlightsPopoverPinned(false);
+    setPreviewHighlightsPopoverOpen(false);
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, []);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
@@ -648,6 +722,54 @@ export function ContentView({
           {markdownCustomCss ? (
             <style key={markdownCustomCssScope ?? markdownCustomCss}>{markdownCustomCss}</style>
           ) : null}
+          <div class="content-view-overlay-controls">
+            <Popover.Root open={previewHighlightsPopoverOpen} onOpenChange={handlePreviewHighlightsPopoverOpenChange}>
+              <Popover.Anchor asChild>
+                <button
+                  type="button"
+                  class="editor-preview-highlights-toggle"
+                  aria-label="Show document highlights"
+                  aria-haspopup="dialog"
+                  aria-expanded={previewHighlightsPopoverOpen}
+                  onMouseEnter={openPreviewHighlightsPopover}
+                  onMouseLeave={closePreviewHighlightsPopoverSoon}
+                  onClick={togglePreviewHighlightsPopoverPinned}
+                >
+                  {previewHighlightsPopoverPinned ? (
+                    <Pin size={14} aria-hidden="true" />
+                  ) : (
+                    <Highlighter size={14} aria-hidden="true" />
+                  )}
+                </button>
+              </Popover.Anchor>
+              <Popover.Portal>
+                <Popover.Content
+                  class="editor-preview-highlights-popover-content"
+                  side="top"
+                  align="end"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  onOpenAutoFocus={(event: Event) => {
+                    event.preventDefault();
+                  }}
+                  onCloseAutoFocus={(event: Event) => {
+                    event.preventDefault();
+                  }}
+                  onInteractOutside={(event: Event) => {
+                    if (!previewHighlightsPopoverPinned) return;
+                    event.preventDefault();
+                  }}
+                  onMouseEnter={openPreviewHighlightsPopover}
+                  onMouseLeave={closePreviewHighlightsPopoverSoon}
+                >
+                  <PreviewHighlightsPopoverContent
+                    entries={previewHighlightEntries}
+                    onSelect={handlePreviewHighlightSelect}
+                  />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          </div>
           <div
             ref={renderedMarkdownRef}
             class="rendered-markdown"

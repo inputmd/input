@@ -9,6 +9,8 @@ import type { BracePromptRequest } from '../components/codemirror_inline_prompt'
 import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
 import type { PromptListRequest } from '../components/markdown_editor_commands';
+import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlightsPopover';
+import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextEditor } from '../components/TextEditor';
 import type { MarkdownSyncBlock } from '../markdown';
 import {
@@ -46,79 +48,6 @@ interface LinkPreviewState {
   title: string;
   html: string;
   url: string | null;
-}
-
-interface PreviewHighlightEntry {
-  id: string;
-  prefix: string;
-  text: string;
-  suffix: string;
-}
-
-function getHighlightPrefixText(element: HTMLElement, maxChars = 160): string {
-  const listItem = element.closest('li');
-  const parentListItem = listItem?.parentElement?.closest('li');
-  if (!parentListItem) return '';
-
-  const clone = parentListItem.cloneNode(true);
-  if (!(clone instanceof HTMLElement)) return '';
-  clone.querySelectorAll('ul, ol').forEach((childList) => {
-    childList.remove();
-  });
-
-  const prefix = (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
-  if (!prefix) return '';
-  return prefix.slice(0, maxChars);
-}
-
-function getHighlightSuffixText(element: HTMLElement, maxChars = 140): string {
-  const ownerDocument = element.ownerDocument;
-  const container =
-    element.closest('p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6, figcaption') ?? element.parentElement;
-  if (!ownerDocument || !container || !container.lastChild) return '';
-
-  const range = ownerDocument.createRange();
-  range.selectNodeContents(container);
-  range.setStartAfter(element);
-
-  const suffix = range.toString().replace(/\s+/g, ' ').trimEnd();
-  if (!suffix.trim()) return '';
-  return suffix.slice(0, maxChars);
-}
-
-function PreviewHighlightsPopoverContent({
-  entries,
-  onSelect,
-}: {
-  entries: PreviewHighlightEntry[];
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <div class="editor-preview-highlights-popover">
-      {entries.length > 0 ? (
-        <div class="editor-preview-highlights-popover-list">
-          {entries.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              class="editor-preview-highlights-popover-item"
-              onClick={() => onSelect(entry.id)}
-            >
-              {entry.prefix ? <span class="editor-preview-highlights-popover-item-prefix">{entry.prefix}</span> : null}
-              <span class="editor-preview-highlights-popover-item-copy">
-                <span class="editor-preview-highlights-popover-item-text">{entry.text}</span>
-                {entry.suffix ? (
-                  <span class="editor-preview-highlights-popover-item-suffix">{entry.suffix}</span>
-                ) : null}
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div class="editor-preview-highlights-popover-empty">No highlights in this document.</div>
-      )}
-    </div>
-  );
 }
 
 function isMarkdownHref(href: string): boolean {
@@ -1448,17 +1377,8 @@ export function EditView({
       return;
     }
 
-    const entries = Array.from(
-      root.querySelectorAll<HTMLElement>('mark.critic-highlight, mark.double-colon-highlight'),
-    ).map((element, index) => {
-      const prefix = getHighlightPrefixText(element);
-      const text = (element.textContent ?? '').replace(/\s+/g, ' ').trim() || `Highlight ${index + 1}`;
-      const suffix = getHighlightSuffixText(element);
-      const id = `preview-highlight-${index}`;
-      previewHighlightElementsRef.current.set(id, element);
-      return { id, prefix, text, suffix };
-    });
-
+    const { entries, elementsById } = collectPreviewHighlights(root);
+    previewHighlightElementsRef.current = elementsById;
     setPreviewHighlightEntries(entries);
   }, [canRenderPreview, markdown, previewHtml, previewVisible]);
 
@@ -1643,57 +1563,52 @@ export function EditView({
         {markdown && previewVisible && canRenderPreview && !loading && (
           <>
             <div class={`editor-preview-controls${showModelStatusIndicator ? ' is-model-status-below' : ''}`}>
-              {previewHighlightEntries.length > 0 ? (
-                <Popover.Root
-                  open={desktopHighlightsPopoverOpen}
-                  onOpenChange={handleDesktopHighlightsPopoverOpenChange}
-                >
-                  <Popover.Anchor asChild>
-                    <button
-                      type="button"
-                      class="editor-preview-highlights-toggle"
-                      aria-label="Show document highlights"
-                      aria-haspopup="dialog"
-                      aria-expanded={desktopHighlightsPopoverOpen}
-                      onMouseEnter={openDesktopHighlightsPopover}
-                      onMouseLeave={closeDesktopHighlightsPopoverSoon}
-                      onClick={toggleDesktopHighlightsPopoverPinned}
-                    >
-                      {desktopHighlightsPopoverPinned ? (
-                        <Pin size={14} aria-hidden="true" />
-                      ) : (
-                        <Highlighter size={14} aria-hidden="true" />
-                      )}
-                    </button>
-                  </Popover.Anchor>
-                  <Popover.Portal>
-                    <Popover.Content
-                      class="editor-preview-highlights-popover-content"
-                      side="top"
-                      align="end"
-                      sideOffset={8}
-                      collisionPadding={12}
-                      onOpenAutoFocus={(event: Event) => {
-                        event.preventDefault();
-                      }}
-                      onCloseAutoFocus={(event: Event) => {
-                        event.preventDefault();
-                      }}
-                      onInteractOutside={(event: Event) => {
-                        if (!desktopHighlightsPopoverPinned) return;
-                        event.preventDefault();
-                      }}
-                      onMouseEnter={openDesktopHighlightsPopover}
-                      onMouseLeave={closeDesktopHighlightsPopoverSoon}
-                    >
-                      <PreviewHighlightsPopoverContent
-                        entries={previewHighlightEntries}
-                        onSelect={handlePreviewHighlightSelect}
-                      />
-                    </Popover.Content>
-                  </Popover.Portal>
-                </Popover.Root>
-              ) : null}
+              <Popover.Root open={desktopHighlightsPopoverOpen} onOpenChange={handleDesktopHighlightsPopoverOpenChange}>
+                <Popover.Anchor asChild>
+                  <button
+                    type="button"
+                    class="editor-preview-highlights-toggle"
+                    aria-label="Show document highlights"
+                    aria-haspopup="dialog"
+                    aria-expanded={desktopHighlightsPopoverOpen}
+                    onMouseEnter={openDesktopHighlightsPopover}
+                    onMouseLeave={closeDesktopHighlightsPopoverSoon}
+                    onClick={toggleDesktopHighlightsPopoverPinned}
+                  >
+                    {desktopHighlightsPopoverPinned ? (
+                      <Pin size={14} aria-hidden="true" />
+                    ) : (
+                      <Highlighter size={14} aria-hidden="true" />
+                    )}
+                  </button>
+                </Popover.Anchor>
+                <Popover.Portal>
+                  <Popover.Content
+                    class="editor-preview-highlights-popover-content"
+                    side="top"
+                    align="end"
+                    sideOffset={8}
+                    collisionPadding={12}
+                    onOpenAutoFocus={(event: Event) => {
+                      event.preventDefault();
+                    }}
+                    onCloseAutoFocus={(event: Event) => {
+                      event.preventDefault();
+                    }}
+                    onInteractOutside={(event: Event) => {
+                      if (!desktopHighlightsPopoverPinned) return;
+                      event.preventDefault();
+                    }}
+                    onMouseEnter={openDesktopHighlightsPopover}
+                    onMouseLeave={closeDesktopHighlightsPopoverSoon}
+                  >
+                    <PreviewHighlightsPopoverContent
+                      entries={previewHighlightEntries}
+                      onSelect={handlePreviewHighlightSelect}
+                    />
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
               <Tooltip.Provider delayDuration={150}>
                 <Tooltip.Root open={previewScrollTooltipOpen} onOpenChange={setPreviewScrollTooltipOpen}>
                   <Tooltip.Trigger asChild>
@@ -1768,45 +1683,43 @@ export function EditView({
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
           <div class="mobile-preview-pane" ref={mobilePreviewPaneRef} onScroll={handlePreviewPaneScroll}>
-            {previewHighlightEntries.length > 0 ? (
-              <div class="mobile-preview-controls">
-                <Popover.Root open={mobileHighlightsPopoverOpen} onOpenChange={handleMobileHighlightsPopoverOpenChange}>
-                  <Popover.Anchor asChild>
-                    <button
-                      type="button"
-                      class="mobile-preview-highlights-toggle"
-                      aria-label="Show document highlights"
-                      aria-haspopup="dialog"
-                      aria-expanded={mobileHighlightsPopoverOpen}
-                      onClick={() => setMobileHighlightsPopoverOpen(true)}
-                    >
-                      <Highlighter size={14} aria-hidden="true" />
-                      <span>Highlights</span>
-                    </button>
-                  </Popover.Anchor>
-                  <Popover.Portal>
-                    <Popover.Content
-                      class="editor-preview-highlights-popover-content mobile-preview-highlights-popover-content"
-                      side="top"
-                      align="end"
-                      sideOffset={8}
-                      collisionPadding={16}
-                      onOpenAutoFocus={(event: Event) => {
-                        event.preventDefault();
-                      }}
-                      onCloseAutoFocus={(event: Event) => {
-                        event.preventDefault();
-                      }}
-                    >
-                      <PreviewHighlightsPopoverContent
-                        entries={previewHighlightEntries}
-                        onSelect={handlePreviewHighlightSelect}
-                      />
-                    </Popover.Content>
-                  </Popover.Portal>
-                </Popover.Root>
-              </div>
-            ) : null}
+            <div class="mobile-preview-controls">
+              <Popover.Root open={mobileHighlightsPopoverOpen} onOpenChange={handleMobileHighlightsPopoverOpenChange}>
+                <Popover.Anchor asChild>
+                  <button
+                    type="button"
+                    class="mobile-preview-highlights-toggle"
+                    aria-label="Show document highlights"
+                    aria-haspopup="dialog"
+                    aria-expanded={mobileHighlightsPopoverOpen}
+                    onClick={() => setMobileHighlightsPopoverOpen(true)}
+                  >
+                    <Highlighter size={14} aria-hidden="true" />
+                    <span>Highlights</span>
+                  </button>
+                </Popover.Anchor>
+                <Popover.Portal>
+                  <Popover.Content
+                    class="editor-preview-highlights-popover-content mobile-preview-highlights-popover-content"
+                    side="top"
+                    align="end"
+                    sideOffset={8}
+                    collisionPadding={16}
+                    onOpenAutoFocus={(event: Event) => {
+                      event.preventDefault();
+                    }}
+                    onCloseAutoFocus={(event: Event) => {
+                      event.preventDefault();
+                    }}
+                  >
+                    <PreviewHighlightsPopoverContent
+                      entries={previewHighlightEntries}
+                      onSelect={handlePreviewHighlightSelect}
+                    />
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            </div>
             {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
             {!previewFrontMatterError && previewCssWarning ? (
               <div class="editor-preview-alert">{previewCssWarning}</div>
