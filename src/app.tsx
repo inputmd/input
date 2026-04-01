@@ -1292,6 +1292,7 @@ export function App() {
   );
   const currentDocumentLabel =
     currentFileName ?? currentRepoDocPath ?? (isScratchDocument ? UNSAVED_FILE_LABEL : 'this document');
+  const browserWindowTitle = currentRepoDocPath ?? currentFileName ?? 'Input';
   const readerAiEditEligible =
     routeView === 'edit' && (isMarkdownFileName(currentFileName ?? editTitle) || isScratchDocument);
   const readerAiContentEligible =
@@ -1308,6 +1309,9 @@ export function App() {
     setInlinePromptProtectedRangeState(null);
     setInlinePromptStreaming(false);
   }, [setInlinePromptProtectedRangeState]);
+  useEffect(() => {
+    document.title = browserWindowTitle;
+  }, [browserWindowTitle]);
   const readerAiSaveLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
   const readerAiNavigationLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
   const readerAiEditorLocked = activeView === 'edit' && readerAiApplyingChanges;
