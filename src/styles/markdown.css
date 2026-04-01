@@ -511,7 +511,7 @@
   margin-bottom: 0;
 }
 
-.rendered-markdown li > p:only-child {
+.rendered-markdown li > p:is(:only-child, :first-child) {
   margin-top: 0;
   margin-bottom: 0;
 }
