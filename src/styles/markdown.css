@@ -772,6 +772,15 @@
   text-decoration: underline;
 }
 
+.rendered-markdown a[href="#"]:not(.prompt-answer-toggle) {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+}
+
+.rendered-markdown a[href="#"]:not(.prompt-answer-toggle):hover {
+  text-decoration-style: dotted;
+}
+
 .rendered-markdown a.missing-wikilink {
   color: var(--missing-link-color);
 }
