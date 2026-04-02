@@ -1704,7 +1704,7 @@ export function EditView({
             <div
               class={`editor-preview-pane${previewRestorePending ? ' is-restoring-preview' : ''}`}
               ref={previewPaneRef}
-              data-markdown-custom-css-content-view={previewCustomCssScope ?? undefined}
+              data-markdown-custom-css-content={previewCustomCssScope ?? undefined}
               data-markdown-custom-css-main={previewCustomCssScope ?? undefined}
               onScroll={handlePreviewPaneScroll}
             >
@@ -1740,7 +1740,7 @@ export function EditView({
           <div
             class="mobile-preview-pane"
             ref={mobilePreviewPaneRef}
-            data-markdown-custom-css-content-view={previewCustomCssScope ?? undefined}
+            data-markdown-custom-css-content={previewCustomCssScope ?? undefined}
             data-markdown-custom-css-main={previewCustomCssScope ?? undefined}
             onScroll={handlePreviewPaneScroll}
           >

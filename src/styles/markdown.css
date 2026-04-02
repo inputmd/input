@@ -1,4 +1,4 @@
-.content-view {
+.content {
   position: relative;
   width: 100%;
   margin: 0 auto;
@@ -33,11 +33,11 @@
   text-decoration: underline;
 }
 
-.content-view--markdown {
+.content--markdown {
   max-width: 720px;
 }
 
-.content-view-overlay-controls {
+.content-overlay-controls {
   position: fixed;
   right: 12px;
   bottom: var(--editor-bottom-right-overlay-bottom, 12px);
@@ -47,7 +47,7 @@
   gap: 8px;
 }
 
-.content-view-overlay-controls .editor-preview-highlights-toggle {
+.content-overlay-controls .editor-preview-highlights-toggle {
   display: inline-flex;
   align-items: center;
   min-height: 32px;
@@ -64,18 +64,18 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.content-view-overlay-controls .editor-preview-highlights-toggle:hover {
+.content-overlay-controls .editor-preview-highlights-toggle:hover {
   background: color-mix(in srgb, var(--btn-hover) 65%, var(--toolbar-bg));
   color: var(--text);
 }
 
-.content-view-overlay-controls .editor-preview-highlights-toggle:focus,
-.content-view-overlay-controls .editor-preview-highlights-toggle:focus-visible {
+.content-overlay-controls .editor-preview-highlights-toggle:focus,
+.content-overlay-controls .editor-preview-highlights-toggle:focus-visible {
   outline: none;
   box-shadow: 0 10px 24px color-mix(in srgb, var(--bg) 72%, transparent);
 }
 
-.content-view--plain {
+.content--plain {
   max-width: 800px;
 }
 
@@ -98,7 +98,7 @@
   backdrop-filter: blur(6px);
 }
 
-.content-view--image {
+.content--image {
   max-width: none;
 }
 

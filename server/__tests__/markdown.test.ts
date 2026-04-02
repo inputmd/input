@@ -636,7 +636,7 @@ test('togglePromptAnswerExpandedState keeps collapsed prompt answers aligned bel
       ].join('\n'),
     );
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = `<header class="toolbar"></header><div class="content-view"><div class="rendered-markdown">${html}</div></div>`;
+    wrapper.innerHTML = `<header class="toolbar"></header><div class="content"><div class="rendered-markdown">${html}</div></div>`;
     document.body.append(wrapper);
 
     const toolbar = wrapper.querySelector<HTMLElement>('.toolbar');
@@ -1229,7 +1229,7 @@ test('parseMarkdownDocument rewrites content container aliases to scoped selecto
     parseMarkdownDocument(
       `---
 css: |
-  .content-view { margin: -1rem; padding: 2rem; }
+  .content { margin: -1rem; padding: 2rem; }
   .rendered-markdown { padding: 1rem; }
   main > .rendered-markdown { max-width: 42rem; }
 ---
@@ -1241,7 +1241,7 @@ css: |
   t.truthy(document.customCssScope);
   t.true(
     document.customCss?.includes(
-      `[data-markdown-custom-css-content-view="${document.customCssScope}"] { margin: -1rem; padding: 2rem; }`,
+      `[data-markdown-custom-css-content="${document.customCssScope}"] { margin: -1rem; padding: 2rem; }`,
     ),
   );
   t.true(document.customCss?.includes(`[data-markdown-custom-css="${document.customCssScope}"] { padding: 1rem; }`));

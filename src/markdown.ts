@@ -1880,7 +1880,7 @@ const ALLOWED_MARKDOWN_TAGS = new Set([
 const ALLOWED_MARKDOWN_PSEUDOS = new Set(['first-child', 'focus', 'focus-visible', 'hover', 'last-child', 'visited']);
 const ALLOWED_MARKDOWN_ROOT_TAG_ALIASES = new Set(['main']);
 const MARKDOWN_ROOT_CLASS_SELECTOR_REWRITES = new Map([
-  ['.content-view', 'data-markdown-custom-css-content-view'],
+  ['.content', 'data-markdown-custom-css-content'],
   ['.rendered-markdown', 'data-markdown-custom-css'],
 ]);
 const MARKDOWN_ROOT_TAG_SELECTOR_REWRITES = new Map([['main', 'data-markdown-custom-css-main']]);

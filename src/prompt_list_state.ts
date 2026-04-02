@@ -131,7 +131,7 @@ function getPromptListScrollContainer(target: HTMLElement): HTMLElement | null {
   for (const selector of [
     '.editor-preview-pane',
     '.mobile-preview-pane',
-    '.content-view',
+    '.content',
     '.document-stack-layer-content',
   ]) {
     const container = target.closest<HTMLElement>(selector);

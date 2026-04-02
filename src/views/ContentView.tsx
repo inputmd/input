@@ -686,8 +686,8 @@ export function ContentView({
   return (
     <div
       ref={contentViewRef}
-      class={`content-view ${imagePreview ? 'content-view--image' : markdown ? 'content-view--markdown' : 'content-view--plain'}`}
-      data-markdown-custom-css-content-view={markdown && markdownCustomCssScope ? markdownCustomCssScope : undefined}
+      class={`content ${imagePreview ? 'content--image' : markdown ? 'content--markdown' : 'content--plain'}`}
+      data-markdown-custom-css-content={markdown && markdownCustomCssScope ? markdownCustomCssScope : undefined}
       data-markdown-custom-css-main={markdown && markdownCustomCssScope ? markdownCustomCssScope : undefined}
     >
       {alertMessage ? (
@@ -724,7 +724,7 @@ export function ContentView({
           {markdownCustomCss ? (
             <style key={markdownCustomCssScope ?? markdownCustomCss}>{markdownCustomCss}</style>
           ) : null}
-          <div class="content-view-overlay-controls">
+          <div class="content-overlay-controls">
             <Popover.Root open={previewHighlightsPopoverOpen} onOpenChange={handlePreviewHighlightsPopoverOpenChange}>
               <Popover.Anchor asChild>
                 <button
