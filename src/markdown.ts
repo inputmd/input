@@ -1878,6 +1878,12 @@ const ALLOWED_MARKDOWN_TAGS = new Set([
 ]);
 
 const ALLOWED_MARKDOWN_PSEUDOS = new Set(['first-child', 'focus', 'focus-visible', 'hover', 'last-child', 'visited']);
+const ALLOWED_MARKDOWN_ROOT_TAG_ALIASES = new Set(['main']);
+const MARKDOWN_ROOT_CLASS_SELECTOR_REWRITES = new Map([
+  ['.content-view', 'data-markdown-custom-css-content-view'],
+  ['.rendered-markdown', 'data-markdown-custom-css'],
+]);
+const MARKDOWN_ROOT_TAG_SELECTOR_REWRITES = new Map([['main', 'data-markdown-custom-css-main']]);
 
 const ALLOWED_CSS_PROPERTIES = new Set([
   'background',
@@ -2014,7 +2020,7 @@ function isAllowedSimpleSelector(selector: string): boolean {
   if (!trimmed) return false;
   if (/[#[*]/.test(trimmed)) return false;
   if (trimmed.includes('::')) return false;
-  if (/[<>]/.test(trimmed)) return false;
+  if (trimmed.includes('<')) return false;
 
   const segments = trimmed.split(/\s*[>+~]\s*|\s+/).filter(Boolean);
   if (segments.length === 0) return false;
@@ -2032,7 +2038,8 @@ function isAllowedSimpleSelector(selector: string): boolean {
         if (!ALLOWED_MARKDOWN_PSEUDOS.has(token.slice(1).toLowerCase())) return false;
         continue;
       }
-      if (!ALLOWED_MARKDOWN_TAGS.has(token.toLowerCase())) return false;
+      const lower = token.toLowerCase();
+      if (!ALLOWED_MARKDOWN_TAGS.has(lower) && !ALLOWED_MARKDOWN_ROOT_TAG_ALIASES.has(lower)) return false;
     }
   }
 
@@ -2059,6 +2066,44 @@ function parseThemeQualifiedSelector(selector: string): ThemeQualifiedSelector |
     theme: themeMatch[1] as 'light' | 'dark',
     selector: themedSelector,
   };
+}
+
+function rewriteSelectorToken(token: string, scope: string): string {
+  const lower = token.toLowerCase();
+  if (token.startsWith('.')) {
+    const attribute = MARKDOWN_ROOT_CLASS_SELECTOR_REWRITES.get(lower);
+    return attribute ? `[${attribute}="${scope}"]` : token;
+  }
+
+  const attribute = MARKDOWN_ROOT_TAG_SELECTOR_REWRITES.get(lower);
+  return attribute ? `[${attribute}="${scope}"]` : token;
+}
+
+function buildScopedMarkdownSelector(selector: string, scope: string): string {
+  const trimmed = selector.trim();
+  const renderedMarkdownSelector = `.rendered-markdown[data-markdown-custom-css="${scope}"]`;
+  const parts = trimmed.split(/(\s*[>+~]\s*|\s+)/).filter((part) => part.length > 0);
+  let rewroteRootSelector = false;
+
+  const rewritten = parts
+    .map((part) => {
+      if (/^\s*[>+~]?\s*$/.test(part)) return part;
+
+      const tokens = part.match(/(?:^[a-z][a-z0-9-]*)|\.[a-z][a-z0-9-]*|:[a-z-]+/gi);
+      if (!tokens) return part;
+
+      return tokens
+        .map((token) => {
+          if (token.startsWith(':')) return token;
+          const rewrittenToken = rewriteSelectorToken(token, scope);
+          if (rewrittenToken !== token) rewroteRootSelector = true;
+          return rewrittenToken;
+        })
+        .join('');
+    })
+    .join('');
+
+  return rewroteRootSelector ? rewritten : `${renderedMarkdownSelector} ${trimmed}`;
 }
 
 function sanitizeMarkdownCustomCss(
@@ -2166,14 +2211,13 @@ function sanitizeMarkdownCustomCss(
       )
       .join('\n')}`,
   );
-  const scopeSelector = `.rendered-markdown[data-markdown-custom-css="${scope}"]`;
   const scopedRules = rules
     .map((rule) => {
       const selectors = rule.selectors
         .map((selector) =>
           selector.theme
-            ? `[data-theme="${selector.theme}"] ${scopeSelector} ${selector.selector}`
-            : `${scopeSelector} ${selector.selector}`,
+            ? `[data-theme="${selector.theme}"] ${buildScopedMarkdownSelector(selector.selector, scope)}`
+            : buildScopedMarkdownSelector(selector.selector, scope),
         )
         .join(', ');
       return `${selectors} { ${rule.declarations}; }`;

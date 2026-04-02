@@ -1704,6 +1704,8 @@ export function EditView({
             <div
               class={`editor-preview-pane${previewRestorePending ? ' is-restoring-preview' : ''}`}
               ref={previewPaneRef}
+              data-markdown-custom-css-content-view={previewCustomCssScope ?? undefined}
+              data-markdown-custom-css-main={previewCustomCssScope ?? undefined}
               onScroll={handlePreviewPaneScroll}
             >
               {previewFrontMatterError ? <div class="editor-preview-alert">{previewFrontMatterError}</div> : null}
@@ -1735,7 +1737,13 @@ export function EditView({
       {markdown && previewVisible && !canRenderPreview && !loading && (
         <>
           <div class="mobile-preview-backdrop" onClick={onTogglePreview} />
-          <div class="mobile-preview-pane" ref={mobilePreviewPaneRef} onScroll={handlePreviewPaneScroll}>
+          <div
+            class="mobile-preview-pane"
+            ref={mobilePreviewPaneRef}
+            data-markdown-custom-css-content-view={previewCustomCssScope ?? undefined}
+            data-markdown-custom-css-main={previewCustomCssScope ?? undefined}
+            onScroll={handlePreviewPaneScroll}
+          >
             <div class="mobile-preview-controls">
               <Popover.Root open={mobileHighlightsPopoverOpen} onOpenChange={handleMobileHighlightsPopoverOpenChange}>
                 <Popover.Anchor asChild>

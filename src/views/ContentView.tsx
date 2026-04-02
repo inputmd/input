@@ -687,6 +687,8 @@ export function ContentView({
     <div
       ref={contentViewRef}
       class={`content-view ${imagePreview ? 'content-view--image' : markdown ? 'content-view--markdown' : 'content-view--plain'}`}
+      data-markdown-custom-css-content-view={markdown && markdownCustomCssScope ? markdownCustomCssScope : undefined}
+      data-markdown-custom-css-main={markdown && markdownCustomCssScope ? markdownCustomCssScope : undefined}
     >
       {alertMessage ? (
         <ContentAlert>

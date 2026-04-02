@@ -1224,6 +1224,35 @@ css: |
   t.is(document.cssWarning, null);
 });
 
+test('parseMarkdownDocument rewrites content container aliases to scoped selectors', (t) => {
+  const document = withDom(() =>
+    parseMarkdownDocument(
+      `---
+css: |
+  .content-view { margin: -1rem; padding: 2rem; }
+  .rendered-markdown { padding: 1rem; }
+  main > .rendered-markdown { max-width: 42rem; }
+---
+# Hello`,
+    ),
+  );
+
+  t.truthy(document.customCss);
+  t.truthy(document.customCssScope);
+  t.true(
+    document.customCss?.includes(
+      `[data-markdown-custom-css-content-view="${document.customCssScope}"] { margin: -1rem; padding: 2rem; }`,
+    ),
+  );
+  t.true(document.customCss?.includes(`[data-markdown-custom-css="${document.customCssScope}"] { padding: 1rem; }`));
+  t.true(
+    document.customCss?.includes(
+      `[data-markdown-custom-css-main="${document.customCssScope}"] > [data-markdown-custom-css="${document.customCssScope}"] { max-width: 42rem; }`,
+    ),
+  );
+  t.is(document.cssWarning, null);
+});
+
 test('parseMarkdownDocument allows opacity in scoped custom css', (t) => {
   const document = withDom(() =>
     parseMarkdownDocument(
