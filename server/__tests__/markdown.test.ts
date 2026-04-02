@@ -850,6 +850,40 @@ test('parseMarkdownToHtml keeps fenced code blocks unchanged while preserving pr
   t.false(html.includes('leading-indent'));
 });
 
+test('parseMarkdownToHtml keeps straight quotes unless smartQuotes is enabled', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('"hello", it\'s me.'));
+
+  t.true(html.includes('"hello", it\'s me.'));
+  t.false(html.includes('“hello”'));
+  t.false(html.includes('it’s'));
+});
+
+test('parseMarkdownToHtml renders smart double quotes and apostrophes when enabled', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('"hello", it\'s me.', { smartQuotes: true }));
+
+  t.true(html.includes('“hello”, it’s me.'));
+});
+
+test('parseMarkdownToHtml renders smart quotes across inline markup when enabled', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('"hello **world**"', { smartQuotes: true }));
+
+  t.regex(html, /<p(?:\s+data-sync-id="[^"]+")?>“hello <strong>world<\/strong>”<\/p>/);
+});
+
+test('parseMarkdownToHtml keeps feet and inch marks literal when smartQuotes is enabled', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('He is 5\' 10" tall.', { smartQuotes: true }));
+
+  t.true(html.includes('5\' 10" tall.'));
+  t.false(html.includes('5’ 10”'));
+});
+
+test('parseMarkdownToHtml keeps fenced code quotes literal when smartQuotes is enabled', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('```\nconst x = "quoted";\n```', { smartQuotes: true }));
+
+  t.regex(html, /<pre(?:\s+data-sync-id="[^"]+")?><code>const x = "quoted";\n<\/code><\/pre>/);
+  t.false(html.includes('“quoted”'));
+});
+
 test('parseMarkdownToHtml renders CriticMarkup inside prompt list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('~ Review {++this++}\n⏺ Keep {--that--}'));
 

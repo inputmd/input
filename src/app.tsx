@@ -1648,6 +1648,7 @@ export function App() {
             : undefined;
 
         const rendered = parseMarkdownDocument(content, {
+          smartQuotes: true,
           resolveImageSrc: (src) => resolveMarkdownImageSrc(src, repoDocPath, repoSource),
           resolveWikiLinkMeta: wikiLinkResolver,
         });
@@ -1781,6 +1782,7 @@ export function App() {
         const previewSource = excerpt.truncated ? `${excerpt.text}\n\n…` : excerpt.text;
         const html = parseMarkdownToHtml(previewSource, {
           breaks: false,
+          smartQuotes: true,
           resolveImageSrc: () => null,
         });
         const preview = { title, html: removeImagesFromHtml(html) };
@@ -1880,6 +1882,7 @@ export function App() {
         docPath && knownPaths.length > 0 ? createWikiLinkResolver(docPath, knownPaths) : undefined;
 
       const rendered = parseMarkdownDocument(content, {
+        smartQuotes: true,
         resolveImageSrc: (src) => resolveMarkdownImageSrc(src, docPath, repoSource),
         resolveWikiLinkMeta: wikiLinkResolver,
       });

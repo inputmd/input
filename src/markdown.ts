@@ -717,6 +717,7 @@ function isRenderedUrlLabel(anchor: HTMLAnchorElement, href: string): boolean {
 
 interface ParseMarkdownOptions {
   breaks?: boolean;
+  smartQuotes?: boolean;
   resolveImageSrc?: (src: string) => string | null;
   resolveWikiLinkMeta?: (targetPath: string) => { exists: boolean; resolvedHref?: string | null } | null;
 }
@@ -2262,6 +2263,193 @@ function shouldSkipSmartPunctuation(node: Node | null): boolean {
   return false;
 }
 
+const TYPOGRAPHY_WORD_CHAR_RE = /[\p{L}\p{N}]/u;
+const COMMON_LEADING_ELISIONS = ['bout', 'cause', 'em', 'nother', 'round', 'til', 'tis', 'twas'];
+
+function isTypographyWordChar(char: string | null): boolean {
+  return char != null && TYPOGRAPHY_WORD_CHAR_RE.test(char);
+}
+
+function isTypographyDigitChar(char: string | null): boolean {
+  return char != null && /[0-9]/.test(char);
+}
+
+function isTypographyWhitespaceChar(char: string | null): boolean {
+  return char != null && /\s/u.test(char);
+}
+
+function isTypographyOpeningPunctuationChar(char: string | null): boolean {
+  return char != null && /[[({<\u2013\u2014]/u.test(char);
+}
+
+function isTypographyClosingPunctuationChar(char: string | null): boolean {
+  return char != null && /[)\]}>.,!?;:]/u.test(char);
+}
+
+function previousTypographyChar(texts: string[], nodeIndex: number, charIndex: number): string | null {
+  for (let currentNodeIndex = nodeIndex; currentNodeIndex >= 0; currentNodeIndex -= 1) {
+    const text = texts[currentNodeIndex] ?? '';
+    for (let index = currentNodeIndex === nodeIndex ? charIndex - 1 : text.length - 1; index >= 0; index -= 1) {
+      const char = text[index];
+      if (char === '\u200b') continue;
+      return char;
+    }
+  }
+  return null;
+}
+
+function nextTypographyChar(texts: string[], nodeIndex: number, charIndex: number): string | null {
+  for (let currentNodeIndex = nodeIndex; currentNodeIndex < texts.length; currentNodeIndex += 1) {
+    const text = texts[currentNodeIndex] ?? '';
+    for (let index = currentNodeIndex === nodeIndex ? charIndex + 1 : 0; index < text.length; index += 1) {
+      const char = text[index];
+      if (char === '\u200b') continue;
+      return char;
+    }
+  }
+  return null;
+}
+
+function readFollowingTypographyWord(texts: string[], nodeIndex: number, charIndex: number, maxLength = 8): string {
+  let word = '';
+  for (
+    let currentNodeIndex = nodeIndex;
+    currentNodeIndex < texts.length && word.length < maxLength;
+    currentNodeIndex += 1
+  ) {
+    const text = texts[currentNodeIndex] ?? '';
+    for (let index = currentNodeIndex === nodeIndex ? charIndex + 1 : 0; index < text.length; index += 1) {
+      const char = text[index];
+      if (char === '\u200b') continue;
+      if (!isTypographyWordChar(char)) return word;
+      word += char.toLowerCase();
+      if (word.length >= maxLength) return word;
+    }
+  }
+  return word;
+}
+
+function shouldUseOpeningDoubleQuote(previous: string | null, next: string | null): boolean {
+  return (
+    (previous == null || isTypographyWhitespaceChar(previous) || isTypographyOpeningPunctuationChar(previous)) &&
+    isTypographyWordChar(next)
+  );
+}
+
+function shouldUseClosingDoubleQuote(previous: string | null, next: string | null): boolean {
+  return (
+    isTypographyWordChar(previous) &&
+    (next == null || isTypographyWhitespaceChar(next) || isTypographyClosingPunctuationChar(next))
+  );
+}
+
+function shouldKeepLiteralDoubleQuote(previous: string | null, next: string | null): boolean {
+  return (
+    isTypographyDigitChar(previous) &&
+    (next == null || isTypographyWhitespaceChar(next) || isTypographyClosingPunctuationChar(next))
+  );
+}
+
+function shouldUseOpeningSingleQuote(previous: string | null, next: string | null): boolean {
+  return (
+    (previous == null || isTypographyWhitespaceChar(previous) || isTypographyOpeningPunctuationChar(previous)) &&
+    isTypographyWordChar(next)
+  );
+}
+
+function shouldUseClosingSingleQuote(previous: string | null, next: string | null): boolean {
+  return (
+    isTypographyWordChar(previous) &&
+    (next == null || isTypographyWhitespaceChar(next) || isTypographyClosingPunctuationChar(next))
+  );
+}
+
+function shouldKeepLiteralSingleQuote(previous: string | null, next: string | null): boolean {
+  return (
+    isTypographyDigitChar(previous) &&
+    (next == null || isTypographyWhitespaceChar(next) || isTypographyClosingPunctuationChar(next))
+  );
+}
+
+function shouldUseApostrophe(previous: string | null, next: string | null): boolean {
+  return isTypographyWordChar(previous) && isTypographyWordChar(next);
+}
+
+function shouldUseLeadingElision(previous: string | null, next: string | null, followingWord: string): boolean {
+  if (!(previous == null || isTypographyWhitespaceChar(previous) || isTypographyOpeningPunctuationChar(previous))) {
+    return false;
+  }
+  if (isTypographyDigitChar(next)) return true;
+  return COMMON_LEADING_ELISIONS.some((prefix) => followingWord.startsWith(prefix));
+}
+
+function applySmartQuotesToText(
+  text: string,
+  texts: string[],
+  nodeIndex: number,
+  state: { doubleQuoteOpen: boolean; singleQuoteOpen: boolean },
+): string {
+  let output = '';
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char !== '"' && char !== "'") {
+      output += char;
+      continue;
+    }
+
+    const previous = previousTypographyChar(texts, nodeIndex, index);
+    const next = nextTypographyChar(texts, nodeIndex, index);
+
+    if (char === '"') {
+      if (shouldKeepLiteralDoubleQuote(previous, next)) {
+        output += char;
+        continue;
+      }
+      if (shouldUseOpeningDoubleQuote(previous, next)) {
+        state.doubleQuoteOpen = true;
+        output += '“';
+        continue;
+      }
+      if (state.doubleQuoteOpen && shouldUseClosingDoubleQuote(previous, next)) {
+        state.doubleQuoteOpen = false;
+        output += '”';
+        continue;
+      }
+      output += char;
+      continue;
+    }
+
+    if (shouldKeepLiteralSingleQuote(previous, next)) {
+      output += char;
+      continue;
+    }
+    if (shouldUseApostrophe(previous, next)) {
+      output += '’';
+      continue;
+    }
+
+    const followingWord = readFollowingTypographyWord(texts, nodeIndex, index);
+    if (shouldUseLeadingElision(previous, next, followingWord)) {
+      output += '’';
+      continue;
+    }
+    if (shouldUseOpeningSingleQuote(previous, next)) {
+      state.singleQuoteOpen = true;
+      output += '‘';
+      continue;
+    }
+    if (state.singleQuoteOpen && shouldUseClosingSingleQuote(previous, next)) {
+      state.singleQuoteOpen = false;
+      output += '’';
+      continue;
+    }
+    output += char;
+  }
+
+  return output;
+}
+
 function isLeadingIndentPreservedBlock(node: Element): boolean {
   const tagName = node.tagName;
   return tagName === 'P' || tagName === 'LI' || tagName === 'BLOCKQUOTE';
@@ -2418,7 +2606,7 @@ function preserveLeadingIndentation(root: ParentNode): void {
   });
 }
 
-function applySmartPunctuation(root: ParentNode): void {
+function applySmartPunctuation(root: ParentNode, options?: Pick<ParseMarkdownOptions, 'smartQuotes'>): void {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const textNodes: Text[] = [];
 
@@ -2430,15 +2618,23 @@ function applySmartPunctuation(root: ParentNode): void {
     current = walker.nextNode();
   }
 
-  for (const node of textNodes) {
+  const originalTexts = textNodes.map((node) => node.textContent ?? '');
+  const smartQuoteState = { doubleQuoteOpen: false, singleQuoteOpen: false };
+
+  textNodes.forEach((node, nodeIndex) => {
+    const original = originalTexts[nodeIndex] ?? '';
+    const withSmartQuotes = options?.smartQuotes
+      ? applySmartQuotesToText(original, originalTexts, nodeIndex, smartQuoteState)
+      : original;
+
     // Only convert either " -- " or tight "word--word", leaving mixed spacing untouched.
-    node.textContent = (node.textContent ?? '').replace(/(?<= )--(?= )|(?<=\S)--(?=\S)/g, (match, offset, text) => {
+    node.textContent = withSmartQuotes.replace(/(?<= )--(?= )|(?<=\S)--(?=\S)/g, (match, offset, text) => {
       const previous = offset > 0 ? text[offset - 1] : '';
       const next = offset + match.length < text.length ? text[offset + match.length] : '';
       if (previous === '{' || next === '}') return match;
       return '—';
     });
-  }
+  });
 }
 
 function shouldSkipFootnoteReplacement(node: Node | null): boolean {
@@ -2852,7 +3048,7 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
   });
 
   preserveLeadingIndentation(template.content);
-  applySmartPunctuation(template.content);
+  applySmartPunctuation(template.content, options);
   decoratePromptAnswerCollapses(template.content);
   highlightIoCodeBlocks(template.content);
 

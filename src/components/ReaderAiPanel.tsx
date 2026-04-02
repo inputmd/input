@@ -102,7 +102,7 @@ function ReaderAiAssistantMessage({
   useEffect(() => {
     const root = contentRef.current;
     if (!root) return;
-    root.innerHTML = parseMarkdownToHtml(content);
+    root.innerHTML = parseMarkdownToHtml(content, { smartQuotes: true });
     const frame = onRendered ? requestAnimationFrame(() => onRendered()) : null;
     if (streaming) {
       const spinner = document.createElement('span');

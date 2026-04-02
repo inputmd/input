@@ -105,6 +105,7 @@ export function EditSessionView({
           ? LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION
           : deferredLiveContent,
         {
+          smartQuotes: true,
           resolveImageSrc: resolvePreviewImageSrc,
           resolveWikiLinkMeta: previewWikiLinkResolver,
         },
