@@ -1047,6 +1047,11 @@
   text-decoration: none;
 }
 
+.rendered-markdown .superscript-link a[href="#"] {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+}
+
 .rendered-markdown .footnote-ref a {
   text-decoration: none;
 }

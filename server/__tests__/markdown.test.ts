@@ -133,6 +133,73 @@ test('marked leaves regular footnote references unchanged', (t) => {
   t.true(html.includes('[^note]'));
 });
 
+test('parseMarkdownToHtml auto-numbers inline citation links and reuses numbers for repeated urls', (t) => {
+  const citations = withDom(() => {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = parseMarkdownToHtml(
+      'See [^](https://example.com/a), [^](https://example.com/b), and [^](https://example.com/a).',
+    );
+    return Array.from(wrapper.querySelectorAll('sup.superscript-link > a')).map((anchor) => ({
+      text: anchor.textContent,
+      href: anchor.getAttribute('href'),
+      label: anchor.getAttribute('aria-label'),
+    }));
+  });
+
+  t.deepEqual(citations, [
+    { text: '1', href: 'https://example.com/a', label: 'Citation 1' },
+    { text: '2', href: 'https://example.com/b', label: 'Citation 2' },
+    { text: '1', href: 'https://example.com/a', label: 'Citation 1' },
+  ]);
+});
+
+test('parseMarkdownToHtml auto-numbers keyed inline citation links', (t) => {
+  const citations = withDom(() => {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = parseMarkdownToHtml(
+      'See [^#paper](https://example.com/paper) and [^#paper](https://example.com/paper).',
+    );
+    return Array.from(wrapper.querySelectorAll('sup.superscript-link > a')).map((anchor) => ({
+      text: anchor.textContent,
+      href: anchor.getAttribute('href'),
+      label: anchor.getAttribute('aria-label'),
+    }));
+  });
+
+  t.deepEqual(citations, [
+    { text: '1', href: 'https://example.com/paper', label: 'Citation 1' },
+    { text: '1', href: 'https://example.com/paper', label: 'Citation 1' },
+  ]);
+});
+
+test('parseMarkdownToHtml renders # inline citations as TODO placeholders without consuming citation numbers', (t) => {
+  const citations = withDom(() => {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = parseMarkdownToHtml('See [^](#), [^](https://example.com/a), and [^](https://example.com/b).');
+    return Array.from(wrapper.querySelectorAll('sup.superscript-link > a')).map((anchor) => ({
+      text: anchor.textContent,
+      href: anchor.getAttribute('href'),
+      label: anchor.getAttribute('aria-label'),
+    }));
+  });
+
+  t.deepEqual(citations, [
+    { text: 'TODO', href: '#', label: null },
+    { text: '1', href: 'https://example.com/a', label: 'Citation 1' },
+    { text: '2', href: 'https://example.com/b', label: 'Citation 2' },
+  ]);
+});
+
+test('parseMarkdownToHtml keeps manual superscript links unchanged', (t) => {
+  const citations = withDom(() => {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = parseMarkdownToHtml('See [^docs](https://example.com) for details.');
+    return Array.from(wrapper.querySelectorAll('sup.superscript-link > a')).map((anchor) => anchor.textContent);
+  });
+
+  t.deepEqual(citations, ['docs']);
+});
+
 test('marked renders CriticMarkup additions, deletions, highlights, comments, and substitutions', (t) => {
   const html = marked.parse('A {++new++} {--old--} {==focus==} {>>note<<} {~~before~>after~~} change.');
 

@@ -77,9 +77,17 @@ Text between `^` markers (no whitespace at boundaries) is rendered as superscrip
 
 ```
 [^docs](https://example.com)
+[^](https://example.com)
+[^#paper](https://example.com/paper)
 ```
 
-Renders as a superscript link. Note: The special label `[^src]` auto-derives display text: X/Twitter URLs show the handle; other URLs show the domain.
+`[^label](url)` renders as a superscript link with the label you provide. Note: The special label `[^src]` auto-derives display text: X/Twitter URLs show the handle; other URLs show the domain.
+
+`[^](url)` renders as an auto-numbered inline citation link. Reusing the same URL reuses the same number.
+
+`[^#key](url)` renders as an auto-numbered inline citation keyed by `key`, so repeated uses of the same key reuse the same number even if they appear later in the document.
+
+`[^](#)` renders a `TODO` superscript placeholder with the same dotted underline styling as other `(#)` links, without consuming a citation number.
 
 ## Emoji Shortcodes
 

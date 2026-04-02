@@ -64,6 +64,15 @@ interface HighlightMarkupToken extends Tokens.Generic {
   tokens?: Token[];
 }
 
+interface SuperscriptLinkToken extends Tokens.Generic {
+  type: 'superscriptLink';
+  href: string;
+  text: string;
+  tokens?: Token[];
+  autoNumbered?: boolean;
+  citationKey?: string;
+}
+
 export interface MarkdownSyncBlock {
   id: string;
   from: number;
@@ -254,6 +263,15 @@ function deriveSuperscriptLinkLabel(text: string, href: string): string {
   if (!firstSegment || firstSegment.toLowerCase() === 'i') return text;
 
   return firstSegment;
+}
+
+function normalizeInlineCitationKey(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+function inlineCitationIdentity(key: string | null, href: string): string {
+  if (key) return `key:${normalizeInlineCitationKey(key)}`;
+  return `href:${href.trim()}`;
 }
 
 marked.use({
@@ -541,20 +559,30 @@ marked.use({
         return src.indexOf('[^');
       },
       tokenizer(src: string) {
-        const match = /^\[\^([^\]\n]+)\]\(([^)\s]+)\)/.exec(src);
+        const match = /^\[\^([^\]\n]*)\]\(([^)\s]+)\)/.exec(src);
         if (!match) return undefined;
         const text = match[1].trim();
         const href = match[2].trim();
-        if (!text || !href) return undefined;
+        if (!href) return undefined;
+        const autoNumbered = text.length === 0 || text.startsWith('#');
+        const citationKey = text.startsWith('#') ? text.slice(1).trim() : '';
+        if (autoNumbered && text.startsWith('#') && !citationKey) return undefined;
+        if (!autoNumbered && !text) return undefined;
         return {
           type: 'superscriptLink',
           raw: match[0],
           href,
           text,
+          autoNumbered,
+          citationKey: citationKey || undefined,
           tokens: this.lexer.inlineTokens(text),
-        };
+        } satisfies SuperscriptLinkToken;
       },
-      renderer(token) {
+      renderer(token: SuperscriptLinkToken) {
+        if (token.autoNumbered) {
+          const keyAttr = token.citationKey ? ` data-cite-key="${escapeHtmlAttr(token.citationKey)}"` : '';
+          return `<sup class="superscript-link" data-inline-cite="true"${keyAttr}><a href="${escapeHtmlAttr(token.href)}">?</a></sup>`;
+        }
         const label = deriveSuperscriptLinkLabel(token.text, token.href);
         const labelHtml = label === token.text ? this.parser.parseInline(token.tokens ?? []) : escapeHtmlAttr(label);
         return `<sup class="superscript-link"><a href="${escapeHtmlAttr(token.href)}">${labelHtml}</a></sup>`;
@@ -2515,7 +2543,15 @@ function appendFootnotesSection(
     const definitionMarkdown = definitions.get(id) ?? '';
     const rendered = parseMarkedHtml(definitionMarkdown, { breaks: false });
     const sanitized = sanitizeHtml(rendered, {
-      ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path', 'data-prompt-list-id'],
+      ADD_ATTR: [
+        'target',
+        'rel',
+        'data-wikilink',
+        'data-wiki-target-path',
+        'data-prompt-list-id',
+        'data-inline-cite',
+        'data-cite-key',
+      ],
     });
     const wrapper = document.createElement('div');
     wrapper.innerHTML = sanitized;
@@ -2544,6 +2580,37 @@ function appendFootnotesSection(
   }
 
   root.appendChild(section);
+}
+
+function applyInlineCitationNumbers(root: ParentNode): void {
+  const citationNumbers = new Map<string, number>();
+  let nextNumber = 1;
+
+  root.querySelectorAll('sup[data-inline-cite="true"]').forEach((sup) => {
+    if (!(sup instanceof HTMLElement)) return;
+    const anchor = sup.querySelector('a');
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+
+    const href = (anchor.getAttribute('href') ?? '').trim();
+    if (!href) return;
+    if (href === '#') {
+      anchor.textContent = 'TODO';
+      anchor.removeAttribute('aria-label');
+      return;
+    }
+
+    const key = sup.getAttribute('data-cite-key');
+    const identity = inlineCitationIdentity(key, href);
+    let number = citationNumbers.get(identity);
+    if (number == null) {
+      number = nextNumber;
+      nextNumber += 1;
+      citationNumbers.set(identity, number);
+    }
+
+    anchor.textContent = `${number}`;
+    anchor.setAttribute('aria-label', `Citation ${number}`);
+  });
 }
 
 function sanitizeHtml(dirty: string, config?: object): string {
@@ -2707,13 +2774,23 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
     outputToOriginal: extractedFootnotes.outputToOriginal,
   });
   const sanitized = sanitizeHtml(rendered.html, {
-    ADD_ATTR: ['target', 'rel', 'data-wikilink', 'data-wiki-target-path', 'data-prompt-list-id', 'data-sync-id'],
+    ADD_ATTR: [
+      'target',
+      'rel',
+      'data-wikilink',
+      'data-wiki-target-path',
+      'data-prompt-list-id',
+      'data-sync-id',
+      'data-inline-cite',
+      'data-cite-key',
+    ],
   });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
   assignHeadingIds(template.content);
   const footnoteReferences = applyFootnoteReferences(template.content, extractedFootnotes.definitions);
   appendFootnotesSection(template.content, footnoteReferences, extractedFootnotes.definitions);
+  applyInlineCitationNumbers(template.content);
 
   template.content.querySelectorAll('a').forEach((anchor: HTMLAnchorElement) => {
     const href = sanitizeMarkdownHref(anchor.getAttribute('href') ?? '');
