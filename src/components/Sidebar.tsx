@@ -435,6 +435,7 @@ export function Sidebar({
   const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set(defaultCollapsedPaths));
   const workspaceKeyRef = useRef(workspaceKey);
   const skipNextActiveAncestorsExpandRef = useRef(initialCollapsedFoldersState.loadedFromPersistence);
+  const skipNextCollapsedFoldersPersistRef = useRef(false);
   const hasFolders = folderPaths.size > 0;
   const visibleNodes = useMemo(() => flattenVisibleTree(tree.children, collapsedFolders), [tree, collapsedFolders]);
   const visibleIndexByPath = useMemo(() => {
@@ -445,6 +446,7 @@ export function Sidebar({
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const [createContextPath, setCreateContextPath] = useState<string | null>(null);
   const [createAtRoot, setCreateAtRoot] = useState(false);
+  const hasHydratedFolderPathsRef = useRef(folderPaths.size > 0);
 
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
@@ -486,11 +488,15 @@ export function Sidebar({
 
     const nextState = loadSidebarCollapsedFoldersState(workspaceKey, defaultCollapsedPaths, activeAncestors);
     skipNextActiveAncestorsExpandRef.current = nextState.loadedFromPersistence;
+    skipNextCollapsedFoldersPersistRef.current = true;
     autoCollapsedDefaultsRef.current = new Set(defaultCollapsedPaths);
+    hasHydratedFolderPathsRef.current = folderPaths.size > 0;
     setCollapsedFolders(nextState.collapsedFolders);
-  }, [activeAncestors, defaultCollapsedPaths, workspaceKey]);
+  }, [activeAncestors, defaultCollapsedPaths, folderPaths, workspaceKey]);
 
   useEffect(() => {
+    if (folderPaths.size > 0) hasHydratedFolderPathsRef.current = true;
+    if (folderPaths.size === 0 && !hasHydratedFolderPathsRef.current) return;
     setCollapsedFolders((prev) => {
       const next: Record<string, true> = {};
       let changed = false;
@@ -533,8 +539,13 @@ export function Sidebar({
   }, [activeAncestors]);
 
   useEffect(() => {
+    if (folderPaths.size === 0 && !hasHydratedFolderPathsRef.current) return;
+    if (skipNextCollapsedFoldersPersistRef.current) {
+      skipNextCollapsedFoldersPersistRef.current = false;
+      return;
+    }
     persistSidebarCollapsedFolders(workspaceKey, collapsedFolders);
-  }, [collapsedFolders, workspaceKey]);
+  }, [collapsedFolders, folderPaths, workspaceKey]);
 
   const handleCreateSubmit = async () => {
     if (createInFlightRef.current) return;
