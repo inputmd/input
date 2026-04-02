@@ -25,9 +25,27 @@ Also, `[username].input.md` automatically renders the public GitHub repo
   repo-wide write access.
 - **Reader AI**: Comes with an experimental AI interface similar to Cursor, that
   uses OpenRouter free models. Great for proofreading or quick edits.
+- **Extended Markdown**: Supports prompt lists, wikilinks, CriticMarkup,
+  footnotes, custom CSS/fonts, and inline citation links including
+  auto-numbered forms like `[^](https://example.com)` and `[^#paper](https://example.com/paper)`.
 - **Interoperable**: Except for share links, all data is stored in your Git repos.
   The server is just a caching proxy on top of the GitHub API.
 - **Open source**: AGPL licensed, MIT licensed version coming soon.
+
+## Markdown Syntax
+
+Input supports standard GFM plus several editor-specific extensions. See
+[SYNTAX.md](./SYNTAX.md) for the full reference.
+
+For inline citations, you can use:
+
+```md
+Claim.[^](https://example.com/paper)
+Repeat the same source later.[^](https://example.com/paper)
+Or assign a stable key.[^#paper](https://example.com/paper)
+```
+
+These render as linked superscript citation numbers in reading/preview mode.
 
 ## Inline Prompting
 
@@ -122,7 +140,7 @@ fonts:
 
 ## Shared Editors
 
-You can share individual fiiles by editing the front matter:
+You can share individual files by editing the front matter:
 
 ```yaml
 ---
@@ -138,11 +156,11 @@ removing the `editors` field.
 
 ## Syncing
 
-If you'd like to work with local files and an Input workspcae, you can use any of a number of services that sync GitHub repositories to your filesystem in realtime, like Stash: https://github.com/telepath-computer/stash
+If you'd like to work with local files and an Input workspace, you can use any of a number of services that sync GitHub repositories to your filesystem in realtime, like Stash: https://github.com/telepath-computer/stash
 
 ## Developing
 
-See [DEVELOPING.md](/Users/selkie/Development/input/DEVELOPING.md) for local
+See [DEVELOPING.md](./DEVELOPING.md) for local
 setup, environment variables, development workflow, and deployment notes.
 
 ## License
