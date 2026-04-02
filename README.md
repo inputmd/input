@@ -55,6 +55,12 @@ You can ask AI to help you complete sentences or paragraphs. Give it instruction
 There are opportunities, but also risks, of artificial intelligence. {Add three examples}
 ```
 
+You can also select a range ending at the brace prompt and press `Tab` to use that selection as the completion context:
+
+```
+First, gather eggs, milk, and butter. {Now what?}
+```
+
 Full-context completion includes the rest of the paragraph following the braces. To use this style of completion, press Shift-Tab:
 
 ```

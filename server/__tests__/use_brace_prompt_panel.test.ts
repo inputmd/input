@@ -13,6 +13,7 @@ function makePanel(optionCount: number, loading = false): BracePromptPanelState 
       candidateCount: 5,
       excludeOptions: [],
       chatMessages: [],
+      contextSelection: null,
     },
     options: Array.from({ length: optionCount }, (_, index) => `option ${index + 1}`),
     draftOption: '',

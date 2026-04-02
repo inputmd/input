@@ -6,6 +6,7 @@ import {
   type BracePromptChatMessage,
   type BracePromptRequest,
   buildBracePromptRequest,
+  findBracePromptHintMatch,
   findBracePromptMatch,
   isBracePromptBlockedInCode,
 } from './codemirror_inline_prompt.ts';
@@ -208,17 +209,25 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
       if (!currentPanel) return;
 
       const selection = view.state.selection.main;
-      if (!selection.empty || selection.head !== currentPanel.request.to) {
-        close();
-        return;
+      if (currentPanel.request.contextSelection) {
+        const { from, to } = currentPanel.request.contextSelection;
+        if (selection.empty || selection.from !== from || selection.to !== to) {
+          close();
+          return;
+        }
+      } else {
+        if (!selection.empty || selection.head !== currentPanel.request.to) {
+          close();
+          return;
+        }
       }
-      if (isBracePromptBlockedInCode(view.state, selection.head)) {
+      if (isBracePromptBlockedInCode(view.state, currentPanel.request.to)) {
         close();
         return;
       }
 
-      const line = view.state.doc.lineAt(selection.head);
-      const match = findBracePromptMatch(line.text, selection.head - line.from);
+      const line = view.state.doc.lineAt(currentPanel.request.to);
+      const match = findBracePromptMatch(line.text, currentPanel.request.to - line.from);
       if (!match) {
         close();
         return;
@@ -453,9 +462,16 @@ export function useBracePromptPanel({ rootRef, onBracePromptStreamRef }: UseBrac
 
   const start = (view: EditorView, options?: { includeParagraphTail?: boolean }): boolean => {
     const selection = view.state.selection.main;
-    if (!selection.empty) return false;
-    if (isBracePromptBlockedInCode(view.state, selection.head)) return false;
-    const request = buildBracePromptRequest(view.state.doc.toString(), selection.head, options);
+    const documentText = view.state.doc.toString();
+    const selectionEnd = selection.empty ? selection.head : selection.to;
+    const line = view.state.doc.lineAt(selectionEnd);
+    const match = findBracePromptHintMatch(line.text, selectionEnd - line.from);
+    const triggerPosition = match ? line.from + match.to : selectionEnd;
+    if (isBracePromptBlockedInCode(view.state, triggerPosition)) return false;
+    const request = buildBracePromptRequest(documentText, triggerPosition, {
+      ...options,
+      contextSelection: selection.empty ? null : { from: selection.from, to: selection.to },
+    });
     if (!request) return false;
     return launch(view, request);
   };

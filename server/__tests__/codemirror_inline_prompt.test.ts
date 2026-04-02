@@ -96,6 +96,7 @@ test('buildBracePromptRequest keeps default brace prompts scoped to the document
     candidateCount: 5,
     excludeOptions: [],
     chatMessages: [],
+    contextSelection: null,
   });
 });
 
@@ -113,6 +114,7 @@ test('buildBracePromptRequest scopes double-brace directives to the nearest head
     candidateCount: 5,
     excludeOptions: [],
     chatMessages: [],
+    contextSelection: null,
   });
 });
 
@@ -130,6 +132,7 @@ test('buildBracePromptRequest trims divider lines out of double-brace directive 
     candidateCount: 5,
     excludeOptions: [],
     chatMessages: [],
+    contextSelection: null,
   });
 });
 
@@ -165,7 +168,52 @@ test('buildBracePromptRequest includes the rest of the paragraph when requested'
     candidateCount: 5,
     excludeOptions: [],
     chatMessages: [],
+    contextSelection: null,
   });
+});
+
+test('buildBracePromptRequest uses an explicit selected range as single-brace context', (t) => {
+  const text = 'Alpha before\nBeta {rewrite this}\nGamma after';
+  const position = 'Alpha before\nBeta {rewrite this}'.length;
+  const selectionFrom = 'Alpha '.length;
+
+  t.deepEqual(buildBracePromptRequest(text, position, { contextSelection: { from: selectionFrom, to: position } }), {
+    prompt: 'rewrite this',
+    from: 'Alpha before\nBeta '.length,
+    to: position,
+    documentContent: text.slice(selectionFrom, position),
+    paragraphTail: '',
+    mode: 'replace',
+    candidateCount: 5,
+    excludeOptions: [],
+    chatMessages: [],
+    contextSelection: { from: selectionFrom, to: position },
+  });
+});
+
+test('buildBracePromptRequest accepts explicit selected context ending right before a single closing brace', (t) => {
+  const text = 'Alpha {rewrite this}';
+  const position = text.length;
+  const selectionTo = text.length - 1;
+
+  t.deepEqual(buildBracePromptRequest(text, position, { contextSelection: { from: 0, to: selectionTo } }), {
+    prompt: 'rewrite this',
+    from: 6,
+    to: position,
+    documentContent: text.slice(0, selectionTo),
+    paragraphTail: '',
+    mode: 'replace',
+    candidateCount: 5,
+    excludeOptions: [],
+    chatMessages: [],
+    contextSelection: { from: 0, to: selectionTo },
+  });
+});
+
+test('buildBracePromptRequest rejects explicit selected context for double-brace prompts', (t) => {
+  const text = 'Alpha {{expand this}}';
+
+  t.is(buildBracePromptRequest(text, text.length, { contextSelection: { from: 0, to: text.length } }), null);
 });
 
 test('isBracePromptBlockedInCode returns true for inline code and fenced code', (t) => {

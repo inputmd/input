@@ -292,6 +292,18 @@ test('bracePromptHintLabelForText returns a hint at the end of a brace prompt', 
   });
 });
 
+test('bracePromptHintLabelForText returns a hint when the selection ends right before a single closing brace', (t) => {
+  const text = 'today {come up with two more examples}';
+  const closingBracePosition = text.length - 1;
+
+  t.is(bracePromptHintLabelForText(text, closingBracePosition), '⇥');
+  t.deepEqual(bracePromptHintForText(text, closingBracePosition), {
+    position: text.length,
+    label: '⇥',
+    className: 'cm-brace-prompt-hint',
+  });
+});
+
 test('bracePromptHintLabelForText ignores positions away from a completed brace prompt', (t) => {
   const text = 'today {come up with two more examples} next';
   t.is(bracePromptHintLabelForText(text, text.length), null);

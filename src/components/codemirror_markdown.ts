@@ -10,6 +10,8 @@ import { EMPTY_PROMPT_QUESTION_PLACEHOLDER, matchPromptListLine, parsePromptList
 import { criticMarkupDecorationExtension } from './codemirror_criticmarkup.ts';
 import {
   bracePromptContextRangesForPosition,
+  buildBracePromptRequest,
+  findBracePromptHintMatch,
   findBracePromptMatch,
   isBracePromptBlockedInCode,
 } from './codemirror_inline_prompt.ts';
@@ -533,14 +535,14 @@ export function promptListHintLabelForText(text: string, answering = false): str
 }
 
 export function bracePromptHintLabelForText(text: string, position: number): string | null {
-  return findBracePromptMatch(text, position) ? BRACE_PROMPT_HINT_LABEL : null;
+  return findBracePromptHintMatch(text, position) ? BRACE_PROMPT_HINT_LABEL : null;
 }
 
 export function bracePromptHintForText(
   text: string,
   position: number,
 ): { position: number; label: string; className: string } | null {
-  const match = findBracePromptMatch(text, position);
+  const match = findBracePromptHintMatch(text, position);
   if (!match) return null;
 
   return {
@@ -572,24 +574,42 @@ function promptListHintLabel(
   if (view.state.facet(EditorState.readOnly)) return null;
 
   const selection = view.state.selection.main;
-  if (!selection.empty) return null;
+  const position = selection.empty ? selection.head : selection.to;
 
-  const line = view.state.doc.lineAt(selection.head);
-  const promptListLabel = promptListHintLabelForText(line.text, view.state.facet(promptListAnsweringFacet));
-  if (promptListLabel) {
+  const line = view.state.doc.lineAt(position);
+  if (selection.empty) {
+    const promptListLabel = promptListHintLabelForText(line.text, view.state.facet(promptListAnsweringFacet));
+    if (promptListLabel) {
+      return {
+        position: line.to,
+        label: promptListLabel,
+      };
+    }
+  }
+
+  const braceHint = bracePromptHintForText(line.text, position - line.from);
+  if (!braceHint) return null;
+  const documentText = view.state.doc.toString();
+  const absoluteHintPosition = line.from + braceHint.position;
+  if (isBracePromptBlockedInCode(view.state, absoluteHintPosition)) return null;
+
+  if (!selection.empty) {
+    const request = buildBracePromptRequest(documentText, absoluteHintPosition, {
+      contextSelection: { from: selection.from, to: selection.to },
+    });
+    if (!request) return null;
+
     return {
-      position: line.to,
-      label: promptListLabel,
+      position: absoluteHintPosition,
+      label: braceHint.label,
+      className: braceHint.className,
     };
   }
 
-  const braceHint = bracePromptHintForText(line.text, selection.head - line.from);
-  if (!braceHint) return null;
-  if (isBracePromptBlockedInCode(view.state, selection.head)) return null;
-  const contextRanges = bracePromptContextRangesForPosition(view.state.doc.toString(), selection.head);
+  const contextRanges = bracePromptContextRangesForPosition(documentText, absoluteHintPosition);
 
   return {
-    position: line.from + braceHint.position,
+    position: absoluteHintPosition,
     label: braceHint.label,
     className: braceHint.className,
     contextRanges: contextRanges ?? [{ from: line.from, to: line.from + braceHint.position }],

@@ -9,6 +9,11 @@ export interface BracePromptChatMessage {
   content: string;
 }
 
+export interface BracePromptContextSelection {
+  from: number;
+  to: number;
+}
+
 export interface BracePromptRequest {
   prompt: string;
   from: number;
@@ -19,6 +24,7 @@ export interface BracePromptRequest {
   candidateCount: number;
   excludeOptions: string[];
   chatMessages: BracePromptChatMessage[];
+  contextSelection: BracePromptContextSelection | null;
 }
 
 export interface BracePromptMatch {
@@ -74,6 +80,13 @@ export function findBracePromptMatch(text: string, position: number): BracePromp
   }
 
   return findSingleBracePromptMatch(text, position);
+}
+
+export function findBracePromptHintMatch(text: string, position: number): BracePromptMatch | null {
+  const directMatch = findBracePromptMatch(text, position);
+  if (directMatch) return directMatch;
+  if (position < 0 || position >= text.length || text[position] !== '}') return null;
+  return findSingleBracePromptMatch(text, position + 1);
 }
 
 function findSingleBracePromptMatch(text: string, position: number): BracePromptMatch | null {
@@ -199,12 +212,38 @@ function buildBracePromptContextInfo(
   from: number,
   to: number,
   kind: BracePromptMatch['kind'],
+  contextSelection: BracePromptContextSelection | null,
 ): BracePromptContextInfo {
+  if (contextSelection) {
+    return {
+      documentContent: documentText.slice(contextSelection.from, contextSelection.to),
+      ranges: [contextSelection],
+    };
+  }
   if (kind === 'double') return buildDoubleBracePromptContext(documentText, from, to);
   return {
     documentContent: documentText.slice(0, to),
     ranges: [{ from: lineFrom, to }],
   };
+}
+
+function normalizeBracePromptContextSelection(
+  documentText: string,
+  selection: BracePromptContextSelection | null | undefined,
+  promptTo: number,
+  kind: BracePromptMatch['kind'],
+): BracePromptContextSelection | null {
+  if (!selection) return null;
+  if (kind !== 'single') return null;
+
+  const from = Math.max(0, Math.min(selection.from, documentText.length));
+  const to = Math.max(from, Math.min(selection.to, documentText.length));
+  if (from === to) return null;
+  if (to === promptTo) return { from, to };
+  if (to < documentText.length && to + 1 === promptTo && documentText[to] === '}') {
+    return { from, to };
+  }
+  return null;
 }
 
 export function isBracePromptBlockedInCode(state: EditorState, pos: number): boolean {
@@ -218,7 +257,7 @@ export function isBracePromptBlockedInCode(state: EditorState, pos: number): boo
 export function buildBracePromptRequest(
   documentText: string,
   position: number,
-  options?: { includeParagraphTail?: boolean },
+  options?: { includeParagraphTail?: boolean; contextSelection?: BracePromptContextSelection | null },
 ): BracePromptRequest | null {
   const line = lineRangeAt(documentText, position);
   const match = findBracePromptMatch(documentText.slice(line.from, line.to), position - line.from);
@@ -226,7 +265,14 @@ export function buildBracePromptRequest(
 
   const from = line.from + match.from;
   const to = line.from + match.to;
-  const context = buildBracePromptContextInfo(documentText, line.from, from, to, match.kind);
+  const contextSelection = normalizeBracePromptContextSelection(
+    documentText,
+    options?.contextSelection,
+    to,
+    match.kind,
+  );
+  if (options?.contextSelection && !contextSelection) return null;
+  const context = buildBracePromptContextInfo(documentText, line.from, from, to, match.kind, contextSelection);
   const paragraphTail = options?.includeParagraphTail
     ? documentText.slice(to, findParagraphEnd(documentText, to)).replace(/\n+$/, '')
     : '';
@@ -240,6 +286,7 @@ export function buildBracePromptRequest(
     candidateCount: 5,
     excludeOptions: [],
     chatMessages: [],
+    contextSelection,
   };
 }
 
@@ -253,7 +300,7 @@ export function bracePromptContextRangesForPosition(
 
   const from = line.from + match.from;
   const to = line.from + match.to;
-  return buildBracePromptContextInfo(documentText, line.from, from, to, match.kind).ranges.filter(
+  return buildBracePromptContextInfo(documentText, line.from, from, to, match.kind, null).ranges.filter(
     (range) => range.from < range.to,
   );
 }
