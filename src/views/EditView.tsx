@@ -13,6 +13,11 @@ import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlights
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextEditor } from '../components/TextEditor';
 import type { MarkdownSyncBlock } from '../markdown';
+import {
+  findPreviewHashTarget,
+  resolveInternalNavigationRoute,
+  resolveInternalPreviewRoute,
+} from '../preview_navigation';
 import { toggleNthMarkdownTaskCheckbox } from '../preview_task_list';
 import {
   navigatePromptListBranch,
@@ -24,7 +29,7 @@ import {
 } from '../prompt_list_state';
 import { getStoredScrollPosition } from '../scroll_positions';
 import { findToggleListFromTarget, syncToggleListPersistedState, toggleToggleListState } from '../toggle_list_state';
-import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
+import { MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
 
 const PREVIEW_SCROLL_LOCK_STORAGE_KEY = 'input_preview_scroll_locked_v1';
@@ -332,6 +337,7 @@ export function EditView({
   const previewSyncElementsRef = useRef<HTMLElement[]>([]);
   const previewSyncElementByIdRef = useRef<Map<string, HTMLElement>>(new Map());
   const previewHighlightElementsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const lastAppliedPreviewHashKeyRef = useRef<string | null>(null);
   const lastUnlockedPreviewScrollTopRef = useRef(0);
   const lastPreviewSyncEditorTopRef = useRef<number | null>(null);
   const pointerDownRef = useRef(false);
@@ -465,6 +471,13 @@ export function EditView({
     },
     [clearPreviewHighlightsPopoverCloseTimeout],
   );
+
+  const scrollToHash = useCallback((hash: string, behavior: ScrollBehavior = 'auto') => {
+    const target = findPreviewHashTarget(renderedMarkdownRef.current, hash);
+    if (!(target instanceof HTMLElement)) return false;
+    target.scrollIntoView({ block: 'start', behavior });
+    return true;
+  }, []);
 
   const getEditorScrollMetrics = useCallback(() => {
     return (
@@ -974,6 +987,43 @@ export function EditView({
     });
   }, [markdown, previewHtml, previewVisible]);
 
+  useEffect(() => {
+    if (!markdown || !previewVisible || !previewHtml) {
+      lastAppliedPreviewHashKeyRef.current = null;
+      return;
+    }
+
+    const hash = window.location.hash;
+    if (!hash) {
+      lastAppliedPreviewHashKeyRef.current = null;
+      return;
+    }
+
+    const routeKey = `${fileName ?? ''}:${hash}`;
+    if (lastAppliedPreviewHashKeyRef.current === routeKey) return;
+
+    let cancelled = false;
+    window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      if (canRenderPreview && previewScrollLocked) claimScrollOwnership('preview');
+      if (!scrollToHash(hash, 'auto')) return;
+      lastAppliedPreviewHashKeyRef.current = routeKey;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    canRenderPreview,
+    claimScrollOwnership,
+    fileName,
+    markdown,
+    previewHtml,
+    previewScrollLocked,
+    previewVisible,
+    scrollToHash,
+  ]);
+
   useLayoutEffect(() => {
     if (!markdown || !previewVisible || !canRenderPreview || loading || !previewScrollLocked || previewRestorePending)
       return;
@@ -1177,16 +1227,6 @@ export function EditView({
       ? { gridTemplateColumns: `minmax(0, 1fr) 7px ${sidePaneWidth}px` }
       : undefined;
 
-  const resolveInternalRoute = useCallback((anchor: HTMLAnchorElement): string | null => {
-    if (anchor.hasAttribute('download')) return null;
-    const href = (anchor.getAttribute('href') || '').trim();
-    if (!href || href.startsWith('#') || href.startsWith('?')) return null;
-    if (isExternalHttpHref(href)) return null;
-    const resolved = new URL(href, window.location.href);
-    if (resolved.origin !== window.location.origin) return null;
-    return resolved.pathname.replace(/^\//, '');
-  }, []);
-
   const showPreviewForAnchor = useCallback(
     (anchor: HTMLAnchorElement) => {
       if (!onRequestMarkdownLinkPreview) return;
@@ -1194,7 +1234,7 @@ export function EditView({
         hidePreview();
         return;
       }
-      const route = resolveInternalRoute(anchor);
+      const route = resolveInternalPreviewRoute(anchor);
       if (!route || !isMarkdownHref(route)) {
         hidePreview();
         return;
@@ -1235,7 +1275,7 @@ export function EditView({
           hidePreview();
         });
     },
-    [hidePreview, onRequestMarkdownLinkPreview, resolveInternalRoute],
+    [hidePreview, onRequestMarkdownLinkPreview],
   );
 
   const showCitationPreviewForAnchor = useCallback(
@@ -1315,7 +1355,7 @@ export function EditView({
           showCitationPreviewForAnchor(anchor);
           return;
         }
-        const route = resolveInternalRoute(anchor);
+        const route = resolveInternalPreviewRoute(anchor);
         if (route && isMarkdownHref(route) && onRequestMarkdownLinkPreview) {
           showPreviewForAnchor(anchor);
           return;
@@ -1328,7 +1368,6 @@ export function EditView({
       hidePreview,
       onRequestMarkdownLinkPreview,
       preview.visible,
-      resolveInternalRoute,
       showCitationPreviewForAnchor,
       showPreviewForAnchor,
     ],
@@ -1496,7 +1535,15 @@ export function EditView({
 
     const anchor = target?.closest('a') as HTMLAnchorElement | null;
     if (anchor && !pointerDraggedRef.current) {
-      const route = resolveInternalRoute(anchor);
+      const href = (anchor.getAttribute('href') || '').trim();
+      if (href.startsWith('#')) {
+        event.preventDefault();
+        claimScrollOwnership('preview');
+        scrollToHash(href, 'smooth');
+        return;
+      }
+
+      const route = resolveInternalNavigationRoute(anchor);
       if (route && onInternalLinkNavigate) {
         event.preventDefault();
         claimScrollOwnership('preview');

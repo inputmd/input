@@ -130,6 +130,7 @@ import {
   sanitizeScratchFileNameInput,
   sanitizeTitleToFileName,
 } from './path_utils';
+import { previewRouteHasFragment, previewRouteHistoryPath, previewRoutePathname } from './preview_navigation';
 import { formatPromptListAnswer } from './prompt_list_format';
 import { splitPromptListStableText } from './prompt_list_streaming';
 import {
@@ -1709,7 +1710,7 @@ export function App() {
 
   const onRequestMarkdownLinkPreview = useCallback(
     async (rawRoute: string): Promise<{ title: string; html: string } | null> => {
-      const routePathname = rawRoute.replace(/^\/+/, '');
+      const routePathname = previewRoutePathname(rawRoute);
       if (!routePathname) return null;
 
       if (markdownLinkPreviewCacheRef.current.has(routePathname)) {
@@ -7652,10 +7653,15 @@ export function App() {
         }
 
         const handleStackLinkNavigate = (rawRoute: string) => {
-          const routePathname = rawRoute.replace(/^\/+/, '');
-          if (!isMarkdownFileName(routePathname)) {
+          const routePathname = previewRoutePathname(rawRoute);
+          const historyPath = previewRouteHistoryPath(rawRoute);
+          const hasFragment = previewRouteHasFragment(rawRoute);
+          if (!isMarkdownFileName(routePathname) || hasFragment) {
             documentStack.clearStack();
             navigate(routePathname);
+            if (historyPath !== `/${routePathname}`) {
+              window.history.replaceState(window.history.state, '', historyPath);
+            }
             return;
           }
           const mainEl = document.querySelector<HTMLElement>('.app-body main');
@@ -7723,8 +7729,12 @@ export function App() {
             onCancelInlinePrompt={cancelInlinePrompt}
             inlinePromptActive={inlinePromptStreaming}
             onInternalLinkNavigate={(rawRoute) => {
-              const routePathname = rawRoute.replace(/^\/+/, '');
+              const routePathname = previewRoutePathname(rawRoute);
+              const historyPath = previewRouteHistoryPath(rawRoute);
               navigate(routePathname);
+              if (historyPath !== `/${routePathname}`) {
+                window.history.replaceState(window.history.state, '', historyPath);
+              }
             }}
             onRequestMarkdownLinkPreview={onRequestMarkdownLinkPreview}
             onPreviewImageClick={onOpenLightbox}

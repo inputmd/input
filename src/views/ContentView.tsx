@@ -6,6 +6,11 @@ import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlights
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextCodeView } from '../components/TextCodeView';
 import {
+  findPreviewHashTarget,
+  resolveInternalNavigationRoute,
+  resolveInternalPreviewRoute,
+} from '../preview_navigation';
+import {
   navigatePromptListBranch,
   setPromptListCollapsedStateInUrl,
   syncPromptListBranchNavigationButtons,
@@ -75,23 +80,6 @@ function isMissingWikiLink(anchor: HTMLAnchorElement): boolean {
   return anchor.classList.contains('missing-wikilink');
 }
 
-function decodeHashTargetId(hash: string): string | null {
-  const trimmed = hash.trim();
-  if (!trimmed || !trimmed.startsWith('#')) return null;
-  const raw = trimmed.slice(1);
-  if (!raw) return null;
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
-}
-
-function safeCssEscape(value: string): string {
-  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
-  return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
-}
-
 export function ContentView({
   html,
   markdown,
@@ -139,11 +127,7 @@ export function ContentView({
   const isEmpty = html.trim().length === 0 && (plainText === null || plainText.length === 0) && !imagePreview;
 
   const scrollToHash = useCallback((hash: string, behavior: ScrollBehavior = 'auto') => {
-    const targetId = decodeHashTargetId(hash);
-    if (!targetId) return false;
-    const root = renderedMarkdownRef.current;
-    const selector = `#${safeCssEscape(targetId)}`;
-    const target = (root ? root.querySelector(selector) : null) ?? document.getElementById(targetId);
+    const target = findPreviewHashTarget(renderedMarkdownRef.current, hash);
     if (!(target instanceof HTMLElement)) return false;
     target.scrollIntoView({ block: 'start', behavior });
     return true;
@@ -446,6 +430,9 @@ export function ContentView({
     }
     if (isExternalHttpHref(href)) return;
 
+    const route = resolveInternalNavigationRoute(anchor);
+    if (!route) return;
+
     const resolved = new URL(href, window.location.href);
     if (resolved.origin !== window.location.origin) return;
 
@@ -458,11 +445,7 @@ export function ContentView({
     }
 
     event.preventDefault();
-    const route = resolved.pathname.replace(/^\//, '');
     onInternalLinkNavigate(route);
-    if (resolved.hash) {
-      window.history.replaceState(window.history.state, '', `${resolved.pathname}${resolved.search}${resolved.hash}`);
-    }
   };
 
   const onRenderedMarkdownKeyDown = (event: KeyboardEvent) => {
@@ -483,16 +466,6 @@ export function ContentView({
       togglePromptListCollapsedStateInUrl(container, true);
     }
   };
-
-  const resolveInternalRoute = useCallback((anchor: HTMLAnchorElement): string | null => {
-    if (anchor.hasAttribute('download')) return null;
-    const href = (anchor.getAttribute('href') || '').trim();
-    if (!href || href.startsWith('#') || href.startsWith('?')) return null;
-    if (isExternalHttpHref(href)) return null;
-    const resolved = new URL(href, window.location.href);
-    if (resolved.origin !== window.location.origin) return null;
-    return resolved.pathname.replace(/^\//, '');
-  }, []);
 
   const getPreviewPositionForAnchor = useCallback(
     (anchor: HTMLAnchorElement) => {
@@ -529,7 +502,7 @@ export function ContentView({
         hidePreview();
         return;
       }
-      const route = resolveInternalRoute(anchor);
+      const route = resolveInternalPreviewRoute(anchor);
       if (!route || !isMarkdownHref(route)) {
         hidePreview();
         return;
@@ -570,7 +543,7 @@ export function ContentView({
           hidePreview();
         });
     },
-    [getPreviewPositionForAnchor, hidePreview, onRequestMarkdownLinkPreview, resolveInternalRoute],
+    [getPreviewPositionForAnchor, hidePreview, onRequestMarkdownLinkPreview],
   );
 
   const showCitationPreviewForAnchor = useCallback(
@@ -651,7 +624,7 @@ export function ContentView({
           showCitationPreviewForAnchor(anchor);
           return;
         }
-        const route = resolveInternalRoute(anchor);
+        const route = resolveInternalPreviewRoute(anchor);
         if (route && isMarkdownHref(route) && onRequestMarkdownLinkPreview) {
           showPreviewForAnchor(anchor);
           return;
@@ -665,7 +638,6 @@ export function ContentView({
       markdown,
       onRequestMarkdownLinkPreview,
       preview.visible,
-      resolveInternalRoute,
       showCitationPreviewForAnchor,
       showPreviewForAnchor,
     ],
