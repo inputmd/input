@@ -210,10 +210,41 @@ test('buildBracePromptRequest accepts explicit selected context ending right bef
   });
 });
 
-test('buildBracePromptRequest rejects explicit selected context for double-brace prompts', (t) => {
+test('buildBracePromptRequest uses an explicit selected range as double-brace context', (t) => {
   const text = 'Alpha {{expand this}}';
+  const position = text.length;
 
-  t.is(buildBracePromptRequest(text, text.length, { contextSelection: { from: 0, to: text.length } }), null);
+  t.deepEqual(buildBracePromptRequest(text, position, { contextSelection: { from: 0, to: position } }), {
+    prompt: 'expand this',
+    from: 6,
+    to: position,
+    documentContent: text,
+    paragraphTail: '',
+    mode: 'replace',
+    candidateCount: 5,
+    excludeOptions: [],
+    chatMessages: [],
+    contextSelection: { from: 0, to: position },
+  });
+});
+
+test('buildBracePromptRequest accepts explicit selected context ending right before a double closing brace', (t) => {
+  const text = 'Alpha {{expand this}}';
+  const position = text.length;
+  const selectionTo = text.length - 1;
+
+  t.deepEqual(buildBracePromptRequest(text, position, { contextSelection: { from: 0, to: selectionTo } }), {
+    prompt: 'expand this',
+    from: 6,
+    to: position,
+    documentContent: text.slice(0, selectionTo),
+    paragraphTail: '',
+    mode: 'replace',
+    candidateCount: 5,
+    excludeOptions: [],
+    chatMessages: [],
+    contextSelection: { from: 0, to: selectionTo },
+  });
 });
 
 test('isBracePromptBlockedInCode returns true for inline code and fenced code', (t) => {

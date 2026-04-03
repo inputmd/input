@@ -86,6 +86,10 @@ export function findBracePromptHintMatch(text: string, position: number): BraceP
   const directMatch = findBracePromptMatch(text, position);
   if (directMatch) return directMatch;
   if (position < 0 || position >= text.length || text[position] !== '}') return null;
+  if (position > 0 && text[position - 1] === '}') {
+    const doubleMatch = findDoubleBracePromptMatch(text, position + 1);
+    if (doubleMatch) return doubleMatch;
+  }
   return findSingleBracePromptMatch(text, position + 1);
 }
 
@@ -231,10 +235,8 @@ function normalizeBracePromptContextSelection(
   documentText: string,
   selection: BracePromptContextSelection | null | undefined,
   promptTo: number,
-  kind: BracePromptMatch['kind'],
 ): BracePromptContextSelection | null {
   if (!selection) return null;
-  if (kind !== 'single') return null;
 
   const from = Math.max(0, Math.min(selection.from, documentText.length));
   const to = Math.max(from, Math.min(selection.to, documentText.length));
@@ -265,12 +267,7 @@ export function buildBracePromptRequest(
 
   const from = line.from + match.from;
   const to = line.from + match.to;
-  const contextSelection = normalizeBracePromptContextSelection(
-    documentText,
-    options?.contextSelection,
-    to,
-    match.kind,
-  );
+  const contextSelection = normalizeBracePromptContextSelection(documentText, options?.contextSelection, to);
   if (options?.contextSelection && !contextSelection) return null;
   const context = buildBracePromptContextInfo(documentText, line.from, from, to, match.kind, contextSelection);
   const paragraphTail = options?.includeParagraphTail
