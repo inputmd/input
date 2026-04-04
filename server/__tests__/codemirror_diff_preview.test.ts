@@ -6,6 +6,7 @@ import {
   buildDiffPreviewBlocksFromContent,
   buildDiffPreviewBlocksFromHunks,
   editorDiffPreviewExtension,
+  hasVisibleBlockDiffPreview,
 } from '../../src/components/codemirror_diff_preview.ts';
 import { generateUnifiedDiff, parseUnifiedDiffHunks } from '../reader_ai_tools.ts';
 
@@ -127,6 +128,34 @@ test('buildDiffPreviewBlocksFromContent returns one replacement block', (t) => {
   ]);
 });
 
+test('hasVisibleBlockDiffPreview returns true only when a non-inline block preview is present', (t) => {
+  t.false(
+    hasVisibleBlockDiffPreview({
+      blocks: [
+        {
+          from: 6,
+          to: 10,
+          insertedText: 'BETA',
+          deletedText: 'beta',
+        },
+      ],
+    }),
+  );
+
+  t.true(
+    hasVisibleBlockDiffPreview({
+      blocks: [
+        {
+          from: 0,
+          to: 11,
+          insertedText: 'ALPHA\nBETA\n',
+          deletedText: 'alpha\nbeta\n',
+        },
+      ],
+    }),
+  );
+});
+
 test('editorDiffPreviewExtension mounts block preview decorations without crashing render', (t) => {
   const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
   const restore = installDomGlobals(dom);
@@ -155,6 +184,45 @@ test('editorDiffPreviewExtension mounts block preview decorations without crashi
     t.regex(view.dom.textContent ?? '', /ALPHA/);
     t.truthy(view.dom.querySelector('.cm-editor-diff-preview-widget--block'));
     t.true(view.state.facet(EditorView.atomicRanges).length > 0);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('editorDiffPreviewExtension replaces block preview source ranges instead of duplicating them in the editor', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: 'alpha\nbeta\ngamma\n',
+        extensions: [
+          editorDiffPreviewExtension({
+            blocks: [
+              {
+                from: 0,
+                to: 'alpha\nbeta\n'.length,
+                insertedText: 'ALPHA\nBETA\n',
+                deletedText: 'alpha\nbeta\n',
+                label: '@@ -1,2 +1,2 @@',
+              },
+            ],
+          }),
+        ],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    const docText = view.state.doc.toString();
+    t.is(docText, 'alpha\nbeta\ngamma\n');
+    const renderedText = view.dom.textContent ?? '';
+    t.is(renderedText.match(/alpha/g)?.length ?? 0, 1);
+    t.is(renderedText.match(/beta/g)?.length ?? 0, 1);
+    t.is(renderedText.match(/ALPHA/g)?.length ?? 0, 1);
+    t.is(renderedText.match(/BETA/g)?.length ?? 0, 1);
+    t.true(renderedText.includes('gamma'));
     view.destroy();
   } finally {
     restore();

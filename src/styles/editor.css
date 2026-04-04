@@ -793,6 +793,7 @@
 }
 
 .cm-editor .cm-editor-diff-preview-actions--block {
+  padding-top: 8px;
   padding-bottom: 10px;
 }
 

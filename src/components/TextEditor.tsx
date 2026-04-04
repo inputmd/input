@@ -34,6 +34,7 @@ import {
   type EditorDiffPreview,
   type EditorDiffPreviewActionEvent,
   editorDiffPreviewExtension,
+  hasVisibleBlockDiffPreview,
 } from './codemirror_diff_preview';
 import { detectedLanguageForFileName } from './codemirror_languages';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
@@ -133,6 +134,8 @@ export function TextEditor({
 
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
+  const hasVisibleBlockDiffPreviewRef = useRef(hasVisibleBlockDiffPreview(diffPreview));
+  hasVisibleBlockDiffPreviewRef.current = hasVisibleBlockDiffPreview(diffPreview);
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
   const onEligibleSelectionChangeRef = useRef(onEligibleSelectionChange);
@@ -448,6 +451,11 @@ export function TextEditor({
         EditorState.tabSize.of(2),
         EditorView.lineWrapping,
         continuedIndentExtension({ mode: 'indent', maxColumns: 10 }),
+        EditorState.transactionFilter.of((transaction) => {
+          if (!transaction.docChanged || isExternalSyncTransaction(transaction)) return transaction;
+          if (hasVisibleBlockDiffPreviewRef.current) return [];
+          return transaction;
+        }),
         EditorView.updateListener.of(onUpdate),
         keymap.of([
           {

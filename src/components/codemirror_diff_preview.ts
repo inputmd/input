@@ -435,6 +435,16 @@ function shouldRenderInlinePreview(block: EditorDiffPreviewBlock): boolean {
   return Math.max(deletedText.length, insertedText.length) <= INLINE_DIFF_PREVIEW_MAX_CHARS;
 }
 
+export function hasVisibleBlockDiffPreview(preview: EditorDiffPreview | null): boolean {
+  if (!preview || !Array.isArray(preview.blocks) || preview.blocks.length === 0) return false;
+  return preview.blocks.some((block) => {
+    const insertedText = block.insertedText ?? '';
+    const deletedText = block.deletedText ?? '';
+    if (insertedText.length === 0 && deletedText.length === 0) return false;
+    return !shouldRenderInlinePreview(block);
+  });
+}
+
 interface DecorationEntry {
   from: number;
   to: number;
@@ -482,7 +492,7 @@ function buildEditorDiffPreviewDecorations(
       });
     }
 
-    if (to > from) {
+    if (inlinePreview && to > from) {
       entries.push({
         from,
         to,
@@ -506,10 +516,9 @@ function buildEditorDiffPreviewDecorations(
             widget: new DiffPreviewWidget(rawBlock, 'block', preview.source, preview.badge, onAction),
             block: true,
           });
-      const position = to;
       entries.push({
-        from: position,
-        to: position,
+        from: inlinePreview ? to : from,
+        to: inlinePreview ? to : to,
         value,
         order: order++,
       });
@@ -523,10 +532,9 @@ function buildEditorDiffPreviewDecorations(
             widget: new DiffPreviewWidget(rawBlock, 'block', preview.source, preview.badge, onAction),
             block: true,
           });
-      const position = to;
       entries.push({
-        from: position,
-        to: position,
+        from: inlinePreview ? to : from,
+        to: inlinePreview ? to : to,
         value,
         order: order++,
       });
@@ -561,7 +569,7 @@ function buildEditorDiffPreviewAtomicRanges(
       (insertedText.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0))
     ) {
       entries.push({
-        from: to,
+        from,
         to,
         value: Decoration.replace({
           block: true,

@@ -36,6 +36,7 @@ import {
   type EditorDiffPreview,
   type EditorDiffPreviewActionEvent,
   editorDiffPreviewExtension,
+  hasVisibleBlockDiffPreview,
 } from './codemirror_diff_preview';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
@@ -197,6 +198,8 @@ export function MarkdownEditor({
 
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
+  const hasVisibleBlockDiffPreviewRef = useRef(hasVisibleBlockDiffPreview(diffPreview));
+  hasVisibleBlockDiffPreviewRef.current = hasVisibleBlockDiffPreview(diffPreview);
   const onBracePromptStreamRef = useRef(onBracePromptStream);
   onBracePromptStreamRef.current = onBracePromptStream;
   const onPromptListSubmitRef = useRef(onPromptListSubmit);
@@ -578,6 +581,7 @@ export function MarkdownEditor({
         continuedIndentExtension({ mode: 'markdown', maxColumns: 10 }),
         EditorState.transactionFilter.of((transaction) => {
           if (!transaction.docChanged || isExternalSyncTransaction(transaction)) return transaction;
+          if (hasVisibleBlockDiffPreviewRef.current) return [];
           const currentProtectedRange = protectedEditRangeRef.current;
           if (!currentProtectedRange) return transaction;
           let blocked = false;
