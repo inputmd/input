@@ -2,6 +2,7 @@ import test from 'ava';
 import type { ReaderAiStagedChange } from '../../src/reader_ai.ts';
 import {
   buildReaderAiRetryRequestFromRuns,
+  classifyReaderAiStepRetryPolicy,
   completeReaderAiRunStepRetry,
   markReaderAiRunStepRetryAttempt,
   prepareReaderAiSelectedChangesForApply,
@@ -56,6 +57,20 @@ test('retry request only targets failed steps that are still ready', (t) => {
 
   const exhausted = completeReaderAiRunStepRetry(inProgress, 'step:1', false);
   t.is(buildReaderAiRetryRequestFromRuns([exhausted])?.retryStepId, undefined);
+});
+
+test('retry policy prefers typed error codes over string matching', (t) => {
+  const policy = classifyReaderAiStepRetryPolicy(
+    { kind: 'tool', name: 'search_document' },
+    { error: 'something vague', errorCode: 'rate_limited' },
+  );
+
+  t.deepEqual(policy, {
+    maxRetries: 2,
+    retryable: true,
+    retryReason: 'transient',
+    retryState: 'ready',
+  });
 });
 
 test('prepareReaderAiSelectedChangesForApply scopes local editor apply to the current file', (t) => {

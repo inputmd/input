@@ -1,5 +1,6 @@
 import type { ReaderAiMessage, ReaderAiToolLogEntry } from './components/ReaderAiPanel';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from './reader_ai';
+import type { ReaderAiStepErrorCode } from './reader_ai_errors';
 import type { ReaderAiProposalToolCallStatus } from './reader_ai_state';
 
 export type ReaderAiRunStatus = 'running' | 'completed' | 'failed' | 'aborted';
@@ -14,6 +15,7 @@ export interface ReaderAiRunStep {
   detail?: string;
   args?: string;
   error?: string;
+  errorCode?: ReaderAiStepErrorCode;
   startedAt: string;
   finishedAt?: string;
   retryCount: number;

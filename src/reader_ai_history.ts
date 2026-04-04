@@ -1,6 +1,7 @@
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
 import type { ReaderAiEditProposal, ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
 import type { ReaderAiEditorCheckpoint } from './reader_ai_editor_checkpoints';
+import type { ReaderAiStepErrorCode } from './reader_ai_errors';
 import type { ReaderAiChangeSetFileRecord, ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
 import type { Route } from './routing';
 import type { PublicRepoRef } from './wiki_links';
@@ -460,6 +461,18 @@ function normalizePersistedRuns(value: unknown): NonNullable<ReaderAiHistoryEntr
                 error:
                   typeof (step as { error?: unknown }).error === 'string'
                     ? (step as { error: string }).error
+                    : undefined,
+                errorCode:
+                  (step as { errorCode?: unknown }).errorCode === 'invalid_arguments' ||
+                  (step as { errorCode?: unknown }).errorCode === 'conflict' ||
+                  (step as { errorCode?: unknown }).errorCode === 'not_found' ||
+                  (step as { errorCode?: unknown }).errorCode === 'timeout' ||
+                  (step as { errorCode?: unknown }).errorCode === 'rate_limited' ||
+                  (step as { errorCode?: unknown }).errorCode === 'network' ||
+                  (step as { errorCode?: unknown }).errorCode === 'task_failed' ||
+                  (step as { errorCode?: unknown }).errorCode === 'unknown_tool' ||
+                  (step as { errorCode?: unknown }).errorCode === 'unknown'
+                    ? ((step as { errorCode: ReaderAiStepErrorCode }).errorCode as ReaderAiStepErrorCode)
                     : undefined,
                 finishedAt:
                   typeof (step as { finishedAt?: unknown }).finishedAt === 'string'

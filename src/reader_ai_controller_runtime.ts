@@ -1,6 +1,7 @@
 import { applyPatch as applyDiffPatch } from 'diff';
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
 import type { ReaderAiStagedChange } from './reader_ai';
+import type { ReaderAiStepErrorCode } from './reader_ai_errors';
 import type {
   ReaderAiChangeSetFileRecord,
   ReaderAiChangeSetRecord,
@@ -287,9 +288,23 @@ export function createReaderAiApplyBlockedMessage(
 
 export function classifyReaderAiStepRetryPolicy(
   step: Pick<ReaderAiRunStep, 'kind' | 'name'>,
-  error?: string,
+  options?: { error?: string; errorCode?: ReaderAiStepErrorCode },
 ): Pick<ReaderAiRunStep, 'maxRetries' | 'retryable' | 'retryReason' | 'retryState'> {
+  const error = options?.error;
+  const errorCode = options?.errorCode;
   if (!error) return { maxRetries: 0, retryable: false, retryReason: undefined, retryState: 'none' };
+  if (errorCode === 'conflict' || errorCode === 'not_found') {
+    return { maxRetries: 0, retryable: false, retryReason: undefined, retryState: 'none' };
+  }
+  if (errorCode === 'timeout' || errorCode === 'network' || errorCode === 'rate_limited') {
+    return { maxRetries: 2, retryable: true, retryReason: 'transient', retryState: 'ready' };
+  }
+  if (errorCode === 'invalid_arguments' || errorCode === 'unknown_tool') {
+    return { maxRetries: 1, retryable: true, retryReason: 'tool-arguments', retryState: 'ready' };
+  }
+  if (errorCode === 'task_failed') {
+    return { maxRetries: 1, retryable: true, retryReason: 'task-failure', retryState: 'ready' };
+  }
   const normalized = error.toLowerCase();
   if (normalized.includes('conflict') || normalized.includes('changed after')) {
     return { maxRetries: 0, retryable: false, retryReason: undefined, retryState: 'none' };

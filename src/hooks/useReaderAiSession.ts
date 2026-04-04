@@ -1062,12 +1062,16 @@ export function useReaderAiSession({
                     ? step
                     : {
                         ...step,
-                        ...classifyReaderAiStepRetryPolicy(step, event.error),
+                        ...classifyReaderAiStepRetryPolicy(step, {
+                          error: event.error,
+                          errorCode: event.errorCode,
+                        }),
                         status: event.error ? 'failed' : 'completed',
                         detail: event.error
                           ? `${event.error}${event.preview ? ` — ${event.preview}` : ''}`
                           : event.preview,
                         error: event.error,
+                        errorCode: event.errorCode,
                         finishedAt: new Date().toISOString(),
                       },
                 ),
@@ -1141,11 +1145,17 @@ export function useReaderAiSession({
                               ...step,
                               ...classifyReaderAiStepRetryPolicy(
                                 step,
-                                event.phase === 'error' ? event.detail : undefined,
+                                event.phase === 'error'
+                                  ? {
+                                      error: event.detail,
+                                      errorCode: event.errorCode,
+                                    }
+                                  : undefined,
                               ),
                               status: event.phase === 'error' ? 'failed' : 'completed',
                               detail,
                               error: event.phase === 'error' ? event.detail : step.error,
+                              errorCode: event.phase === 'error' ? event.errorCode : step.errorCode,
                               finishedAt: new Date().toISOString(),
                             },
                       )

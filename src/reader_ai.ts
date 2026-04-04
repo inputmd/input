@@ -4,6 +4,7 @@ import {
   shouldInsertStreamBoundarySpace,
 } from '../shared/stream_boundary_dictionary';
 import { responseToApiError } from './api_error';
+import type { ReaderAiStepErrorCode } from './reader_ai_errors';
 
 export interface ReaderAiModel {
   id: string;
@@ -74,6 +75,7 @@ export interface ReaderAiToolResultEvent {
   name: string;
   preview?: string;
   error?: string;
+  errorCode?: ReaderAiStepErrorCode;
 }
 
 export interface ReaderAiTaskProgressEvent {
@@ -82,6 +84,7 @@ export interface ReaderAiTaskProgressEvent {
   phase: 'started' | 'iteration_start' | 'tool_call' | 'tool_result' | 'completed' | 'error';
   iteration?: number;
   detail?: string;
+  errorCode?: ReaderAiStepErrorCode;
 }
 
 interface ReaderAiStreamOptions {
@@ -515,9 +518,21 @@ export async function askReaderAiStream(
       } else if (eventType === 'tool_result') {
         if (options.onToolResult) {
           try {
-            const parsed = JSON.parse(data) as { id?: string; name?: string; preview?: string; error?: string };
+            const parsed = JSON.parse(data) as {
+              id?: string;
+              name?: string;
+              preview?: string;
+              error?: string;
+              error_code?: ReaderAiStepErrorCode;
+            };
             if (typeof parsed.name === 'string')
-              options.onToolResult({ name: parsed.name, id: parsed.id, preview: parsed.preview, error: parsed.error });
+              options.onToolResult({
+                name: parsed.name,
+                id: parsed.id,
+                preview: parsed.preview,
+                error: parsed.error,
+                errorCode: parsed.error_code,
+              });
           } catch {
             // Ignore malformed tool_result event.
           }
@@ -554,6 +569,7 @@ export async function askReaderAiStream(
               phase?: ReaderAiTaskProgressEvent['phase'];
               iteration?: number;
               detail?: string;
+              error_code?: ReaderAiStepErrorCode;
             };
             if (
               parsed.phase === 'started' ||
@@ -569,6 +585,7 @@ export async function askReaderAiStream(
                 phase: parsed.phase,
                 iteration: typeof parsed.iteration === 'number' ? parsed.iteration : undefined,
                 detail: typeof parsed.detail === 'string' ? parsed.detail : undefined,
+                errorCode: parsed.error_code,
               });
             }
           } catch {

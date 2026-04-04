@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
 import { canGitHubUserEditMarkdownDocument, validateEditorsPreserved } from '../src/document_permissions.ts';
+import type { ReaderAiStepErrorCode } from '../src/reader_ai_errors.ts';
 import { resolveCommitCompactionSelection } from './commit_compaction.ts';
 import {
   APP_URL,
@@ -216,6 +217,37 @@ interface ReaderAiChatBody {
 interface ReaderAiChatMessage {
   role: 'user' | 'assistant';
   content: string;
+}
+
+function classifyReaderAiToolErrorCode(error: string): ReaderAiStepErrorCode {
+  const normalized = error.toLowerCase();
+  if (
+    normalized.includes('invalid json') ||
+    normalized.includes('could not be parsed as json') ||
+    normalized.includes('path is required') ||
+    normalized.includes('content is required') ||
+    normalized.includes('new_text is required') ||
+    normalized.includes('old_text is required')
+  ) {
+    return 'invalid_arguments';
+  }
+  if (normalized.includes('old_text not found')) return 'conflict';
+  if (normalized.includes('file not found')) return 'not_found';
+  if (normalized.includes('unknown tool')) return 'unknown_tool';
+  if (normalized.includes('rate limit')) return 'rate_limited';
+  if (normalized.includes('timeout') || normalized.includes('timed out')) return 'timeout';
+  if (normalized.includes('network') || normalized.includes('fetch')) return 'network';
+  return 'unknown';
+}
+
+function classifyReaderAiTaskErrorCode(error: unknown): ReaderAiStepErrorCode {
+  if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return 'timeout';
+  }
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (message.includes('rate limit')) return 'rate_limited';
+  if (message.includes('network') || message.includes('fetch')) return 'network';
+  return 'task_failed';
 }
 
 interface OpenRouterModelsResponse {
@@ -3023,6 +3055,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
               name: 'task',
               preview: '(invalid JSON arguments)',
               error: parsedArgsResult.error ?? 'Invalid JSON arguments',
+              error_code: 'invalid_arguments',
             });
           }
         } else {
@@ -3045,6 +3078,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
             name: tc.name,
             preview: '(invalid JSON arguments)',
             error: parseError,
+            error_code: 'invalid_arguments',
             repaired,
           });
           continue;
@@ -3063,6 +3097,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           name: tc.name,
           preview: resultPreview,
           ...(toolFailed ? { error: toolResult } : {}),
+          ...(toolFailed ? { error_code: classifyReaderAiToolErrorCode(toolResult) } : {}),
           ...(repaired ? { repaired: true } : {}),
         });
         if (tc.name === 'propose_edit_document') {
@@ -3120,6 +3155,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
                 name: 'task',
                 phase: 'error',
                 detail: message,
+                error_code: classifyReaderAiTaskErrorCode(taskErr),
               });
               return { id: tc.id, result: `[Subagent error: ${message}]` };
             }
