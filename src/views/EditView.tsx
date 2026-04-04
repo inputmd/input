@@ -1,7 +1,16 @@
 import type { EditorView } from '@codemirror/view';
 import * as Popover from '@radix-ui/react-popover';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { ArrowUpDown, ExternalLink, Highlighter, LockOpen, Pin } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowUpDown,
+  CheckCircle2,
+  ExternalLink,
+  Highlighter,
+  History,
+  LockOpen,
+  Pin,
+} from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { EditorChangeMarker } from '../components/codemirror_change_markers';
@@ -28,7 +37,7 @@ import {
   togglePromptAnswerExpandedState,
   togglePromptListCollapsedStateInUrl,
 } from '../prompt_list_state';
-import type { ReaderAiEditorOverlay } from '../reader_ai_editor_state';
+import type { ReaderAiEditorConflict, ReaderAiEditorOverlay } from '../reader_ai_editor_state';
 import { getStoredScrollPosition } from '../scroll_positions';
 import { findToggleListFromTarget, syncToggleListPersistedState, toggleToggleListState } from '../toggle_list_state';
 import { MARKDOWN_EXT_RE } from '../util';
@@ -224,6 +233,9 @@ export interface EditViewProps {
   contentSelection?: { anchor: number; head: number } | null;
   readerAiEditorOverlay?: ReaderAiEditorOverlay | null;
   onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
+  onReaderAiOpenReviewTarget?: (target: { changeId: string; hunkId?: string }) => void;
+  onReaderAiToggleReviewTarget?: (target: { changeId: string; hunkId?: string; selected: boolean }) => void;
+  onReaderAiRestoreCheckpoint?: () => void;
   previewHtml: string;
   previewCustomCss?: string | null;
   previewCustomCssScope?: string | null;
@@ -270,6 +282,124 @@ export interface EditViewProps {
   } | null;
 }
 
+function readerAiBannerTone(
+  fileStatus: ReaderAiEditorOverlay['fileStatus'],
+): 'info' | 'success' | 'warning' | 'danger' {
+  if (fileStatus === 'applied') return 'success';
+  if (fileStatus === 'conflicted' || fileStatus === 'failed') return 'danger';
+  if (fileStatus === 'stale' || fileStatus === 'partial' || fileStatus === 'superseded') return 'warning';
+  return 'info';
+}
+
+function ReaderAiEditorReviewBar({
+  overlay,
+  onOpenReviewTarget,
+  onToggleReviewTarget,
+  onRestoreCheckpoint,
+}: {
+  overlay: ReaderAiEditorOverlay;
+  onOpenReviewTarget?: (target: { changeId: string; hunkId?: string }) => void;
+  onToggleReviewTarget?: (target: { changeId: string; hunkId?: string; selected: boolean }) => void;
+  onRestoreCheckpoint?: () => void;
+}) {
+  if (overlay.fileStatus === 'idle' && !overlay.provenance && !overlay.checkpoint) return null;
+
+  const tone = readerAiBannerTone(overlay.fileStatus);
+  const Icon = tone === 'success' ? CheckCircle2 : tone === 'danger' ? AlertTriangle : History;
+  const modelLabel = overlay.provenance?.modelId ?? 'Reader AI';
+
+  const renderConflictActions = (conflict: ReaderAiEditorConflict) => {
+    if (!conflict.changeId) return null;
+    return (
+      <div class="editor-reader-ai-conflict-actions">
+        <button
+          type="button"
+          class="editor-reader-ai-action editor-reader-ai-action--secondary"
+          onClick={() =>
+            onToggleReviewTarget?.({
+              changeId: conflict.changeId!,
+              ...(conflict.hunkId ? { hunkId: conflict.hunkId } : {}),
+              selected: !conflict.selected,
+            })
+          }
+        >
+          {conflict.selected ? 'Keep Mine' : 'Use AI'}
+        </button>
+        <button
+          type="button"
+          class="editor-reader-ai-action editor-reader-ai-action--secondary"
+          onClick={() =>
+            onOpenReviewTarget?.({
+              changeId: conflict.changeId!,
+              ...(conflict.hunkId ? { hunkId: conflict.hunkId } : {}),
+            })
+          }
+        >
+          Review
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div class={`editor-reader-ai-banner editor-reader-ai-banner--${tone}`} role="status" aria-live="polite">
+      <div class="editor-reader-ai-banner-main">
+        <div class="editor-reader-ai-banner-copy">
+          <div class="editor-reader-ai-banner-pills">
+            <span class={`editor-reader-ai-pill editor-reader-ai-pill--${tone}`}>
+              <Icon size={13} aria-hidden="true" />
+              <span>{overlay.statusLabel}</span>
+            </span>
+            {overlay.provenance ? <span class="editor-reader-ai-pill">Reader AI</span> : null}
+            {overlay.provenance?.modelId ? (
+              <span class="editor-reader-ai-pill">{overlay.provenance.modelId}</span>
+            ) : null}
+            {overlay.checkpoint ? <span class="editor-reader-ai-pill">Checkpoint ready</span> : null}
+          </div>
+          <div class="editor-reader-ai-banner-title">{modelLabel}</div>
+          {overlay.statusMessage ? <div class="editor-reader-ai-banner-message">{overlay.statusMessage}</div> : null}
+        </div>
+        <div class="editor-reader-ai-banner-actions">
+          {overlay.primaryChangeId ? (
+            <button
+              type="button"
+              class="editor-reader-ai-action editor-reader-ai-action--secondary"
+              onClick={() => onOpenReviewTarget?.({ changeId: overlay.primaryChangeId! })}
+            >
+              Review in panel
+            </button>
+          ) : null}
+          {overlay.checkpoint ? (
+            <button
+              type="button"
+              class="editor-reader-ai-action editor-reader-ai-action--primary"
+              onClick={() => onRestoreCheckpoint?.()}
+            >
+              Restore checkpoint
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {overlay.conflicts.length > 0 ? (
+        <div class="editor-reader-ai-conflicts">
+          {overlay.conflicts.slice(0, 3).map((conflict) => (
+            <div
+              key={`${conflict.changeId ?? conflict.path}:${conflict.hunkId ?? 'file'}`}
+              class="editor-reader-ai-conflict"
+            >
+              <div class="editor-reader-ai-conflict-copy">
+                <div class="editor-reader-ai-conflict-title">{conflict.title}</div>
+                <div class="editor-reader-ai-conflict-message">{conflict.message}</div>
+              </div>
+              {renderConflictActions(conflict)}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function EditView({
   fileName = null,
   markdown = true,
@@ -279,6 +409,9 @@ export function EditView({
   contentSelection = null,
   readerAiEditorOverlay = null,
   onChangeMarkerClick,
+  onReaderAiOpenReviewTarget,
+  onReaderAiToggleReviewTarget,
+  onReaderAiRestoreCheckpoint,
   previewHtml,
   previewCustomCss = null,
   previewCustomCssScope = null,
@@ -1620,6 +1753,14 @@ export function EditView({
           <div class="editor-loading-overlay" role="status" aria-live="polite" aria-label="Loading file into editor">
             <span class="editor-loading-spinner" aria-hidden="true" />
           </div>
+        ) : null}
+        {readerAiEditorOverlay ? (
+          <ReaderAiEditorReviewBar
+            overlay={readerAiEditorOverlay}
+            onOpenReviewTarget={onReaderAiOpenReviewTarget}
+            onToggleReviewTarget={onReaderAiToggleReviewTarget}
+            onRestoreCheckpoint={onReaderAiRestoreCheckpoint}
+          />
         ) : null}
         {markdown ? (
           <MarkdownEditor

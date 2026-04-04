@@ -99,6 +99,11 @@
   background: color-mix(in srgb, var(--success-color) 92%, black 8%);
 }
 
+.doc-editor .cm-change-marker--failed .cm-change-marker__bar {
+  opacity: 0.82;
+  background: color-mix(in srgb, var(--danger-border) 72%, black 28%);
+}
+
 .doc-editor .cm-change-marker--conflicted .cm-change-marker__bar,
 .doc-editor .cm-change-marker--stale .cm-change-marker__bar {
   opacity: 0.8;

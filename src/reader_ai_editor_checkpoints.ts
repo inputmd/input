@@ -1,4 +1,4 @@
-import { createReaderAiLedgerId } from './reader_ai_ledger';
+import { createReaderAiLedgerId } from './reader_ai_ledger.ts';
 
 const READER_AI_EDITOR_CHECKPOINT_MAX_ENTRIES = 8;
 

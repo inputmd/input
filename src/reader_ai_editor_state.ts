@@ -1,9 +1,9 @@
-import { buildEditorChangeMarkers, type EditorChangeMarker } from './components/codemirror_change_markers';
-import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './components/codemirror_diff_preview';
-import { commonPrefixLength, commonSuffixLength } from './path_utils';
+import { buildEditorChangeMarkers, type EditorChangeMarker } from './components/codemirror_change_markers.ts';
+import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './components/codemirror_diff_preview.ts';
 import type { ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
 import type { ReaderAiEditorCheckpoint } from './reader_ai_editor_checkpoints';
 import type {
+  ReaderAiChangeSetFailure,
   ReaderAiChangeSetFileRecord,
   ReaderAiChangeSetRecord,
   ReaderAiChangeSetStatus,
@@ -24,6 +24,13 @@ export type ReaderAiEditorFileStatus =
 
 export type ReaderAiEditorHunkStatus = 'pending' | 'accepted' | 'rejected' | 'applied' | 'conflicted' | 'stale';
 
+export type ReaderAiEditorConflictReason =
+  | 'stale_context'
+  | 'overlapping_local_edits'
+  | 'missing_base'
+  | 'remote_conflict'
+  | 'apply_failed';
+
 export interface ReaderAiEditorCheckpointSummary {
   id: string;
   status: 'active' | 'restored' | 'discarded';
@@ -34,6 +41,16 @@ export interface ReaderAiEditorProvenance {
   changeSetId: string;
   modelId: string | null;
   sourceLabel: string;
+}
+
+export interface ReaderAiEditorConflict {
+  changeId: string | null;
+  hunkId: string | null;
+  path: string;
+  title: string;
+  reason: ReaderAiEditorConflictReason;
+  message: string;
+  selected: boolean;
 }
 
 export interface ReaderAiEditorHunkOverlay {
@@ -47,6 +64,7 @@ export interface ReaderAiEditorHunkOverlay {
   to: number | null;
   status: ReaderAiEditorHunkStatus;
   selected: boolean;
+  conflictReason: ReaderAiEditorConflictReason | null;
 }
 
 export interface ReaderAiEditorOverlay {
@@ -54,8 +72,12 @@ export interface ReaderAiEditorOverlay {
   revision: number | null;
   changeSetId: string | null;
   runId: string | null;
+  primaryChangeId: string | null;
   fileStatus: ReaderAiEditorFileStatus;
+  statusLabel: string;
+  statusMessage: string | null;
   hunks: ReaderAiEditorHunkOverlay[];
+  conflicts: ReaderAiEditorConflict[];
   markers: EditorChangeMarker[] | null;
   diffPreview: EditorDiffPreview | null;
   provenance: ReaderAiEditorProvenance | null;
@@ -74,35 +96,45 @@ interface BuildReaderAiEditorOverlayOptions {
   selectedHunkIdsByChangeId: ReaderAiSelectedHunkIdsByChangeId;
   activeChangeSet: ReaderAiChangeSetRecord | null;
   activeEditorCheckpoint: ReaderAiEditorCheckpoint | null;
+  changeSets: ReaderAiChangeSetRecord[];
   runs: ReaderAiRunRecord[];
 }
 
-function buildReaderAiEditorDiffPreview(change: ReaderAiStagedChange | undefined): EditorDiffPreview | null {
-  if (!change || change.type === 'delete') return null;
-  if (typeof change.modifiedContent !== 'string') return null;
-  if (change.type === 'create') {
-    return {
-      blocks: [
-        {
-          kind: 'insert',
-          from: 0,
-          to: 0,
-          insert: change.modifiedContent,
-          label: 'Reader AI proposal',
-        },
-      ],
-      source: 'Reader AI proposal',
-    };
+function commonPrefixLength(left: string, right: string): number {
+  const length = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < length && left[index] === right[index]) index += 1;
+  return index;
+}
+
+function commonSuffixLength(left: string, right: string, prefixLength = 0): number {
+  const maxLength = Math.min(left.length, right.length) - prefixLength;
+  let index = 0;
+  while (index < maxLength && left[left.length - 1 - index] === right[right.length - 1 - index]) {
+    index += 1;
   }
-  const original = typeof change.originalContent === 'string' ? change.originalContent : null;
-  if (original === null) return null;
-  const modified = change.modifiedContent;
+  return index;
+}
+
+function buildReaderAiContentDiffPreview(options: {
+  originalContent: string;
+  modifiedContent: string;
+  sourceLabel: string;
+  badgeLabel: string;
+  hunkLabel?: string;
+  hunks?: ReaderAiStagedHunk[];
+}): EditorDiffPreview | null {
+  const { originalContent: original, modifiedContent: modified } = options;
   if (original === modified) return null;
-  const hunkBlocks = buildDiffPreviewBlocksFromHunks(original, modified, change.hunks ?? []);
+  const hunkBlocks =
+    Array.isArray(options.hunks) && options.hunks.length > 0
+      ? buildDiffPreviewBlocksFromHunks(original, modified, options.hunks)
+      : [];
   if (hunkBlocks.length > 0) {
     return {
       blocks: hunkBlocks,
-      source: 'Reader AI proposal',
+      source: options.sourceLabel,
+      badge: options.badgeLabel,
     };
   }
   const start = commonPrefixLength(original, modified);
@@ -117,7 +149,7 @@ function buildReaderAiEditorDiffPreview(change: ReaderAiStagedChange | undefined
       kind: replacement.length > 0 ? 'replace' : 'delete',
       from: Math.max(0, start),
       to: Math.max(0, originalTrimmedEnd),
-      label: replacement.length > 0 ? 'Replace' : 'Delete',
+      label: replacement.length > 0 ? (options.hunkLabel ?? 'Replace') : (options.hunkLabel ?? 'Delete'),
       deletedText: deleted,
     });
   }
@@ -127,14 +159,66 @@ function buildReaderAiEditorDiffPreview(change: ReaderAiStagedChange | undefined
       from: Math.max(0, start),
       to: Math.max(0, originalTrimmedEnd),
       insert: replacement,
-      label: deleted.length > 0 ? 'Insert' : 'Reader AI proposal',
+      label: deleted.length > 0 ? (options.hunkLabel ?? 'Insert') : (options.hunkLabel ?? options.sourceLabel),
     });
   }
   if (blocks.length === 0) return null;
   return {
     blocks,
-    source: 'Reader AI proposal',
+    source: options.sourceLabel,
+    badge: options.badgeLabel,
   };
+}
+
+function buildReaderAiEditorDiffPreview(
+  change: ReaderAiStagedChange | undefined,
+  provenance: ReaderAiEditorProvenance | null,
+  fileStatus: ReaderAiEditorFileStatus,
+): EditorDiffPreview | null {
+  if (!change || change.type === 'delete') return null;
+  if (typeof change.modifiedContent !== 'string') return null;
+  const sourceLabel = provenance?.sourceLabel ?? 'Reader AI';
+  const badgeLabel = fileStatus === 'applied' ? 'Applied' : fileStatus === 'conflicted' ? 'Conflict' : 'Proposal';
+  if (change.type === 'create') {
+    return {
+      blocks: [
+        {
+          kind: 'insert',
+          from: 0,
+          to: 0,
+          insert: change.modifiedContent,
+          label: 'Reader AI proposal',
+        },
+      ],
+      source: sourceLabel,
+      badge: badgeLabel,
+    };
+  }
+  const original = typeof change.originalContent === 'string' ? change.originalContent : null;
+  if (original === null) return null;
+  return buildReaderAiContentDiffPreview({
+    originalContent: original,
+    modifiedContent: change.modifiedContent,
+    sourceLabel,
+    badgeLabel,
+    hunks: change.hunks,
+    hunkLabel: 'Reader AI proposal',
+  });
+}
+
+function buildAppliedReaderAiDiffPreview(options: {
+  checkpoint: ReaderAiEditorCheckpoint | null;
+  currentDocumentContent: string;
+  provenance: ReaderAiEditorProvenance | null;
+}): EditorDiffPreview | null {
+  if (!options.checkpoint) return null;
+  return buildReaderAiContentDiffPreview({
+    originalContent: options.checkpoint.content,
+    modifiedContent: options.currentDocumentContent,
+    sourceLabel: options.provenance?.sourceLabel ?? 'Reader AI',
+    badgeLabel: 'Applied',
+    hunkLabel: 'Applied Reader AI change',
+  });
 }
 
 function buildReaderAiHunkLineRange(hunk: ReaderAiStagedHunk): { lineStart: number; lineEnd: number } {
@@ -166,25 +250,60 @@ function resolveReaderAiEditorFileStatus(
 ): ReaderAiEditorFileStatus {
   if (fileRecord?.status === 'stale') return 'stale';
   if (fileRecord?.status === 'conflicted') return 'conflicted';
+  if (fileRecord?.status === 'failed' || fileRecord?.status === 'missing_content') return 'failed';
   if (fileRecord?.status === 'applied') return 'applied';
-  if (fileRecord?.status === 'failed') return 'failed';
   if (changeSetStatus === 'applying') return 'applying';
   if (changeSetStatus === 'applied') return 'applied';
   if (changeSetStatus === 'partial') return 'partial';
   if (changeSetStatus === 'conflicted') return 'conflicted';
   if (changeSetStatus === 'superseded') return 'superseded';
+  if (changeSetStatus === 'failed') return 'failed';
   if (change) return 'ready';
   return 'idle';
+}
+
+function resolveReaderAiConflictReason(
+  fileStatus: ReaderAiEditorFileStatus,
+  fileRecord: ReaderAiChangeSetFileRecord | undefined,
+  hasCheckpoint: boolean,
+): ReaderAiEditorConflictReason | null {
+  if (fileRecord?.status === 'missing_content') return 'missing_base';
+  if (fileStatus === 'stale') return hasCheckpoint ? 'overlapping_local_edits' : 'stale_context';
+  if (fileStatus === 'conflicted') return 'remote_conflict';
+  if (fileStatus === 'failed') return 'apply_failed';
+  return null;
+}
+
+function createReaderAiConflictMessage(
+  reason: ReaderAiEditorConflictReason,
+  failedEntry: ReaderAiChangeSetFailure | undefined,
+): string {
+  if (reason === 'overlapping_local_edits') {
+    return 'Local editor content drifted after Reader AI generated this edit. Restore the checkpoint or keep your local changes.';
+  }
+  if (reason === 'stale_context') {
+    return 'The current file no longer matches the content Reader AI edited. Review the latest text before applying.';
+  }
+  if (reason === 'missing_base') {
+    return 'Reader AI is missing the full file content needed to safely apply this edit.';
+  }
+  if (reason === 'remote_conflict') {
+    return 'The repository content changed while applying this Reader AI edit. Review the conflicting hunks before retrying.';
+  }
+  return (
+    failedEntry?.error || 'Applying this Reader AI edit failed. Review or exclude the affected hunks before retrying.'
+  );
 }
 
 function buildReaderAiEditorHunks(options: {
   path: string;
   change: ReaderAiStagedChange | undefined;
   fileStatus: ReaderAiEditorFileStatus;
+  conflictReason: ReaderAiEditorConflictReason | null;
   selectedChangeIds: Set<string>;
   selectedHunkIdsByChangeId: ReaderAiSelectedHunkIdsByChangeId;
 }): ReaderAiEditorHunkOverlay[] {
-  const { change, fileStatus, path, selectedChangeIds, selectedHunkIdsByChangeId } = options;
+  const { change, conflictReason, fileStatus, path, selectedChangeIds, selectedHunkIdsByChangeId } = options;
   if (!change?.id || !Array.isArray(change.hunks) || change.hunks.length === 0) return [];
   const selectedChange = selectedChangeIds.has(change.id);
   const selectedHunkIds = selectedHunkIdsByChangeId[change.id] ?? new Set<string>();
@@ -213,8 +332,43 @@ function buildReaderAiEditorHunks(options: {
       to: block ? block.to : null,
       status,
       selected: selectedChange && selectedHunkIds.has(hunk.id),
+      conflictReason: status === 'conflicted' || status === 'stale' ? conflictReason : null,
     };
   });
+}
+
+function buildReaderAiEditorConflicts(options: {
+  path: string;
+  change: ReaderAiStagedChange | undefined;
+  hunks: ReaderAiEditorHunkOverlay[];
+  fileStatus: ReaderAiEditorFileStatus;
+  conflictReason: ReaderAiEditorConflictReason | null;
+  failedEntry: ReaderAiChangeSetFailure | undefined;
+}): ReaderAiEditorConflict[] {
+  if (!options.conflictReason) return [];
+  const message = createReaderAiConflictMessage(options.conflictReason, options.failedEntry);
+  if (options.hunks.length > 0) {
+    return options.hunks.map((hunk) => ({
+      changeId: hunk.changeId,
+      hunkId: hunk.hunkId,
+      path: options.path,
+      title: hunk.header,
+      reason: options.conflictReason!,
+      message,
+      selected: hunk.selected,
+    }));
+  }
+  return [
+    {
+      changeId: options.change?.id ?? null,
+      hunkId: null,
+      path: options.path,
+      title: options.path,
+      reason: options.conflictReason,
+      message,
+      selected: !!options.change?.id,
+    },
+  ];
 }
 
 function buildReaderAiEditorMarkers(options: {
@@ -224,6 +378,9 @@ function buildReaderAiEditorMarkers(options: {
   currentDocumentSavedContent: string | null;
   currentDocumentContent: string;
   hasUnsavedChanges: boolean;
+  checkpoint: ReaderAiEditorCheckpoint | null;
+  provenance: ReaderAiEditorProvenance | null;
+  statusMessage: string | null;
 }): EditorChangeMarker[] | null {
   if (options.change?.id && options.hunks.length > 0) {
     return options.hunks.map((hunk) => ({
@@ -235,6 +392,8 @@ function buildReaderAiEditorMarkers(options: {
       hunkId: hunk.hunkId,
       status: hunk.status,
       label: hunk.header,
+      sourceLabel: options.provenance?.sourceLabel ?? 'Reader AI',
+      detail: options.statusMessage ?? undefined,
     }));
   }
   if (options.change?.id) {
@@ -247,36 +406,176 @@ function buildReaderAiEditorMarkers(options: {
         status:
           options.fileStatus === 'applied'
             ? 'applied'
-            : options.fileStatus === 'conflicted'
-              ? 'conflicted'
-              : options.fileStatus === 'stale'
-                ? 'stale'
-                : 'accepted',
+            : options.fileStatus === 'failed'
+              ? 'failed'
+              : options.fileStatus === 'conflicted'
+                ? 'conflicted'
+                : options.fileStatus === 'stale'
+                  ? 'stale'
+                  : 'accepted',
         label: options.change.path,
+        sourceLabel: options.provenance?.sourceLabel ?? 'Reader AI',
+        detail: options.statusMessage ?? undefined,
       },
     ];
+  }
+  if (options.checkpoint && options.currentDocumentContent !== options.checkpoint.content) {
+    const markers = buildEditorChangeMarkers(options.checkpoint.content, options.currentDocumentContent);
+    return markers.map((marker) => ({
+      ...marker,
+      source: 'reader_ai',
+      status: 'applied',
+      label: 'Applied Reader AI change',
+      sourceLabel: options.provenance?.sourceLabel ?? 'Reader AI',
+      detail: options.statusMessage ?? 'Applied Reader AI change',
+    }));
   }
   if (options.currentDocumentSavedContent === null || !options.hasUnsavedChanges) return null;
   const markers = buildEditorChangeMarkers(options.currentDocumentSavedContent, options.currentDocumentContent);
   return markers.length > 0 ? markers : null;
 }
 
+function findRelevantReaderAiChangeSet(options: {
+  path: string;
+  activeChangeSet: ReaderAiChangeSetRecord | null;
+  activeEditorCheckpoint: ReaderAiEditorCheckpoint | null;
+  changeSets: ReaderAiChangeSetRecord[];
+}): ReaderAiChangeSetRecord | null {
+  const activeIncludesPath =
+    options.activeChangeSet?.stagedChanges.some((change) => change.path === options.path) ||
+    options.activeChangeSet?.files.some((file) => file.path === options.path) ||
+    options.activeChangeSet?.appliedPaths.includes(options.path) ||
+    options.activeChangeSet?.failedPaths.some((entry) => entry.path === options.path);
+  if (activeIncludesPath) return options.activeChangeSet ?? null;
+  if (options.activeEditorCheckpoint?.changeSetId) {
+    const checkpointChangeSet =
+      options.changeSets.find((changeSet) => changeSet.id === options.activeEditorCheckpoint?.changeSetId) ?? null;
+    if (checkpointChangeSet) return checkpointChangeSet;
+  }
+  for (let index = options.changeSets.length - 1; index >= 0; index -= 1) {
+    const changeSet = options.changeSets[index];
+    if (
+      changeSet.stagedChanges.some((change) => change.path === options.path) ||
+      changeSet.files.some((file) => file.path === options.path) ||
+      changeSet.appliedPaths.includes(options.path) ||
+      changeSet.failedPaths.some((entry) => entry.path === options.path)
+    ) {
+      return changeSet;
+    }
+  }
+  return null;
+}
+
+function createReaderAiStatusLabel(status: ReaderAiEditorFileStatus): string {
+  if (status === 'ready') return 'Proposal ready';
+  if (status === 'applying') return 'Applying';
+  if (status === 'applied') return 'Applied';
+  if (status === 'partial') return 'Partial apply';
+  if (status === 'conflicted') return 'Conflict';
+  if (status === 'stale') return 'Stale';
+  if (status === 'superseded') return 'Superseded';
+  if (status === 'failed') return 'Failed';
+  return 'Editor';
+}
+
+function createReaderAiStatusMessage(options: {
+  fileStatus: ReaderAiEditorFileStatus;
+  provenance: ReaderAiEditorProvenance | null;
+  hunks: ReaderAiEditorHunkOverlay[];
+  conflicts: ReaderAiEditorConflict[];
+  checkpoint: ReaderAiEditorCheckpoint | null;
+  failedEntry: ReaderAiChangeSetFailure | undefined;
+}): string | null {
+  const modelLabel = options.provenance?.modelId ?? 'Reader AI';
+  if (options.fileStatus === 'ready') {
+    const selectedCount = options.hunks.filter((hunk) => hunk.selected).length;
+    if (options.hunks.length > 0) {
+      return `${selectedCount} of ${options.hunks.length} hunks selected from ${modelLabel}.`;
+    }
+    return `Reader AI has a pending proposal for this file from ${modelLabel}.`;
+  }
+  if (options.fileStatus === 'applied') {
+    return options.checkpoint
+      ? `Applied from ${modelLabel}. A restore checkpoint is available for this editor session.`
+      : `Applied from ${modelLabel}.`;
+  }
+  if (options.fileStatus === 'applying') return `Applying Reader AI changes from ${modelLabel}.`;
+  if (options.fileStatus === 'partial') {
+    return 'Some Reader AI edits applied, but at least one file still needs review.';
+  }
+  if (options.fileStatus === 'conflicted' || options.fileStatus === 'stale' || options.fileStatus === 'failed') {
+    return (
+      options.conflicts[0]?.message ??
+      options.failedEntry?.error ??
+      'Reader AI needs review before this file can be applied.'
+    );
+  }
+  if (options.fileStatus === 'superseded') return 'This Reader AI change set was superseded by a newer run.';
+  return null;
+}
+
 export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOptions): ReaderAiEditorOverlay | null {
   if (!options.active || !options.path) return null;
   const currentChange = options.effectiveStagedChanges.find((change) => change.path === options.path);
-  const fileRecord = options.activeChangeSet?.files.find((file) => file.path === options.path);
-  const run = options.activeChangeSet?.runId
-    ? (options.runs.find((entry) => entry.id === options.activeChangeSet?.runId) ?? null)
+  const relevantChangeSet = findRelevantReaderAiChangeSet({
+    path: options.path,
+    activeChangeSet: options.activeChangeSet,
+    activeEditorCheckpoint: options.activeEditorCheckpoint,
+    changeSets: options.changeSets,
+  });
+  const fileRecord = relevantChangeSet?.files.find((file) => file.path === options.path);
+  const failedEntry = relevantChangeSet?.failedPaths.find((entry) => entry.path === options.path);
+  const run = relevantChangeSet?.runId
+    ? (options.runs.find((entry) => entry.id === relevantChangeSet.runId) ?? null)
     : null;
-  const diffPreview = buildReaderAiEditorDiffPreview(currentChange);
-  const fileStatus = resolveReaderAiEditorFileStatus(currentChange, fileRecord, options.activeChangeSet?.status);
+  const provenance =
+    relevantChangeSet && run
+      ? {
+          runId: run.id,
+          changeSetId: relevantChangeSet.id,
+          modelId: run.modelId,
+          sourceLabel: 'Reader AI',
+        }
+      : null;
+  const fileStatus = resolveReaderAiEditorFileStatus(currentChange, fileRecord, relevantChangeSet?.status);
+  const conflictReason = resolveReaderAiConflictReason(
+    fileStatus,
+    fileRecord,
+    options.activeEditorCheckpoint?.path === options.path,
+  );
   const hunks = buildReaderAiEditorHunks({
     path: options.path,
     change: currentChange,
     fileStatus,
+    conflictReason,
     selectedChangeIds: options.selectedChangeIds,
     selectedHunkIdsByChangeId: options.selectedHunkIdsByChangeId,
   });
+  const conflicts = buildReaderAiEditorConflicts({
+    path: options.path,
+    change: currentChange,
+    hunks,
+    fileStatus,
+    conflictReason,
+    failedEntry,
+  });
+  const statusMessage = createReaderAiStatusMessage({
+    fileStatus,
+    provenance,
+    hunks,
+    conflicts,
+    checkpoint: options.activeEditorCheckpoint?.path === options.path ? options.activeEditorCheckpoint : null,
+    failedEntry,
+  });
+  const diffPreview =
+    buildReaderAiEditorDiffPreview(currentChange, provenance, fileStatus) ??
+    (fileStatus === 'applied' || fileStatus === 'partial'
+      ? buildAppliedReaderAiDiffPreview({
+          checkpoint: options.activeEditorCheckpoint?.path === options.path ? options.activeEditorCheckpoint : null,
+          currentDocumentContent: options.currentDocumentContent,
+          provenance,
+        })
+      : null);
   const markers = buildReaderAiEditorMarkers({
     change: currentChange,
     fileStatus,
@@ -284,26 +583,25 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
     currentDocumentSavedContent: options.currentDocumentSavedContent,
     currentDocumentContent: options.currentDocumentContent,
     hasUnsavedChanges: options.hasUnsavedChanges,
+    checkpoint: options.activeEditorCheckpoint?.path === options.path ? options.activeEditorCheckpoint : null,
+    provenance,
+    statusMessage,
   });
 
   return {
     path: options.path,
     revision: options.revision,
-    changeSetId: options.activeChangeSet?.id ?? null,
+    changeSetId: relevantChangeSet?.id ?? null,
     runId: run?.id ?? null,
+    primaryChangeId: currentChange?.id ?? conflicts[0]?.changeId ?? null,
     fileStatus,
+    statusLabel: createReaderAiStatusLabel(fileStatus),
+    statusMessage,
     hunks,
+    conflicts,
     markers: markers && markers.length > 0 ? markers : null,
     diffPreview,
-    provenance:
-      options.activeChangeSet && run
-        ? {
-            runId: run.id,
-            changeSetId: options.activeChangeSet.id,
-            modelId: run.modelId,
-            sourceLabel: 'Reader AI proposal',
-          }
-        : null,
+    provenance,
     checkpoint:
       options.activeEditorCheckpoint && options.activeEditorCheckpoint.path === options.path
         ? {

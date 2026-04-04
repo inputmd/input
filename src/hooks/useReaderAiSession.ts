@@ -1247,6 +1247,7 @@ export function useReaderAiSession({
     readerAiActiveChangeSet,
     readerAiApplyingChanges,
     readerAiConversationScope,
+    readerAiChangeSets,
     readerAiDocumentEditedContent,
     readerAiEditProposals,
     readerAiError,

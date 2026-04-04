@@ -1,0 +1,154 @@
+import test from 'ava';
+import type { ReaderAiStagedChange } from '../../src/reader_ai.ts';
+import type { ReaderAiEditorCheckpoint } from '../../src/reader_ai_editor_checkpoints.ts';
+import { buildReaderAiEditorOverlay } from '../../src/reader_ai_editor_state.ts';
+import type { ReaderAiChangeSetRecord, ReaderAiRunRecord } from '../../src/reader_ai_ledger.ts';
+
+function createRun(): ReaderAiRunRecord {
+  return {
+    id: 'run:1',
+    modelId: 'model:test',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    status: 'completed',
+    baseMessages: [{ role: 'user', content: 'Edit this' }],
+    toolLog: [],
+    steps: [],
+  };
+}
+
+function createCheckpoint(): ReaderAiEditorCheckpoint {
+  return {
+    id: 'checkpoint:1',
+    path: 'doc.md',
+    content: 'before\n',
+    revision: 3,
+    selection: null,
+    scrollTop: 24,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    changeSetId: 'changeset:1',
+    status: 'active',
+  };
+}
+
+test('buildReaderAiEditorOverlay keeps applied provenance markers when a checkpoint exists', (t) => {
+  const changeSets: ReaderAiChangeSetRecord[] = [
+    {
+      id: 'changeset:1',
+      runId: 'run:1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      status: 'applied',
+      editProposals: [],
+      proposalStatusesByToolCallId: {},
+      stagedChanges: [],
+      stagedFileContents: {},
+      documentEditedContent: null,
+      files: [
+        {
+          path: 'doc.md',
+          status: 'applied',
+          hasCompleteContent: true,
+          baseRevision: 3,
+        },
+      ],
+      appliedPaths: ['doc.md'],
+      failedPaths: [],
+    },
+  ];
+
+  const overlay = buildReaderAiEditorOverlay({
+    active: true,
+    path: 'doc.md',
+    revision: 4,
+    currentDocumentSavedContent: 'before\n',
+    currentDocumentContent: 'after\n',
+    hasUnsavedChanges: true,
+    effectiveStagedChanges: [],
+    selectedChangeIds: new Set(),
+    selectedHunkIdsByChangeId: {},
+    activeChangeSet: null,
+    activeEditorCheckpoint: createCheckpoint(),
+    changeSets,
+    runs: [createRun()],
+  });
+
+  t.truthy(overlay);
+  t.is(overlay?.fileStatus, 'applied');
+  t.is(overlay?.diffPreview?.badge, 'Applied');
+  t.is(overlay?.markers?.[0]?.source, 'reader_ai');
+  t.is(overlay?.markers?.[0]?.status, 'applied');
+  t.is(overlay?.provenance?.modelId, 'model:test');
+});
+
+test('buildReaderAiEditorOverlay exposes stale hunks as editor conflicts', (t) => {
+  const stagedChange: ReaderAiStagedChange = {
+    id: 'change:1',
+    path: 'doc.md',
+    type: 'edit',
+    diff: '@@ -1 +1 @@\n-before\n+after\n',
+    revision: 3,
+    originalContent: 'before\n',
+    modifiedContent: 'after\n',
+    hunks: [
+      {
+        id: 'hunk:1',
+        header: '@@ -1 +1 @@',
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        lines: [
+          { type: 'del', content: 'before' },
+          { type: 'add', content: 'after' },
+        ],
+      },
+    ],
+  };
+  const changeSets: ReaderAiChangeSetRecord[] = [
+    {
+      id: 'changeset:1',
+      runId: 'run:1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      status: 'conflicted',
+      editProposals: [],
+      proposalStatusesByToolCallId: {},
+      stagedChanges: [stagedChange],
+      stagedFileContents: { 'doc.md': 'after\n' },
+      documentEditedContent: null,
+      files: [
+        {
+          path: 'doc.md',
+          status: 'stale',
+          hasCompleteContent: true,
+          baseRevision: 3,
+        },
+      ],
+      appliedPaths: [],
+      failedPaths: [],
+    },
+  ];
+
+  const overlay = buildReaderAiEditorOverlay({
+    active: true,
+    path: 'doc.md',
+    revision: 4,
+    currentDocumentSavedContent: 'before\n',
+    currentDocumentContent: 'local drift\n',
+    hasUnsavedChanges: true,
+    effectiveStagedChanges: [stagedChange],
+    selectedChangeIds: new Set(['change:1']),
+    selectedHunkIdsByChangeId: { 'change:1': new Set(['hunk:1']) },
+    activeChangeSet: changeSets[0] ?? null,
+    activeEditorCheckpoint: createCheckpoint(),
+    changeSets,
+    runs: [createRun()],
+  });
+
+  t.truthy(overlay);
+  t.is(overlay?.fileStatus, 'stale');
+  t.is(overlay?.hunks[0]?.conflictReason, 'overlapping_local_edits');
+  t.is(overlay?.conflicts[0]?.hunkId, 'hunk:1');
+  t.true(overlay?.conflicts[0]?.message.includes('Restore the checkpoint') ?? false);
+});

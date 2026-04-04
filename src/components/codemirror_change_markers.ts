@@ -11,8 +11,10 @@ export interface EditorChangeMarker {
   source?: 'saved_diff' | 'reader_ai';
   changeId?: string;
   hunkId?: string;
-  status?: 'pending' | 'accepted' | 'rejected' | 'applied' | 'conflicted' | 'stale';
+  status?: 'pending' | 'accepted' | 'rejected' | 'applied' | 'conflicted' | 'stale' | 'failed';
   label?: string;
+  sourceLabel?: string;
+  detail?: string;
 }
 
 function lineCount(text: string): number {
@@ -119,7 +121,9 @@ class ChangeMarkerGutterMarker extends GutterMarker {
       this.marker.changeId === other.marker.changeId &&
       this.marker.hunkId === other.marker.hunkId &&
       this.marker.status === other.marker.status &&
-      this.marker.label === other.marker.label
+      this.marker.label === other.marker.label &&
+      this.marker.sourceLabel === other.marker.sourceLabel &&
+      this.marker.detail === other.marker.detail
     );
   }
 
@@ -129,6 +133,7 @@ class ChangeMarkerGutterMarker extends GutterMarker {
       this.marker.status ? ` cm-change-marker--${this.marker.status}` : ''
     }`;
     const labels: string[] = [];
+    if (this.marker.sourceLabel) labels.push(this.marker.sourceLabel);
     if (this.marker.label) labels.push(this.marker.label);
     if (this.marker.kind === 'add') labels.push('Added lines');
     if (this.marker.kind === 'modify') labels.push('Modified lines');
@@ -138,6 +143,7 @@ class ChangeMarkerGutterMarker extends GutterMarker {
       else if (this.marker.status === 'rejected') labels.push('Click to include in apply set');
       else labels.push('Click to focus this Reader AI change');
     }
+    if (this.marker.detail) labels.push(this.marker.detail);
     if (labels.length > 0) {
       const label = labels.join(', ');
       element.setAttribute('aria-label', label);

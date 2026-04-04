@@ -1140,6 +1140,7 @@ export function App() {
     readerAiActiveChangeSet,
     readerAiApplyingChanges,
     readerAiConversationScope,
+    readerAiChangeSets,
     readerAiDocumentEditedContent,
     readerAiEditProposals,
     readerAiError,
@@ -1192,6 +1193,7 @@ export function App() {
         selectedHunkIdsByChangeId: readerAiSelectedHunkIdsByChangeId,
         activeChangeSet: readerAiActiveChangeSet,
         activeEditorCheckpoint: readerAiActiveEditorCheckpoint,
+        changeSets: readerAiChangeSets,
         runs: readerAiRuns,
       }),
     [
@@ -1206,6 +1208,7 @@ export function App() {
       readerAiSelectedHunkIdsByChangeId,
       readerAiActiveChangeSet,
       readerAiActiveEditorCheckpoint,
+      readerAiChangeSets,
       readerAiRuns,
     ],
   );
@@ -1246,6 +1249,17 @@ export function App() {
     },
     [revealReaderAiEditorTarget],
   );
+  const onReaderAiToggleReviewTarget = useCallback(
+    (target: { changeId: string; hunkId?: string; selected: boolean }) => {
+      if (target.hunkId) {
+        if (target.selected) toggleReaderAiChangeSelection(target.changeId, true);
+        toggleReaderAiHunkSelection(target.changeId, target.hunkId, target.selected);
+        return;
+      }
+      toggleReaderAiChangeSelection(target.changeId, target.selected);
+    },
+    [toggleReaderAiChangeSelection, toggleReaderAiHunkSelection],
+  );
   const onReaderAiEditorMarkerClick = useCallback(
     (marker: EditorChangeMarker) => {
       if (marker.source !== 'reader_ai' || !marker.changeId) return;
@@ -1253,17 +1267,15 @@ export function App() {
         ? { changeId: marker.changeId, hunkId: marker.hunkId }
         : { changeId: marker.changeId };
       if (marker.status === 'accepted' || marker.status === 'rejected') {
-        if (marker.hunkId) {
-          const nextSelected = marker.status !== 'accepted';
-          if (nextSelected) toggleReaderAiChangeSelection(marker.changeId, true);
-          toggleReaderAiHunkSelection(marker.changeId, marker.hunkId, nextSelected);
-        } else {
-          toggleReaderAiChangeSelection(marker.changeId, !readerAiSelectedChangeIds.has(marker.changeId));
-        }
+        onReaderAiToggleReviewTarget({
+          changeId: marker.changeId,
+          ...(marker.hunkId ? { hunkId: marker.hunkId } : {}),
+          selected: marker.hunkId ? marker.status !== 'accepted' : !readerAiSelectedChangeIds.has(marker.changeId),
+        });
       }
       openReaderAiReviewTarget(nextTarget);
     },
-    [openReaderAiReviewTarget, readerAiSelectedChangeIds, toggleReaderAiChangeSelection, toggleReaderAiHunkSelection],
+    [onReaderAiToggleReviewTarget, openReaderAiReviewTarget, readerAiSelectedChangeIds],
   );
   const isContentRoute = useCallback((nextRoute: Route) => {
     return nextRoute.name === 'gist' || nextRoute.name === 'repofile' || nextRoute.name === 'sharefile';
@@ -7081,6 +7093,9 @@ export function App() {
             contentSelection={editContentSelection}
             readerAiEditorOverlay={readerAiEditorOverlay}
             onChangeMarkerClick={onReaderAiEditorMarkerClick}
+            onReaderAiOpenReviewTarget={openReaderAiReviewTarget}
+            onReaderAiToggleReviewTarget={onReaderAiToggleReviewTarget}
+            onReaderAiRestoreCheckpoint={onReaderAiUndoApply}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             sidePaneWidth={sidePaneWidth}

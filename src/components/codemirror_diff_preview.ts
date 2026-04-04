@@ -14,6 +14,7 @@ export interface EditorDiffPreviewBlock {
 export interface EditorDiffPreview {
   blocks: EditorDiffPreviewBlock[];
   source?: string;
+  badge?: string;
 }
 
 type DiffPreviewWidgetDisplay = 'block' | 'inline';
@@ -101,6 +102,8 @@ class DiffPreviewWidget extends WidgetType {
   private readonly label?: string;
   private readonly deletedText?: string;
   private readonly display: DiffPreviewWidgetDisplay;
+  private readonly source?: string;
+  private readonly badge?: string;
 
   constructor(
     text: string,
@@ -108,6 +111,8 @@ class DiffPreviewWidget extends WidgetType {
     label?: string,
     deletedText?: string,
     display: DiffPreviewWidgetDisplay = 'block',
+    source?: string,
+    badge?: string,
   ) {
     super();
     this.text = text;
@@ -115,6 +120,8 @@ class DiffPreviewWidget extends WidgetType {
     this.label = label;
     this.deletedText = deletedText;
     this.display = display;
+    this.source = source;
+    this.badge = badge;
   }
 
   eq(other: DiffPreviewWidget): boolean {
@@ -123,13 +130,33 @@ class DiffPreviewWidget extends WidgetType {
       other.kind === this.kind &&
       other.label === this.label &&
       other.deletedText === this.deletedText &&
-      other.display === this.display
+      other.display === this.display &&
+      other.source === this.source &&
+      other.badge === this.badge
     );
   }
 
   toDOM(): HTMLElement {
     const wrapper = document.createElement('div');
     wrapper.className = `cm-editor-diff-preview-widget cm-editor-diff-preview-widget--${this.kind} cm-editor-diff-preview-widget--${this.display}`;
+
+    if ((this.source || this.badge) && this.display === 'block') {
+      const meta = document.createElement('div');
+      meta.className = 'cm-editor-diff-preview-meta';
+      if (this.source) {
+        const source = document.createElement('span');
+        source.className = 'cm-editor-diff-preview-source';
+        source.textContent = this.source;
+        meta.append(source);
+      }
+      if (this.badge) {
+        const badge = document.createElement('span');
+        badge.className = 'cm-editor-diff-preview-badge';
+        badge.textContent = this.badge;
+        meta.append(badge);
+      }
+      wrapper.append(meta);
+    }
 
     if (this.label && this.display === 'block') {
       const label = document.createElement('div');
@@ -275,11 +302,27 @@ function buildEditorDiffPreviewDecorations(
         inlinePreview ? line.to : to,
         inlinePreview
           ? Decoration.widget({
-              widget: new DiffPreviewWidget(insert, kind, rawBlock.label, rawBlock.deletedText, 'inline'),
+              widget: new DiffPreviewWidget(
+                insert,
+                kind,
+                rawBlock.label,
+                rawBlock.deletedText,
+                'inline',
+                preview.source,
+                preview.badge,
+              ),
               side: 1,
             })
           : Decoration.replace({
-              widget: new DiffPreviewWidget(insert, kind, rawBlock.label, rawBlock.deletedText, 'block'),
+              widget: new DiffPreviewWidget(
+                insert,
+                kind,
+                rawBlock.label,
+                rawBlock.deletedText,
+                'block',
+                preview.source,
+                preview.badge,
+              ),
               block: true,
             }),
       );
@@ -289,11 +332,27 @@ function buildEditorDiffPreviewDecorations(
         inlinePreview ? line.to : to,
         inlinePreview
           ? Decoration.widget({
-              widget: new DiffPreviewWidget('', kind, rawBlock.label, rawBlock.deletedText, 'inline'),
+              widget: new DiffPreviewWidget(
+                '',
+                kind,
+                rawBlock.label,
+                rawBlock.deletedText,
+                'inline',
+                preview.source,
+                preview.badge,
+              ),
               side: 1,
             })
           : Decoration.replace({
-              widget: new DiffPreviewWidget('', kind, rawBlock.label, rawBlock.deletedText, 'block'),
+              widget: new DiffPreviewWidget(
+                '',
+                kind,
+                rawBlock.label,
+                rawBlock.deletedText,
+                'block',
+                preview.source,
+                preview.badge,
+              ),
               block: true,
             }),
       );
