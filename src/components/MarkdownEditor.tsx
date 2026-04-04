@@ -76,6 +76,7 @@ interface MarkdownEditorProps {
   scrollStorageKey?: string | null;
   diffPreview?: EditorDiffPreview | null;
   changeMarkers?: EditorChangeMarker[] | null;
+  onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
   onEditorReady?: (controller: EditorController | null) => void;
   onEligibleSelectionChange?: (eligible: boolean) => void;
   protectedEditRange?: EditorProtectedRange | null;
@@ -131,6 +132,7 @@ export function MarkdownEditor({
   scrollStorageKey = null,
   diffPreview = null,
   changeMarkers = null,
+  onChangeMarkerClick,
   onEditorReady,
   onEligibleSelectionChange,
   protectedEditRange = null,
@@ -542,7 +544,9 @@ export function MarkdownEditor({
         promptListAnsweringCompartment.current.of(promptListAnsweringFacet.of(inlinePromptActive)),
         bracePromptPreviewCompartment.current.of([]),
         diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
-        changeMarkersCompartment.current.of(editorChangeMarkersExtension(changeMarkers)),
+        changeMarkersCompartment.current.of(
+          editorChangeMarkersExtension(changeMarkers, { onMarkerClick: onChangeMarkerClick }),
+        ),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         EditorState.tabSize.of(2),
@@ -706,6 +710,11 @@ export function MarkdownEditor({
       getViewportAnchorPosition: (anchorRatio) => getViewportAnchorPosition(view, anchorRatio),
       scrollToPosition: (position, anchorRatio) => {
         scrollPositionToViewportAnchor(view, position, anchorRatio);
+      },
+      revealRange: (from) => {
+        const clampedPosition = clampPosition(view, from);
+        view.focus();
+        scrollPositionToViewportAnchor(view, clampedPosition, 0.2);
       },
       getScrollTopForPosition: (position, anchorRatio) => {
         return getScrollTopForPosition(view, position, anchorRatio);
@@ -925,9 +934,11 @@ export function MarkdownEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: changeMarkersCompartment.current.reconfigure(editorChangeMarkersExtension(changeMarkers)),
+      effects: changeMarkersCompartment.current.reconfigure(
+        editorChangeMarkersExtension(changeMarkers, { onMarkerClick: onChangeMarkerClick }),
+      ),
     });
-  }, [changeMarkers]);
+  }, [changeMarkers, onChangeMarkerClick]);
 
   useEffect(() => {
     if (!bracePrompt.panel) return;

@@ -64,6 +64,10 @@
   min-height: 1.35em;
 }
 
+.doc-editor .cm-change-marker--interactive {
+  cursor: pointer;
+}
+
 .doc-editor .cm-change-marker__bar {
   position: absolute;
   top: 0;
@@ -79,6 +83,26 @@
 
 .doc-editor .cm-change-marker__bar--modify {
   background: color-mix(in srgb, var(--text-secondary) 78%, black 22%);
+}
+
+.doc-editor .cm-change-marker--accepted .cm-change-marker__bar {
+  opacity: 0.72;
+  background: color-mix(in srgb, var(--success-color) 82%, white 18%);
+}
+
+.doc-editor .cm-change-marker--rejected .cm-change-marker__bar {
+  opacity: 0.28;
+}
+
+.doc-editor .cm-change-marker--applied .cm-change-marker__bar {
+  opacity: 0.78;
+  background: color-mix(in srgb, var(--success-color) 92%, black 8%);
+}
+
+.doc-editor .cm-change-marker--conflicted .cm-change-marker__bar,
+.doc-editor .cm-change-marker--stale .cm-change-marker__bar {
+  opacity: 0.8;
+  background: color-mix(in srgb, var(--danger-border) 84%, white 16%);
 }
 
 .doc-editor .cm-change-marker__delete-anchor {

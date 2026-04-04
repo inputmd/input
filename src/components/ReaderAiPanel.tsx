@@ -50,6 +50,10 @@ interface ReaderAiPanelProps {
   selectedHunkIds?: Record<string, Set<string>>;
   onRejectChange?: (changeId: string) => void;
   onRejectHunk?: (changeId: string, hunkId: string) => void;
+  currentEditorPath?: string | null;
+  activeReviewTarget?: { changeId: string; hunkId?: string } | null;
+  onRevealChange?: (changeId: string) => void;
+  onRevealHunk?: (changeId: string, hunkId: string) => void;
   error: string | null;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
@@ -155,6 +159,10 @@ export function ReaderAiPanel({
   selectedHunkIds,
   onRejectChange,
   onRejectHunk,
+  currentEditorPath = null,
+  activeReviewTarget = null,
+  onRevealChange,
+  onRevealHunk,
   error,
   onSend,
   onEditMessage,
@@ -741,9 +749,13 @@ export function ReaderAiPanel({
             editorProposalMode={editorProposalMode}
             canUndoEditorApply={canUndoEditorApply}
             reviewControls={false}
+            currentEditorPath={currentEditorPath}
+            activeReviewTarget={activeReviewTarget}
             onApplyWithoutSaving={onApplyWithoutSaving}
             onUndoEditorApply={onUndoEditorApply}
             onIgnoreAll={onIgnoreAll}
+            onRevealChange={onRevealChange}
+            onRevealHunk={onRevealHunk}
             onToggleChangeSelection={onToggleChangeSelection}
             onToggleHunkSelection={onToggleHunkSelection}
             selectedChangeIds={selectedChangeIds}

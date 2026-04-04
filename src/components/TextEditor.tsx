@@ -47,6 +47,7 @@ interface TextEditorProps {
   contentSelection?: { anchor: number; head: number } | null;
   diffPreview?: EditorDiffPreview | null;
   changeMarkers?: EditorChangeMarker[] | null;
+  onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
   onContentChange: (update: { content: string; origin: 'userEdits'; revision: number }) => void;
   readOnly?: boolean;
   placeholder?: string;
@@ -71,6 +72,7 @@ export function TextEditor({
   contentSelection = null,
   diffPreview = null,
   changeMarkers = null,
+  onChangeMarkerClick,
   onContentChange,
   readOnly = false,
   placeholder = 'Write your text here...',
@@ -417,7 +419,9 @@ export function TextEditor({
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         languageCompartment.current.of(detectedLanguage?.extensions ?? []),
         diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
-        changeMarkersCompartment.current.of(editorChangeMarkersExtension(changeMarkers)),
+        changeMarkersCompartment.current.of(
+          editorChangeMarkersExtension(changeMarkers, { onMarkerClick: onChangeMarkerClick }),
+        ),
         EditorState.tabSize.of(2),
         EditorView.lineWrapping,
         continuedIndentExtension({ mode: 'indent', maxColumns: 10 }),
@@ -483,6 +487,11 @@ export function TextEditor({
       getViewportAnchorPosition: (anchorRatio) => getViewportAnchorPosition(view, anchorRatio),
       scrollToPosition: (position, anchorRatio) => {
         scrollPositionToViewportAnchor(view, position, anchorRatio);
+      },
+      revealRange: (from) => {
+        const clampedPosition = clampPosition(view, from);
+        view.focus();
+        scrollPositionToViewportAnchor(view, clampedPosition, 0.2);
       },
       getScrollTopForPosition: (position, anchorRatio) => {
         return getScrollTopForPosition(view, position, anchorRatio);
@@ -683,9 +692,11 @@ export function TextEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: changeMarkersCompartment.current.reconfigure(editorChangeMarkersExtension(changeMarkers)),
+      effects: changeMarkersCompartment.current.reconfigure(
+        editorChangeMarkersExtension(changeMarkers, { onMarkerClick: onChangeMarkerClick }),
+      ),
     });
-  }, [changeMarkers]);
+  }, [changeMarkers, onChangeMarkerClick]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: helper is stable enough for this local sync effect
   useEffect(() => {

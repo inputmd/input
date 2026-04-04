@@ -1,6 +1,6 @@
-import { CheckSquare2, ChevronDown, ChevronRight, Maximize2, Square, X } from 'lucide-react';
+import { CheckSquare2, ChevronDown, ChevronRight, LocateFixed, Maximize2, Square, X } from 'lucide-react';
 import { createPortal } from 'preact/compat';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ReaderAiStagedChange, ReaderAiStagedHunk } from '../reader_ai';
 import { SideBySideDiffView, UnifiedDiffView } from './DiffViewer';
 
@@ -52,7 +52,11 @@ export function StagedChangesSection({
   selectedChangeIds,
   selectedHunkIds,
   canApplyWithoutSaving,
+  currentEditorPath,
+  activeReviewTarget,
   onIgnoreAll,
+  onRevealChange,
+  onRevealHunk,
   onToggleChangeSelection,
   onToggleHunkSelection,
   onRejectChange,
@@ -70,7 +74,11 @@ export function StagedChangesSection({
   selectedChangeIds?: Set<string>;
   selectedHunkIds?: Record<string, Set<string>>;
   canApplyWithoutSaving?: boolean;
+  currentEditorPath?: string | null;
+  activeReviewTarget?: { changeId: string; hunkId?: string } | null;
   onIgnoreAll?: () => void;
+  onRevealChange?: (changeId: string) => void;
+  onRevealHunk?: (changeId: string, hunkId: string) => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
   onRejectChange?: (changeId: string) => void;
@@ -78,6 +86,7 @@ export function StagedChangesSection({
   onApplyWithoutSaving?: () => void;
   onUndoEditorApply?: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     () => new Set(changes.filter((change) => shouldExpandChangeByDefault(change)).map((change) => change.path)),
   );
@@ -94,6 +103,27 @@ export function StagedChangesSection({
       return next;
     });
   }, [changes]);
+
+  useEffect(() => {
+    if (!activeReviewTarget) return;
+    const targetChange = changes.find((change) => change.id === activeReviewTarget.changeId);
+    if (!targetChange) return;
+    setExpandedPaths((prev) => {
+      if (prev.has(targetChange.path)) return prev;
+      const next = new Set(prev);
+      next.add(targetChange.path);
+      return next;
+    });
+    requestAnimationFrame(() => {
+      const root = rootRef.current;
+      if (!root) return;
+      const selector = activeReviewTarget.hunkId
+        ? `[data-reader-ai-review-target="hunk:${activeReviewTarget.changeId}:${activeReviewTarget.hunkId}"]`
+        : `[data-reader-ai-review-target="change:${activeReviewTarget.changeId}"]`;
+      const target = root.querySelector<HTMLElement>(selector);
+      target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }, [activeReviewTarget, changes]);
 
   if (changes.length === 0) return null;
 
@@ -122,7 +152,7 @@ export function StagedChangesSection({
   };
 
   return (
-    <div class="reader-ai-staged-changes">
+    <div ref={rootRef} class="reader-ai-staged-changes">
       <div class="reader-ai-staged-changes-header">
         <div class="reader-ai-staged-changes-header-copy">
           <span>
@@ -148,7 +178,14 @@ export function StagedChangesSection({
       </div>
       {changes.map((change) => (
         <div key={change.id ?? change.path} class="reader-ai-staged-change">
-          <div class="reader-ai-staged-change-header-row">
+          <div
+            class={`reader-ai-staged-change-header-row${
+              activeReviewTarget?.changeId === change.id && !activeReviewTarget?.hunkId
+                ? ' reader-ai-staged-review-target'
+                : ''
+            }`}
+            data-reader-ai-review-target={change.id ? `change:${change.id}` : undefined}
+          >
             <button
               type="button"
               class="reader-ai-staged-change-header"
@@ -161,6 +198,16 @@ export function StagedChangesSection({
               </span>
               <span class="reader-ai-staged-change-path">{change.path}</span>
             </button>
+            {change.id && currentEditorPath === change.path ? (
+              <button
+                type="button"
+                class="reader-ai-staged-reveal-btn"
+                onClick={() => onRevealChange?.(change.id!)}
+                title="Reveal this change in the editor"
+              >
+                <LocateFixed size={13} aria-hidden="true" />
+              </button>
+            ) : null}
             {!streaming && reviewControls && change.id ? (
               <div class="reader-ai-staged-change-controls">
                 <button
@@ -195,7 +242,15 @@ export function StagedChangesSection({
                   {change.hunks.map((hunk) => {
                     const hunkSelected = change.id ? selectedHunkIds?.[change.id]?.has(hunk.id) !== false : true;
                     return (
-                      <div key={hunk.id} class="reader-ai-staged-hunk-row">
+                      <div
+                        key={hunk.id}
+                        class={`reader-ai-staged-hunk-row${
+                          activeReviewTarget?.changeId === change.id && activeReviewTarget?.hunkId === hunk.id
+                            ? ' reader-ai-staged-review-target'
+                            : ''
+                        }`}
+                        data-reader-ai-review-target={change.id ? `hunk:${change.id}:${hunk.id}` : undefined}
+                      >
                         {reviewControls ? (
                           <button
                             type="button"
@@ -212,6 +267,16 @@ export function StagedChangesSection({
                           <div class="reader-ai-staged-hunk-header">{hunk.header}</div>
                           <div class="reader-ai-staged-hunk-summary">{hunkSummary(hunk)}</div>
                         </div>
+                        {change.id && currentEditorPath === change.path ? (
+                          <button
+                            type="button"
+                            class="reader-ai-staged-reveal-btn"
+                            onClick={() => onRevealHunk?.(change.id!, hunk.id)}
+                            title="Reveal this hunk in the editor"
+                          >
+                            <LocateFixed size={13} aria-hidden="true" />
+                          </button>
+                        ) : null}
                         {reviewControls ? (
                           <button
                             type="button"

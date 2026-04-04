@@ -5,6 +5,7 @@ import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
+import type { EditorChangeMarker } from './components/codemirror_change_markers';
 import type { BracePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -806,6 +807,7 @@ export function App() {
     }
   });
   const [sidePaneWidth, setSidePaneWidth] = useState<number>(() => readStoredSidePaneWidth());
+  const [readerAiReviewTarget, setReaderAiReviewTarget] = useState<{ changeId: string; hunkId?: string } | null>(null);
   const [contentSourceViewVisible, setContentSourceViewVisible] = useState(false);
   const [inlinePromptStreaming, setInlinePromptStreaming] = useState(false);
   const [inlinePromptProtectedRange, setInlinePromptProtectedRange] = useState<EditorProtectedRange | null>(null);
@@ -1208,6 +1210,58 @@ export function App() {
   const currentDocumentScrollKey = useMemo(
     () => routeKeyFromRoute(route) ?? readerAiHistoryDocumentKey,
     [route, readerAiHistoryDocumentKey],
+  );
+  const revealReaderAiEditorTarget = useCallback(
+    (target: { changeId: string; hunkId?: string }) => {
+      if (activeView !== 'edit' || !readerAiEditorOverlay) return false;
+      const controller = editViewControllerRef.current;
+      if (!controller) return false;
+      const hunk = target.hunkId
+        ? (readerAiEditorOverlay.hunks.find(
+            (entry) => entry.changeId === target.changeId && entry.hunkId === target.hunkId,
+          ) ?? null)
+        : (readerAiEditorOverlay.hunks.find((entry) => entry.changeId === target.changeId) ?? null);
+      const position = hunk?.from ?? 0;
+      controller.revealRange(position, hunk?.to ?? position);
+      setReaderAiReviewTarget({ ...target });
+      return true;
+    },
+    [activeView, readerAiEditorOverlay],
+  );
+  const openReaderAiReviewTarget = useCallback((target: { changeId: string; hunkId?: string }) => {
+    setReaderAiReviewTarget({ ...target });
+    setSidePane('reader-ai');
+  }, []);
+  const onReaderAiRevealChangeInEditor = useCallback(
+    (changeId: string) => {
+      void revealReaderAiEditorTarget({ changeId });
+    },
+    [revealReaderAiEditorTarget],
+  );
+  const onReaderAiRevealHunkInEditor = useCallback(
+    (changeId: string, hunkId: string) => {
+      void revealReaderAiEditorTarget({ changeId, hunkId });
+    },
+    [revealReaderAiEditorTarget],
+  );
+  const onReaderAiEditorMarkerClick = useCallback(
+    (marker: EditorChangeMarker) => {
+      if (marker.source !== 'reader_ai' || !marker.changeId) return;
+      const nextTarget = marker.hunkId
+        ? { changeId: marker.changeId, hunkId: marker.hunkId }
+        : { changeId: marker.changeId };
+      if (marker.status === 'accepted' || marker.status === 'rejected') {
+        if (marker.hunkId) {
+          const nextSelected = marker.status !== 'accepted';
+          if (nextSelected) toggleReaderAiChangeSelection(marker.changeId, true);
+          toggleReaderAiHunkSelection(marker.changeId, marker.hunkId, nextSelected);
+        } else {
+          toggleReaderAiChangeSelection(marker.changeId, !readerAiSelectedChangeIds.has(marker.changeId));
+        }
+      }
+      openReaderAiReviewTarget(nextTarget);
+    },
+    [openReaderAiReviewTarget, readerAiSelectedChangeIds, toggleReaderAiChangeSelection, toggleReaderAiHunkSelection],
   );
   const isContentRoute = useCallback((nextRoute: Route) => {
     return nextRoute.name === 'gist' || nextRoute.name === 'repofile' || nextRoute.name === 'sharefile';
@@ -6998,6 +7052,7 @@ export function App() {
             contentRevision={editContentRevision}
             contentSelection={editContentSelection}
             readerAiEditorOverlay={readerAiEditorOverlay}
+            onChangeMarkerClick={onReaderAiEditorMarkerClick}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             sidePaneWidth={sidePaneWidth}
@@ -7737,6 +7792,10 @@ export function App() {
             selectedHunkIds={readerAiSelectedHunkIdsByChangeId}
             onRejectChange={rejectReaderAiChange}
             onRejectHunk={rejectReaderAiHunk}
+            currentEditorPath={currentEditingDocPath}
+            activeReviewTarget={readerAiReviewTarget}
+            onRevealChange={onReaderAiRevealChangeInEditor}
+            onRevealHunk={onReaderAiRevealHunkInEditor}
             error={readerAiError}
             onSend={onReaderAiSend}
             onEditMessage={onReaderAiEditMessage}

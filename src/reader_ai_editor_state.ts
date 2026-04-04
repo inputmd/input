@@ -215,6 +215,50 @@ function buildReaderAiEditorHunks(options: {
   });
 }
 
+function buildReaderAiEditorMarkers(options: {
+  change: ReaderAiStagedChange | undefined;
+  fileStatus: ReaderAiEditorFileStatus;
+  hunks: ReaderAiEditorHunkOverlay[];
+  currentDocumentSavedContent: string | null;
+  currentDocumentContent: string;
+  hasUnsavedChanges: boolean;
+}): EditorChangeMarker[] | null {
+  if (options.change?.id && options.hunks.length > 0) {
+    return options.hunks.map((hunk) => ({
+      lineNumber: hunk.lineStart,
+      lineEndNumber: hunk.lineEnd,
+      kind: 'modify',
+      source: 'reader_ai',
+      changeId: hunk.changeId,
+      hunkId: hunk.hunkId,
+      status: hunk.status,
+      label: hunk.header,
+    }));
+  }
+  if (options.change?.id) {
+    return [
+      {
+        lineNumber: 1,
+        kind: options.change.type === 'create' ? 'add' : 'modify',
+        source: 'reader_ai',
+        changeId: options.change.id,
+        status:
+          options.fileStatus === 'applied'
+            ? 'applied'
+            : options.fileStatus === 'conflicted'
+              ? 'conflicted'
+              : options.fileStatus === 'stale'
+                ? 'stale'
+                : 'accepted',
+        label: options.change.path,
+      },
+    ];
+  }
+  if (options.currentDocumentSavedContent === null || !options.hasUnsavedChanges) return null;
+  const markers = buildEditorChangeMarkers(options.currentDocumentSavedContent, options.currentDocumentContent);
+  return markers.length > 0 ? markers : null;
+}
+
 export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOptions): ReaderAiEditorOverlay | null {
   if (!options.active || !options.path) return null;
   const currentChange = options.effectiveStagedChanges.find((change) => change.path === options.path);
@@ -223,11 +267,22 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
     ? (options.runs.find((entry) => entry.id === options.activeChangeSet?.runId) ?? null)
     : null;
   const diffPreview = buildReaderAiEditorDiffPreview(currentChange);
-  const markers =
-    diffPreview || options.currentDocumentSavedContent === null || !options.hasUnsavedChanges
-      ? null
-      : buildEditorChangeMarkers(options.currentDocumentSavedContent, options.currentDocumentContent);
   const fileStatus = resolveReaderAiEditorFileStatus(currentChange, fileRecord, options.activeChangeSet?.status);
+  const hunks = buildReaderAiEditorHunks({
+    path: options.path,
+    change: currentChange,
+    fileStatus,
+    selectedChangeIds: options.selectedChangeIds,
+    selectedHunkIdsByChangeId: options.selectedHunkIdsByChangeId,
+  });
+  const markers = buildReaderAiEditorMarkers({
+    change: currentChange,
+    fileStatus,
+    hunks,
+    currentDocumentSavedContent: options.currentDocumentSavedContent,
+    currentDocumentContent: options.currentDocumentContent,
+    hasUnsavedChanges: options.hasUnsavedChanges,
+  });
 
   return {
     path: options.path,
@@ -235,13 +290,7 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
     changeSetId: options.activeChangeSet?.id ?? null,
     runId: run?.id ?? null,
     fileStatus,
-    hunks: buildReaderAiEditorHunks({
-      path: options.path,
-      change: currentChange,
-      fileStatus,
-      selectedChangeIds: options.selectedChangeIds,
-      selectedHunkIdsByChangeId: options.selectedHunkIdsByChangeId,
-    }),
+    hunks,
     markers: markers && markers.length > 0 ? markers : null,
     diffPreview,
     provenance:

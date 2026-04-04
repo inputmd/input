@@ -31,6 +31,7 @@ export interface EditorController {
   getTopVisibleText: (maxChars?: number) => string | null;
   getViewportAnchorPosition: (anchorRatio?: number) => number;
   scrollToPosition: (position: number, anchorRatio?: number) => void;
+  revealRange: (from: number, to?: number) => void;
   getScrollTopForPosition: (position: number, anchorRatio?: number) => number | null;
   getScrollMetrics: () => EditorScrollMetrics;
   setScrollTop: (scrollTop: number) => void;

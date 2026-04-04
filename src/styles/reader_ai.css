@@ -1328,6 +1328,10 @@
   min-width: 0;
 }
 
+.reader-ai-staged-review-target {
+  background: color-mix(in srgb, var(--selection-bg) 14%, transparent);
+}
+
 .reader-ai-staged-change-toggle {
   width: 14px;
   height: 14px;
@@ -1391,6 +1395,24 @@
 
 .reader-ai-staged-toggle-btn--off {
   color: var(--text-secondary);
+}
+
+.reader-ai-staged-reveal-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.reader-ai-staged-reveal-btn:hover:not(:disabled) {
+  color: var(--text);
 }
 
 .reader-ai-staged-hunk-row {

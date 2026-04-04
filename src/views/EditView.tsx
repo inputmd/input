@@ -223,6 +223,7 @@ export interface EditViewProps {
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   readerAiEditorOverlay?: ReaderAiEditorOverlay | null;
+  onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
   previewHtml: string;
   previewCustomCss?: string | null;
   previewCustomCssScope?: string | null;
@@ -277,6 +278,7 @@ export function EditView({
   contentRevision = 0,
   contentSelection = null,
   readerAiEditorOverlay = null,
+  onChangeMarkerClick,
   previewHtml,
   previewCustomCss = null,
   previewCustomCssScope = null,
@@ -1628,6 +1630,7 @@ export function EditView({
             contentSelection={contentSelection}
             diffPreview={diffPreview}
             changeMarkers={changeMarkers}
+            onChangeMarkerClick={onChangeMarkerClick}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}
@@ -1652,6 +1655,7 @@ export function EditView({
             contentSelection={contentSelection}
             diffPreview={diffPreview}
             changeMarkers={changeMarkers}
+            onChangeMarkerClick={onChangeMarkerClick}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}

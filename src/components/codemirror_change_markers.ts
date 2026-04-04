@@ -4,9 +4,15 @@ import { diffLines } from 'diff';
 
 export interface EditorChangeMarker {
   lineNumber: number;
+  lineEndNumber?: number;
   kind?: 'add' | 'modify';
   deletedBefore?: boolean;
   deletedAfter?: boolean;
+  source?: 'saved_diff' | 'reader_ai';
+  changeId?: string;
+  hunkId?: string;
+  status?: 'pending' | 'accepted' | 'rejected' | 'applied' | 'conflicted' | 'stale';
+  label?: string;
 }
 
 function lineCount(text: string): number {
@@ -105,19 +111,33 @@ class ChangeMarkerGutterMarker extends GutterMarker {
   eq(other: ChangeMarkerGutterMarker): boolean {
     return (
       this.marker.lineNumber === other.marker.lineNumber &&
+      this.marker.lineEndNumber === other.marker.lineEndNumber &&
       this.marker.kind === other.marker.kind &&
       this.marker.deletedBefore === other.marker.deletedBefore &&
-      this.marker.deletedAfter === other.marker.deletedAfter
+      this.marker.deletedAfter === other.marker.deletedAfter &&
+      this.marker.source === other.marker.source &&
+      this.marker.changeId === other.marker.changeId &&
+      this.marker.hunkId === other.marker.hunkId &&
+      this.marker.status === other.marker.status &&
+      this.marker.label === other.marker.label
     );
   }
 
   toDOM(): HTMLElement {
     const element = document.createElement('div');
-    element.className = 'cm-change-marker';
+    element.className = `cm-change-marker${this.marker.source === 'reader_ai' ? ' cm-change-marker--interactive' : ''}${
+      this.marker.status ? ` cm-change-marker--${this.marker.status}` : ''
+    }`;
     const labels: string[] = [];
+    if (this.marker.label) labels.push(this.marker.label);
     if (this.marker.kind === 'add') labels.push('Added lines');
     if (this.marker.kind === 'modify') labels.push('Modified lines');
     if (this.marker.deletedBefore || this.marker.deletedAfter) labels.push('Deleted lines');
+    if (this.marker.source === 'reader_ai' && this.marker.status) {
+      if (this.marker.status === 'accepted') labels.push('Click to exclude from apply set');
+      else if (this.marker.status === 'rejected') labels.push('Click to include in apply set');
+      else labels.push('Click to focus this Reader AI change');
+    }
     if (labels.length > 0) {
       const label = labels.join(', ');
       element.setAttribute('aria-label', label);
@@ -169,7 +189,10 @@ function buildChangeMarkerSet(
   return builder.finish();
 }
 
-export function editorChangeMarkersExtension(markers: EditorChangeMarker[] | null): Extension {
+export function editorChangeMarkersExtension(
+  markers: EditorChangeMarker[] | null,
+  options?: { onMarkerClick?: (marker: EditorChangeMarker) => void },
+): Extension {
   const markerField = StateField.define<RangeSet<GutterMarker>>({
     create(state) {
       return buildChangeMarkerSet(state, markers);
@@ -187,6 +210,18 @@ export function editorChangeMarkersExtension(markers: EditorChangeMarker[] | nul
       renderEmptyElements: false,
       initialSpacer: () => new ChangeMarkerSpacer(),
       markers: (view) => view.state.field(markerField),
+      domEventHandlers: options?.onMarkerClick
+        ? {
+            mousedown(view, line, event) {
+              const lineNumber = view.state.doc.lineAt(line.from).number;
+              const marker = markers?.find((entry) => entry.lineNumber === lineNumber) ?? null;
+              if (!marker || marker.source !== 'reader_ai') return false;
+              event.preventDefault();
+              options.onMarkerClick?.(marker);
+              return true;
+            },
+          }
+        : {},
     }),
   ];
 }
