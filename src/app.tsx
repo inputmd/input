@@ -1155,6 +1155,7 @@ export function App() {
     readerAiToolStatus,
     onReaderAiClear,
     onReaderAiEditMessage,
+    onReaderAiResetToMessage,
     onReaderAiRetryLastMessage,
     onReaderAiRetryRunStep,
     onReaderAiSend,
@@ -7894,6 +7895,7 @@ export function App() {
             onClearQueuedCommands={clearReaderAiQueuedCommands}
             onSend={onReaderAiSend}
             onEditMessage={onReaderAiEditMessage}
+            onResetToMessage={onReaderAiResetToMessage}
             onRetryLastUserMessage={onReaderAiRetryLastMessage}
             onRetryRunStep={onReaderAiRetryRunStep}
             onStop={onReaderAiStop}

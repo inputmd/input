@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowRight, CircleStop, MoreHorizontal, X } from 'lucide-react';
+import { ArrowRight, CircleStop, MoreHorizontal, Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
@@ -65,7 +65,8 @@ interface ReaderAiPanelProps {
   onPrependQueuedCommands: (commands: string[]) => void;
   onClearQueuedCommands: () => void;
   onSend: (prompt: string) => Promise<boolean>;
-  onEditMessage: (index: number, content: string) => Promise<void>;
+  onEditMessage: (index: number, content: string) => Promise<boolean>;
+  onResetToMessage?: (index: number) => Promise<void>;
   onRetryLastUserMessage: () => Promise<void>;
   onRetryRunStep?: (target: { runId: string; stepId: string }) => Promise<void>;
   onStop: () => void;
@@ -183,6 +184,7 @@ export function ReaderAiPanel({
   onClearQueuedCommands,
   onSend,
   onEditMessage,
+  onResetToMessage,
   onRetryLastUserMessage,
   onRetryRunStep,
   onStop,
@@ -309,9 +311,11 @@ export function ReaderAiPanel({
   useEffect(() => {
     if (hasMessages || !pendingFocusAfterClearRef.current) return;
     pendingFocusAfterClearRef.current = false;
-    const input = composerInputRef.current;
-    if (!input || input.disabled) return;
-    requestAnimationFrame(() => input.focus());
+    requestAnimationFrame(() => {
+      const input = composerInputRef.current;
+      if (!input || input.disabled) return;
+      input.focus();
+    });
   }, [hasMessages]);
 
   useEffect(() => {
@@ -409,7 +413,10 @@ export function ReaderAiPanel({
     const queued = queuedCommands;
     if ((!prompt && queued.length === 0) || !selectedModel) return;
     if (sending) {
-      if (prompt) enqueueDraft();
+      if (prompt) {
+        enqueueDraft();
+        focusComposerInput();
+      }
       return;
     }
     if (!composerAtTop) {
@@ -418,6 +425,7 @@ export function ReaderAiPanel({
     }
     setDraft('');
     onClearQueuedCommands();
+    focusComposerInput();
     const commands = prompt ? [...queued, prompt] : queued;
     await runQueuedCommands(commands, { draftValue, queuedBeforeSubmit: queued });
   };
@@ -437,8 +445,8 @@ export function ReaderAiPanel({
     if (editingIndex === null || sending || !selectedModel) return;
     const nextValue = editingDraft.trim();
     if (!nextValue) return;
-    await onEditMessage(editingIndex, nextValue);
-    cancelEdit();
+    const accepted = await onEditMessage(editingIndex, nextValue);
+    if (accepted) cancelEdit();
   };
 
   const clearChat = (focusComposer: boolean) => {
@@ -448,13 +456,19 @@ export function ReaderAiPanel({
     if (hasMessages) onClear();
   };
 
+  const focusComposerInput = useCallback(() => {
+    requestAnimationFrame(() => {
+      const input = composerInputRef.current;
+      if (!input || input.disabled) return;
+      input.focus();
+    });
+  }, []);
+
   const handleSelectModel = (modelId: string) => {
     onSelectModel(modelId);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const input = composerInputRef.current;
-        if (!input || input.disabled) return;
-        input.focus();
+        focusComposerInput();
       });
     });
   };
@@ -600,9 +614,10 @@ export function ReaderAiPanel({
               type="button"
               class="reader-ai-summarize-btn"
               disabled={composerInputDisabled}
-              onClick={() =>
-                void onSend(selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.')
-              }
+              onClick={() => {
+                void onSend(selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.');
+                focusComposerInput();
+              }}
             >
               Summarize
             </button>
@@ -610,13 +625,14 @@ export function ReaderAiPanel({
               type="button"
               class="reader-ai-summarize-btn"
               disabled={composerInputDisabled}
-              onClick={() =>
+              onClick={() => {
                 void onSend(
                   selectionModeEnabled
                     ? 'Identify any questions raised by this selection.'
                     : 'Identify any questions raised by this document.',
-                )
-              }
+                );
+                focusComposerInput();
+              }}
             >
               Identify questions
             </button>
@@ -629,48 +645,68 @@ export function ReaderAiPanel({
                 {message.role === 'user' ? (
                   <>
                     <span>You</span>
-                    {editingIndex === index ? (
+                    {editingIndex === index ? null : (
                       <span class="reader-ai-message-actions">
                         <button
                           type="button"
-                          class="reader-ai-message-action-btn"
-                          onClick={cancelEdit}
-                          disabled={sending}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          class="reader-ai-message-action-btn"
-                          onClick={() => void applyEdit()}
-                          disabled={sending || !selectedModel || editingDraft.trim().length === 0}
-                        >
-                          Save
-                        </button>
-                      </span>
-                    ) : (
-                      <span class="reader-ai-message-actions">
-                        {!sending && index === lastUserMessageIndex ? (
-                          <button
-                            type="button"
-                            class="reader-ai-message-action-btn"
-                            onClick={() => void onRetryLastUserMessage()}
-                            disabled={sending || !selectedModel}
-                          >
-                            Retry
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          class="reader-ai-message-action-btn"
+                          class="reader-ai-message-icon-btn"
                           onClick={() => {
                             setEditingIndex(index);
                             setEditingDraft(message.content);
                           }}
                           disabled={sending || !selectedModel}
+                          aria-label="Edit message"
                         >
-                          Edit
+                          <Pencil size={12} aria-hidden="true" />
                         </button>
+                        <DropdownMenu.Root onOpenChange={blurOnClose}>
+                          <DropdownMenu.Trigger asChild>
+                            <button
+                              type="button"
+                              class="reader-ai-message-menu-trigger"
+                              aria-label="Message actions"
+                              disabled={!selectedModel}
+                            >
+                              <MoreHorizontal size={12} aria-hidden="true" />
+                            </button>
+                          </DropdownMenu.Trigger>
+                          <DropdownMenu.Portal>
+                            <DropdownMenu.Content
+                              class="reader-ai-composer-menu reader-ai-composer-menu--compact"
+                              sideOffset={6}
+                              align="end"
+                            >
+                              <DropdownMenu.Item
+                                class="reader-ai-composer-menu-item"
+                                disabled={sending || !selectedModel}
+                                onSelect={() => {
+                                  setEditingIndex(index);
+                                  setEditingDraft(message.content);
+                                }}
+                              >
+                                Edit
+                              </DropdownMenu.Item>
+                              <DropdownMenu.Item
+                                class="reader-ai-composer-menu-item"
+                                disabled={sending || !selectedModel || index !== lastUserMessageIndex}
+                                onSelect={() => {
+                                  void onRetryLastUserMessage();
+                                }}
+                              >
+                                Retry
+                              </DropdownMenu.Item>
+                              <DropdownMenu.Item
+                                class="reader-ai-composer-menu-item"
+                                disabled={sending || !selectedModel || !onResetToMessage}
+                                onSelect={() => {
+                                  void onResetToMessage?.(index);
+                                }}
+                              >
+                                Reset to here
+                              </DropdownMenu.Item>
+                            </DropdownMenu.Content>
+                          </DropdownMenu.Portal>
+                        </DropdownMenu.Root>
                       </span>
                     )}
                   </>
@@ -695,25 +731,51 @@ export function ReaderAiPanel({
                   />
                 )
               ) : editingIndex === index ? (
-                <textarea
-                  ref={editInputRef}
-                  class="reader-ai-inline-edit-input"
-                  value={editingDraft}
-                  onInput={(event) => setEditingDraft(event.currentTarget.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
-                      event.preventDefault();
-                      void applyEdit();
-                      return;
-                    }
-                    if (event.key === 'Escape') {
-                      event.preventDefault();
-                      cancelEdit();
-                    }
-                  }}
-                  rows={3}
-                  disabled={sending || !selectedModel}
-                />
+                <div class="reader-ai-inline-edit">
+                  <textarea
+                    ref={editInputRef}
+                    class="reader-ai-inline-edit-input"
+                    value={editingDraft}
+                    onInput={(event) => setEditingDraft(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === 'Enter' &&
+                        !event.shiftKey &&
+                        !event.altKey &&
+                        !event.metaKey &&
+                        !event.ctrlKey
+                      ) {
+                        event.preventDefault();
+                        void applyEdit();
+                        return;
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault();
+                        cancelEdit();
+                      }
+                    }}
+                    rows={3}
+                    disabled={sending || !selectedModel}
+                  />
+                  <div class="reader-ai-inline-edit-actions">
+                    <button
+                      type="button"
+                      class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--secondary"
+                      onClick={cancelEdit}
+                      disabled={sending}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--primary"
+                      onClick={() => void applyEdit()}
+                      disabled={sending || !selectedModel || editingDraft.trim().length === 0}
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <div class="reader-ai-message-content">{message.content}</div>
               )}

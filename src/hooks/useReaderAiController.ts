@@ -107,17 +107,18 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
   const onReaderAiEditMessage = useCallback(
     async (index: number, nextContent: string) => {
       const trimmedContent = nextContent.trim();
-      if (!trimmedContent) return;
+      if (!trimmedContent) return false;
       const currentMessages = readerAiMessagesRef.current;
-      if (index < 0 || index >= currentMessages.length) return;
+      if (index < 0 || index >= currentMessages.length) return false;
       const target = currentMessages[index];
-      if (!target || target.role !== 'user' || target.content === trimmedContent) return;
+      if (!target || target.role !== 'user' || target.content === trimmedContent) return false;
       const updated = currentMessages
         .slice(0, index + 1)
         .map((message, messageIndex) =>
           messageIndex === index ? { ...message, content: trimmedContent, edited: false } : message,
         );
-      await streamReaderAiAssistant(updated, { edited: true });
+      void streamReaderAiAssistant(updated, { edited: true });
+      return true;
     },
     [streamReaderAiAssistant],
   );
@@ -145,6 +146,21 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
     });
   }, [options.readerAiSelectedModel, session, streamReaderAiAssistant]);
 
+  const onReaderAiResetToMessage = useCallback(
+    async (index: number) => {
+      if (session.readerAiSending) return;
+      const currentMessages = readerAiMessagesRef.current;
+      if (index < 0 || index >= currentMessages.length) return;
+      const target = currentMessages[index];
+      if (!target || target.role !== 'user') return;
+      const messagesToReplay = currentMessages.slice(0, index + 1);
+      await streamReaderAiAssistant(messagesToReplay, {
+        modelId: options.readerAiSelectedModel,
+      });
+    },
+    [options.readerAiSelectedModel, session.readerAiSending, streamReaderAiAssistant],
+  );
+
   const onReaderAiRetryRunStep = useCallback(
     async ({ runId, stepId }: { runId: string; stepId: string }) => {
       if (session.readerAiSending) return;
@@ -164,6 +180,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       ...session,
       onReaderAiClear: session.clearReaderAi,
       onReaderAiEditMessage,
+      onReaderAiResetToMessage,
       onReaderAiRetryLastMessage,
       onReaderAiRetryRunStep,
       onReaderAiSend,
@@ -172,6 +189,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
     }),
     [
       onReaderAiEditMessage,
+      onReaderAiResetToMessage,
       onReaderAiRetryLastMessage,
       onReaderAiRetryRunStep,
       onReaderAiSend,
