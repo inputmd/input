@@ -1,5 +1,6 @@
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
 import type { ReaderAiEditProposal, ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
+import type { ReaderAiEditorCheckpoint } from './reader_ai_editor_checkpoints';
 import type { ReaderAiChangeSetFileRecord, ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
 import type { Route } from './routing';
 import type { PublicRepoRef } from './wiki_links';
@@ -28,6 +29,8 @@ export interface ReaderAiHistoryEntry {
   stagedChangesInvalid?: boolean;
   stagedFileContents?: Record<string, string>;
   appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>;
+  editorCheckpoints?: ReaderAiEditorCheckpoint[];
+  activeEditorCheckpointId?: string;
   runs?: ReaderAiRunRecord[];
   activeRunId?: string;
   changeSets?: ReaderAiChangeSetRecord[];
@@ -254,6 +257,61 @@ function normalizePersistedAppliedChanges(value: unknown): NonNullable<ReaderAiH
   }
   if (applied.length <= READER_AI_HISTORY_MAX_APPLIED_CHANGES) return applied;
   return applied.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
+}
+
+function normalizePersistedEditorCheckpoints(value: unknown): NonNullable<ReaderAiHistoryEntry['editorCheckpoints']> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry): ReaderAiEditorCheckpoint | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const id = typeof (entry as { id?: unknown }).id === 'string' ? (entry as { id: string }).id : '';
+      const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path : '';
+      const content =
+        typeof (entry as { content?: unknown }).content === 'string' ? (entry as { content: string }).content : '';
+      const revision =
+        typeof (entry as { revision?: unknown }).revision === 'number' ? (entry as { revision: number }).revision : NaN;
+      const createdAt =
+        typeof (entry as { createdAt?: unknown }).createdAt === 'string'
+          ? (entry as { createdAt: string }).createdAt
+          : '';
+      const status = (entry as { status?: unknown }).status;
+      if (
+        !id ||
+        !path ||
+        !createdAt ||
+        !Number.isFinite(revision) ||
+        (status !== 'active' && status !== 'restored' && status !== 'discarded')
+      ) {
+        return null;
+      }
+      const selectionRaw = (entry as { selection?: unknown }).selection;
+      const selection =
+        selectionRaw &&
+        typeof selectionRaw === 'object' &&
+        typeof (selectionRaw as { anchor?: unknown }).anchor === 'number' &&
+        typeof (selectionRaw as { head?: unknown }).head === 'number'
+          ? {
+              anchor: (selectionRaw as { anchor: number }).anchor,
+              head: (selectionRaw as { head: number }).head,
+            }
+          : null;
+      const scrollTopRaw = (entry as { scrollTop?: unknown }).scrollTop;
+      return {
+        id,
+        path,
+        content,
+        revision,
+        selection,
+        scrollTop: typeof scrollTopRaw === 'number' ? scrollTopRaw : null,
+        createdAt,
+        changeSetId:
+          typeof (entry as { changeSetId?: unknown }).changeSetId === 'string'
+            ? (entry as { changeSetId: string }).changeSetId
+            : null,
+        status,
+      };
+    })
+    .filter((checkpoint): checkpoint is ReaderAiEditorCheckpoint => checkpoint !== null);
 }
 
 function normalizePersistedToolLog(value: unknown): NonNullable<ReaderAiHistoryEntry['toolLog']> {
@@ -612,6 +670,15 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
         }
         const normalizedAppliedChanges = normalizePersistedAppliedChanges(entry.appliedChanges);
         if (normalizedAppliedChanges.length > 0) parsed.appliedChanges = normalizedAppliedChanges;
+        const editorCheckpoints = normalizePersistedEditorCheckpoints(
+          (entry as { editorCheckpoints?: unknown }).editorCheckpoints,
+        );
+        if (editorCheckpoints.length > 0) parsed.editorCheckpoints = editorCheckpoints;
+        const activeEditorCheckpointId =
+          typeof (entry as { activeEditorCheckpointId?: unknown }).activeEditorCheckpointId === 'string'
+            ? (entry as { activeEditorCheckpointId: string }).activeEditorCheckpointId
+            : undefined;
+        if (activeEditorCheckpointId) parsed.activeEditorCheckpointId = activeEditorCheckpointId;
         const runs = normalizePersistedRuns((entry as { runs?: unknown }).runs);
         if (runs.length > 0) parsed.runs = runs;
         const activeRunId =

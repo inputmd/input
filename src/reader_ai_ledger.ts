@@ -80,7 +80,7 @@ export interface ReaderAiChangeSetRecord {
   failedPaths: ReaderAiChangeSetFailure[];
 }
 
-export function createReaderAiLedgerId(prefix: 'run' | 'step' | 'changeset'): string {
+export function createReaderAiLedgerId(prefix: 'run' | 'step' | 'changeset' | 'checkpoint'): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `${prefix}:${crypto.randomUUID()}`;
   }

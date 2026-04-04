@@ -1,5 +1,4 @@
 import { applyReaderAiChanges, type ReaderAiApplyResult, type ReaderAiStagedChange } from './reader_ai';
-import type { ReaderAiUndoState } from './reader_ai_controller';
 
 export type ReaderAiHostApplyTarget =
   | { kind: 'gist'; gistId: string }
@@ -54,15 +53,12 @@ interface ResolveReaderAiEditorApplyPlanOptions {
   activeView: string;
   currentEditingDocPath: string | null;
   documentEditedContent: string | null;
-  editContentRevision: number;
   modifiedFileContents: ReadonlyMap<string, string>;
-  previousContent: string;
 }
 
 export interface ReaderAiEditorApplyPlan {
   appliedPaths: string[];
   nextContent: string;
-  undoState: ReaderAiUndoState | null;
 }
 
 interface PerformReaderAiApplyOptions {
@@ -72,10 +68,8 @@ interface PerformReaderAiApplyOptions {
   currentEditingDocPath: string | null;
   currentGistId: string | null;
   documentEditedContent: string | null;
-  editContentRevision: number;
   isGistContext: boolean;
   mode: 'without-saving' | 'commit';
-  previousContent: string;
   repoAccessMode: string | null;
   selectedChanges: ReaderAiStagedChange[];
   selectedFileContents: Record<string, string>;
@@ -89,7 +83,6 @@ type ReaderAiHostApplyOutcome =
       kind: 'editor';
       appliedPaths: string[];
       nextContent: string;
-      undoState: ReaderAiUndoState | null;
     }
   | {
       kind: 'remote';
@@ -102,7 +95,6 @@ export type ReaderAiHostApplyExecution =
       kind: 'editor_applied';
       appliedPaths: string[];
       nextContent: string;
-      undoState: ReaderAiUndoState | null;
     }
   | {
       kind: 'remote_conflict';
@@ -143,13 +135,6 @@ export function resolveReaderAiEditorApplyPlan(
   return {
     appliedPaths: currentPath ? [currentPath] : [],
     nextContent,
-    undoState: currentPath
-      ? {
-          path: currentPath,
-          content: options.previousContent,
-          revision: options.editContentRevision,
-        }
-      : null,
   };
 }
 
@@ -169,15 +154,12 @@ async function performReaderAiHostApply(options: PerformReaderAiApplyOptions): P
       activeView: options.activeView,
       currentEditingDocPath: options.currentEditingDocPath,
       documentEditedContent: options.documentEditedContent,
-      editContentRevision: options.editContentRevision,
       modifiedFileContents: new Map(Object.entries(options.selectedFileContents)),
-      previousContent: options.previousContent,
     });
     return {
       kind: 'editor',
       appliedPaths: editorApplyPlan.appliedPaths,
       nextContent: editorApplyPlan.nextContent,
-      undoState: editorApplyPlan.undoState,
     };
   }
 
@@ -216,7 +198,6 @@ export async function executeReaderAiHostApply(
       kind: 'editor_applied',
       appliedPaths: outcome.appliedPaths,
       nextContent: outcome.nextContent,
-      undoState: outcome.undoState,
     };
   }
   if (outcome.result.conflict) {

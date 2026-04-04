@@ -2,6 +2,7 @@ import { buildEditorChangeMarkers, type EditorChangeMarker } from './components/
 import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './components/codemirror_diff_preview';
 import { commonPrefixLength, commonSuffixLength } from './path_utils';
 import type { ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
+import type { ReaderAiEditorCheckpoint } from './reader_ai_editor_checkpoints';
 import type {
   ReaderAiChangeSetFileRecord,
   ReaderAiChangeSetRecord,
@@ -72,6 +73,7 @@ interface BuildReaderAiEditorOverlayOptions {
   selectedChangeIds: Set<string>;
   selectedHunkIdsByChangeId: ReaderAiSelectedHunkIdsByChangeId;
   activeChangeSet: ReaderAiChangeSetRecord | null;
+  activeEditorCheckpoint: ReaderAiEditorCheckpoint | null;
   runs: ReaderAiRunRecord[];
 }
 
@@ -302,6 +304,12 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
             sourceLabel: 'Reader AI proposal',
           }
         : null,
-    checkpoint: null,
+    checkpoint:
+      options.activeEditorCheckpoint && options.activeEditorCheckpoint.path === options.path
+        ? {
+            id: options.activeEditorCheckpoint.id,
+            status: options.activeEditorCheckpoint.status,
+          }
+        : null,
   };
 }

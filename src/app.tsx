@@ -1146,6 +1146,7 @@ export function App() {
     readerAiHasEligibleSelection,
     readerAiMessages,
     readerAiProposalStatusesByToolCallId,
+    readerAiActiveEditorCheckpoint,
     readerAiRuns,
     readerAiSelectedChangeIds,
     readerAiSelectedHunkIdsByChangeId,
@@ -1154,7 +1155,6 @@ export function App() {
     readerAiStagedChangesStreaming,
     readerAiToolLog,
     readerAiToolStatus,
-    readerAiUndoState,
     rejectReaderAiChange,
     rejectReaderAiHunk,
     rejectReaderAiProposal,
@@ -1163,7 +1163,7 @@ export function App() {
     setReaderAiApplyingChanges,
     setReaderAiError,
     setReaderAiHasEligibleSelection,
-    setReaderAiUndoState,
+    createReaderAiEditorRestorePoint,
     startReaderAiStream,
     stopReaderAi,
     toggleReaderAiChangeSelection,
@@ -1191,6 +1191,7 @@ export function App() {
         selectedChangeIds: readerAiSelectedChangeIds,
         selectedHunkIdsByChangeId: readerAiSelectedHunkIdsByChangeId,
         activeChangeSet: readerAiActiveChangeSet,
+        activeEditorCheckpoint: readerAiActiveEditorCheckpoint,
         runs: readerAiRuns,
       }),
     [
@@ -1204,6 +1205,7 @@ export function App() {
       readerAiSelectedChangeIds,
       readerAiSelectedHunkIdsByChangeId,
       readerAiActiveChangeSet,
+      readerAiActiveEditorCheckpoint,
       readerAiRuns,
     ],
   );
@@ -3788,10 +3790,8 @@ export function App() {
           currentEditingDocPath,
           currentGistId,
           documentEditedContent: readerAiDocumentEditedContent,
-          editContentRevision,
           isGistContext,
           mode,
-          previousContent: editContentRef.current,
           repoAccessMode,
           selectedChanges,
           selectedFileContents,
@@ -3801,13 +3801,24 @@ export function App() {
         });
 
         if (outcome.kind === 'editor_applied') {
+          if (currentEditingDocPath) {
+            createReaderAiEditorRestorePoint({
+              path: currentEditingDocPath,
+              content: editContentRef.current,
+              revision: editContentRevision,
+              selection: editViewControllerRef.current?.getSelectionRange() ?? null,
+              scrollTop: editViewControllerRef.current?.getScrollMetrics().top ?? null,
+              changeSetId: readerAiActiveChangeSet?.id ?? null,
+            });
+          } else {
+            clearReaderAiUndoState();
+          }
           setNextEditContent(outcome.nextContent, { origin: 'appEdits' });
           setHasUserTypedUnsavedChanges(false);
           setHasUnsavedChanges(true);
-          setReaderAiUndoState(outcome.undoState);
           recordReaderAiAppliedChanges(outcome.appliedPaths, changeTypeByPath);
           finalizeReaderAiActiveChangeSet({ appliedPaths: outcome.appliedPaths, clearActive: true });
-          resetReaderAiStagedState({ preserveUndoState: true });
+          resetReaderAiStagedState({ preserveEditorCheckpoint: true });
           return;
         }
 
@@ -3889,7 +3900,8 @@ export function App() {
       setHasUserTypedUnsavedChanges,
       setReaderAiApplyingChanges,
       setReaderAiError,
-      setReaderAiUndoState,
+      createReaderAiEditorRestorePoint,
+      clearReaderAiUndoState,
       finalizeReaderAiActiveChangeSet,
       markReaderAiActiveChangeSetApplying,
       recordReaderAiAppliedChanges,
@@ -3907,24 +3919,39 @@ export function App() {
   const onReaderAiToggleProposalHunkSelection = toggleReaderAiProposalHunkSelection;
 
   const canUndoReaderAiApply =
-    readerAiUndoState !== null &&
+    readerAiActiveEditorCheckpoint !== null &&
     activeView === 'edit' &&
-    currentEditingDocPath === readerAiUndoState.path &&
-    editContentRevision === readerAiUndoState.revision + 1;
+    currentEditingDocPath === readerAiActiveEditorCheckpoint.path;
 
-  const onReaderAiUndoApply = useCallback(() => {
-    if (!readerAiUndoState) return;
-    if (activeView !== 'edit' || currentEditingDocPath !== readerAiUndoState.path) {
+  const onReaderAiUndoApply = useCallback(async () => {
+    if (!readerAiActiveEditorCheckpoint) return;
+    if (activeView !== 'edit' || currentEditingDocPath !== readerAiActiveEditorCheckpoint.path) {
       clearReaderAiUndoState();
       return;
     }
-    if (editContentRevision !== readerAiUndoState.revision + 1) {
-      clearReaderAiUndoState();
+    if (
+      editContentRevision !== readerAiActiveEditorCheckpoint.revision + 1 &&
+      !(await showConfirm('Restore the pre-apply checkpoint and replace the current editor content?', {
+        title: 'Restore pre-apply checkpoint?',
+        confirmLabel: 'Restore',
+        defaultFocus: 'cancel',
+      }))
+    ) {
       return;
     }
-    setNextEditContent(readerAiUndoState.content, { origin: 'appEdits', revision: readerAiUndoState.revision });
+    setNextEditContent(readerAiActiveEditorCheckpoint.content, {
+      origin: 'appEdits',
+      revision: readerAiActiveEditorCheckpoint.revision,
+      selection: readerAiActiveEditorCheckpoint.selection,
+    });
     setHasUserTypedUnsavedChanges(false);
-    setHasUnsavedChanges(readerAiUndoState.content !== currentDocumentSavedContent);
+    setHasUnsavedChanges(readerAiActiveEditorCheckpoint.content !== currentDocumentSavedContent);
+    const checkpointScrollTop = readerAiActiveEditorCheckpoint.scrollTop;
+    if (typeof checkpointScrollTop === 'number') {
+      requestAnimationFrame(() => {
+        editViewControllerRef.current?.setScrollTop(checkpointScrollTop);
+      });
+    }
     clearReaderAiUndoState();
   }, [
     activeView,
@@ -3932,10 +3959,11 @@ export function App() {
     currentDocumentSavedContent,
     currentEditingDocPath,
     editContentRevision,
-    readerAiUndoState,
+    readerAiActiveEditorCheckpoint,
     setNextEditContent,
     setHasUnsavedChanges,
     setHasUserTypedUnsavedChanges,
+    showConfirm,
   ]);
 
   const onReaderAiRetryLastMessage = useCallback(async () => {
@@ -7368,10 +7396,8 @@ export function App() {
       scheduleEditContentSnapshot(update);
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
-      clearReaderAiUndoState();
     },
     [
-      clearReaderAiUndoState,
       currentGistId,
       draftMode,
       editingBackend,

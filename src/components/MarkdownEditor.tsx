@@ -699,6 +699,13 @@ export function MarkdownEditor({
         view.dispatch(transaction);
         return true;
       },
+      getSelectionRange: () => {
+        const selection = view.state.selection.main;
+        return {
+          anchor: selection.anchor,
+          head: selection.head,
+        };
+      },
       getSelectionText: (maxChars) => {
         const selection = view.state.selection.main;
         if (selection.empty) return null;

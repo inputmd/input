@@ -313,7 +313,7 @@ export function StagedChangesSection({
                     onClick={() => onUndoEditorApply?.()}
                     disabled={applying}
                   >
-                    Undo
+                    Restore
                   </button>
                 ) : canApplyWithoutSaving ? (
                   <button

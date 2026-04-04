@@ -27,6 +27,7 @@ export type EditorInteractionKind = 'wheel' | 'pointer' | 'touch' | 'focus' | 's
 
 export interface EditorController {
   applyExternalChange: (change: ExternalEditorChange) => boolean;
+  getSelectionRange: () => EditorSelectionRange | null;
   getSelectionText: (maxChars?: number) => string | null;
   getTopVisibleText: (maxChars?: number) => string | null;
   getViewportAnchorPosition: (anchorRatio?: number) => number;

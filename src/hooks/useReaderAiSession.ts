@@ -15,7 +15,6 @@ import {
   createReaderAiSessionSnapshotFromHistory,
   type ReaderAiConversationScope,
   type ReaderAiSessionSnapshot,
-  type ReaderAiUndoState,
 } from '../reader_ai_controller';
 import {
   buildReaderAiChangeSetFileRecords,
@@ -26,6 +25,13 @@ import {
   markReaderAiChangeSetFileStatuses,
   markReaderAiRunStepRetryAttempt,
 } from '../reader_ai_controller_runtime';
+import {
+  appendReaderAiEditorCheckpoint,
+  createReaderAiEditorCheckpoint,
+  findActiveReaderAiEditorCheckpoint,
+  type ReaderAiEditorCheckpoint,
+  updateReaderAiEditorCheckpointStatus,
+} from '../reader_ai_editor_checkpoints';
 import {
   buildReaderAiHistoryDocumentKey,
   createReaderAiSelectionStateFromHistoryEntry,
@@ -51,7 +57,7 @@ import {
   schedulePersistReaderAiHistoryEntry,
 } from '../reader_ai_state_store';
 
-export { buildReaderAiHistoryDocumentKey, type ReaderAiConversationScope, type ReaderAiUndoState };
+export { buildReaderAiHistoryDocumentKey, type ReaderAiConversationScope, type ReaderAiEditorCheckpoint };
 
 interface UseReaderAiSessionOptions {
   historyEligible: boolean;
@@ -106,7 +112,8 @@ export function useReaderAiSession({
   const [readerAiAppliedChanges, setReaderAiAppliedChanges] = useState<
     Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>
   >([]);
-  const [readerAiUndoState, setReaderAiUndoState] = useState<ReaderAiUndoState | null>(null);
+  const [readerAiEditorCheckpoints, setReaderAiEditorCheckpoints] = useState<ReaderAiEditorCheckpoint[]>([]);
+  const [readerAiActiveEditorCheckpointId, setReaderAiActiveEditorCheckpointId] = useState<string | null>(null);
   const [readerAiStagedChangesInvalid, setReaderAiStagedChangesInvalid] = useState(false);
   const [readerAiStagedFileContents, setReaderAiStagedFileContents] = useState<Record<string, string>>({});
   const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
@@ -139,6 +146,10 @@ export function useReaderAiSession({
   const readerAiActiveChangeSet = useMemo(
     () => findReaderAiActiveChangeSet(readerAiChangeSets, readerAiActiveChangeSetId),
     [readerAiActiveChangeSetId, readerAiChangeSets],
+  );
+  const readerAiActiveEditorCheckpoint = useMemo(
+    () => findActiveReaderAiEditorCheckpoint(readerAiEditorCheckpoints, readerAiActiveEditorCheckpointId),
+    [readerAiActiveEditorCheckpointId, readerAiEditorCheckpoints],
   );
 
   const readerAiAbortRef = useRef<AbortController | null>(null);
@@ -252,7 +263,8 @@ export function useReaderAiSession({
     setReaderAiSelectedChangeIds(snapshot.selectedChangeIds);
     setReaderAiSelectedHunkIdsByChangeId(snapshot.selectedHunkIdsByChangeId);
     setReaderAiAppliedChanges(snapshot.appliedChanges);
-    setReaderAiUndoState(snapshot.undoState);
+    setReaderAiEditorCheckpoints(snapshot.editorCheckpoints);
+    setReaderAiActiveEditorCheckpointId(snapshot.activeEditorCheckpointId);
     setReaderAiStagedChangesInvalid(snapshot.stagedChangesInvalid);
     setReaderAiStagedFileContents(snapshot.stagedFileContents);
     setReaderAiDocumentEditedContent(snapshot.documentEditedContent);
@@ -354,6 +366,8 @@ export function useReaderAiSession({
         stagedChangesInvalid: readerAiStagedChangesInvalid,
         stagedFileContents: readerAiStagedFileContents,
         appliedChanges: readerAiAppliedChanges,
+        editorCheckpoints: readerAiEditorCheckpoints,
+        activeEditorCheckpointId: readerAiActiveEditorCheckpointId,
         runs: readerAiRuns,
         activeRunId: readerAiActiveRunId,
         changeSets: readerAiChangeSets,
@@ -361,12 +375,14 @@ export function useReaderAiSession({
       }),
     [
       readerAiActiveChangeSetId,
+      readerAiActiveEditorCheckpointId,
       readerAiActiveRunId,
       readerAiAppliedChanges,
       readerAiChangeSets,
       readerAiConversationScope,
       readerAiEditProposals,
       readerAiMessages,
+      readerAiEditorCheckpoints,
       readerAiProposalStatusesByToolCallId,
       readerAiRuns,
       readerAiStagedChanges,
@@ -463,9 +479,30 @@ export function useReaderAiSession({
     applyReaderAiSessionSnapshot(createEmptyReaderAiSessionSnapshot());
   }, [applyReaderAiSessionSnapshot, historyDocumentKey, inlinePromptAbortRef, resetInlinePromptState]);
 
+  const createReaderAiEditorRestorePoint = useCallback(
+    (options: {
+      path: string;
+      content: string;
+      revision: number;
+      selection?: { anchor: number; head: number } | null;
+      scrollTop?: number | null;
+      changeSetId?: string | null;
+    }) => {
+      const checkpoint = createReaderAiEditorCheckpoint(options);
+      setReaderAiEditorCheckpoints((current) => appendReaderAiEditorCheckpoint(current, checkpoint));
+      setReaderAiActiveEditorCheckpointId(checkpoint.id);
+      return checkpoint;
+    },
+    [],
+  );
+
   const clearReaderAiUndoState = useCallback(() => {
-    setReaderAiUndoState(null);
-  }, []);
+    if (!readerAiActiveEditorCheckpointId) return;
+    setReaderAiEditorCheckpoints((current) =>
+      updateReaderAiEditorCheckpointStatus(current, readerAiActiveEditorCheckpointId, 'discarded'),
+    );
+    setReaderAiActiveEditorCheckpointId(null);
+  }, [readerAiActiveEditorCheckpointId]);
 
   const markReaderAiActiveChangeSetApplying = useCallback(() => {
     updateReaderAiActiveChangeSet((changeSet) => ({
@@ -541,18 +578,28 @@ export function useReaderAiSession({
     [],
   );
 
-  const resetReaderAiStagedState = useCallback((options?: { clearError?: boolean; preserveUndoState?: boolean }) => {
-    setReaderAiEditProposals([]);
-    setReaderAiStagedChanges([]);
-    setReaderAiSelectedChangeIds(new Set());
-    setReaderAiSelectedHunkIdsByChangeId({});
-    setReaderAiStagedChangesInvalid(false);
-    setReaderAiStagedFileContents({});
-    setReaderAiDocumentEditedContent(null);
-    setReaderAiActiveChangeSetId(null);
-    if (!options?.preserveUndoState) setReaderAiUndoState(null);
-    if (options?.clearError) setReaderAiError(null);
-  }, []);
+  const resetReaderAiStagedState = useCallback(
+    (options?: { clearError?: boolean; preserveEditorCheckpoint?: boolean }) => {
+      setReaderAiEditProposals([]);
+      setReaderAiStagedChanges([]);
+      setReaderAiSelectedChangeIds(new Set());
+      setReaderAiSelectedHunkIdsByChangeId({});
+      setReaderAiStagedChangesInvalid(false);
+      setReaderAiStagedFileContents({});
+      setReaderAiDocumentEditedContent(null);
+      setReaderAiActiveChangeSetId(null);
+      if (!options?.preserveEditorCheckpoint) {
+        if (readerAiActiveEditorCheckpointId) {
+          setReaderAiEditorCheckpoints((current) =>
+            updateReaderAiEditorCheckpointStatus(current, readerAiActiveEditorCheckpointId, 'discarded'),
+          );
+        }
+        setReaderAiActiveEditorCheckpointId(null);
+      }
+      if (options?.clearError) setReaderAiError(null);
+    },
+    [readerAiActiveEditorCheckpointId],
+  );
 
   const pruneAppliedReaderAiPaths = useCallback(
     (appliedPaths: string[], options?: PruneAppliedReaderAiPathsOptions) => {
@@ -783,7 +830,6 @@ export function useReaderAiSession({
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
-      setReaderAiUndoState(null);
       setReaderAiError(null);
 
       let received = false;
@@ -1191,6 +1237,7 @@ export function useReaderAiSession({
     buildReaderAiRetryRequest,
     clearReaderAi,
     clearReaderAiUndoState,
+    createReaderAiEditorRestorePoint,
     effectiveReaderAiStagedChanges,
     effectiveReaderAiStagedFileContents,
     finalizeReaderAiActiveChangeSet,
@@ -1214,7 +1261,7 @@ export function useReaderAiSession({
     readerAiRuns,
     readerAiToolLog,
     readerAiToolStatus,
-    readerAiUndoState,
+    readerAiActiveEditorCheckpoint,
     rejectReaderAiChange,
     rejectReaderAiHunk,
     rejectReaderAiProposal,
@@ -1230,7 +1277,6 @@ export function useReaderAiSession({
     setReaderAiSelectedHunkIdsByChangeId,
     setReaderAiStagedChanges,
     setReaderAiStagedFileContents,
-    setReaderAiUndoState,
     startReaderAiStream,
     stopReaderAi,
     toggleReaderAiChangeSelection,

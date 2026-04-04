@@ -1,17 +1,12 @@
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
 import type { ReaderAiToolLogEntry } from './components/ReaderAiToolLog';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from './reader_ai';
+import type { ReaderAiEditorCheckpoint } from './reader_ai_editor_checkpoints';
 import type { ReaderAiHistoryEntry } from './reader_ai_history_store';
 import type { ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
 import type { ReaderAiProposalToolCallStatus, ReaderAiSelectedHunkIdsByChangeId } from './reader_ai_state';
 
 export type ReaderAiConversationScope = { kind: 'document' } | { kind: 'selection'; source: string };
-
-export interface ReaderAiUndoState {
-  path: string;
-  content: string;
-  revision: number;
-}
 
 export interface ReaderAiSessionSnapshot {
   messages: ReaderAiMessage[];
@@ -31,7 +26,8 @@ export interface ReaderAiSessionSnapshot {
   stagedChangesInvalid: boolean;
   stagedFileContents: Record<string, string>;
   documentEditedContent: string | null;
-  undoState: ReaderAiUndoState | null;
+  editorCheckpoints: ReaderAiEditorCheckpoint[];
+  activeEditorCheckpointId: string | null;
   error: string | null;
   runs: ReaderAiRunRecord[];
   activeRunId: string | null;
@@ -58,7 +54,8 @@ export function createEmptyReaderAiSessionSnapshot(): ReaderAiSessionSnapshot {
     stagedChangesInvalid: false,
     stagedFileContents: {},
     documentEditedContent: null,
-    undoState: null,
+    editorCheckpoints: [],
+    activeEditorCheckpointId: null,
     error: null,
     runs: [],
     activeRunId: null,
@@ -97,6 +94,8 @@ export function createReaderAiSessionSnapshotFromHistory(options: {
     stagedChangesInvalid: loaded.stagedChangesInvalid === true,
     stagedFileContents: loaded.stagedFileContents ?? activeChangeSet?.stagedFileContents ?? {},
     documentEditedContent: activeChangeSet?.documentEditedContent ?? empty.documentEditedContent,
+    editorCheckpoints: loaded.editorCheckpoints ?? [],
+    activeEditorCheckpointId: loaded.activeEditorCheckpointId ?? null,
     runs: loaded.runs ?? [],
     activeRunId: loaded.activeRunId ?? null,
     changeSets: loaded.changeSets ?? [],
@@ -117,6 +116,8 @@ export function createReaderAiHistoryEntryFromSessionSnapshot(
     | 'stagedChangesInvalid'
     | 'stagedFileContents'
     | 'appliedChanges'
+    | 'editorCheckpoints'
+    | 'activeEditorCheckpointId'
     | 'runs'
     | 'activeRunId'
     | 'changeSets'
@@ -136,6 +137,8 @@ export function createReaderAiHistoryEntryFromSessionSnapshot(
     ...(snapshot.stagedChangesInvalid ? { stagedChangesInvalid: true } : {}),
     ...(Object.keys(snapshot.stagedFileContents).length > 0 ? { stagedFileContents: snapshot.stagedFileContents } : {}),
     ...(snapshot.appliedChanges.length > 0 ? { appliedChanges: snapshot.appliedChanges } : {}),
+    ...(snapshot.editorCheckpoints.length > 0 ? { editorCheckpoints: snapshot.editorCheckpoints } : {}),
+    ...(snapshot.activeEditorCheckpointId ? { activeEditorCheckpointId: snapshot.activeEditorCheckpointId } : {}),
     ...(snapshot.runs.length > 0 ? { runs: snapshot.runs } : {}),
     ...(snapshot.activeRunId ? { activeRunId: snapshot.activeRunId } : {}),
     ...(snapshot.changeSets.length > 0 ? { changeSets: snapshot.changeSets } : {}),
