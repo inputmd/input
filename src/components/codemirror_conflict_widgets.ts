@@ -139,7 +139,11 @@ function buildConflictWidgetDecorations(
   const builder = new RangeSetBuilder<Decoration>();
   if (!Array.isArray(widgets) || widgets.length === 0) return builder.finish();
   for (const widget of widgets) {
-    const lineNumber = Math.max(1, Math.min(state.doc.lines, Math.floor(widget.lineNumber)));
+    if (!Number.isFinite(widget.lineNumber)) continue;
+    const normalizedLineNumber = Math.trunc(widget.lineNumber);
+    if (normalizedLineNumber < 1) continue;
+    const lineNumber = Math.min(state.doc.lines, normalizedLineNumber);
+    if (lineNumber < 1 || lineNumber > state.doc.lines) continue;
     const line = state.doc.line(lineNumber);
     builder.add(
       line.from,

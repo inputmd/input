@@ -118,7 +118,11 @@ function ReaderAiAssistantMessage({
   useEffect(() => {
     const root = contentRef.current;
     if (!root) return;
-    root.innerHTML = parseMarkdownToHtml(content, { smartQuotes: true });
+    try {
+      root.innerHTML = parseMarkdownToHtml(content, { smartQuotes: true });
+    } catch {
+      root.replaceChildren(document.createTextNode(content));
+    }
     const frame = onRendered ? requestAnimationFrame(() => onRendered()) : null;
     if (streaming) {
       const spinner = document.createElement('span');
@@ -196,6 +200,7 @@ export function ReaderAiPanel({
   const [draft, setDraft] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
   const panelRef = useRef<HTMLElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -234,6 +239,10 @@ export function ReaderAiPanel({
     messageCount > 0 &&
     messages[messageCount - 1].role === 'assistant' &&
     messages[messageCount - 1].content.trim().length === 0;
+
+  const getActionErrorMessage = useCallback((value: unknown, fallback: string) => {
+    return value instanceof Error && value.message.trim().length > 0 ? value.message : fallback;
+  }, []);
 
   const isNearMessagesBottom = useCallback((root: HTMLDivElement) => {
     const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
@@ -385,9 +394,17 @@ export function ReaderAiPanel({
       const queuedBeforeSubmit = options?.queuedBeforeSubmit ?? [];
       try {
         scrollMessagesToBottom();
+        setActionError(null);
         let failedCommandIndex = -1;
         for (const [index, command] of commands.entries()) {
-          const ok = await onSend(command);
+          let ok = false;
+          try {
+            ok = await onSend(command);
+          } catch (error) {
+            setActionError(getActionErrorMessage(error, 'Failed to send queued Reader AI message.'));
+            failedCommandIndex = index;
+            break;
+          }
           if (!ok) {
             failedCommandIndex = index;
             break;
@@ -404,7 +421,7 @@ export function ReaderAiPanel({
         queueDrainInFlightRef.current = false;
       }
     },
-    [onPrependQueuedCommands, onSend, scrollMessagesToBottom, selectedModel],
+    [getActionErrorMessage, onPrependQueuedCommands, onSend, scrollMessagesToBottom, selectedModel],
   );
 
   const submit = async () => {
@@ -445,9 +462,36 @@ export function ReaderAiPanel({
     if (editingIndex === null || sending || !selectedModel) return;
     const nextValue = editingDraft.trim();
     if (!nextValue) return;
-    const accepted = await onEditMessage(editingIndex, nextValue);
-    if (accepted) cancelEdit();
+    try {
+      setActionError(null);
+      const accepted = await onEditMessage(editingIndex, nextValue);
+      if (accepted) cancelEdit();
+    } catch (error) {
+      setActionError(getActionErrorMessage(error, 'Failed to edit Reader AI message.'));
+    }
   };
+
+  const retryLastUserMessage = useCallback(async () => {
+    try {
+      setActionError(null);
+      await onRetryLastUserMessage();
+    } catch (error) {
+      setActionError(getActionErrorMessage(error, 'Failed to retry Reader AI message.'));
+    }
+  }, [getActionErrorMessage, onRetryLastUserMessage]);
+
+  const resetToMessage = useCallback(
+    async (index: number) => {
+      if (!onResetToMessage) return;
+      try {
+        setActionError(null);
+        await onResetToMessage(index);
+      } catch (error) {
+        setActionError(getActionErrorMessage(error, 'Failed to reset Reader AI conversation.'));
+      }
+    },
+    [getActionErrorMessage, onResetToMessage],
+  );
 
   const clearChat = (focusComposer: boolean) => {
     if (!hasMessages && queuedCommands.length === 0) return;
@@ -463,6 +507,32 @@ export function ReaderAiPanel({
       input.focus();
     });
   }, []);
+
+  const sendQuickPrompt = useCallback(
+    async (prompt: string) => {
+      try {
+        setActionError(null);
+        await onSend(prompt);
+      } catch (error) {
+        setActionError(getActionErrorMessage(error, 'Failed to send Reader AI message.'));
+      }
+      focusComposerInput();
+    },
+    [focusComposerInput, getActionErrorMessage, onSend],
+  );
+
+  const retryRunStep = useCallback(
+    async (target: { runId: string; stepId: string }) => {
+      if (!onRetryRunStep) return;
+      try {
+        setActionError(null);
+        await onRetryRunStep(target);
+      } catch (error) {
+        setActionError(getActionErrorMessage(error, 'Failed to retry Reader AI step.'));
+      }
+    },
+    [getActionErrorMessage, onRetryRunStep],
+  );
 
   const handleSelectModel = (modelId: string) => {
     onSelectModel(modelId);
@@ -615,8 +685,7 @@ export function ReaderAiPanel({
               class="reader-ai-summarize-btn"
               disabled={composerInputDisabled}
               onClick={() => {
-                void onSend(selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.');
-                focusComposerInput();
+                void sendQuickPrompt(selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.');
               }}
             >
               Summarize
@@ -626,12 +695,11 @@ export function ReaderAiPanel({
               class="reader-ai-summarize-btn"
               disabled={composerInputDisabled}
               onClick={() => {
-                void onSend(
+                void sendQuickPrompt(
                   selectionModeEnabled
                     ? 'Identify any questions raised by this selection.'
                     : 'Identify any questions raised by this document.',
                 );
-                focusComposerInput();
               }}
             >
               Identify questions
@@ -690,7 +758,7 @@ export function ReaderAiPanel({
                                 class="reader-ai-composer-menu-item"
                                 disabled={sending || !selectedModel || index !== lastUserMessageIndex}
                                 onSelect={() => {
-                                  void onRetryLastUserMessage();
+                                  void retryLastUserMessage();
                                 }}
                               >
                                 Retry
@@ -699,7 +767,7 @@ export function ReaderAiPanel({
                                 class="reader-ai-composer-menu-item"
                                 disabled={sending || !selectedModel || !onResetToMessage}
                                 onSelect={() => {
-                                  void onResetToMessage?.(index);
+                                  void resetToMessage(index);
                                 }}
                               >
                                 Reset to here
@@ -844,9 +912,11 @@ export function ReaderAiPanel({
           />
         ) : null}
         {runs.length > 0 ? (
-          <ReaderAiRunHistorySection runs={runs} activeRunId={activeRunId} onRetryStep={onRetryRunStep} />
+          <ReaderAiRunHistorySection runs={runs} activeRunId={activeRunId} onRetryStep={retryRunStep} />
         ) : null}
-        {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
+        {error || actionError ? (
+          <div class="reader-ai-error reader-ai-error--inline">{error ?? actionError}</div>
+        ) : null}
         {composerAtTop ? null : <div class="reader-ai-messages-bottom-spacer" aria-hidden="true" />}
         {composerAtTop ? null : composer}
       </div>
