@@ -17,6 +17,10 @@ export interface ReaderAiRunStep {
   startedAt: string;
   finishedAt?: string;
   retryCount: number;
+  maxRetries: number;
+  retryable: boolean;
+  retryState: 'none' | 'ready' | 'in_progress' | 'exhausted';
+  retryReason?: 'transient' | 'tool-arguments' | 'task-failure' | 'unknown';
 }
 
 export interface ReaderAiRunRecord {
@@ -51,6 +55,15 @@ export interface ReaderAiChangeSetFailure {
   error: string;
 }
 
+export interface ReaderAiChangeSetFileRecord {
+  path: string;
+  status: 'ready' | 'missing_content' | 'stale' | 'applied' | 'failed' | 'conflicted';
+  hasCompleteContent: boolean;
+  baseRevision?: number;
+  originalHash?: string;
+  modifiedHash?: string;
+}
+
 export interface ReaderAiChangeSetRecord {
   id: string;
   runId: string;
@@ -62,6 +75,7 @@ export interface ReaderAiChangeSetRecord {
   stagedChanges: ReaderAiStagedChange[];
   stagedFileContents: Record<string, string>;
   documentEditedContent: string | null;
+  files: ReaderAiChangeSetFileRecord[];
   appliedPaths: string[];
   failedPaths: ReaderAiChangeSetFailure[];
 }
@@ -101,6 +115,7 @@ export function createReaderAiChangeSetRecord(options: {
   stagedChanges?: ReaderAiStagedChange[];
   stagedFileContents?: Record<string, string>;
   documentEditedContent?: string | null;
+  files?: ReaderAiChangeSetFileRecord[];
 }): ReaderAiChangeSetRecord {
   const now = new Date().toISOString();
   return {
@@ -114,6 +129,7 @@ export function createReaderAiChangeSetRecord(options: {
     stagedChanges: options.stagedChanges ?? [],
     stagedFileContents: options.stagedFileContents ?? {},
     documentEditedContent: options.documentEditedContent ?? null,
+    files: options.files ?? [],
     appliedPaths: [],
     failedPaths: [],
   };

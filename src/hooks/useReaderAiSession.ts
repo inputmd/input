@@ -18,6 +18,15 @@ import {
   type ReaderAiUndoState,
 } from '../reader_ai_controller';
 import {
+  buildReaderAiChangeSetFileRecords,
+  buildReaderAiRetryRequestFromRuns,
+  classifyReaderAiStepRetryPolicy,
+  completeReaderAiRunStepRetry,
+  findReaderAiActiveChangeSet,
+  markReaderAiChangeSetFileStatuses,
+  markReaderAiRunStepRetryAttempt,
+} from '../reader_ai_controller_runtime';
+import {
   buildReaderAiHistoryDocumentKey,
   createReaderAiSelectionStateFromHistoryEntry,
   getReaderAiProposalStatusesFromHistoryEntry,
@@ -59,6 +68,7 @@ interface StartReaderAiStreamOptions {
   edited?: boolean;
   modelId: string;
   parentRunId?: string;
+  retryStepId?: string;
   selectedModel: ReaderAiModel | null;
   selectionSource: string | null;
   showFailureToast: (message: string) => void;
@@ -72,6 +82,7 @@ interface ReaderAiRetryRequest {
   baseMessages: ReaderAiMessage[];
   modelId: string | null;
   parentRunId: string | null;
+  retryStepId?: string;
 }
 
 export function useReaderAiSession({
@@ -125,6 +136,10 @@ export function useReaderAiSession({
   );
   const readerAiStagedChangesStreaming =
     readerAiSending && (readerAiEditProposals.length > 0 || readerAiStagedChanges.length > 0);
+  const readerAiActiveChangeSet = useMemo(
+    () => findReaderAiActiveChangeSet(readerAiChangeSets, readerAiActiveChangeSetId),
+    [readerAiActiveChangeSetId, readerAiChangeSets],
+  );
 
   const readerAiAbortRef = useRef<AbortController | null>(null);
   const readerAiStagedChangesRef = useRef<ReaderAiStagedChange[]>(readerAiStagedChanges);
@@ -208,6 +223,7 @@ export function useReaderAiSession({
         const created = updater(
           createReaderAiChangeSetRecord({
             runId,
+            files: [],
           }),
         );
         nextId = created.id;
@@ -278,6 +294,10 @@ export function useReaderAiSession({
               stagedChanges: readerAiStagedChanges,
               stagedFileContents: readerAiStagedFileContents,
               documentEditedContent: readerAiDocumentEditedContent,
+              files: buildReaderAiChangeSetFileRecords({
+                stagedChanges: readerAiStagedChanges,
+                stagedFileContents: readerAiStagedFileContents,
+              }),
               status:
                 changeSet.status === 'applying' ||
                 changeSet.status === 'partial' ||
@@ -461,18 +481,33 @@ export function useReaderAiSession({
       failedPaths?: ReaderAiChangeSetFailure[];
       conflict?: boolean;
       clearActive?: boolean;
+      stalePaths?: string[];
     }) => {
       const appliedPaths = options.appliedPaths ?? [];
       const failedPaths = options.failedPaths ?? [];
       updateReaderAiActiveChangeSet((changeSet) => ({
-        ...changeSet,
+        ...markReaderAiChangeSetFileStatuses(changeSet, {
+          appliedPaths,
+          failedPaths,
+          stalePaths: options.stalePaths,
+          ...(options.conflict
+            ? {
+                conflictPaths:
+                  changeSet.files.length > 0
+                    ? changeSet.files.map((file) => file.path)
+                    : changeSet.stagedChanges.map((change) => change.path),
+              }
+            : {}),
+        }),
         status: options.conflict
           ? 'conflicted'
-          : failedPaths.length > 0 && appliedPaths.length > 0
-            ? 'partial'
-            : failedPaths.length > 0
-              ? 'failed'
-              : 'applied',
+          : (options.stalePaths?.length ?? 0) > 0
+            ? 'conflicted'
+            : failedPaths.length > 0 && appliedPaths.length > 0
+              ? 'partial'
+              : failedPaths.length > 0
+                ? 'failed'
+                : 'applied',
         appliedPaths: Array.from(new Set([...changeSet.appliedPaths, ...appliedPaths])),
         failedPaths,
       }));
@@ -484,13 +519,7 @@ export function useReaderAiSession({
   );
 
   const buildReaderAiRetryRequest = useCallback((): ReaderAiRetryRequest | null => {
-    const latestRun = readerAiRuns[readerAiRuns.length - 1] ?? null;
-    if (!latestRun || latestRun.baseMessages.length === 0) return null;
-    return {
-      baseMessages: latestRun.baseMessages,
-      modelId: latestRun.modelId,
-      parentRunId: latestRun.id,
-    };
+    return buildReaderAiRetryRequestFromRuns(readerAiRuns);
   }, [readerAiRuns]);
 
   const recordReaderAiAppliedChanges = useCallback(
@@ -555,7 +584,7 @@ export function useReaderAiSession({
         setReaderAiDocumentEditedContent(null);
       }
       updateReaderAiActiveChangeSet((changeSet) => ({
-        ...changeSet,
+        ...markReaderAiChangeSetFileStatuses(changeSet, { appliedPaths }),
         status: 'partial',
         editProposals: changeSet.editProposals.filter((proposal) => !appliedPathSet.has(proposal.change.path)),
         stagedChanges: changeSet.stagedChanges.filter((change) => !appliedPathSet.has(change.path)),
@@ -705,6 +734,7 @@ export function useReaderAiSession({
       edited,
       modelId,
       parentRunId,
+      retryStepId,
       selectedModel,
       selectionSource,
       showFailureToast,
@@ -726,6 +756,9 @@ export function useReaderAiSession({
       if (!source.trim()) {
         showFailureToast('Reader AI needs document content before it can answer.');
         return false;
+      }
+      if (parentRunId && retryStepId) {
+        updateReaderAiRun(parentRunId, (run) => markReaderAiRunStepRetryAttempt(run, retryStepId));
       }
 
       readerAiAbortRef.current?.abort();
@@ -832,6 +865,9 @@ export function useReaderAiSession({
                           : undefined,
                     startedAt: new Date().toISOString(),
                     retryCount: 0,
+                    maxRetries: 0,
+                    retryable: false,
+                    retryState: 'none',
                   },
                 ],
               }));
@@ -857,6 +893,7 @@ export function useReaderAiSession({
                     ? step
                     : {
                         ...step,
+                        ...classifyReaderAiStepRetryPolicy(step, event.error),
                         status: event.error ? 'failed' : 'completed',
                         detail: event.error
                           ? `${event.error}${event.preview ? ` — ${event.preview}` : ''}`
@@ -933,6 +970,10 @@ export function useReaderAiSession({
                           ? step
                           : {
                               ...step,
+                              ...classifyReaderAiStepRetryPolicy(
+                                step,
+                                event.phase === 'error' ? event.detail : undefined,
+                              ),
                               status: event.phase === 'error' ? 'failed' : 'completed',
                               detail,
                               error: event.phase === 'error' ? event.detail : step.error,
@@ -1105,6 +1146,9 @@ export function useReaderAiSession({
           completedAt: new Date().toISOString(),
           error: undefined,
         }));
+        if (parentRunId && retryStepId) {
+          updateReaderAiRun(parentRunId, (run) => completeReaderAiRunStepRetry(run, retryStepId, true));
+        }
 
         return true;
       } catch (err) {
@@ -1126,6 +1170,9 @@ export function useReaderAiSession({
           completedAt: new Date().toISOString(),
           error: err instanceof Error ? err.message : 'Reader AI request failed',
         }));
+        if (parentRunId && retryStepId) {
+          updateReaderAiRun(parentRunId, (run) => completeReaderAiRunStepRetry(run, retryStepId, false));
+        }
         if (err instanceof DOMException && err.name === 'AbortError') return true;
         setReaderAiError(err instanceof Error ? err.message : 'Reader AI request failed');
         return false;
@@ -1150,6 +1197,7 @@ export function useReaderAiSession({
     ignoreAllReaderAiChanges,
     markReaderAiActiveChangeSetApplying,
     pruneAppliedReaderAiPaths,
+    readerAiActiveChangeSet,
     readerAiApplyingChanges,
     readerAiConversationScope,
     readerAiDocumentEditedContent,

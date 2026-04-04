@@ -84,7 +84,7 @@ interface PerformReaderAiApplyOptions {
   userPresent: boolean;
 }
 
-export type ReaderAiHostApplyOutcome =
+type ReaderAiHostApplyOutcome =
   | {
       kind: 'editor';
       appliedPaths: string[];
@@ -95,6 +95,33 @@ export type ReaderAiHostApplyOutcome =
       kind: 'remote';
       target: ReaderAiHostApplyTarget;
       result: ReaderAiApplyResult;
+    };
+
+export type ReaderAiHostApplyExecution =
+  | {
+      kind: 'editor_applied';
+      appliedPaths: string[];
+      nextContent: string;
+      undoState: ReaderAiUndoState | null;
+    }
+  | {
+      kind: 'remote_conflict';
+      conflict: NonNullable<ReaderAiApplyResult['conflict']>;
+    }
+  | {
+      kind: 'remote_applied';
+      appliedPaths: string[];
+      target: ReaderAiHostApplyTarget;
+    }
+  | {
+      kind: 'remote_partial';
+      appliedPaths: string[];
+      failedPaths: Array<{ path: string; error: string }>;
+      target: ReaderAiHostApplyTarget;
+    }
+  | {
+      kind: 'remote_failed';
+      failedPaths: Array<{ path: string; error: string }>;
     };
 
 export function resolveReaderAiEditorApplyPlan(
@@ -136,9 +163,7 @@ export function createReaderAiNoWriteAccessError(): Error {
   return new Error('Cannot apply changes: no write access');
 }
 
-export async function performReaderAiHostApply(
-  options: PerformReaderAiApplyOptions,
-): Promise<ReaderAiHostApplyOutcome> {
+async function performReaderAiHostApply(options: PerformReaderAiApplyOptions): Promise<ReaderAiHostApplyOutcome> {
   if (options.mode === 'without-saving') {
     const editorApplyPlan = resolveReaderAiEditorApplyPlan({
       activeView: options.activeView,
@@ -179,5 +204,44 @@ export async function performReaderAiHostApply(
       options.selectedFileContents,
       options.commitMessage,
     ),
+  };
+}
+
+export async function executeReaderAiHostApply(
+  options: PerformReaderAiApplyOptions,
+): Promise<ReaderAiHostApplyExecution> {
+  const outcome = await performReaderAiHostApply(options);
+  if (outcome.kind === 'editor') {
+    return {
+      kind: 'editor_applied',
+      appliedPaths: outcome.appliedPaths,
+      nextContent: outcome.nextContent,
+      undoState: outcome.undoState,
+    };
+  }
+  if (outcome.result.conflict) {
+    return {
+      kind: 'remote_conflict',
+      conflict: outcome.result.conflict,
+    };
+  }
+  if (outcome.result.failed.length > 0 && outcome.result.applied.length > 0) {
+    return {
+      kind: 'remote_partial',
+      appliedPaths: outcome.result.applied,
+      failedPaths: outcome.result.failed,
+      target: outcome.target,
+    };
+  }
+  if (outcome.result.failed.length > 0) {
+    return {
+      kind: 'remote_failed',
+      failedPaths: outcome.result.failed,
+    };
+  }
+  return {
+    kind: 'remote_applied',
+    appliedPaths: outcome.result.applied,
+    target: outcome.target,
   };
 }

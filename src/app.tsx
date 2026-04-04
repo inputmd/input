@@ -146,9 +146,13 @@ import {
 } from './reader_ai';
 import { buildReaderAiContextLogPayload, trimReaderAiSource } from './reader_ai_context';
 import {
+  createReaderAiApplyBlockedMessage,
+  validateReaderAiSelectedChangesForApply,
+} from './reader_ai_controller_runtime';
+import {
   createReaderAiApplyConflictMessage,
+  executeReaderAiHostApply,
   invalidateReaderAiHostCaches,
-  performReaderAiHostApply,
 } from './reader_ai_host_adapter';
 import { READER_AI_SELECTION_MAX_CHARS } from './reader_ai_limits';
 import { matchRoute, type Route, routePath } from './routing';
@@ -1193,6 +1197,7 @@ export function App() {
     ignoreAllReaderAiChanges,
     markReaderAiActiveChangeSetApplying,
     pruneAppliedReaderAiPaths,
+    readerAiActiveChangeSet,
     readerAiApplyingChanges,
     readerAiConversationScope,
     readerAiDocumentEditedContent,
@@ -3643,7 +3648,7 @@ export function App() {
   const streamReaderAiAssistant = useCallback(
     async (
       baseMessages: ReaderAiMessage[],
-      options?: { edited?: boolean; modelId?: string | null; parentRunId?: string | null },
+      options?: { edited?: boolean; modelId?: string | null; parentRunId?: string | null; retryStepId?: string },
     ) => {
       const modelId = options?.modelId ?? readerAiSelectedModel;
       if (!modelId) return false;
@@ -3667,6 +3672,7 @@ export function App() {
         edited: options?.edited,
         modelId,
         parentRunId: options?.parentRunId ?? undefined,
+        retryStepId: options?.retryStepId ?? undefined,
         selectedModel,
         selectionSource,
         showFailureToast,
@@ -3731,6 +3737,25 @@ export function App() {
       ) {
         return;
       }
+      const invalidSelectedChanges = validateReaderAiSelectedChangesForApply({
+        activeChangeSet: readerAiActiveChangeSet,
+        currentEditContentRevision: editContentRevision,
+        currentEditingDocPath,
+        currentEditingDocumentContent: editContentRef.current,
+        selectedChanges,
+      });
+      if (invalidSelectedChanges.length > 0) {
+        const blockedMessage = createReaderAiApplyBlockedMessage(invalidSelectedChanges);
+        finalizeReaderAiActiveChangeSet({
+          stalePaths: invalidSelectedChanges.filter((entry) => entry.reason === 'stale').map((entry) => entry.path),
+          failedPaths: invalidSelectedChanges
+            .filter((entry) => entry.reason === 'missing_content')
+            .map((entry) => ({ path: entry.path, error: 'Missing full staged content' })),
+        });
+        setReaderAiError(blockedMessage);
+        await showAlert(blockedMessage);
+        return;
+      }
       setReaderAiApplyingChanges(true);
       markReaderAiActiveChangeSetApplying();
       setReaderAiError(null);
@@ -3741,7 +3766,7 @@ export function App() {
       const changeTypeByPath = new Map(selectedChanges.map((change) => [change.path, change.type]));
 
       try {
-        const outcome = await performReaderAiHostApply({
+        const outcome = await executeReaderAiHostApply({
           activeInstalledRepoInstallationId,
           activeView,
           commitMessage,
@@ -3760,7 +3785,7 @@ export function App() {
           userPresent: Boolean(user),
         });
 
-        if (outcome.kind === 'editor') {
+        if (outcome.kind === 'editor_applied') {
           setNextEditContent(outcome.nextContent, { origin: 'appEdits' });
           setHasUserTypedUnsavedChanges(false);
           setHasUnsavedChanges(true);
@@ -3771,21 +3796,20 @@ export function App() {
           return;
         }
 
-        const handleApplyConflict = async (conflict: NonNullable<(typeof outcome.result)['conflict']>) => {
+        const handleApplyConflict = async (conflict: Parameters<typeof createReaderAiApplyConflictMessage>[0]) => {
           const conflictMessage = createReaderAiApplyConflictMessage(conflict);
           setReaderAiError(conflictMessage);
           await showAlert(conflictMessage);
         };
 
-        if (outcome.result.conflict) {
+        if (outcome.kind === 'remote_conflict') {
           finalizeReaderAiActiveChangeSet({ conflict: true });
-          await handleApplyConflict(outcome.result.conflict);
+          await handleApplyConflict(outcome.conflict);
           return;
         }
-        applied.push(...outcome.result.applied);
-        failed.push(...outcome.result.failed);
-
-        if (failed.length > 0 && applied.length > 0) {
+        if (outcome.kind === 'remote_partial') {
+          applied.push(...outcome.appliedPaths);
+          failed.push(...outcome.failedPaths);
           // Partial success
           recordReaderAiAppliedChanges(applied, changeTypeByPath);
           finalizeReaderAiActiveChangeSet({
@@ -3795,19 +3819,20 @@ export function App() {
           pruneAppliedReaderAiPaths(applied, { clearDocumentEditedContentPath: currentEditingDocPath });
           const failedPaths = failed.map((f) => f.path).join(', ');
           setReaderAiError(`Applied ${applied.length} file(s), but ${failed.length} failed: ${failedPaths}`);
-        } else if (failed.length > 0) {
-          finalizeReaderAiActiveChangeSet({ failedPaths: failed });
-          const failedPaths = failed.map((f) => `${f.path}: ${f.error}`).join('; ');
+          invalidateReaderAiHostCaches(outcome.target, { clearGitHubAppCaches, clearGitHubCaches });
+          return;
+        }
+        if (outcome.kind === 'remote_failed') {
+          finalizeReaderAiActiveChangeSet({ failedPaths: outcome.failedPaths });
+          const failedPaths = outcome.failedPaths.map((f) => `${f.path}: ${f.error}`).join('; ');
           setReaderAiError(`Failed to apply changes: ${failedPaths}`);
-        } else {
-          // Full success — clear staged changes
+          return;
+        }
+        if (outcome.kind === 'remote_applied') {
+          applied.push(...outcome.appliedPaths);
           recordReaderAiAppliedChanges(applied, changeTypeByPath);
           finalizeReaderAiActiveChangeSet({ appliedPaths: applied, clearActive: true });
           resetReaderAiStagedState();
-        }
-
-        // Invalidate caches so the UI reflects the applied changes
-        if (applied.length > 0) {
           invalidateReaderAiHostCaches(outcome.target, { clearGitHubAppCaches, clearGitHubCaches });
         }
       } catch (err) {
@@ -3829,6 +3854,7 @@ export function App() {
       readerAiApplyingChanges,
       effectiveReaderAiStagedChanges,
       effectiveReaderAiStagedFileContents,
+      readerAiActiveChangeSet,
       readerAiDocumentEditedContent,
       activeView,
       currentEditingDocPath,
@@ -3916,6 +3942,7 @@ export function App() {
     await streamReaderAiAssistant(messagesToReplay, {
       modelId: retryRequest?.modelId ?? readerAiSelectedModel,
       parentRunId: retryRequest?.parentRunId ?? null,
+      retryStepId: retryRequest?.retryStepId,
     });
   }, [buildReaderAiRetryRequest, readerAiMessages, readerAiSelectedModel, readerAiSending, streamReaderAiAssistant]);
 
@@ -7499,8 +7526,20 @@ export function App() {
       typeof effectiveReaderAiStagedFileContents[currentEditingDocPath] === 'string',
   );
   const canApplyFromInlineDocumentEdit = readerAiDocumentEditedContent !== null;
+  const readerAiSelectedChangesApplyValidation = useMemo(
+    () =>
+      validateReaderAiSelectedChangesForApply({
+        activeChangeSet: readerAiActiveChangeSet,
+        currentEditContentRevision: editContentRevision,
+        currentEditingDocPath,
+        currentEditingDocumentContent: editContentRef.current,
+        selectedChanges: effectiveReaderAiStagedChanges,
+      }),
+    [currentEditingDocPath, editContentRevision, effectiveReaderAiStagedChanges, readerAiActiveChangeSet],
+  );
   const canApplyWithoutSaving =
     !readerAiStagedChangesInvalid &&
+    readerAiSelectedChangesApplyValidation.length === 0 &&
     activeView === 'edit' &&
     effectiveReaderAiStagedChanges.length === 1 &&
     (canApplyFromInlineDocumentEdit || hasCurrentEditingSelectedStagedContent);
@@ -7704,7 +7743,6 @@ export function App() {
         ) : null}
         {mountReaderAiPanel ? (
           <ReaderAiPanel
-            key={readerAiHistoryDocumentKey ?? 'reader-ai-panel'}
             className={showReaderAiPanel ? undefined : 'reader-ai-panel--hidden'}
             models={readerAiModels}
             modelsLoading={readerAiModelsLoading}

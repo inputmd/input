@@ -1,10 +1,10 @@
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
 import type { ReaderAiEditProposal, ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
-import type { ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
+import type { ReaderAiChangeSetFileRecord, ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
 import type { Route } from './routing';
 import type { PublicRepoRef } from './wiki_links';
 
-const READER_AI_HISTORY_KEY = 'reader_ai_history_v1';
+const READER_AI_HISTORY_KEY = 'reader_ai_history_v2';
 const READER_AI_HISTORY_MAX_ENTRIES = 12;
 const READER_AI_HISTORY_MAX_MESSAGES = 100;
 const READER_AI_HISTORY_MAX_APPLIED_CHANGES = 100;
@@ -354,6 +354,31 @@ function normalizePersistedRuns(value: unknown): NonNullable<ReaderAiHistoryEntr
                   typeof (step as { retryCount?: unknown }).retryCount === 'number'
                     ? (step as { retryCount: number }).retryCount
                     : 0,
+                maxRetries:
+                  typeof (step as { maxRetries?: unknown }).maxRetries === 'number'
+                    ? (step as { maxRetries: number }).maxRetries
+                    : 0,
+                retryable: (step as { retryable?: unknown }).retryable === true,
+                retryState:
+                  (step as { retryState?: unknown }).retryState === 'ready' ||
+                  (step as { retryState?: unknown }).retryState === 'in_progress' ||
+                  (step as { retryState?: unknown }).retryState === 'exhausted'
+                    ? ((step as { retryState: 'ready' | 'in_progress' | 'exhausted' }).retryState as
+                        | 'ready'
+                        | 'in_progress'
+                        | 'exhausted')
+                    : 'none',
+                retryReason:
+                  (step as { retryReason?: unknown }).retryReason === 'transient' ||
+                  (step as { retryReason?: unknown }).retryReason === 'tool-arguments' ||
+                  (step as { retryReason?: unknown }).retryReason === 'task-failure' ||
+                  (step as { retryReason?: unknown }).retryReason === 'unknown'
+                    ? ((
+                        step as {
+                          retryReason: 'transient' | 'tool-arguments' | 'task-failure' | 'unknown';
+                        }
+                      ).retryReason as 'transient' | 'tool-arguments' | 'task-failure' | 'unknown')
+                    : undefined,
                 toolCallId:
                   typeof (step as { toolCallId?: unknown }).toolCallId === 'string'
                     ? (step as { toolCallId: string }).toolCallId
@@ -460,6 +485,41 @@ function normalizePersistedChangeSets(value: unknown): NonNullable<ReaderAiHisto
           : {};
       const appliedPathsRaw = (entry as { appliedPaths?: unknown }).appliedPaths;
       const failedPathsRaw = (entry as { failedPaths?: unknown }).failedPaths;
+      const filesRaw = (entry as { files?: unknown }).files;
+      const files = Array.isArray(filesRaw)
+        ? filesRaw
+            .map((file): ReaderAiChangeSetFileRecord | null => {
+              if (!file || typeof file !== 'object') return null;
+              const path = typeof (file as { path?: unknown }).path === 'string' ? (file as { path: string }).path : '';
+              const status = (file as { status?: unknown }).status;
+              if (
+                !path ||
+                (status !== 'ready' &&
+                  status !== 'missing_content' &&
+                  status !== 'stale' &&
+                  status !== 'applied' &&
+                  status !== 'failed' &&
+                  status !== 'conflicted')
+              ) {
+                return null;
+              }
+              return {
+                path,
+                status,
+                hasCompleteContent: (file as { hasCompleteContent?: unknown }).hasCompleteContent === true,
+                ...(typeof (file as { baseRevision?: unknown }).baseRevision === 'number'
+                  ? { baseRevision: (file as { baseRevision: number }).baseRevision }
+                  : {}),
+                ...(typeof (file as { originalHash?: unknown }).originalHash === 'string'
+                  ? { originalHash: (file as { originalHash: string }).originalHash }
+                  : {}),
+                ...(typeof (file as { modifiedHash?: unknown }).modifiedHash === 'string'
+                  ? { modifiedHash: (file as { modifiedHash: string }).modifiedHash }
+                  : {}),
+              };
+            })
+            .filter((file): file is ReaderAiChangeSetFileRecord => file !== null)
+        : [];
       return {
         id,
         runId,
@@ -474,6 +534,7 @@ function normalizePersistedChangeSets(value: unknown): NonNullable<ReaderAiHisto
           typeof (entry as { documentEditedContent?: unknown }).documentEditedContent === 'string'
             ? (entry as { documentEditedContent: string }).documentEditedContent
             : null,
+        files,
         appliedPaths: Array.isArray(appliedPathsRaw)
           ? appliedPathsRaw.filter((path): path is string => typeof path === 'string')
           : [],
