@@ -135,7 +135,6 @@ import { previewRouteHasFragment, previewRouteHistoryPath, previewRoutePathname 
 import { formatPromptListAnswer } from './prompt_list_format';
 import { splitPromptListStableText } from './prompt_list_streaming';
 import {
-  applyReaderAiChanges,
   askReaderAiStream,
   formatReaderAiModelDisplayName,
   listReaderAiModels,
@@ -146,6 +145,11 @@ import {
   setLocalCodexEnabledByPreference,
 } from './reader_ai';
 import { buildReaderAiContextLogPayload, trimReaderAiSource } from './reader_ai_context';
+import {
+  createReaderAiApplyConflictMessage,
+  invalidateReaderAiHostCaches,
+  performReaderAiHostApply,
+} from './reader_ai_host_adapter';
 import { READER_AI_SELECTION_MAX_CHARS } from './reader_ai_limits';
 import { matchRoute, type Route, routePath } from './routing';
 import {
@@ -3722,87 +3726,49 @@ export function App() {
       const failed: Array<{ path: string; error: string }> = [];
       const selectedFileContents = effectiveReaderAiStagedFileContents;
       const changeTypeByPath = new Map(selectedChanges.map((change) => [change.path, change.type]));
-      const modifiedMap = new Map(Object.entries(selectedFileContents));
-      const hasCompleteStagedContent = selectedChanges.every(
-        (change) => change.type === 'delete' || typeof selectedFileContents[change.path] === 'string',
-      );
-      const canCommitToGist =
-        !readerAiStagedChangesInvalid && hasCompleteStagedContent && Boolean(isGistContext && currentGistId && user);
-      const canCommitToRepo =
-        !readerAiStagedChangesInvalid &&
-        hasCompleteStagedContent &&
-        Boolean(repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo);
 
       try {
-        if (mode === 'without-saving') {
-          if (activeView !== 'edit') throw new Error('Cannot apply without saving outside edit view');
-          const currentPath = currentEditingDocPath;
-          const nextContent =
-            currentPath && typeof modifiedMap.get(currentPath) === 'string'
-              ? modifiedMap.get(currentPath)
-              : typeof readerAiDocumentEditedContent === 'string'
-                ? readerAiDocumentEditedContent
-                : undefined;
-          if (typeof nextContent !== 'string') {
-            throw new Error('No staged document content to apply');
-          }
-          const previousContent = editContentRef.current;
-          const previousRevision = editContentRevision;
-          setNextEditContent(nextContent, { origin: 'appEdits' });
+        const outcome = await performReaderAiHostApply({
+          activeInstalledRepoInstallationId,
+          activeView,
+          commitMessage,
+          currentEditingDocPath,
+          currentGistId,
+          documentEditedContent: readerAiDocumentEditedContent,
+          editContentRevision,
+          isGistContext,
+          mode,
+          previousContent: editContentRef.current,
+          repoAccessMode,
+          selectedChanges,
+          selectedFileContents,
+          selectedRepo,
+          stagedChangesInvalid: readerAiStagedChangesInvalid,
+          userPresent: Boolean(user),
+        });
+
+        if (outcome.kind === 'editor') {
+          setNextEditContent(outcome.nextContent, { origin: 'appEdits' });
           setHasUserTypedUnsavedChanges(false);
           setHasUnsavedChanges(true);
-          if (currentPath) {
-            setReaderAiUndoState({
-              path: currentPath,
-              content: previousContent,
-              revision: previousRevision,
-            });
-          } else {
-            setReaderAiUndoState(null);
-          }
-          if (currentPath) recordReaderAiAppliedChanges([currentPath], changeTypeByPath);
+          setReaderAiUndoState(outcome.undoState);
+          recordReaderAiAppliedChanges(outcome.appliedPaths, changeTypeByPath);
           resetReaderAiStagedState({ preserveUndoState: true });
           return;
         }
 
-        const handleApplyConflict = async (conflict: { path: string; currentContent: string | null }) => {
-          const conflictMessage =
-            conflict.currentContent !== null
-              ? 'The document changed after Reader AI generated this edit. Review the latest content, then retry.'
-              : 'The document changed after Reader AI generated this edit. Refresh the file and retry.';
+        const handleApplyConflict = async (conflict: NonNullable<(typeof outcome.result)['conflict']>) => {
+          const conflictMessage = createReaderAiApplyConflictMessage(conflict);
           setReaderAiError(conflictMessage);
           await showAlert(conflictMessage);
         };
 
-        if (canCommitToGist && currentGistId) {
-          const result = await applyReaderAiChanges(
-            { kind: 'gist', gistId: currentGistId },
-            selectedChanges,
-            selectedFileContents,
-            commitMessage,
-          );
-          if (result.conflict) {
-            await handleApplyConflict(result.conflict);
-            return;
-          }
-          applied.push(...result.applied);
-          failed.push(...result.failed);
-        } else if (canCommitToRepo && activeInstalledRepoInstallationId && selectedRepo) {
-          const result = await applyReaderAiChanges(
-            { kind: 'repo', installationId: activeInstalledRepoInstallationId, repoFullName: selectedRepo },
-            selectedChanges,
-            selectedFileContents,
-            commitMessage,
-          );
-          if (result.conflict) {
-            await handleApplyConflict(result.conflict);
-            return;
-          }
-          applied.push(...result.applied);
-          failed.push(...result.failed);
-        } else {
-          throw new Error('Cannot apply changes: no write access');
+        if (outcome.result.conflict) {
+          await handleApplyConflict(outcome.result.conflict);
+          return;
         }
+        applied.push(...outcome.result.applied);
+        failed.push(...outcome.result.failed);
 
         if (failed.length > 0 && applied.length > 0) {
           // Partial success
@@ -3821,8 +3787,7 @@ export function App() {
 
         // Invalidate caches so the UI reflects the applied changes
         if (applied.length > 0) {
-          clearGitHubAppCaches();
-          if (isGistContext) clearGitHubCaches();
+          invalidateReaderAiHostCaches(outcome.target, { clearGitHubAppCaches, clearGitHubCaches });
         }
       } catch (err) {
         showRateLimitToastIfNeeded(err);
