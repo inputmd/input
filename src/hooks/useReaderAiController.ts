@@ -111,12 +111,15 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       const currentMessages = readerAiMessagesRef.current;
       if (index < 0 || index >= currentMessages.length) return false;
       const target = currentMessages[index];
-      if (!target || target.role !== 'user' || target.content === trimmedContent) return false;
-      const updated = currentMessages
-        .slice(0, index + 1)
-        .map((message, messageIndex) =>
-          messageIndex === index ? { ...message, content: trimmedContent, edited: false } : message,
-        );
+      if (!target || target.role !== 'user') return false;
+      const updated =
+        target.content === trimmedContent
+          ? currentMessages.slice(0, index + 1)
+          : currentMessages
+              .slice(0, index + 1)
+              .map((message, messageIndex) =>
+                messageIndex === index ? { ...message, content: trimmedContent, edited: false } : message,
+              );
       void streamReaderAiAssistant(updated, { edited: true });
       return true;
     },
@@ -153,12 +156,10 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       if (index < 0 || index >= currentMessages.length) return;
       const target = currentMessages[index];
       if (!target || target.role !== 'user') return;
-      const messagesToReplay = currentMessages.slice(0, index + 1);
-      await streamReaderAiAssistant(messagesToReplay, {
-        modelId: options.readerAiSelectedModel,
-      });
+      session.rewindReaderAiConversation(currentMessages.slice(0, index));
+      return target.content;
     },
-    [options.readerAiSelectedModel, session.readerAiSending, streamReaderAiAssistant],
+    [session],
   );
 
   const onReaderAiRetryRunStep = useCallback(

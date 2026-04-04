@@ -490,6 +490,36 @@ export function useReaderAiSession({
     applyReaderAiSessionSnapshot(createEmptyReaderAiSessionSnapshot());
   }, [applyReaderAiSessionSnapshot, historyDocumentKey, inlinePromptAbortRef, resetInlinePromptState]);
 
+  const rewindReaderAiConversation = useCallback(
+    (messages: ReaderAiMessage[]) => {
+      readerAiAbortRef.current?.abort();
+      readerAiAbortRef.current = null;
+      inlinePromptAbortRef.current?.abort();
+      inlinePromptAbortRef.current = null;
+      resetInlinePromptState();
+      setReaderAiMessages(messages);
+      setReaderAiQueuedCommands([]);
+      setReaderAiSummary('');
+      setReaderAiSending(false);
+      setReaderAiToolStatus(null);
+      setReaderAiToolLog([]);
+      setReaderAiError(null);
+      setReaderAiEditProposals([]);
+      setReaderAiProposalStatusesByToolCallId({});
+      setReaderAiStagedChanges([]);
+      setReaderAiSelectedChangeIds(new Set());
+      setReaderAiSelectedHunkIdsByChangeId({});
+      setReaderAiStagedChangesInvalid(false);
+      setReaderAiStagedFileContents({});
+      setReaderAiDocumentEditedContent(null);
+      setReaderAiApplyingChanges(false);
+      setReaderAiActiveRunId(null);
+      setReaderAiActiveChangeSetId(null);
+      readerAiCurrentRunIdRef.current = null;
+    },
+    [inlinePromptAbortRef, resetInlinePromptState],
+  );
+
   const enqueueReaderAiQueuedCommand = useCallback((command: string) => {
     const trimmed = command.trim();
     if (!trimmed) return false;
@@ -1466,6 +1496,7 @@ export function useReaderAiSession({
     removeReaderAiQueuedCommand,
     recordReaderAiAppliedChanges,
     readerAiStagedChanges,
+    rewindReaderAiConversation,
     resetReaderAiStagedState,
     resolveReaderAiStagedHunk,
     setReaderAiAppliedChanges,

@@ -66,7 +66,7 @@ interface ReaderAiPanelProps {
   onClearQueuedCommands: () => void;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<boolean>;
-  onResetToMessage?: (index: number) => Promise<void>;
+  onResetToMessage?: (index: number) => Promise<string | undefined>;
   onRetryLastUserMessage: () => Promise<void>;
   onRetryRunStep?: (target: { runId: string; stepId: string }) => Promise<void>;
   onStop: () => void;
@@ -210,10 +210,10 @@ export function ReaderAiPanel({
   const pendingScrollToBottomOnSendRef = useRef(false);
   const thinkingStartedAtRef = useRef<number | null>(null);
   const pendingFocusAfterClearRef = useRef(false);
+  const pendingSelectDraftRef = useRef(false);
   const pinnedToBottomRef = useRef(true);
   const messageCount = messages.length;
   const canSend = draft.trim().length > 0 && !sending && Boolean(selectedModel);
-  const canQueue = draft.trim().length > 0 && queuedCommands.length < 10;
   const hasMessages = messageCount > 0;
   const composerAtTop = !hasMessages;
   const statusText = useMemo(() => {
@@ -480,19 +480,6 @@ export function ReaderAiPanel({
     }
   }, [getActionErrorMessage, onRetryLastUserMessage]);
 
-  const resetToMessage = useCallback(
-    async (index: number) => {
-      if (!onResetToMessage) return;
-      try {
-        setActionError(null);
-        await onResetToMessage(index);
-      } catch (error) {
-        setActionError(getActionErrorMessage(error, 'Failed to reset Reader AI conversation.'));
-      }
-    },
-    [getActionErrorMessage, onResetToMessage],
-  );
-
   const clearChat = (focusComposer: boolean) => {
     if (!hasMessages && queuedCommands.length === 0) return;
     pendingFocusAfterClearRef.current = focusComposer;
@@ -505,8 +492,36 @@ export function ReaderAiPanel({
       const input = composerInputRef.current;
       if (!input || input.disabled) return;
       input.focus();
+      if (pendingSelectDraftRef.current) {
+        pendingSelectDraftRef.current = false;
+        input.setSelectionRange(0, input.value.length);
+      }
     });
   }, []);
+
+  const resetToMessage = useCallback(
+    async (index: number) => {
+      if (!onResetToMessage) return;
+      try {
+        setActionError(null);
+        const restoredPrompt = await onResetToMessage(index);
+        if (typeof restoredPrompt === 'string') {
+          setDraft(restoredPrompt);
+          pendingSelectDraftRef.current = true;
+          requestAnimationFrame(() => {
+            const input = composerInputRef.current;
+            if (!input) return;
+            input.style.height = 'auto';
+            input.style.height = `${input.scrollHeight}px`;
+          });
+          focusComposerInput();
+        }
+      } catch (error) {
+        setActionError(getActionErrorMessage(error, 'Failed to reset Reader AI conversation.'));
+      }
+    },
+    [focusComposerInput, getActionErrorMessage, onResetToMessage],
+  );
 
   const sendQuickPrompt = useCallback(
     async (prompt: string) => {
@@ -627,11 +642,6 @@ export function ReaderAiPanel({
               if (hasMessages && !sending) clearChat(true);
               return;
             }
-            if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === 'Enter') {
-              event.preventDefault();
-              enqueueDraft();
-              return;
-            }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               void submit();
@@ -640,16 +650,6 @@ export function ReaderAiPanel({
           rows={3}
           disabled={composerInputDisabled}
         />
-        <button
-          type="button"
-          class="reader-ai-queue-btn"
-          disabled={!canQueue}
-          onClick={enqueueDraft}
-          aria-label="Add command to queue"
-          title={queuedCommands.length >= 10 ? 'Queue is full' : 'Add command to queue'}
-        >
-          Queue
-        </button>
         {sending ? (
           <button type="button" class="reader-ai-send-btn" onClick={onStop} aria-label="Stop response">
             <CircleStop size={13} class="reader-ai-stop-icon" aria-hidden="true" />
@@ -725,7 +725,7 @@ export function ReaderAiPanel({
                           disabled={sending || !selectedModel}
                           aria-label="Edit message"
                         >
-                          <Pencil size={12} aria-hidden="true" />
+                          <Pencil size={13} aria-hidden="true" />
                         </button>
                         <DropdownMenu.Root onOpenChange={blurOnClose}>
                           <DropdownMenu.Trigger asChild>
@@ -735,15 +735,11 @@ export function ReaderAiPanel({
                               aria-label="Message actions"
                               disabled={!selectedModel}
                             >
-                              <MoreHorizontal size={12} aria-hidden="true" />
+                              <MoreHorizontal size={13} aria-hidden="true" />
                             </button>
                           </DropdownMenu.Trigger>
                           <DropdownMenu.Portal>
-                            <DropdownMenu.Content
-                              class="reader-ai-composer-menu reader-ai-composer-menu--compact"
-                              sideOffset={6}
-                              align="end"
-                            >
+                            <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
                               <DropdownMenu.Item
                                 class="reader-ai-composer-menu-item"
                                 disabled={sending || !selectedModel}

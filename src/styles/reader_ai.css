@@ -287,6 +287,7 @@
 
 .reader-ai-message--user {
   background: color-mix(in srgb, var(--btn-bg) 80%, transparent);
+  position: relative;
 }
 
 .reader-ai-message--assistant {
@@ -307,7 +308,18 @@
 .reader-ai-message-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+}
+
+.reader-ai-message--user .reader-ai-message-role {
+  justify-content: flex-start;
+}
+
+.reader-ai-message--user .reader-ai-message-actions {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 1;
 }
 
 .reader-ai-message-icon-btn,
@@ -315,8 +327,8 @@
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   background: transparent;
   color: var(--text-secondary);
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border-radius: 4px;
   cursor: pointer;
@@ -335,11 +347,6 @@
 .reader-ai-message-menu-trigger:disabled {
   opacity: 0.55;
   cursor: default;
-}
-
-.reader-ai-message-menu-trigger {
-  width: 18px;
-  height: 18px;
 }
 
 .reader-ai-queue {
@@ -481,9 +488,9 @@
 
 .reader-ai-inline-edit-btn {
   font: inherit;
-  font-size: 10px;
-  line-height: 1;
-  padding: 4px 8px;
+  font-size: 12.5px;
+  line-height: 1.1;
+  padding: 5px 10px;
   border-radius: 4px;
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   cursor: pointer;
@@ -500,13 +507,14 @@
 }
 
 .reader-ai-inline-edit-btn--primary {
-  color: #ffffff;
-  background: var(--accent-color);
-  border-color: color-mix(in srgb, var(--accent-color) 80%, transparent);
+  color: var(--btn-text);
+  background: var(--btn-bg);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .reader-ai-inline-edit-btn--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-color) 86%, #000000 14%);
+  background: var(--btn-hover);
+  border-color: color-mix(in srgb, var(--border) 90%, var(--text) 10%);
 }
 
 .reader-ai-inline-edit-btn:disabled {
@@ -714,37 +722,42 @@
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.24),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
-  z-index: 30;
-}
-
-.reader-ai-composer-menu--compact {
-  min-width: 140px;
+  z-index: 60;
 }
 
 .reader-ai-composer-menu-item {
-  min-height: 32px;
+  width: 100%;
+  min-height: 34px;
   padding: 0 10px;
-  border: 1px solid transparent;
   border-radius: 3px;
   outline: none;
-  font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  cursor: pointer;
+  user-select: none;
 }
 
 .reader-ai-composer-menu-item-shortcut {
-  color: var(--text-secondary);
-  font-size: 12px;
-  letter-spacing: 0.02em;
+  margin-left: 16px;
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+  font-size: 14px;
+  font-weight: 400;
 }
 
 .reader-ai-composer-menu-item[data-highlighted] {
   background: var(--btn-hover);
-  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  outline: none;
+  box-shadow: none;
+}
+
+.reader-ai-composer-menu-item:focus,
+.reader-ai-composer-menu-item:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .reader-ai-composer-menu-item[data-disabled] {
@@ -1073,6 +1086,7 @@
   gap: 4px;
   padding: 2px 4px;
   border: 0;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-secondary);
   font: inherit;
@@ -1374,13 +1388,14 @@
 }
 
 .reader-ai-edit-proposal-action--active {
-  color: #ffffff;
+  color: color-mix(in srgb, #ffffff 94%, var(--text) 6%);
   border-color: color-mix(in srgb, var(--success-color) 86%, transparent);
   background: var(--success-color);
+  font-weight: 600;
 }
 
 .reader-ai-edit-proposal-action--active:hover {
-  color: #ffffff;
+  color: color-mix(in srgb, #ffffff 94%, var(--text) 6%);
   border-color: color-mix(in srgb, var(--success-color) 86%, transparent);
   background: color-mix(in srgb, var(--success-color) 86%, #000000 14%);
 }
