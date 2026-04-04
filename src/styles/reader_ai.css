@@ -1899,8 +1899,8 @@
 }
 
 .reader-ai-diff-line--del {
-  color: #dc322f;
-  background: color-mix(in srgb, #dc322f 8%, transparent);
+  color: color-mix(in srgb, var(--danger-border) 78%, var(--text));
+  background: color-mix(in srgb, var(--danger-border) 8%, transparent);
 }
 
 .reader-ai-diff-inline-change--add {
@@ -1908,7 +1908,7 @@
 }
 
 .reader-ai-diff-inline-change--del {
-  background: color-mix(in srgb, #dc322f 26%, transparent);
+  background: color-mix(in srgb, var(--danger-border) 14%, transparent);
 }
 
 .reader-ai-diff-inline-ellipsis {
@@ -2044,8 +2044,8 @@
 }
 
 .reader-ai-diff-popout-cell--del {
-  color: #dc322f;
-  background: color-mix(in srgb, #dc322f 9%, transparent);
+  color: color-mix(in srgb, var(--danger-border) 78%, var(--text));
+  background: color-mix(in srgb, var(--danger-border) 10%, transparent);
 }
 
 .reader-ai-diff-popout-cell--meta {
@@ -2059,8 +2059,8 @@
 }
 
 [data-theme="light"] .reader-ai-diff-line--del {
-  color: #a0111f;
-  background: color-mix(in srgb, #cf222e 10%, transparent);
+  color: color-mix(in srgb, var(--danger-border) 78%, var(--text));
+  background: color-mix(in srgb, var(--danger-border) 8%, transparent);
 }
 
 [data-theme="light"] .reader-ai-diff-inline-change--add {
@@ -2068,7 +2068,7 @@
 }
 
 [data-theme="light"] .reader-ai-diff-inline-change--del {
-  background: color-mix(in srgb, #cf222e 22%, transparent);
+  background: color-mix(in srgb, var(--danger-border) 14%, transparent);
 }
 
 @media (max-width: 1023px) {
