@@ -257,6 +257,23 @@ function shouldRenderInlinePreview(block: EditorDiffPreviewBlock): boolean {
   return previewTextVisualLineCount(block.insert) <= 1 && previewTextVisualLineCount(block.deletedText) <= 1;
 }
 
+interface DecorationEntry {
+  from: number;
+  to: number;
+  value: Decoration;
+  order: number;
+}
+
+function sortDecorationEntries(entries: DecorationEntry[]): DecorationEntry[] {
+  return entries.sort((left, right) => {
+    if (left.from !== right.from) return left.from - right.from;
+    if (left.value.startSide !== right.value.startSide) return left.value.startSide - right.value.startSide;
+    if (left.to !== right.to) return left.to - right.to;
+    if (left.value.endSide !== right.value.endSide) return left.value.endSide - right.value.endSide;
+    return left.order - right.order;
+  });
+}
+
 function buildEditorDiffPreviewDecorations(
   state: EditorView['state'],
   preview: EditorDiffPreview | null,
@@ -264,6 +281,8 @@ function buildEditorDiffPreviewDecorations(
   if (!preview || !Array.isArray(preview.blocks) || preview.blocks.length === 0) return Decoration.none;
   const builder = new RangeSetBuilder<Decoration>();
   const docLength = state.doc.length;
+  const entries: DecorationEntry[] = [];
+  let order = 0;
 
   for (const rawBlock of preview.blocks) {
     const from = Math.max(0, Math.min(docLength, Math.floor(rawBlock.from)));
@@ -274,89 +293,101 @@ function buildEditorDiffPreviewDecorations(
     const inlinePreview = shouldRenderInlinePreview(rawBlock);
 
     if (!inlinePreview) {
-      builder.add(
-        line.from,
-        line.from,
-        Decoration.line({
+      entries.push({
+        from: line.from,
+        to: line.from,
+        value: Decoration.line({
           class: previewLineClass(kind),
         }),
-      );
+        order: order++,
+      });
     }
 
     if (to > from) {
-      builder.add(
+      entries.push({
         from,
         to,
-        Decoration.mark({
+        value: Decoration.mark({
           class:
             kind === 'delete'
               ? 'cm-editor-diff-preview-range cm-editor-diff-preview-range--delete'
               : 'cm-editor-diff-preview-range cm-editor-diff-preview-range--replace',
         }),
-      );
+        order: order++,
+      });
     }
 
     if (insert.length > 0) {
-      builder.add(
-        inlinePreview ? line.to : to,
-        inlinePreview ? line.to : to,
-        inlinePreview
-          ? Decoration.widget({
-              widget: new DiffPreviewWidget(
-                insert,
-                kind,
-                rawBlock.label,
-                rawBlock.deletedText,
-                'inline',
-                preview.source,
-                preview.badge,
-              ),
-              side: 1,
-            })
-          : Decoration.replace({
-              widget: new DiffPreviewWidget(
-                insert,
-                kind,
-                rawBlock.label,
-                rawBlock.deletedText,
-                'block',
-                preview.source,
-                preview.badge,
-              ),
-              block: true,
-            }),
-      );
+      const value = inlinePreview
+        ? Decoration.widget({
+            widget: new DiffPreviewWidget(
+              insert,
+              kind,
+              rawBlock.label,
+              rawBlock.deletedText,
+              'inline',
+              preview.source,
+              preview.badge,
+            ),
+            side: 1,
+          })
+        : Decoration.replace({
+            widget: new DiffPreviewWidget(
+              insert,
+              kind,
+              rawBlock.label,
+              rawBlock.deletedText,
+              'block',
+              preview.source,
+              preview.badge,
+            ),
+            block: true,
+          });
+      const position = inlinePreview ? line.to : to;
+      entries.push({
+        from: position,
+        to: position,
+        value,
+        order: order++,
+      });
     } else if (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0) {
-      builder.add(
-        inlinePreview ? line.to : to,
-        inlinePreview ? line.to : to,
-        inlinePreview
-          ? Decoration.widget({
-              widget: new DiffPreviewWidget(
-                '',
-                kind,
-                rawBlock.label,
-                rawBlock.deletedText,
-                'inline',
-                preview.source,
-                preview.badge,
-              ),
-              side: 1,
-            })
-          : Decoration.replace({
-              widget: new DiffPreviewWidget(
-                '',
-                kind,
-                rawBlock.label,
-                rawBlock.deletedText,
-                'block',
-                preview.source,
-                preview.badge,
-              ),
-              block: true,
-            }),
-      );
+      const value = inlinePreview
+        ? Decoration.widget({
+            widget: new DiffPreviewWidget(
+              '',
+              kind,
+              rawBlock.label,
+              rawBlock.deletedText,
+              'inline',
+              preview.source,
+              preview.badge,
+            ),
+            side: 1,
+          })
+        : Decoration.replace({
+            widget: new DiffPreviewWidget(
+              '',
+              kind,
+              rawBlock.label,
+              rawBlock.deletedText,
+              'block',
+              preview.source,
+              preview.badge,
+            ),
+            block: true,
+          });
+      const position = inlinePreview ? line.to : to;
+      entries.push({
+        from: position,
+        to: position,
+        value,
+        order: order++,
+      });
     }
+  }
+
+  for (const entry of sortDecorationEntries(entries)) {
+    builder.add(entry.from, entry.to, entry.value);
   }
 
   return builder.finish();
@@ -369,6 +400,8 @@ function buildEditorDiffPreviewAtomicRanges(
   if (!preview || !Array.isArray(preview.blocks) || preview.blocks.length === 0) return Decoration.none;
   const builder = new RangeSetBuilder<Decoration>();
   const docLength = state.doc.length;
+  const entries: DecorationEntry[] = [];
+  let order = 0;
 
   for (const rawBlock of preview.blocks) {
     const from = Math.max(0, Math.min(docLength, Math.floor(rawBlock.from)));
@@ -380,14 +413,19 @@ function buildEditorDiffPreviewAtomicRanges(
       !shouldRenderInlinePreview(rawBlock) &&
       (insert.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0))
     ) {
-      builder.add(
+      entries.push({
+        from: to,
         to,
-        to,
-        Decoration.replace({
+        value: Decoration.replace({
           block: true,
         }),
-      );
+        order: order++,
+      });
     }
+  }
+
+  for (const entry of sortDecorationEntries(entries)) {
+    builder.add(entry.from, entry.to, entry.value);
   }
 
   return builder.finish();

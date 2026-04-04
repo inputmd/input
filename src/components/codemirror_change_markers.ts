@@ -187,7 +187,14 @@ function buildChangeMarkerSet(
 ): RangeSet<GutterMarker> {
   const builder = new RangeSetBuilder<GutterMarker>();
   if (!Array.isArray(markers) || markers.length === 0) return builder.finish();
-  for (const marker of markers) {
+  const sortedMarkers = [...markers].sort((left, right) => {
+    const leftLine = Number.isFinite(left.lineNumber) ? Math.trunc(left.lineNumber) : 0;
+    const rightLine = Number.isFinite(right.lineNumber) ? Math.trunc(right.lineNumber) : 0;
+    if (leftLine !== rightLine) return leftLine - rightLine;
+    return (left.hunkId ?? left.changeId ?? '').localeCompare(right.hunkId ?? right.changeId ?? '');
+  });
+  for (const marker of sortedMarkers) {
+    if (!Number.isFinite(marker.lineNumber)) continue;
     const lineNumber = Math.max(1, Math.min(state.doc.lines, Math.floor(marker.lineNumber)));
     const line = state.doc.line(lineNumber);
     builder.add(line.from, line.from, new ChangeMarkerGutterMarker(marker));

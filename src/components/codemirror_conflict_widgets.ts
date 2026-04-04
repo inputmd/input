@@ -138,7 +138,13 @@ function buildConflictWidgetDecorations(
 ): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   if (!Array.isArray(widgets) || widgets.length === 0) return builder.finish();
-  for (const widget of widgets) {
+  const sortedWidgets = [...widgets].sort((left, right) => {
+    const leftLine = Number.isFinite(left.lineNumber) ? Math.trunc(left.lineNumber) : 0;
+    const rightLine = Number.isFinite(right.lineNumber) ? Math.trunc(right.lineNumber) : 0;
+    if (leftLine !== rightLine) return leftLine - rightLine;
+    return left.id.localeCompare(right.id);
+  });
+  for (const widget of sortedWidgets) {
     if (!Number.isFinite(widget.lineNumber)) continue;
     const normalizedLineNumber = Math.trunc(widget.lineNumber);
     if (normalizedLineNumber < 1) continue;
