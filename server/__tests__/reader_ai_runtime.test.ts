@@ -5,6 +5,7 @@ import {
   completeReaderAiRunStepRetry,
   markReaderAiRunStepRetryAttempt,
   prepareReaderAiSelectedChangesForApply,
+  resolveReaderAiStagedHunkState,
 } from '../../src/reader_ai_controller_runtime.ts';
 import type { ReaderAiRunRecord } from '../../src/reader_ai_ledger.ts';
 
@@ -187,4 +188,77 @@ test('prepareReaderAiSelectedChangesForApply rebases a stale current-document hu
   t.deepEqual(prepared.repairedPaths, ['doc.md']);
   t.true(prepared.selectedFileContents['doc.md']?.includes('heading') ?? false);
   t.true(prepared.selectedFileContents['doc.md']?.includes('after') ?? false);
+});
+
+test('resolveReaderAiStagedHunkState removes a resolved hunk and keeps remaining hunks staged', (t) => {
+  const change: ReaderAiStagedChange = {
+    id: 'change:1',
+    path: 'doc.md',
+    type: 'edit',
+    diff: [
+      '--- a/doc.md',
+      '+++ b/doc.md',
+      '@@ -1,4 +1,4 @@',
+      ' alpha',
+      '-before',
+      '+after',
+      ' beta',
+      '-old tail',
+      '+new tail',
+      '',
+    ].join('\n'),
+    revision: 3,
+    originalContent: ['alpha', 'before', 'beta', 'old tail', ''].join('\n'),
+    modifiedContent: ['alpha', 'after', 'beta', 'new tail', ''].join('\n'),
+    hunks: [
+      {
+        id: 'hunk:1',
+        header: '@@ -1,2 +1,2 @@',
+        oldStart: 1,
+        oldLines: 2,
+        newStart: 1,
+        newLines: 2,
+        lines: [
+          { type: 'context', content: 'alpha' },
+          { type: 'del', content: 'before' },
+          { type: 'add', content: 'after' },
+        ],
+      },
+      {
+        id: 'hunk:2',
+        header: '@@ -3,2 +3,2 @@',
+        oldStart: 3,
+        oldLines: 2,
+        newStart: 3,
+        newLines: 2,
+        lines: [
+          { type: 'context', content: 'beta' },
+          { type: 'del', content: 'old tail' },
+          { type: 'add', content: 'new tail' },
+        ],
+      },
+    ],
+  };
+
+  const resolved = resolveReaderAiStagedHunkState({
+    stagedChanges: [change],
+    selectedChangeIds: new Set(['change:1']),
+    selectedHunkIdsByChangeId: { 'change:1': new Set(['hunk:1', 'hunk:2']) },
+    stagedFileContents: { 'doc.md': change.modifiedContent ?? '' },
+    documentEditedContent: change.modifiedContent ?? null,
+    changeId: 'change:1',
+    hunkId: 'hunk:1',
+    syncDocumentEditedContent: true,
+  });
+
+  t.is(resolved.stagedChanges.length, 1);
+  t.deepEqual(
+    resolved.stagedChanges[0]?.hunks?.map((hunk) => hunk.id),
+    ['hunk:2'],
+  );
+  t.true(resolved.selectedChangeIds.has('change:1'));
+  t.deepEqual(Array.from(resolved.selectedHunkIdsByChangeId['change:1'] ?? []), ['hunk:2']);
+  t.true(resolved.stagedFileContents['doc.md']?.includes('new tail') ?? false);
+  t.false(resolved.stagedFileContents['doc.md']?.includes('after') ?? false);
+  t.true(resolved.documentEditedContent?.includes('new tail') ?? false);
 });

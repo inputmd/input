@@ -7,6 +7,8 @@ import type {
   ReaderAiRunRecord,
   ReaderAiRunStep,
 } from './reader_ai_ledger';
+import { buildReaderAiSelectedChange } from './reader_ai_selectors.ts';
+import type { ReaderAiSelectedHunkIdsByChangeId } from './reader_ai_state.ts';
 
 function hashReaderAiContent(content: string): string {
   let hash = 5381;
@@ -175,6 +177,97 @@ export function prepareReaderAiSelectedChangesForApply(options: {
     invalid,
     repairedPaths,
     ignoredPaths,
+  };
+}
+
+export function resolveReaderAiStagedHunkState(options: {
+  stagedChanges: ReaderAiStagedChange[];
+  selectedChangeIds: Set<string>;
+  selectedHunkIdsByChangeId: ReaderAiSelectedHunkIdsByChangeId;
+  stagedFileContents: Record<string, string>;
+  documentEditedContent: string | null;
+  changeId: string;
+  hunkId: string;
+  syncDocumentEditedContent?: boolean;
+}): {
+  stagedChanges: ReaderAiStagedChange[];
+  selectedChangeIds: Set<string>;
+  selectedHunkIdsByChangeId: ReaderAiSelectedHunkIdsByChangeId;
+  stagedFileContents: Record<string, string>;
+  documentEditedContent: string | null;
+  resolvedPath: string | null;
+  remainingChange: ReaderAiStagedChange | null;
+} {
+  const targetChange = options.stagedChanges.find((change) => change.id === options.changeId) ?? null;
+  if (!targetChange?.id || !Array.isArray(targetChange.hunks) || targetChange.hunks.length === 0) {
+    return {
+      stagedChanges: options.stagedChanges,
+      selectedChangeIds: new Set(options.selectedChangeIds),
+      selectedHunkIdsByChangeId: Object.fromEntries(
+        Object.entries(options.selectedHunkIdsByChangeId).map(([changeId, selectedHunks]) => [
+          changeId,
+          new Set(selectedHunks),
+        ]),
+      ),
+      stagedFileContents: { ...options.stagedFileContents },
+      documentEditedContent: options.documentEditedContent,
+      resolvedPath: null,
+      remainingChange: null,
+    };
+  }
+
+  const remainingHunkIds = new Set(
+    targetChange.hunks.map((hunk) => hunk.id).filter((hunkId) => hunkId !== options.hunkId),
+  );
+  const remainingChange = buildReaderAiSelectedChange(targetChange, remainingHunkIds);
+  const nextStagedChanges = options.stagedChanges.flatMap((change) => {
+    if (change.id !== options.changeId) return [change];
+    return remainingChange ? [remainingChange] : [];
+  });
+  const nextSelectedChangeIds = new Set(options.selectedChangeIds);
+  const nextSelectedHunkIdsByChangeId = Object.fromEntries(
+    Object.entries(options.selectedHunkIdsByChangeId).map(([changeId, selectedHunks]) => [
+      changeId,
+      new Set(selectedHunks),
+    ]),
+  );
+  const nextStagedFileContents = { ...options.stagedFileContents };
+  const currentSelectedHunkIds =
+    nextSelectedHunkIdsByChangeId[options.changeId] ?? new Set(targetChange.hunks.map((hunk) => hunk.id));
+  const remainingSelectedHunkIds = new Set(
+    Array.from(currentSelectedHunkIds).filter((selectedHunkId) => remainingHunkIds.has(selectedHunkId)),
+  );
+
+  if (remainingChange?.id && Array.isArray(remainingChange.hunks) && remainingChange.hunks.length > 0) {
+    if (remainingChange.type !== 'delete' && typeof remainingChange.modifiedContent === 'string') {
+      nextStagedFileContents[remainingChange.path] = remainingChange.modifiedContent;
+    }
+    if (remainingSelectedHunkIds.size > 0) {
+      nextSelectedChangeIds.add(remainingChange.id);
+      nextSelectedHunkIdsByChangeId[remainingChange.id] = remainingSelectedHunkIds;
+    } else {
+      nextSelectedChangeIds.delete(options.changeId);
+      delete nextSelectedHunkIdsByChangeId[options.changeId];
+    }
+  } else {
+    nextSelectedChangeIds.delete(options.changeId);
+    delete nextSelectedHunkIdsByChangeId[options.changeId];
+    delete nextStagedFileContents[targetChange.path];
+  }
+
+  return {
+    stagedChanges: nextStagedChanges,
+    selectedChangeIds: nextSelectedChangeIds,
+    selectedHunkIdsByChangeId: nextSelectedHunkIdsByChangeId,
+    stagedFileContents: nextStagedFileContents,
+    documentEditedContent:
+      options.syncDocumentEditedContent === true
+        ? remainingChange && remainingChange.type !== 'delete' && typeof remainingChange.modifiedContent === 'string'
+          ? remainingChange.modifiedContent
+          : null
+        : options.documentEditedContent,
+    resolvedPath: targetChange.path,
+    remainingChange,
   };
 }
 

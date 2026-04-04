@@ -24,6 +24,7 @@ import {
   findReaderAiActiveChangeSet,
   markReaderAiChangeSetFileStatuses,
   markReaderAiRunStepRetryAttempt,
+  resolveReaderAiStagedHunkState,
 } from '../reader_ai_controller_runtime';
 import {
   appendReaderAiEditorCheckpoint,
@@ -162,6 +163,7 @@ export function useReaderAiSession({
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const readerAiCurrentRunIdRef = useRef<string | null>(null);
+  const readerAiStagedFileContentsRef = useRef<Record<string, string>>(readerAiStagedFileContents);
 
   const updateReaderAiRun = useCallback((runId: string, updater: (run: ReaderAiRunRecord) => ReaderAiRunRecord) => {
     setReaderAiRuns((current) =>
@@ -291,6 +293,10 @@ export function useReaderAiSession({
   useEffect(() => {
     readerAiSelectedHunkIdsByChangeIdRef.current = readerAiSelectedHunkIdsByChangeId;
   }, [readerAiSelectedHunkIdsByChangeId]);
+
+  useEffect(() => {
+    readerAiStagedFileContentsRef.current = readerAiStagedFileContents;
+  }, [readerAiStagedFileContents]);
 
   useEffect(() => {
     if (!readerAiActiveChangeSetId) return;
@@ -771,6 +777,93 @@ export function useReaderAiSession({
       return next;
     });
   }, []);
+
+  const resolveReaderAiStagedHunk = useCallback(
+    (
+      changeId: string,
+      hunkId: string,
+      options?: { markPathApplied?: boolean; syncDocumentEditedContent?: boolean },
+    ) => {
+      const localNext = resolveReaderAiStagedHunkState({
+        stagedChanges: readerAiStagedChangesRef.current,
+        selectedChangeIds: readerAiSelectedChangeIdsRef.current,
+        selectedHunkIdsByChangeId: readerAiSelectedHunkIdsByChangeIdRef.current,
+        stagedFileContents: readerAiStagedFileContentsRef.current,
+        documentEditedContent: readerAiDocumentEditedContent,
+        changeId,
+        hunkId,
+        syncDocumentEditedContent: options?.syncDocumentEditedContent,
+      });
+      if (!localNext.resolvedPath) return null;
+
+      setReaderAiStagedChanges(localNext.stagedChanges);
+      setReaderAiSelectedChangeIds(localNext.selectedChangeIds);
+      setReaderAiSelectedHunkIdsByChangeId(localNext.selectedHunkIdsByChangeId);
+      setReaderAiStagedFileContents(localNext.stagedFileContents);
+      if (options?.syncDocumentEditedContent) {
+        setReaderAiDocumentEditedContent(localNext.documentEditedContent);
+      }
+
+      updateReaderAiActiveChangeSet((changeSet) => {
+        const changeSetNext = resolveReaderAiStagedHunkState({
+          stagedChanges: changeSet.stagedChanges,
+          selectedChangeIds: readerAiSelectedChangeIdsRef.current,
+          selectedHunkIdsByChangeId: readerAiSelectedHunkIdsByChangeIdRef.current,
+          stagedFileContents: changeSet.stagedFileContents,
+          documentEditedContent: changeSet.documentEditedContent,
+          changeId,
+          hunkId,
+          syncDocumentEditedContent: options?.syncDocumentEditedContent,
+        });
+        if (!changeSetNext.resolvedPath) return changeSet;
+
+        const nextAppliedPaths =
+          options?.markPathApplied && changeSetNext.remainingChange === null
+            ? Array.from(new Set([...changeSet.appliedPaths, changeSetNext.resolvedPath]))
+            : changeSet.appliedPaths;
+        const nextFiles = buildReaderAiChangeSetFileRecords({
+          stagedChanges: changeSetNext.stagedChanges,
+          stagedFileContents: changeSetNext.stagedFileContents,
+        });
+        if (options?.markPathApplied && changeSetNext.remainingChange === null) {
+          const previousFile = changeSet.files.find((file) => file.path === changeSetNext.resolvedPath) ?? null;
+          nextFiles.push({
+            ...(previousFile ?? {
+              path: changeSetNext.resolvedPath,
+              hasCompleteContent: true,
+            }),
+            path: changeSetNext.resolvedPath,
+            status: 'applied',
+            hasCompleteContent: previousFile?.hasCompleteContent ?? true,
+          });
+        }
+        return {
+          ...changeSet,
+          status:
+            changeSetNext.stagedChanges.length > 0
+              ? nextAppliedPaths.length > 0
+                ? 'partial'
+                : 'ready'
+              : nextAppliedPaths.length > 0
+                ? 'applied'
+                : 'draft',
+          stagedChanges: changeSetNext.stagedChanges,
+          stagedFileContents: changeSetNext.stagedFileContents,
+          documentEditedContent: changeSetNext.documentEditedContent,
+          files: nextFiles,
+          failedPaths: changeSet.failedPaths.filter((entry) => entry.path !== changeSetNext.resolvedPath),
+          appliedPaths: nextAppliedPaths,
+        };
+      });
+
+      return {
+        path: localNext.resolvedPath,
+        fullyResolved: localNext.remainingChange === null,
+        remainingChange: localNext.remainingChange,
+      };
+    },
+    [readerAiDocumentEditedContent, updateReaderAiActiveChangeSet],
+  );
 
   const startReaderAiStream = useCallback(
     async ({
@@ -1267,7 +1360,9 @@ export function useReaderAiSession({
     rejectReaderAiHunk,
     rejectReaderAiProposal,
     recordReaderAiAppliedChanges,
+    readerAiStagedChanges,
     resetReaderAiStagedState,
+    resolveReaderAiStagedHunk,
     setReaderAiAppliedChanges,
     setReaderAiApplyingChanges,
     setReaderAiDocumentEditedContent,

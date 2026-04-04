@@ -269,47 +269,14 @@
   background: color-mix(in srgb, var(--field-focus-border) 24%, var(--btn-hover));
 }
 
-.editor-reader-ai-conflicts {
+.editor-reader-ai-conflict-summary {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.editor-reader-ai-conflict {
-  display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--border) 52%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--input-bg) 84%, transparent);
-}
-
-.editor-reader-ai-conflict-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.editor-reader-ai-conflict-title {
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.editor-reader-ai-conflict-message {
+  padding-top: 2px;
   color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.editor-reader-ai-conflict-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
+  font-size: 12.5px;
 }
 
 .editor-loading-spinner {
@@ -434,12 +401,12 @@
 
   .editor-reader-ai-banner,
   .editor-reader-ai-banner-main,
-  .editor-reader-ai-conflict {
+  .editor-reader-ai-conflict-summary {
     flex-direction: column;
   }
 
   .editor-reader-ai-banner-actions,
-  .editor-reader-ai-conflict-actions {
+  .editor-reader-ai-conflict-summary {
     justify-content: flex-start;
   }
 }
@@ -814,4 +781,63 @@
   color: color-mix(in srgb, var(--danger-border) 78%, var(--text));
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--danger-border) 55%, transparent);
+}
+
+.cm-editor .cm-reader-ai-conflict-widget {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger-border) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--toolbar-bg) 90%, var(--bg));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 68%, transparent);
+}
+
+.cm-editor .cm-reader-ai-conflict-widget--stale {
+  border-color: color-mix(in srgb, #c98a00 44%, transparent);
+}
+
+.cm-editor .cm-reader-ai-conflict-widget__title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cm-editor .cm-reader-ai-conflict-widget__message {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.cm-editor .cm-reader-ai-conflict-widget__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.cm-editor .cm-reader-ai-conflict-widget__button {
+  border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
+  border-radius: 6px;
+  padding: 5px 9px;
+  background: var(--btn-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cm-editor .cm-reader-ai-conflict-widget__button:hover {
+  background: var(--btn-hover);
+}
+
+.cm-editor .cm-reader-ai-conflict-widget--disabled {
+  opacity: 0.78;
+}
+
+.cm-editor .cm-reader-ai-conflict-widget__button:disabled {
+  cursor: default;
+  opacity: 0.55;
+  background: color-mix(in srgb, var(--btn-bg) 65%, transparent);
 }

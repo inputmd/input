@@ -14,6 +14,7 @@ import {
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { EditorChangeMarker } from '../components/codemirror_change_markers';
+import type { EditorConflictWidget } from '../components/codemirror_conflict_widgets';
 import type { EditorDiffPreview } from '../components/codemirror_diff_preview';
 import type { BracePromptRequest } from '../components/codemirror_inline_prompt';
 import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
@@ -37,7 +38,7 @@ import {
   togglePromptAnswerExpandedState,
   togglePromptListCollapsedStateInUrl,
 } from '../prompt_list_state';
-import type { ReaderAiEditorConflict, ReaderAiEditorOverlay } from '../reader_ai_editor_state';
+import type { ReaderAiEditorOverlay } from '../reader_ai_editor_state';
 import { getStoredScrollPosition } from '../scroll_positions';
 import { findToggleListFromTarget, syncToggleListPersistedState, toggleToggleListState } from '../toggle_list_state';
 import { MARKDOWN_EXT_RE } from '../util';
@@ -234,7 +235,8 @@ export interface EditViewProps {
   readerAiEditorOverlay?: ReaderAiEditorOverlay | null;
   onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
   onReaderAiOpenReviewTarget?: (target: { changeId: string; hunkId?: string }) => void;
-  onReaderAiToggleReviewTarget?: (target: { changeId: string; hunkId?: string; selected: boolean }) => void;
+  onReaderAiApplyReviewTarget?: (target: { changeId: string; hunkId: string }) => void;
+  onReaderAiKeepLocalReviewTarget?: (target: { changeId: string; hunkId: string }) => void;
   onReaderAiRestoreCheckpoint?: () => void;
   previewHtml: string;
   previewCustomCss?: string | null;
@@ -294,12 +296,10 @@ function readerAiBannerTone(
 function ReaderAiEditorReviewBar({
   overlay,
   onOpenReviewTarget,
-  onToggleReviewTarget,
   onRestoreCheckpoint,
 }: {
   overlay: ReaderAiEditorOverlay;
   onOpenReviewTarget?: (target: { changeId: string; hunkId?: string }) => void;
-  onToggleReviewTarget?: (target: { changeId: string; hunkId?: string; selected: boolean }) => void;
   onRestoreCheckpoint?: () => void;
 }) {
   if (overlay.fileStatus === 'idle' && !overlay.provenance && !overlay.checkpoint) return null;
@@ -307,39 +307,11 @@ function ReaderAiEditorReviewBar({
   const tone = readerAiBannerTone(overlay.fileStatus);
   const Icon = tone === 'success' ? CheckCircle2 : tone === 'danger' ? AlertTriangle : History;
   const modelLabel = overlay.provenance?.modelId ?? 'Reader AI';
-
-  const renderConflictActions = (conflict: ReaderAiEditorConflict) => {
-    if (!conflict.changeId) return null;
-    return (
-      <div class="editor-reader-ai-conflict-actions">
-        <button
-          type="button"
-          class="editor-reader-ai-action editor-reader-ai-action--secondary"
-          onClick={() =>
-            onToggleReviewTarget?.({
-              changeId: conflict.changeId!,
-              ...(conflict.hunkId ? { hunkId: conflict.hunkId } : {}),
-              selected: !conflict.selected,
-            })
-          }
-        >
-          {conflict.selected ? 'Keep Mine' : 'Use AI'}
-        </button>
-        <button
-          type="button"
-          class="editor-reader-ai-action editor-reader-ai-action--secondary"
-          onClick={() =>
-            onOpenReviewTarget?.({
-              changeId: conflict.changeId!,
-              ...(conflict.hunkId ? { hunkId: conflict.hunkId } : {}),
-            })
-          }
-        >
-          Review
-        </button>
-      </div>
-    );
-  };
+  const conflictCount = overlay.conflicts.length;
+  const conflictSummary =
+    conflictCount > 0
+      ? `${conflictCount} conflicted hunk${conflictCount === 1 ? '' : 's'} need review in the editor below.`
+      : null;
 
   return (
     <div class={`editor-reader-ai-banner editor-reader-ai-banner--${tone}`} role="status" aria-live="polite">
@@ -380,20 +352,18 @@ function ReaderAiEditorReviewBar({
           ) : null}
         </div>
       </div>
-      {overlay.conflicts.length > 0 ? (
-        <div class="editor-reader-ai-conflicts">
-          {overlay.conflicts.slice(0, 3).map((conflict) => (
-            <div
-              key={`${conflict.changeId ?? conflict.path}:${conflict.hunkId ?? 'file'}`}
-              class="editor-reader-ai-conflict"
+      {conflictSummary ? (
+        <div class="editor-reader-ai-conflict-summary">
+          <span>{conflictSummary}</span>
+          {overlay.primaryChangeId ? (
+            <button
+              type="button"
+              class="editor-reader-ai-action editor-reader-ai-action--secondary"
+              onClick={() => onOpenReviewTarget?.({ changeId: overlay.primaryChangeId! })}
             >
-              <div class="editor-reader-ai-conflict-copy">
-                <div class="editor-reader-ai-conflict-title">{conflict.title}</div>
-                <div class="editor-reader-ai-conflict-message">{conflict.message}</div>
-              </div>
-              {renderConflictActions(conflict)}
-            </div>
-          ))}
+              Review in panel
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -410,7 +380,8 @@ export function EditView({
   readerAiEditorOverlay = null,
   onChangeMarkerClick,
   onReaderAiOpenReviewTarget,
-  onReaderAiToggleReviewTarget,
+  onReaderAiApplyReviewTarget,
+  onReaderAiKeepLocalReviewTarget,
   onReaderAiRestoreCheckpoint,
   previewHtml,
   previewCustomCss = null,
@@ -451,6 +422,27 @@ export function EditView({
 }: EditViewProps) {
   const diffPreview: EditorDiffPreview | null = readerAiEditorOverlay?.diffPreview ?? null;
   const changeMarkers: EditorChangeMarker[] | null = readerAiEditorOverlay?.markers ?? null;
+  const conflictWidgets: EditorConflictWidget[] | null = readerAiEditorOverlay
+    ? readerAiEditorOverlay.hunks.flatMap((hunk) => {
+        if (!hunk.conflictReason) return [];
+        const conflict =
+          readerAiEditorOverlay.conflicts.find(
+            (entry) => entry.changeId === hunk.changeId && entry.hunkId === hunk.hunkId,
+          ) ?? null;
+        return [
+          {
+            id: `${hunk.changeId}:${hunk.hunkId}`,
+            lineNumber: hunk.lineStart,
+            title: hunk.header,
+            message: conflict?.message ?? readerAiEditorOverlay.statusMessage ?? 'Reader AI needs review.',
+            tone: hunk.status === 'stale' ? 'stale' : 'conflicted',
+            changeId: hunk.changeId,
+            hunkId: hunk.hunkId,
+            disabled: readOnly || locked || loading,
+          } satisfies EditorConflictWidget,
+        ];
+      })
+    : null;
   const splitRef = useRef<HTMLDivElement>(null);
   const previewPaneRef = useRef<HTMLDivElement | null>(null);
   const mobilePreviewPaneRef = useRef<HTMLDivElement | null>(null);
@@ -1758,7 +1750,6 @@ export function EditView({
           <ReaderAiEditorReviewBar
             overlay={readerAiEditorOverlay}
             onOpenReviewTarget={onReaderAiOpenReviewTarget}
-            onToggleReviewTarget={onReaderAiToggleReviewTarget}
             onRestoreCheckpoint={onReaderAiRestoreCheckpoint}
           />
         ) : null}
@@ -1772,6 +1763,10 @@ export function EditView({
             diffPreview={diffPreview}
             changeMarkers={changeMarkers}
             onChangeMarkerClick={onChangeMarkerClick}
+            conflictWidgets={conflictWidgets}
+            onConflictWidgetKeepMine={onReaderAiKeepLocalReviewTarget}
+            onConflictWidgetUseAi={onReaderAiApplyReviewTarget}
+            onConflictWidgetReview={(target) => onReaderAiOpenReviewTarget?.(target)}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}
@@ -1797,6 +1792,10 @@ export function EditView({
             diffPreview={diffPreview}
             changeMarkers={changeMarkers}
             onChangeMarkerClick={onChangeMarkerClick}
+            conflictWidgets={conflictWidgets}
+            onConflictWidgetKeepMine={onReaderAiKeepLocalReviewTarget}
+            onConflictWidgetUseAi={onReaderAiApplyReviewTarget}
+            onConflictWidgetReview={(target) => onReaderAiOpenReviewTarget?.(target)}
             scrollStorageKey={scrollStorageKey}
             onContentChange={onContentChange}
             onEditorReady={handleEditorReady}

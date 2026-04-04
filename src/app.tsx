@@ -154,6 +154,7 @@ import {
   invalidateReaderAiHostCaches,
 } from './reader_ai_host_adapter';
 import { READER_AI_SELECTION_MAX_CHARS } from './reader_ai_limits';
+import { buildReaderAiSelectedChange } from './reader_ai_selectors';
 import { matchRoute, type Route, routePath } from './routing';
 import {
   buildRepoNewDraftPath,
@@ -1152,6 +1153,7 @@ export function App() {
     readerAiSelectedChangeIds,
     readerAiSelectedHunkIdsByChangeId,
     readerAiSending,
+    readerAiStagedChanges,
     readerAiStagedChangesInvalid,
     readerAiStagedChangesStreaming,
     readerAiToolLog,
@@ -1161,6 +1163,7 @@ export function App() {
     rejectReaderAiProposal,
     recordReaderAiAppliedChanges,
     resetReaderAiStagedState,
+    resolveReaderAiStagedHunk,
     setReaderAiApplyingChanges,
     setReaderAiError,
     setReaderAiHasEligibleSelection,
@@ -1276,6 +1279,92 @@ export function App() {
       openReaderAiReviewTarget(nextTarget);
     },
     [onReaderAiToggleReviewTarget, openReaderAiReviewTarget, readerAiSelectedChangeIds],
+  );
+  const onReaderAiKeepLocalReviewTarget = useCallback(
+    (target: { changeId: string; hunkId: string }) => {
+      resolveReaderAiStagedHunk(target.changeId, target.hunkId, {
+        syncDocumentEditedContent: activeView === 'edit',
+      });
+    },
+    [activeView, resolveReaderAiStagedHunk],
+  );
+  const onReaderAiApplyReviewTarget = useCallback(
+    async (target: { changeId: string; hunkId: string }) => {
+      if (activeView !== 'edit' || !currentEditingDocPath) return;
+      const baseChange = readerAiStagedChanges.find((change) => change.id === target.changeId) ?? null;
+      if (!baseChange) return;
+      const selectedChange = buildReaderAiSelectedChange(baseChange, new Set([target.hunkId]));
+      if (
+        !selectedChange ||
+        selectedChange.path !== currentEditingDocPath ||
+        selectedChange.type === 'delete' ||
+        typeof selectedChange.modifiedContent !== 'string'
+      ) {
+        openReaderAiReviewTarget(target);
+        return;
+      }
+      const preparedApply = prepareReaderAiSelectedChangesForApply({
+        activeChangeSet: readerAiActiveChangeSet,
+        currentEditContentRevision: editContentRevision,
+        currentEditingDocPath,
+        currentEditingDocumentContent: editContentRef.current,
+        selectedChanges: [selectedChange],
+        selectedFileContents: {
+          [selectedChange.path]: selectedChange.modifiedContent,
+        },
+        mode: 'without-saving',
+      });
+      if (preparedApply.selectedChanges.length === 0) {
+        openReaderAiReviewTarget(target);
+        return;
+      }
+      if (preparedApply.invalid.length > 0) {
+        const blockedMessage = createReaderAiApplyBlockedMessage(preparedApply.invalid);
+        setReaderAiError(blockedMessage);
+        await showAlert(blockedMessage);
+        openReaderAiReviewTarget(target);
+        return;
+      }
+      if (!readerAiActiveEditorCheckpoint || readerAiActiveEditorCheckpoint.path !== currentEditingDocPath) {
+        createReaderAiEditorRestorePoint({
+          path: currentEditingDocPath,
+          content: editContentRef.current,
+          revision: editContentRevision,
+          selection: editViewControllerRef.current?.getSelectionRange() ?? null,
+          scrollTop: editViewControllerRef.current?.getScrollMetrics().top ?? null,
+          changeSetId: readerAiActiveChangeSet?.id ?? null,
+        });
+      }
+      const nextContent = preparedApply.selectedFileContents[currentEditingDocPath] ?? selectedChange.modifiedContent;
+      setNextEditContent(nextContent, { origin: 'appEdits' });
+      setHasUserTypedUnsavedChanges(false);
+      setHasUnsavedChanges(true);
+      const markPathApplied = (baseChange.hunks?.length ?? 0) <= 1;
+      if (markPathApplied) {
+        recordReaderAiAppliedChanges([baseChange.path], new Map([[baseChange.path, baseChange.type]]));
+      }
+      resolveReaderAiStagedHunk(target.changeId, target.hunkId, {
+        markPathApplied,
+        syncDocumentEditedContent: true,
+      });
+    },
+    [
+      activeView,
+      createReaderAiEditorRestorePoint,
+      currentEditingDocPath,
+      editContentRevision,
+      openReaderAiReviewTarget,
+      readerAiActiveChangeSet,
+      readerAiActiveEditorCheckpoint,
+      readerAiStagedChanges,
+      recordReaderAiAppliedChanges,
+      resolveReaderAiStagedHunk,
+      setNextEditContent,
+      setReaderAiError,
+      showAlert,
+      setHasUnsavedChanges,
+      setHasUserTypedUnsavedChanges,
+    ],
   );
   const isContentRoute = useCallback((nextRoute: Route) => {
     return nextRoute.name === 'gist' || nextRoute.name === 'repofile' || nextRoute.name === 'sharefile';
@@ -7111,7 +7200,8 @@ export function App() {
             readerAiEditorOverlay={readerAiEditorOverlay}
             onChangeMarkerClick={onReaderAiEditorMarkerClick}
             onReaderAiOpenReviewTarget={openReaderAiReviewTarget}
-            onReaderAiToggleReviewTarget={onReaderAiToggleReviewTarget}
+            onReaderAiApplyReviewTarget={onReaderAiApplyReviewTarget}
+            onReaderAiKeepLocalReviewTarget={onReaderAiKeepLocalReviewTarget}
             onReaderAiRestoreCheckpoint={onReaderAiUndoApply}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}

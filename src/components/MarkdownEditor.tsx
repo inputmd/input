@@ -30,6 +30,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { type EditorChangeMarker, editorChangeMarkersExtension } from './codemirror_change_markers';
+import { type EditorConflictWidget, editorConflictWidgetsExtension } from './codemirror_conflict_widgets';
 import { continuedIndentExtension } from './codemirror_continued_indent';
 import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
@@ -77,6 +78,10 @@ interface MarkdownEditorProps {
   diffPreview?: EditorDiffPreview | null;
   changeMarkers?: EditorChangeMarker[] | null;
   onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
+  conflictWidgets?: EditorConflictWidget[] | null;
+  onConflictWidgetKeepMine?: (target: { changeId: string; hunkId: string }) => void;
+  onConflictWidgetUseAi?: (target: { changeId: string; hunkId: string }) => void;
+  onConflictWidgetReview?: (target: { changeId: string; hunkId: string }) => void;
   onEditorReady?: (controller: EditorController | null) => void;
   onEligibleSelectionChange?: (eligible: boolean) => void;
   protectedEditRange?: EditorProtectedRange | null;
@@ -133,6 +138,10 @@ export function MarkdownEditor({
   diffPreview = null,
   changeMarkers = null,
   onChangeMarkerClick,
+  conflictWidgets = null,
+  onConflictWidgetKeepMine,
+  onConflictWidgetUseAi,
+  onConflictWidgetReview,
   onEditorReady,
   onEligibleSelectionChange,
   protectedEditRange = null,
@@ -159,6 +168,7 @@ export function MarkdownEditor({
   const bracePromptPreviewCompartment = useRef(new Compartment());
   const diffPreviewCompartment = useRef(new Compartment());
   const changeMarkersCompartment = useRef(new Compartment());
+  const conflictWidgetsCompartment = useRef(new Compartment());
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
@@ -546,6 +556,13 @@ export function MarkdownEditor({
         diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
         changeMarkersCompartment.current.of(
           editorChangeMarkersExtension(changeMarkers, { onMarkerClick: onChangeMarkerClick }),
+        ),
+        conflictWidgetsCompartment.current.of(
+          editorConflictWidgetsExtension(conflictWidgets, {
+            onKeepMine: onConflictWidgetKeepMine,
+            onUseAi: onConflictWidgetUseAi,
+            onReview: onConflictWidgetReview,
+          }),
         ),
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
@@ -946,6 +963,20 @@ export function MarkdownEditor({
       ),
     });
   }, [changeMarkers, onChangeMarkerClick]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: conflictWidgetsCompartment.current.reconfigure(
+        editorConflictWidgetsExtension(conflictWidgets, {
+          onKeepMine: onConflictWidgetKeepMine,
+          onUseAi: onConflictWidgetUseAi,
+          onReview: onConflictWidgetReview,
+        }),
+      ),
+    });
+  }, [conflictWidgets, onConflictWidgetKeepMine, onConflictWidgetReview, onConflictWidgetUseAi]);
 
   useEffect(() => {
     if (!bracePrompt.panel) return;
