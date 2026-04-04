@@ -11,6 +11,7 @@ import {
 } from '../../src/reader_ai_controller_runtime.ts';
 import type { ReaderAiRunRecord } from '../../src/reader_ai_ledger.ts';
 import { buildReaderAiSelectedChange } from '../../src/reader_ai_selectors.ts';
+import { generateUnifiedDiff, parseUnifiedDiffHunks } from '../reader_ai_tools.ts';
 
 function createRun(): ReaderAiRunRecord {
   return {
@@ -261,6 +262,33 @@ test('buildReaderAiSelectedChange ignores malformed hunks instead of throwing', 
   };
 
   t.is(buildReaderAiSelectedChange(malformedChange, new Set(['hunk:bad'])), null);
+});
+
+test('buildReaderAiSelectedChange rebuilds a valid partial patch from split review hunks', (t) => {
+  const originalLines = Array.from({ length: 8 }, (_, index) => `line ${index + 1}`);
+  const modifiedLines = [...originalLines];
+  modifiedLines[1] = 'CHANGED 2';
+  modifiedLines[5] = 'CHANGED 6';
+  const diff = generateUnifiedDiff('doc.md', originalLines.join('\n'), modifiedLines.join('\n'));
+  const hunks = parseUnifiedDiffHunks(diff);
+  const change: ReaderAiStagedChange = {
+    id: 'change:split',
+    path: 'doc.md',
+    type: 'edit',
+    diff,
+    revision: 1,
+    originalContent: `${originalLines.join('\n')}\n`,
+    modifiedContent: `${modifiedLines.join('\n')}\n`,
+    hunks,
+  };
+
+  const partial = buildReaderAiSelectedChange(change, new Set([hunks[0]!.id]));
+
+  t.truthy(partial);
+  t.is(partial?.hunks?.length, 1);
+  t.true(partial?.modifiedContent?.includes('CHANGED 2') ?? false);
+  t.true(partial?.modifiedContent?.includes('line 6') ?? false);
+  t.false(partial?.modifiedContent?.includes('CHANGED 6') ?? false);
 });
 
 test('resolveReaderAiStagedHunkState removes a resolved hunk and keeps remaining hunks staged', (t) => {

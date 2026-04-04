@@ -3,6 +3,7 @@ import { createPortal } from 'preact/compat';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ReaderAiStagedChange, ReaderAiStagedHunk } from '../reader_ai';
 import { SideBySideDiffView, UnifiedDiffView } from './DiffViewer';
+import { buildUnifiedDiffFromHunk } from './diff_viewer_utils.ts';
 
 const DEFAULT_EXPANDED_CHANGE_LINE_LIMIT = 80;
 
@@ -244,55 +245,62 @@ export function StagedChangesSection({
                     return (
                       <div
                         key={hunk.id}
-                        class={`reader-ai-staged-hunk-row${
-                          activeReviewTarget?.changeId === change.id && activeReviewTarget?.hunkId === hunk.id
-                            ? ' reader-ai-staged-review-target'
-                            : ''
-                        }`}
-                        data-reader-ai-review-target={change.id ? `hunk:${change.id}:${hunk.id}` : undefined}
+                        class={`reader-ai-staged-hunk${hunkSelected ? '' : ' reader-ai-staged-hunk--off'}`}
                       >
-                        {reviewControls ? (
-                          <button
-                            type="button"
-                            class={`reader-ai-staged-toggle-btn${hunkSelected ? '' : ' reader-ai-staged-toggle-btn--off'}`}
-                            onClick={() => change.id && onToggleHunkSelection?.(change.id, hunk.id, !hunkSelected)}
-                            title={
-                              hunkSelected ? 'Exclude this hunk from apply set' : 'Accept this hunk back into apply set'
-                            }
-                          >
-                            {renderSelectionToggle(hunkSelected, 'Toggle hunk selection')}
-                          </button>
-                        ) : null}
-                        <div class="reader-ai-staged-hunk-copy">
-                          <div class="reader-ai-staged-hunk-header">{hunk.header}</div>
-                          <div class="reader-ai-staged-hunk-summary">{hunkSummary(hunk)}</div>
+                        <div
+                          class={`reader-ai-staged-hunk-row${
+                            activeReviewTarget?.changeId === change.id && activeReviewTarget?.hunkId === hunk.id
+                              ? ' reader-ai-staged-review-target'
+                              : ''
+                          }`}
+                          data-reader-ai-review-target={change.id ? `hunk:${change.id}:${hunk.id}` : undefined}
+                        >
+                          {reviewControls ? (
+                            <button
+                              type="button"
+                              class={`reader-ai-staged-toggle-btn${hunkSelected ? '' : ' reader-ai-staged-toggle-btn--off'}`}
+                              onClick={() => change.id && onToggleHunkSelection?.(change.id, hunk.id, !hunkSelected)}
+                              title={
+                                hunkSelected
+                                  ? 'Exclude this hunk from apply set'
+                                  : 'Accept this hunk back into apply set'
+                              }
+                            >
+                              {renderSelectionToggle(hunkSelected, 'Toggle hunk selection')}
+                            </button>
+                          ) : null}
+                          <div class="reader-ai-staged-hunk-copy">
+                            <div class="reader-ai-staged-hunk-header">{hunk.header}</div>
+                            <div class="reader-ai-staged-hunk-summary">{hunkSummary(hunk)}</div>
+                          </div>
+                          {change.id && currentEditorPath === change.path ? (
+                            <button
+                              type="button"
+                              class="reader-ai-staged-reveal-btn"
+                              onClick={() => onRevealHunk?.(change.id!, hunk.id)}
+                              title="Reveal this hunk in the editor"
+                            >
+                              <LocateFixed size={13} aria-hidden="true" />
+                            </button>
+                          ) : null}
+                          {reviewControls ? (
+                            <button
+                              type="button"
+                              class="reader-ai-staged-reject-btn"
+                              onClick={() => change.id && onRejectHunk?.(change.id, hunk.id)}
+                              title="Reject this hunk"
+                            >
+                              <X size={13} aria-hidden="true" />
+                            </button>
+                          ) : null}
                         </div>
-                        {change.id && currentEditorPath === change.path ? (
-                          <button
-                            type="button"
-                            class="reader-ai-staged-reveal-btn"
-                            onClick={() => onRevealHunk?.(change.id!, hunk.id)}
-                            title="Reveal this hunk in the editor"
-                          >
-                            <LocateFixed size={13} aria-hidden="true" />
-                          </button>
-                        ) : null}
-                        {reviewControls ? (
-                          <button
-                            type="button"
-                            class="reader-ai-staged-reject-btn"
-                            onClick={() => change.id && onRejectHunk?.(change.id, hunk.id)}
-                            title="Reject this hunk"
-                          >
-                            <X size={13} aria-hidden="true" />
-                          </button>
-                        ) : null}
+                        <UnifiedDiffView diff={buildUnifiedDiffFromHunk(hunk)} />
                       </div>
                     );
                   })}
                 </div>
               ) : null}
-              <UnifiedDiffView diff={change.diff} />
+              {!change.hunks || change.hunks.length === 0 || streaming ? <UnifiedDiffView diff={change.diff} /> : null}
             </>
           ) : null}
         </div>

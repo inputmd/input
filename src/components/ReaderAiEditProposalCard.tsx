@@ -2,6 +2,7 @@ import { CheckSquare2, ChevronDown, ChevronRight, Square } from 'lucide-react';
 import { useState } from 'preact/hooks';
 import type { ReaderAiEditProposal, ReaderAiStagedHunk } from '../reader_ai';
 import { UnifiedDiffView } from './DiffViewer';
+import { buildUnifiedDiffFromHunk } from './diff_viewer_utils.ts';
 
 function typeLabel(type: string): string {
   if (type === 'create') return 'new';
@@ -76,28 +77,38 @@ export function ReaderAiEditProposalCard({
               {proposal.change.hunks.map((hunk) => {
                 const hunkSelected = accepted && selectedHunkIds.has(hunk.id);
                 return (
-                  <div key={hunk.id} class="reader-ai-staged-hunk-row">
-                    <button
-                      type="button"
-                      class={`reader-ai-staged-toggle-btn${hunkSelected ? '' : ' reader-ai-staged-toggle-btn--off'}`}
-                      onClick={() => onToggleHunkSelection?.(proposal.id, hunk.id, !hunkSelected)}
-                      title={
-                        hunkSelected ? 'Exclude this hunk from the proposal' : 'Accept this hunk back into the proposal'
-                      }
-                      disabled={!accepted}
-                    >
-                      {renderSelectionToggle(hunkSelected, 'Toggle proposal hunk selection')}
-                    </button>
-                    <div class="reader-ai-staged-hunk-copy">
-                      <div class="reader-ai-staged-hunk-header">{hunk.header}</div>
-                      <div class="reader-ai-staged-hunk-summary">{hunkSummary(hunk)}</div>
+                  <div
+                    key={hunk.id}
+                    class={`reader-ai-staged-hunk${hunkSelected ? '' : ' reader-ai-staged-hunk--off'}`}
+                  >
+                    <div class="reader-ai-staged-hunk-row">
+                      <button
+                        type="button"
+                        class={`reader-ai-staged-toggle-btn${hunkSelected ? '' : ' reader-ai-staged-toggle-btn--off'}`}
+                        onClick={() => onToggleHunkSelection?.(proposal.id, hunk.id, !hunkSelected)}
+                        title={
+                          hunkSelected
+                            ? 'Exclude this hunk from the proposal'
+                            : 'Accept this hunk back into the proposal'
+                        }
+                        disabled={!accepted}
+                      >
+                        {renderSelectionToggle(hunkSelected, 'Toggle proposal hunk selection')}
+                      </button>
+                      <div class="reader-ai-staged-hunk-copy">
+                        <div class="reader-ai-staged-hunk-header">{hunk.header}</div>
+                        <div class="reader-ai-staged-hunk-summary">{hunkSummary(hunk)}</div>
+                      </div>
                     </div>
+                    <UnifiedDiffView diff={buildUnifiedDiffFromHunk(hunk)} />
                   </div>
                 );
               })}
             </div>
           ) : null}
-          <UnifiedDiffView diff={proposal.change.diff} />
+          {!proposal.change.hunks || proposal.change.hunks.length === 0 ? (
+            <UnifiedDiffView diff={proposal.change.diff} />
+          ) : null}
         </>
       ) : null}
     </div>

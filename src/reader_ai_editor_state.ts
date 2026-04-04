@@ -569,7 +569,7 @@ function createReaderAiStatusMessage(options: {
   if (options.fileStatus === 'ready') {
     const selectedCount = options.hunks.filter((hunk) => hunk.selected).length;
     if (options.hunks.length > 0) {
-      return `${selectedCount} of ${options.hunks.length} hunks selected from ${modelLabel}.`;
+      return `${selectedCount} of ${options.hunks.length} review blocks selected from ${modelLabel}.`;
     }
     return `Reader AI has a pending proposal for this file from ${modelLabel}.`;
   }

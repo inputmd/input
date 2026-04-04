@@ -1768,6 +1768,10 @@
   border-top: 0;
 }
 
+.reader-ai-staged-hunk--off .reader-ai-diff {
+  opacity: 0.72;
+}
+
 .reader-ai-staged-hunk-header {
   width: 100%;
   display: flex;
@@ -1798,6 +1802,11 @@
 
 .reader-ai-staged-hunk-row .reader-ai-staged-hunk-header:hover {
   background: transparent;
+}
+
+.reader-ai-staged-hunk > .reader-ai-diff {
+  border-top-color: color-mix(in srgb, var(--border) 55%, transparent);
+  background: color-mix(in srgb, var(--bg) 78%, var(--toolbar-bg) 22%);
 }
 
 .reader-ai-staged-hunk-toggle {

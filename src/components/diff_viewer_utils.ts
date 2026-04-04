@@ -1,3 +1,5 @@
+import type { ReaderAiStagedHunk } from '../reader_ai';
+
 export function findUnifiedDiffReplacementPair(lines: string[], index: number): number | null {
   const line = lines[index];
   if (!line?.startsWith('-') || line.startsWith('---')) return null;
@@ -31,4 +33,15 @@ export function getUnifiedDiffLineParts(line: string): UnifiedDiffLineParts {
     hasSignColumn: true,
     sign: line[0] === ' ' ? '\u00a0' : line[0],
   };
+}
+
+export function buildUnifiedDiffFromHunk(hunk: ReaderAiStagedHunk): string {
+  return [
+    hunk.header,
+    ...hunk.lines.map((line) => {
+      if (line.type === 'add') return `+${line.content}`;
+      if (line.type === 'del') return `-${line.content}`;
+      return ` ${line.content}`;
+    }),
+  ].join('\n');
 }

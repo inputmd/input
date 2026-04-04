@@ -18,6 +18,7 @@ import {
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
   parseSseFieldValue,
+  parseUnifiedDiffHunks,
   READER_AI_MAX_REGEX_PATTERN_LENGTH,
   READER_AI_SUBAGENT_TOOLS,
   READER_AI_TOOL_RESULT_MAX_CHARS,
@@ -1107,4 +1108,46 @@ test('generateUnifiedDiff handles multiple separate hunks', (t) => {
   t.true(result.includes('+CHANGED 3'));
   t.true(result.includes('-line 18'));
   t.true(result.includes('+CHANGED 18'));
+});
+
+test('parseUnifiedDiffHunks splits a merged raw hunk into smaller review hunks', (t) => {
+  const oldLines = Array.from({ length: 8 }, (_, index) => `line ${index + 1}`);
+  const newLines = [...oldLines];
+  newLines[1] = 'CHANGED 2';
+  newLines[5] = 'CHANGED 6';
+
+  const diff = generateUnifiedDiff('split.txt', oldLines.join('\n'), newLines.join('\n'));
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.is(hunks.length, 2);
+  t.deepEqual(
+    hunks.map((hunk) => ({
+      header: hunk.header,
+      lines: hunk.lines,
+    })),
+    [
+      {
+        header: '@@ -1,3 +1,3 @@',
+        lines: [
+          { type: 'context', content: 'line 1' },
+          { type: 'del', content: 'line 2' },
+          { type: 'add', content: 'CHANGED 2' },
+          { type: 'context', content: 'line 3' },
+        ],
+      },
+      {
+        header: '@@ -4,5 +4,5 @@',
+        lines: [
+          { type: 'context', content: 'line 4' },
+          { type: 'context', content: 'line 5' },
+          { type: 'del', content: 'line 6' },
+          { type: 'add', content: 'CHANGED 6' },
+          { type: 'context', content: 'line 7' },
+          { type: 'context', content: 'line 8' },
+        ],
+      },
+    ],
+  );
 });

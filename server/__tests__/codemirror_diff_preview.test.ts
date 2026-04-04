@@ -88,6 +88,32 @@ test('buildDiffPreviewBlocksFromHunks returns one preview block per hunk', (t) =
   }
 });
 
+test('buildDiffPreviewBlocksFromHunks reflects split review hunks inside one raw diff hunk', (t) => {
+  const originalLines = Array.from({ length: 8 }, (_, index) => `line ${index + 1}`);
+  const modifiedLines = [...originalLines];
+  modifiedLines[1] = 'CHANGED 2';
+  modifiedLines[5] = 'CHANGED 6';
+
+  const original = `${originalLines.join('\n')}\n`;
+  const modified = `${modifiedLines.join('\n')}\n`;
+  const diff = generateUnifiedDiff('split.txt', originalLines.join('\n'), modifiedLines.join('\n'));
+  const hunks = parseUnifiedDiffHunks(diff);
+  const blocks = buildDiffPreviewBlocksFromHunks(original, modified, hunks);
+
+  t.is(hunks.length, 2);
+  t.is(blocks.length, 2);
+  t.deepEqual(
+    blocks.map((block) => ({
+      deletedText: block.deletedText,
+      insertedText: block.insertedText,
+    })),
+    [
+      { deletedText: 'line 2\n', insertedText: 'CHANGED 2\n' },
+      { deletedText: 'line 6\n', insertedText: 'CHANGED 6\n' },
+    ],
+  );
+});
+
 test('buildDiffPreviewBlocksFromContent returns one replacement block', (t) => {
   t.deepEqual(buildDiffPreviewBlocksFromContent('alpha beta gamma', 'alpha BETA gamma'), [
     {
@@ -154,7 +180,7 @@ test('editorDiffPreviewExtension omits meta rows for proposal previews', (t) => 
                 insertedText: 'ALPHA\nBETA\n',
                 deletedText: 'alpha\nbeta\n',
                 label: '@@ -1,2 +1,2 @@',
-                detail: '1 of 1 hunks selected from google/gemini-3-flash-preview.',
+                detail: '1 of 1 review blocks selected from google/gemini-3-flash-preview.',
               },
             ],
           }),

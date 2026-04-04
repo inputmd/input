@@ -1,5 +1,9 @@
 import test from 'ava';
-import { findUnifiedDiffReplacementPair, getUnifiedDiffLineParts } from '../../src/components/diff_viewer_utils.ts';
+import {
+  buildUnifiedDiffFromHunk,
+  findUnifiedDiffReplacementPair,
+  getUnifiedDiffLineParts,
+} from '../../src/components/diff_viewer_utils.ts';
 
 test('findUnifiedDiffReplacementPair matches adjacent delete/add replacements', (t) => {
   const lines = ['@@ -1,1 +1,1 @@', '-before', '+after'];
@@ -33,4 +37,24 @@ test('getUnifiedDiffLineParts preserves intentional leading spaces in diff conte
     hasSignColumn: true,
     sign: '+',
   });
+});
+
+test('buildUnifiedDiffFromHunk serializes a review hunk without file headers', (t) => {
+  t.is(
+    buildUnifiedDiffFromHunk({
+      id: 'hunk:1',
+      header: '@@ -2,2 +2,3 @@',
+      oldStart: 2,
+      oldLines: 2,
+      newStart: 2,
+      newLines: 3,
+      lines: [
+        { type: 'context', content: 'before' },
+        { type: 'del', content: 'old value' },
+        { type: 'add', content: 'new value' },
+        { type: 'add', content: 'extra value' },
+      ],
+    }),
+    '@@ -2,2 +2,3 @@\n before\n-old value\n+new value\n+extra value',
+  );
 });

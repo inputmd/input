@@ -7,6 +7,7 @@ export const READER_AI_TOOL_RESULT_MAX_CHARS = 30_000;
 export const READER_AI_DOC_PREVIEW_CHARS = 12_000;
 export const READER_AI_MAX_CONCURRENT_TASKS = 4;
 export const READER_AI_MAX_REGEX_PATTERN_LENGTH = 200;
+const SPLIT_HUNK_CONTEXT_LINES = 3;
 
 /**
  * Rough token estimate from character count.
@@ -413,6 +414,82 @@ function stagedChangeId(path: string): string {
   return `staged:${encodeURIComponent(path)}`;
 }
 
+function formatUnifiedHunkHeader(oldStart: number, oldLines: number, newStart: number, newLines: number): string {
+  return `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`;
+}
+
+function countOriginalLines(lines: StagedHunkLine[]): number {
+  return lines.filter((line) => line.type !== 'add').length;
+}
+
+function countModifiedLines(lines: StagedHunkLine[]): number {
+  return lines.filter((line) => line.type !== 'del').length;
+}
+
+function splitParsedUnifiedDiffHunk(hunk: StagedHunk): StagedHunk[] {
+  const changeSpans: Array<{ start: number; end: number }> = [];
+  let currentChangeStart: number | null = null;
+
+  for (let index = 0; index < hunk.lines.length; index += 1) {
+    const line = hunk.lines[index];
+    if (line?.type === 'context') {
+      if (currentChangeStart !== null) {
+        changeSpans.push({ start: currentChangeStart, end: index - 1 });
+        currentChangeStart = null;
+      }
+      continue;
+    }
+    if (currentChangeStart === null) currentChangeStart = index;
+  }
+
+  if (currentChangeStart !== null) {
+    changeSpans.push({ start: currentChangeStart, end: hunk.lines.length - 1 });
+  }
+
+  if (changeSpans.length <= 1) return [hunk];
+
+  const leadingContexts = new Array(changeSpans.length).fill(0);
+  const trailingContexts = new Array(changeSpans.length).fill(0);
+  leadingContexts[0] = Math.min(SPLIT_HUNK_CONTEXT_LINES, changeSpans[0]?.start ?? 0);
+
+  for (let index = 0; index < changeSpans.length - 1; index += 1) {
+    const current = changeSpans[index];
+    const next = changeSpans[index + 1];
+    if (!current || !next) continue;
+    const gap = next.start - current.end - 1;
+    if (gap <= 0) continue;
+    const trailing = Math.min(SPLIT_HUNK_CONTEXT_LINES, Math.floor(gap / 2));
+    const leading = Math.min(SPLIT_HUNK_CONTEXT_LINES, gap - trailing);
+    trailingContexts[index] = trailing;
+    leadingContexts[index + 1] = leading;
+  }
+
+  const lastSpan = changeSpans[changeSpans.length - 1];
+  if (lastSpan) {
+    trailingContexts[changeSpans.length - 1] = Math.min(SPLIT_HUNK_CONTEXT_LINES, hunk.lines.length - lastSpan.end - 1);
+  }
+
+  return changeSpans.map((span, index) => {
+    const start = Math.max(0, span.start - (leadingContexts[index] ?? 0));
+    const end = Math.min(hunk.lines.length - 1, span.end + (trailingContexts[index] ?? 0));
+    const lines = hunk.lines.slice(start, end + 1);
+    const oldStart = hunk.oldStart + countOriginalLines(hunk.lines.slice(0, start));
+    const newStart = hunk.newStart + countModifiedLines(hunk.lines.slice(0, start));
+    const oldLines = countOriginalLines(lines);
+    const newLines = countModifiedLines(lines);
+
+    return {
+      id: `${hunk.id}:${index}`,
+      header: formatUnifiedHunkHeader(oldStart, oldLines, newStart, newLines),
+      oldStart,
+      oldLines,
+      newStart,
+      newLines,
+      lines,
+    };
+  });
+}
+
 export function parseUnifiedDiffHunks(diff: string): StagedHunk[] {
   if (!diff || diff === '(no changes)') return [];
   const lines = diff.split('\n');
@@ -449,7 +526,7 @@ export function parseUnifiedDiffHunks(diff: string): StagedHunk[] {
     }
   }
 
-  return hunks;
+  return hunks.flatMap((hunk) => splitParsedUnifiedDiffHunk(hunk));
 }
 
 export function createStructuredStagedChange(
