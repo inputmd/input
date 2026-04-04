@@ -4,7 +4,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
 import type { ReaderAiEditProposal, ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
+import type { ReaderAiRunRecord } from '../reader_ai_ledger';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
+import { ReaderAiRunHistorySection } from './ReaderAiRunHistory';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
 
@@ -27,6 +29,9 @@ interface ReaderAiPanelProps {
   onEnableLocalCodex?: () => void;
   showLoginForMoreModels?: boolean;
   messages: ReaderAiMessage[];
+  runs: ReaderAiRunRecord[];
+  activeRunId?: string | null;
+  queuedCommands: string[];
   sending: boolean;
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
@@ -55,6 +60,10 @@ interface ReaderAiPanelProps {
   onRevealChange?: (changeId: string) => void;
   onRevealHunk?: (changeId: string, hunkId: string) => void;
   error: string | null;
+  onEnqueueCommand: (command: string) => boolean;
+  onRemoveQueuedCommand: (index: number) => void;
+  onPrependQueuedCommands: (commands: string[]) => void;
+  onClearQueuedCommands: () => void;
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
   onRetryLastUserMessage: () => Promise<void>;
@@ -136,6 +145,9 @@ export function ReaderAiPanel({
   onEnableLocalCodex,
   showLoginForMoreModels = false,
   messages,
+  runs,
+  activeRunId = null,
+  queuedCommands,
   sending,
   toolStatus,
   toolLog,
@@ -164,6 +176,10 @@ export function ReaderAiPanel({
   onRevealChange,
   onRevealHunk,
   error,
+  onEnqueueCommand,
+  onRemoveQueuedCommand,
+  onPrependQueuedCommands,
+  onClearQueuedCommands,
   onSend,
   onEditMessage,
   onRetryLastUserMessage,
@@ -174,7 +190,6 @@ export function ReaderAiPanel({
   const isMac = typeof navigator !== 'undefined' && /(mac|iphone|ipad|ipod)/i.test(navigator.platform ?? '');
   const clearChatShortcutLabel = isMac ? '⌘K' : 'Ctrl+K';
   const [draft, setDraft] = useState('');
-  const [queuedCommands, setQueuedCommands] = useState<string[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
@@ -348,12 +363,12 @@ export function ReaderAiPanel({
   const enqueueDraft = () => {
     const prompt = draft.trim();
     if (!prompt || !selectedModel || queuedCommands.length >= 10) return;
-    setQueuedCommands((prev) => [...prev, prompt].slice(0, 10));
+    if (!onEnqueueCommand(prompt)) return;
     setDraft('');
   };
 
   const removeQueuedCommand = (index: number) => {
-    setQueuedCommands((prev) => prev.filter((_, commandIndex) => commandIndex !== index));
+    onRemoveQueuedCommand(index);
   };
 
   const runQueuedCommands = useCallback(
@@ -375,7 +390,7 @@ export function ReaderAiPanel({
         if (failedCommandIndex >= 0) {
           const failedQueuedCommands = commands.slice(failedCommandIndex, queuedBeforeSubmit.length);
           if (failedQueuedCommands.length > 0) {
-            setQueuedCommands((prev) => [...failedQueuedCommands, ...prev].slice(0, 10));
+            onPrependQueuedCommands(failedQueuedCommands);
           }
           if (typeof draftValue === 'string' && draftValue.trim()) setDraft(draftValue);
         }
@@ -383,7 +398,7 @@ export function ReaderAiPanel({
         queueDrainInFlightRef.current = false;
       }
     },
-    [onSend, scrollMessagesToBottom, selectedModel],
+    [onPrependQueuedCommands, onSend, scrollMessagesToBottom, selectedModel],
   );
 
   const submit = async () => {
@@ -400,16 +415,16 @@ export function ReaderAiPanel({
       scheduleScrollMessagesToBottom();
     }
     setDraft('');
-    setQueuedCommands([]);
+    onClearQueuedCommands();
     const commands = prompt ? [...queued, prompt] : queued;
     await runQueuedCommands(commands, { draftValue, queuedBeforeSubmit: queued });
   };
 
   useEffect(() => {
     if (sending || !selectedModel || queuedCommands.length === 0 || queueDrainInFlightRef.current) return;
-    setQueuedCommands([]);
+    onClearQueuedCommands();
     void runQueuedCommands(queuedCommands, { queuedBeforeSubmit: queuedCommands });
-  }, [queuedCommands, runQueuedCommands, selectedModel, sending]);
+  }, [onClearQueuedCommands, queuedCommands, runQueuedCommands, selectedModel, sending]);
 
   const cancelEdit = () => {
     setEditingIndex(null);
@@ -427,7 +442,7 @@ export function ReaderAiPanel({
   const clearChat = (focusComposer: boolean) => {
     if (!hasMessages && queuedCommands.length === 0) return;
     pendingFocusAfterClearRef.current = focusComposer;
-    setQueuedCommands([]);
+    onClearQueuedCommands();
     if (hasMessages) onClear();
   };
 
@@ -764,6 +779,7 @@ export function ReaderAiPanel({
             onRejectHunk={onRejectHunk}
           />
         ) : null}
+        {runs.length > 0 ? <ReaderAiRunHistorySection runs={runs} activeRunId={activeRunId} /> : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : <div class="reader-ai-messages-bottom-spacer" aria-hidden="true" />}
         {composerAtTop ? null : composer}

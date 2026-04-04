@@ -10,6 +10,7 @@ export type ReaderAiConversationScope = { kind: 'document' } | { kind: 'selectio
 
 export interface ReaderAiSessionSnapshot {
   messages: ReaderAiMessage[];
+  queuedCommands: string[];
   summary: string;
   scope: ReaderAiConversationScope | null;
   hasEligibleSelection: boolean;
@@ -38,6 +39,7 @@ export interface ReaderAiSessionSnapshot {
 export function createEmptyReaderAiSessionSnapshot(): ReaderAiSessionSnapshot {
   return {
     messages: [],
+    queuedCommands: [],
     summary: '',
     scope: null,
     hasEligibleSelection: false,
@@ -79,6 +81,7 @@ export function createReaderAiSessionSnapshotFromHistory(options: {
   return {
     ...empty,
     messages: loaded.messages,
+    queuedCommands: loaded.queuedCommands ?? [],
     summary: loaded.summary ?? '',
     scope: loaded.scope ?? null,
     toolLog: (loaded.toolLog ?? []) as ReaderAiToolLogEntry[],
@@ -107,6 +110,7 @@ export function createReaderAiHistoryEntryFromSessionSnapshot(
   snapshot: Pick<
     ReaderAiSessionSnapshot,
     | 'messages'
+    | 'queuedCommands'
     | 'summary'
     | 'scope'
     | 'toolLog'
@@ -126,6 +130,7 @@ export function createReaderAiHistoryEntryFromSessionSnapshot(
 ): ReaderAiHistoryEntry {
   return {
     messages: snapshot.messages,
+    ...(snapshot.queuedCommands.length > 0 ? { queuedCommands: snapshot.queuedCommands } : {}),
     ...(snapshot.summary ? { summary: snapshot.summary } : {}),
     ...(snapshot.scope ? { scope: snapshot.scope } : {}),
     ...(snapshot.toolLog.length > 0 ? { toolLog: snapshot.toolLog } : {}),

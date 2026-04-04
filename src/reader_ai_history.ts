@@ -12,6 +12,7 @@ const READER_AI_HISTORY_MAX_APPLIED_CHANGES = 100;
 
 export interface ReaderAiHistoryEntry {
   messages: ReaderAiMessage[];
+  queuedCommands?: string[];
   summary?: string;
   scope?: { kind: 'document' } | { kind: 'selection'; source: string };
   toolLog?: Array<{
@@ -257,6 +258,11 @@ function normalizePersistedAppliedChanges(value: unknown): NonNullable<ReaderAiH
   }
   if (applied.length <= READER_AI_HISTORY_MAX_APPLIED_CHANGES) return applied;
   return applied.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
+}
+
+function normalizePersistedQueuedCommands(value: unknown): NonNullable<ReaderAiHistoryEntry['queuedCommands']> {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 10);
 }
 
 function normalizePersistedEditorCheckpoints(value: unknown): NonNullable<ReaderAiHistoryEntry['editorCheckpoints']> {
@@ -639,6 +645,8 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
         const parsed: ReaderAiHistoryEntry = {
           messages: normalizeReaderAiMessages(entry.messages),
         };
+        const queuedCommands = normalizePersistedQueuedCommands((entry as { queuedCommands?: unknown }).queuedCommands);
+        if (queuedCommands.length > 0) parsed.queuedCommands = queuedCommands;
         if (typeof entry.summary === 'string' && entry.summary) parsed.summary = entry.summary;
         if (entry.scope && typeof entry.scope === 'object') {
           const kind = (entry.scope as { kind?: unknown }).kind;
@@ -719,6 +727,7 @@ export function loadReaderAiEntryFromHistory(historyKey: string): ReaderAiHistor
 export function persistReaderAiMessagesToHistory(
   historyKey: string,
   messages: ReaderAiMessage[],
+  queuedCommands?: string[],
   summary?: string,
   scope?: ReaderAiHistoryEntry['scope'],
   toolLog?: Array<{
@@ -748,6 +757,7 @@ export function persistReaderAiMessagesToHistory(
     return;
   }
   const entry: ReaderAiHistoryEntry = { messages: normalizedMessages };
+  if (queuedCommands && queuedCommands.length > 0) entry.queuedCommands = queuedCommands.slice(0, 10);
   if (summary) entry.summary = summary;
   if (scope) entry.scope = scope;
   if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;

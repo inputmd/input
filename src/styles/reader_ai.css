@@ -999,6 +999,174 @@
   font-size: 11px;
 }
 
+.reader-ai-run-history {
+  margin: 6px 0 2px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+.reader-ai-run-history-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.reader-ai-run-history-toggle:hover {
+  color: var(--text);
+  background: var(--btn-hover);
+}
+
+.reader-ai-run-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 2px 0;
+}
+
+.reader-ai-run-card {
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--btn-bg) 44%, transparent);
+  overflow: hidden;
+}
+
+.reader-ai-run-card--active {
+  border-color: color-mix(in srgb, var(--field-focus-border) 55%, var(--border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--field-focus-border) 22%, transparent);
+}
+
+.reader-ai-run-card-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reader-ai-run-card-toggle:hover {
+  background: color-mix(in srgb, var(--btn-hover) 65%, transparent);
+}
+
+.reader-ai-run-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-ai-run-card-status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.reader-ai-run-card-status--running {
+  color: color-mix(in srgb, var(--accent-text) 78%, var(--text));
+}
+
+.reader-ai-run-card-status--failed,
+.reader-ai-run-card-status--aborted {
+  color: color-mix(in srgb, var(--danger-border) 82%, var(--text));
+}
+
+.reader-ai-run-card-status--completed {
+  color: color-mix(in srgb, var(--success-color) 82%, var(--text));
+}
+
+.reader-ai-run-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 8px 30px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.reader-ai-run-card-error {
+  padding: 0 10px 8px 30px;
+  color: color-mix(in srgb, var(--danger-border) 82%, var(--text));
+  font-size: 11.5px;
+}
+
+.reader-ai-run-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 10px 30px;
+}
+
+.reader-ai-run-step {
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--input-bg) 55%, transparent);
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reader-ai-run-step--empty {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.reader-ai-run-step-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.reader-ai-run-step-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.reader-ai-run-step-status,
+.reader-ai-run-step-retry {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.reader-ai-run-step-status--failed {
+  color: color-mix(in srgb, var(--danger-border) 82%, var(--text));
+}
+
+.reader-ai-run-step-status--completed {
+  color: color-mix(in srgb, var(--success-color) 82%, var(--text));
+}
+
+.reader-ai-run-step-detail,
+.reader-ai-run-step-error {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reader-ai-run-step-error {
+  color: color-mix(in srgb, var(--danger-border) 82%, var(--text));
+}
+
 .reader-ai-edit-proposal {
   margin: 2px 0 6px;
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);

@@ -1130,15 +1130,19 @@ export function App() {
   const {
     acceptReaderAiProposal,
     buildReaderAiRetryRequest,
+    clearReaderAiQueuedCommands,
     clearReaderAi,
     clearReaderAiUndoState,
     effectiveReaderAiStagedChanges,
     effectiveReaderAiStagedFileContents,
+    enqueueReaderAiQueuedCommand,
     finalizeReaderAiActiveChangeSet,
     ignoreAllReaderAiChanges,
     markReaderAiActiveChangeSetApplying,
+    prependReaderAiQueuedCommands,
     pruneAppliedReaderAiPaths,
     readerAiActiveChangeSet,
+    readerAiActiveRunId,
     readerAiApplyingChanges,
     readerAiConversationScope,
     readerAiChangeSets,
@@ -1147,6 +1151,7 @@ export function App() {
     readerAiError,
     readerAiHasEligibleSelection,
     readerAiMessages,
+    readerAiQueuedCommands,
     readerAiProposalStatusesByToolCallId,
     readerAiActiveEditorCheckpoint,
     readerAiRuns,
@@ -1161,6 +1166,7 @@ export function App() {
     rejectReaderAiChange,
     rejectReaderAiHunk,
     rejectReaderAiProposal,
+    removeReaderAiQueuedCommand,
     recordReaderAiAppliedChanges,
     resetReaderAiStagedState,
     resolveReaderAiStagedHunk,
@@ -7922,6 +7928,9 @@ export function App() {
             onEnableLocalCodex={enableLocalCodexModels}
             showLoginForMoreModels={!user}
             messages={readerAiMessages}
+            runs={readerAiRuns}
+            activeRunId={readerAiActiveRunId}
+            queuedCommands={readerAiQueuedCommands}
             sending={readerAiSending}
             toolStatus={readerAiToolStatus}
             toolLog={readerAiToolLog}
@@ -7950,6 +7959,10 @@ export function App() {
             onRevealChange={onReaderAiRevealChangeInEditor}
             onRevealHunk={onReaderAiRevealHunkInEditor}
             error={readerAiError}
+            onEnqueueCommand={enqueueReaderAiQueuedCommand}
+            onRemoveQueuedCommand={removeReaderAiQueuedCommand}
+            onPrependQueuedCommands={prependReaderAiQueuedCommands}
+            onClearQueuedCommands={clearReaderAiQueuedCommands}
             onSend={onReaderAiSend}
             onEditMessage={onReaderAiEditMessage}
             onRetryLastUserMessage={onReaderAiRetryLastMessage}

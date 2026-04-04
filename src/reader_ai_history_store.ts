@@ -19,6 +19,7 @@ export function persistReaderAiHistoryEntry(historyKey: string, entry: ReaderAiH
   persistReaderAiMessagesToHistory(
     historyKey,
     entry.messages,
+    entry.queuedCommands,
     entry.summary,
     entry.scope,
     entry.toolLog,

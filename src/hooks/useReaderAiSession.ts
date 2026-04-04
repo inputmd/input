@@ -99,6 +99,7 @@ export function useReaderAiSession({
   inlinePromptAbortRef,
 }: UseReaderAiSessionOptions) {
   const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
+  const [readerAiQueuedCommands, setReaderAiQueuedCommands] = useState<string[]>([]);
   const [readerAiSummary, setReaderAiSummary] = useState('');
   const [readerAiConversationScope, setReaderAiConversationScope] = useState<ReaderAiConversationScope | null>(null);
   const [readerAiHasEligibleSelection, setReaderAiHasEligibleSelection] = useState(false);
@@ -252,6 +253,7 @@ export function useReaderAiSession({
 
   const applyReaderAiSessionSnapshot = useCallback((snapshot: ReaderAiSessionSnapshot) => {
     setReaderAiMessages(snapshot.messages);
+    setReaderAiQueuedCommands(snapshot.queuedCommands);
     setReaderAiSummary(snapshot.summary);
     setReaderAiConversationScope(snapshot.scope);
     setReaderAiHasEligibleSelection(snapshot.hasEligibleSelection);
@@ -363,6 +365,7 @@ export function useReaderAiSession({
     () =>
       createReaderAiHistoryEntryFromSessionSnapshot({
         messages: readerAiMessages,
+        queuedCommands: readerAiQueuedCommands,
         summary: readerAiSummary,
         scope: readerAiConversationScope,
         toolLog: readerAiToolLog,
@@ -388,6 +391,7 @@ export function useReaderAiSession({
       readerAiConversationScope,
       readerAiEditProposals,
       readerAiMessages,
+      readerAiQueuedCommands,
       readerAiEditorCheckpoints,
       readerAiProposalStatusesByToolCallId,
       readerAiRuns,
@@ -484,6 +488,32 @@ export function useReaderAiSession({
     resetInlinePromptState();
     applyReaderAiSessionSnapshot(createEmptyReaderAiSessionSnapshot());
   }, [applyReaderAiSessionSnapshot, historyDocumentKey, inlinePromptAbortRef, resetInlinePromptState]);
+
+  const enqueueReaderAiQueuedCommand = useCallback((command: string) => {
+    const trimmed = command.trim();
+    if (!trimmed) return false;
+    let added = false;
+    setReaderAiQueuedCommands((current) => {
+      if (current.length >= 10) return current;
+      added = true;
+      return [...current, trimmed];
+    });
+    return added;
+  }, []);
+
+  const removeReaderAiQueuedCommand = useCallback((index: number) => {
+    setReaderAiQueuedCommands((current) => current.filter((_, commandIndex) => commandIndex !== index));
+  }, []);
+
+  const clearReaderAiQueuedCommands = useCallback(() => {
+    setReaderAiQueuedCommands([]);
+  }, []);
+
+  const prependReaderAiQueuedCommands = useCallback((commands: string[]) => {
+    const normalized = commands.map((command) => command.trim()).filter(Boolean);
+    if (normalized.length === 0) return;
+    setReaderAiQueuedCommands((current) => [...normalized, ...current].slice(0, 10));
+  }, []);
 
   const createReaderAiEditorRestorePoint = useCallback(
     (options: {
@@ -1328,16 +1358,20 @@ export function useReaderAiSession({
   return {
     acceptReaderAiProposal,
     buildReaderAiRetryRequest,
+    clearReaderAiQueuedCommands,
     clearReaderAi,
     clearReaderAiUndoState,
     createReaderAiEditorRestorePoint,
     effectiveReaderAiStagedChanges,
     effectiveReaderAiStagedFileContents,
+    enqueueReaderAiQueuedCommand,
     finalizeReaderAiActiveChangeSet,
     ignoreAllReaderAiChanges,
     markReaderAiActiveChangeSetApplying,
+    prependReaderAiQueuedCommands,
     pruneAppliedReaderAiPaths,
     readerAiActiveChangeSet,
+    readerAiActiveRunId,
     readerAiApplyingChanges,
     readerAiConversationScope,
     readerAiChangeSets,
@@ -1346,6 +1380,7 @@ export function useReaderAiSession({
     readerAiError,
     readerAiHasEligibleSelection,
     readerAiMessages,
+    readerAiQueuedCommands,
     readerAiProposalStatusesByToolCallId,
     readerAiSelectedChangeIds,
     readerAiSelectedHunkIdsByChangeId,
@@ -1359,6 +1394,7 @@ export function useReaderAiSession({
     rejectReaderAiChange,
     rejectReaderAiHunk,
     rejectReaderAiProposal,
+    removeReaderAiQueuedCommand,
     recordReaderAiAppliedChanges,
     readerAiStagedChanges,
     resetReaderAiStagedState,
