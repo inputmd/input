@@ -113,18 +113,14 @@ export function ToolLogSection({
   const proposalStatusLabel = (entryId?: string): string | null => {
     if (!entryId) return null;
     const status = proposalStatusesByToolCallId?.[entryId];
-    if (status === 'accepted') return 'Accepted';
-    if (status === 'rejected') return 'Rejected';
-    if (status === 'ignored') return 'Ignored';
+    if (status === 'rejected' || status === 'ignored') return 'Rejected';
     return null;
   };
 
   const proposalStatusClassName = (entryId?: string): string | null => {
     if (!entryId) return null;
     const status = proposalStatusesByToolCallId?.[entryId];
-    if (status === 'accepted') return 'reader-ai-tool-log-status-note--accepted';
-    if (status === 'rejected') return 'reader-ai-tool-log-status-note--rejected';
-    if (status === 'ignored') return 'reader-ai-tool-log-status-note--ignored';
+    if (status === 'rejected' || status === 'ignored') return 'reader-ai-tool-log-status-note--rejected';
     return null;
   };
 
@@ -158,38 +154,41 @@ export function ToolLogSection({
       </a>
       {isExpanded ? (
         <div class="reader-ai-tool-log-entries">
-          {grouped.generalEntries.map((entry, i) => (
-            <div key={`general:${i}`} class="reader-ai-tool-log-entry-block">
-              <div
-                class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
-                  entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
-                }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
-              >
-                <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
-                {showProposalStatusNote(entry) ? (
-                  <span
-                    class={`reader-ai-tool-log-status-note${proposalStatusClassName(entry.id) ? ` ${proposalStatusClassName(entry.id)}` : ''}`}
-                  >
-                    {proposalStatusLabel(entry.id)}
-                  </span>
-                ) : null}
-                {entrySecondaryText(entry, 90) ? (
-                  <span class="reader-ai-tool-log-detail">{entrySecondaryText(entry, 90)}</span>
-                ) : null}
+          {grouped.generalEntries.map((entry, i) => {
+            const proposalStatus = proposalStatusLabel(entry.id);
+            return (
+              <div key={`general:${i}`} class="reader-ai-tool-log-entry-block">
+                <div
+                  class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
+                    entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
+                  }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
+                >
+                  <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
+                  {showProposalStatusNote(entry) && proposalStatus ? (
+                    <span
+                      class={`reader-ai-tool-log-status-note${proposalStatusClassName(entry.id) ? ` ${proposalStatusClassName(entry.id)}` : ''}`}
+                    >
+                      {proposalStatus}
+                    </span>
+                  ) : null}
+                  {entrySecondaryText(entry, 90) ? (
+                    <span class="reader-ai-tool-log-detail">{entrySecondaryText(entry, 90)}</span>
+                  ) : null}
+                </div>
+                {entry.type === 'result' && entry.id
+                  ? (proposalsByToolCallId.get(entry.id) ?? []).map((proposal) => (
+                      <ReaderAiEditProposalCard
+                        key={proposal.id}
+                        proposal={proposal}
+                        onAccept={onAcceptProposal}
+                        onReject={onRejectProposal}
+                        onToggleHunkSelection={onToggleProposalHunkSelection}
+                      />
+                    ))
+                  : null}
               </div>
-              {entry.type === 'result' && entry.id
-                ? (proposalsByToolCallId.get(entry.id) ?? []).map((proposal) => (
-                    <ReaderAiEditProposalCard
-                      key={proposal.id}
-                      proposal={proposal}
-                      onAccept={onAcceptProposal}
-                      onReject={onRejectProposal}
-                      onToggleHunkSelection={onToggleProposalHunkSelection}
-                    />
-                  ))
-                : null}
-            </div>
-          ))}
+            );
+          })}
           {grouped.taskCards.map((card) => {
             const taskExpanded = live || expandedTaskIds.has(card.taskId);
             return (
@@ -203,38 +202,41 @@ export function ToolLogSection({
                 </button>
                 {taskExpanded ? (
                   <div class="reader-ai-tool-task-entries">
-                    {card.entries.map((entry, entryIndex) => (
-                      <div key={`${card.taskId}:${entryIndex}`} class="reader-ai-tool-log-entry-block">
-                        <div
-                          class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
-                            entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
-                          }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
-                        >
-                          <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
-                          {showProposalStatusNote(entry) ? (
-                            <span
-                              class={`reader-ai-tool-log-status-note${proposalStatusClassName(entry.id) ? ` ${proposalStatusClassName(entry.id)}` : ''}`}
-                            >
-                              {proposalStatusLabel(entry.id)}
-                            </span>
-                          ) : null}
-                          {entrySecondaryText(entry, 120) ? (
-                            <span class="reader-ai-tool-log-detail">{entrySecondaryText(entry, 120)}</span>
-                          ) : null}
+                    {card.entries.map((entry, entryIndex) => {
+                      const proposalStatus = proposalStatusLabel(entry.id);
+                      return (
+                        <div key={`${card.taskId}:${entryIndex}`} class="reader-ai-tool-log-entry-block">
+                          <div
+                            class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
+                              entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
+                            }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
+                          >
+                            <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
+                            {showProposalStatusNote(entry) && proposalStatus ? (
+                              <span
+                                class={`reader-ai-tool-log-status-note${proposalStatusClassName(entry.id) ? ` ${proposalStatusClassName(entry.id)}` : ''}`}
+                              >
+                                {proposalStatus}
+                              </span>
+                            ) : null}
+                            {entrySecondaryText(entry, 120) ? (
+                              <span class="reader-ai-tool-log-detail">{entrySecondaryText(entry, 120)}</span>
+                            ) : null}
+                          </div>
+                          {entry.type === 'result' && entry.id
+                            ? (proposalsByToolCallId.get(entry.id) ?? []).map((proposal) => (
+                                <ReaderAiEditProposalCard
+                                  key={proposal.id}
+                                  proposal={proposal}
+                                  onAccept={onAcceptProposal}
+                                  onReject={onRejectProposal}
+                                  onToggleHunkSelection={onToggleProposalHunkSelection}
+                                />
+                              ))
+                            : null}
                         </div>
-                        {entry.type === 'result' && entry.id
-                          ? (proposalsByToolCallId.get(entry.id) ?? []).map((proposal) => (
-                              <ReaderAiEditProposalCard
-                                key={proposal.id}
-                                proposal={proposal}
-                                onAccept={onAcceptProposal}
-                                onReject={onRejectProposal}
-                                onToggleHunkSelection={onToggleProposalHunkSelection}
-                              />
-                            ))
-                          : null}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>

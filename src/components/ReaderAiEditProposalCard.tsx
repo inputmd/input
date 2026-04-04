@@ -32,11 +32,11 @@ export function ReaderAiEditProposalCard({
   onToggleHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const accepted = proposal.status !== 'rejected';
+  const rejected = proposal.status === 'rejected';
   const selectedHunkIds = new Set(proposal.selectedHunkIds ?? proposal.change.hunks?.map((hunk) => hunk.id) ?? []);
 
   return (
-    <div class={`reader-ai-edit-proposal${accepted ? '' : ' reader-ai-edit-proposal--rejected'}`}>
+    <div class={`reader-ai-edit-proposal${rejected ? ' reader-ai-edit-proposal--rejected' : ''}`}>
       <div class="reader-ai-edit-proposal-header-row">
         <a
           href="#"
@@ -54,20 +54,15 @@ export function ReaderAiEditProposalCard({
           <span class="reader-ai-staged-change-path">{proposal.change.path}</span>
         </a>
         <div class="reader-ai-edit-proposal-actions">
-          <button
-            type="button"
-            class={`reader-ai-edit-proposal-action${accepted ? ' reader-ai-edit-proposal-action--active' : ''}`}
-            onClick={() => onAccept?.(proposal.id)}
-          >
-            Include
-          </button>
-          <button
-            type="button"
-            class={`reader-ai-edit-proposal-action${accepted ? '' : ' reader-ai-edit-proposal-action--danger'}`}
-            onClick={() => onReject?.(proposal.id)}
-          >
-            Exclude
-          </button>
+          {rejected ? (
+            <button type="button" class="reader-ai-edit-proposal-action" onClick={() => onAccept?.(proposal.id)}>
+              Undo reject
+            </button>
+          ) : (
+            <button type="button" class="reader-ai-edit-proposal-action" onClick={() => onReject?.(proposal.id)}>
+              Reject
+            </button>
+          )}
         </div>
       </div>
       {expanded ? (
@@ -75,7 +70,7 @@ export function ReaderAiEditProposalCard({
           {proposal.change.hunks && proposal.change.hunks.length > 0 ? (
             <div class="reader-ai-staged-hunks">
               {proposal.change.hunks.map((hunk) => {
-                const hunkSelected = accepted && selectedHunkIds.has(hunk.id);
+                const hunkSelected = !rejected && selectedHunkIds.has(hunk.id);
                 return (
                   <div
                     key={hunk.id}
@@ -91,7 +86,7 @@ export function ReaderAiEditProposalCard({
                             ? 'Exclude this hunk from the proposal'
                             : 'Accept this hunk back into the proposal'
                         }
-                        disabled={!accepted}
+                        disabled={rejected}
                       >
                         {renderSelectionToggle(hunkSelected, 'Toggle proposal hunk selection')}
                       </button>

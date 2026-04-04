@@ -1336,7 +1336,6 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
 }
 
 .reader-ai-edit-proposal-header {
@@ -1371,6 +1370,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   background: transparent;
   color: var(--text-secondary);
@@ -1384,6 +1384,13 @@
 .reader-ai-edit-proposal-action:hover {
   color: var(--text);
   background: var(--btn-hover);
+}
+
+.reader-ai-edit-proposal-action:focus,
+.reader-ai-edit-proposal-action:focus-visible {
+  outline: 1px solid var(--field-focus-border);
+  outline-offset: 0;
+  border-color: color-mix(in srgb, var(--field-focus-border) 55%, var(--border));
 }
 
 .reader-ai-edit-proposal-action--active {
