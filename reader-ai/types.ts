@@ -167,6 +167,7 @@ export interface DocumentEditState {
   source: string;
   lines: string[];
   currentDocPath?: string | null;
+  stagedOriginalContent: string | null;
   stagedContent: string | null;
   stagedDiff: string | null;
   stagedRevision: number;

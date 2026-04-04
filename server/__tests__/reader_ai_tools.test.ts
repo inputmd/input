@@ -171,6 +171,7 @@ test('propose_edit_document supports line-range replacement', (t) => {
     source: 'a\nb\nc\nd',
     lines: ['a', 'b', 'c', 'd'],
     currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
   };
@@ -180,6 +181,7 @@ test('propose_edit_document supports line-range replacement', (t) => {
   t.is(parsed.mode, 'line_range');
   t.is(state.source, 'a\nX\nY\nd');
   t.truthy(state.stagedContent);
+  t.is(state.stagedOriginalContent, 'a\nb\nc\nd');
 });
 
 test('propose_edit_document supports atomic batched edits', (t) => {
@@ -187,6 +189,7 @@ test('propose_edit_document supports atomic batched edits', (t) => {
     source: 'one\ntwo\nthree',
     lines: ['one', 'two', 'three'],
     currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
   };
@@ -206,6 +209,7 @@ test('propose_edit_document batch failures are atomic', (t) => {
     source: 'alpha\nbeta',
     lines: ['alpha', 'beta'],
     currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
   };
@@ -225,6 +229,7 @@ test('propose_edit_document dry_run previews without applying', (t) => {
     source: 'left right',
     lines: ['left right'],
     currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
   };
@@ -234,6 +239,7 @@ test('propose_edit_document dry_run previews without applying', (t) => {
   t.true(parsed.dry_run);
   t.false(parsed.applied);
   t.is(state.source, 'left right');
+  t.is(state.stagedOriginalContent, null);
   t.is(state.stagedContent, null);
 });
 
@@ -242,6 +248,7 @@ test('propose_edit_document returns structured invalid_json error', (t) => {
     source: 'x',
     lines: ['x'],
     currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
   };
@@ -256,6 +263,7 @@ test('propose_edit_document returns ambiguity hints', (t) => {
     source: 'repeat\nx\nrepeat\ny\nrepeat',
     lines: ['repeat', 'x', 'repeat', 'y', 'repeat'],
     currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
   };
@@ -268,6 +276,25 @@ test('propose_edit_document returns ambiguity hints', (t) => {
   t.is(parsed.error?.code, 'ambiguous_match');
   t.true((parsed.error?.details?.matches?.length ?? 0) >= 2);
   t.true((parsed.error?.details?.matches?.[0]?.start_line ?? 0) >= 1);
+});
+
+test('propose_edit_document updates staged original content for each successive proposal', (t) => {
+  const state = {
+    source: 'alpha\nbeta\ngamma',
+    lines: ['alpha', 'beta', 'gamma'],
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+  };
+
+  executeReaderAiEditDocumentTool('{"old_text":"beta","new_text":"BETA"}', state);
+  t.is(state.stagedOriginalContent, 'alpha\nbeta\ngamma');
+  t.is(state.stagedContent, 'alpha\nBETA\ngamma');
+
+  executeReaderAiEditDocumentTool('{"old_text":"gamma","new_text":"GAMMA"}', state);
+  t.is(state.stagedOriginalContent, 'alpha\nBETA\ngamma');
+  t.is(state.stagedContent, 'alpha\nBETA\nGAMMA');
 });
 
 // ── executeReaderAiSearchDocument ──

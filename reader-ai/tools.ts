@@ -952,6 +952,7 @@ export function executeReaderAiEditDocumentTool(argsJson: string, state: Documen
 
   const diff = generateUnifiedDiff(path, state.source, working);
   if (!dryRun) {
+    state.stagedOriginalContent = state.source;
     state.source = working;
     state.lines = working.split('\n');
     state.stagedContent = working;
