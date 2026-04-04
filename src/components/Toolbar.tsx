@@ -11,10 +11,10 @@ import {
   Globe,
   Link2,
   Lock,
+  MessagesSquare,
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
-  Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
@@ -1118,7 +1118,7 @@ export function Toolbar({
                   disabled={aiDisabled}
                   onClick={onToggleAi}
                 >
-                  <Sparkles size={16} />
+                  <MessagesSquare size={16} />
                 </button>
               ) : null}
               {showAiModelSelector ? (
