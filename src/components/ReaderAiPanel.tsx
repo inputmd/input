@@ -41,6 +41,7 @@ interface ReaderAiPanelProps {
   stagedChangesStreaming?: boolean;
   applyingChanges: boolean;
   canApplyWithoutSaving: boolean;
+  applyDisabledReasonLabel?: string | null;
   editorProposalMode?: boolean;
   canUndoEditorApply?: boolean;
   onApplyWithoutSaving: () => void;
@@ -163,6 +164,7 @@ export function ReaderAiPanel({
   stagedChangesStreaming = false,
   applyingChanges,
   canApplyWithoutSaving,
+  applyDisabledReasonLabel = null,
   editorProposalMode = false,
   canUndoEditorApply = false,
   onApplyWithoutSaving,
@@ -889,6 +891,7 @@ export function ReaderAiPanel({
             title={editProposals.length > 0 ? 'Proposed changes' : undefined}
             applying={applyingChanges}
             canApplyWithoutSaving={canApplyWithoutSaving}
+            applyDisabledReasonLabel={applyDisabledReasonLabel}
             editorProposalMode={editorProposalMode}
             canUndoEditorApply={canUndoEditorApply}
             reviewControls={false}

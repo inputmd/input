@@ -53,6 +53,7 @@ export function StagedChangesSection({
   selectedChangeIds,
   selectedHunkIds,
   canApplyWithoutSaving,
+  applyDisabledReasonLabel,
   currentEditorPath,
   activeReviewTarget,
   onIgnoreAll,
@@ -75,6 +76,7 @@ export function StagedChangesSection({
   selectedChangeIds?: Set<string>;
   selectedHunkIds?: Record<string, Set<string>>;
   canApplyWithoutSaving?: boolean;
+  applyDisabledReasonLabel?: string | null;
   currentEditorPath?: string | null;
   activeReviewTarget?: { changeId: string; hunkId?: string } | null;
   onIgnoreAll?: () => void;
@@ -92,8 +94,11 @@ export function StagedChangesSection({
     () => new Set(changes.filter((change) => shouldExpandChangeByDefault(change)).map((change) => change.path)),
   );
   const [popoutOpen, setPopoutOpen] = useState(false);
-  const canApply = canApplyWithoutSaving;
-  const showFooter = canApply || Boolean(editorProposalMode && canUndoEditorApply);
+  const canApply = canApplyWithoutSaving === true;
+  const canDiscard = typeof onIgnoreAll === 'function';
+  const applyLabelBase = editorProposalMode ? 'Apply changes' : 'Apply without saving';
+  const applyLabel =
+    !canApply && applyDisabledReasonLabel ? `${applyLabelBase} (${applyDisabledReasonLabel})` : applyLabelBase;
 
   useEffect(() => {
     setExpandedPaths((prev) => {
@@ -309,54 +314,40 @@ export function StagedChangesSection({
         <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
           Reviewing live proposals. Apply actions unlock when streaming finishes.
         </div>
-      ) : showFooter ? (
+      ) : (
         <div class="reader-ai-staged-changes-footer">
           <div class="reader-ai-staged-changes-actions">
-            {editorProposalMode ? (
-              <>
-                {canUndoEditorApply ? (
-                  <button
-                    type="button"
-                    class="reader-ai-staged-changes-secondary"
-                    onClick={() => onUndoEditorApply?.()}
-                    disabled={applying}
-                  >
-                    Restore
-                  </button>
-                ) : canApplyWithoutSaving ? (
-                  <button
-                    type="button"
-                    class="reader-ai-staged-changes-secondary"
-                    onClick={() => onIgnoreAll?.()}
-                    disabled={applying}
-                  >
-                    Discard all changes
-                  </button>
-                ) : null}
-                {canApplyWithoutSaving ? (
-                  <button
-                    type="button"
-                    class="reader-ai-staged-changes-apply"
-                    onClick={() => onApplyWithoutSaving?.()}
-                    disabled={applying}
-                  >
-                    {applying ? 'Applying…' : 'Apply changes'}
-                  </button>
-                ) : null}
-              </>
-            ) : canApplyWithoutSaving ? (
+            {editorProposalMode && canUndoEditorApply ? (
               <button
                 type="button"
-                class="reader-ai-staged-changes-apply"
-                onClick={() => onApplyWithoutSaving?.()}
+                class="reader-ai-staged-changes-secondary"
+                onClick={() => onUndoEditorApply?.()}
                 disabled={applying}
               >
-                {applying ? 'Applying…' : 'Apply without saving'}
+                Restore
               </button>
             ) : null}
+            {canDiscard ? (
+              <button
+                type="button"
+                class="reader-ai-staged-changes-secondary"
+                onClick={() => onIgnoreAll?.()}
+                disabled={applying}
+              >
+                Discard all changes
+              </button>
+            ) : null}
+            <button
+              type="button"
+              class="reader-ai-staged-changes-apply"
+              onClick={() => onApplyWithoutSaving?.()}
+              disabled={applying || !canApply}
+            >
+              {applying ? 'Applying…' : applyLabel}
+            </button>
           </div>
         </div>
-      ) : null}
+      )}
       {popoutOpen ? <SideBySideDiffModal changes={changes} onClose={() => setPopoutOpen(false)} /> : null}
     </div>
   );

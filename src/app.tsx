@@ -7649,7 +7649,15 @@ export function App() {
     activeView === 'edit' &&
     readerAiSelectedChangesApplyPreparation.selectedChanges.length === 1 &&
     (canApplyFromInlineDocumentEdit || hasCurrentEditingSelectedStagedContent);
-  const isEditorProposalWorkflow = canApplyWithoutSaving;
+  const applyDisabledReasonLabel = useMemo(() => {
+    const reasons = new Set(readerAiSelectedChangesApplyPreparation.invalid.map((entry) => entry.reason));
+    if (reasons.size === 0) return null;
+    if (reasons.has('stale') && reasons.has('missing_content')) return 'stale, missing content';
+    if (reasons.has('stale')) return 'stale';
+    if (reasons.has('missing_content')) return 'missing content';
+    return null;
+  }, [readerAiSelectedChangesApplyPreparation.invalid]);
+  const isEditorProposalWorkflow = activeView === 'edit';
   return (
     <>
       <Toolbar
@@ -7871,6 +7879,7 @@ export function App() {
             stagedChangesStreaming={readerAiStagedChangesStreaming}
             applyingChanges={readerAiApplyingChanges}
             canApplyWithoutSaving={canApplyWithoutSaving}
+            applyDisabledReasonLabel={applyDisabledReasonLabel}
             editorProposalMode={isEditorProposalWorkflow}
             canUndoEditorApply={canUndoReaderAiApply}
             onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}

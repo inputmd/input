@@ -1556,6 +1556,11 @@
   cursor: default;
 }
 
+.reader-ai-staged-changes-apply:disabled:hover {
+  background: var(--success-color);
+  border-color: color-mix(in srgb, var(--success-color) 86%, transparent);
+}
+
 .reader-ai-staged-changes-secondary {
   font: inherit;
   font-size: 12px;
