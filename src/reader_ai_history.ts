@@ -364,6 +364,7 @@ export function persistReaderAiMessagesToHistory(
   editProposals?: ReaderAiEditProposal[],
   proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>,
   stagedChanges?: ReaderAiStagedChange[],
+  stagedChangesInvalid?: boolean,
   stagedFileContents?: Record<string, string>,
   appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>,
 ): void {
@@ -383,6 +384,7 @@ export function persistReaderAiMessagesToHistory(
   if (proposalStatusesByToolCallId && Object.keys(proposalStatusesByToolCallId).length > 0)
     entry.proposalStatusesByToolCallId = proposalStatusesByToolCallId;
   if (stagedChanges && stagedChanges.length > 0) entry.stagedChanges = stagedChanges;
+  if (stagedChangesInvalid === true) entry.stagedChangesInvalid = true;
   if (stagedFileContents && Object.keys(stagedFileContents).length > 0) entry.stagedFileContents = stagedFileContents;
   if (appliedChanges && appliedChanges.length > 0)
     entry.appliedChanges = appliedChanges.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);

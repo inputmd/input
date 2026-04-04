@@ -1,4 +1,4 @@
-import { applyPatch as applyDiffPatch, createTwoFilesPatch } from 'diff';
+import { createTwoFilesPatch } from 'diff';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { parseAnsiToHtml } from './ansi';
@@ -98,6 +98,7 @@ import {
   useDocumentPersistence,
 } from './hooks/useDocumentPersistence';
 import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
+import { buildReaderAiHistoryDocumentKey, useReaderAiSession } from './hooks/useReaderAiSession';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown } from './image_markdown';
 import {
@@ -139,18 +140,12 @@ import {
   formatReaderAiModelDisplayName,
   listReaderAiModels,
   localCodexEnabledByPreference,
-  type ReaderAiEditProposal,
   type ReaderAiModel,
   type ReaderAiStagedChange,
   readerAiModelPriorityRank,
   setLocalCodexEnabledByPreference,
 } from './reader_ai';
-import {
-  buildReaderAiHistoryDocumentKey,
-  clearReaderAiMessagesFromHistory,
-  loadReaderAiEntryFromHistory,
-  persistReaderAiMessagesToHistory,
-} from './reader_ai_history';
+import { buildReaderAiContextLogPayload, trimReaderAiSource } from './reader_ai_context';
 import { READER_AI_SELECTION_MAX_CHARS } from './reader_ai_limits';
 import { matchRoute, type Route, routePath } from './routing';
 import {
@@ -220,7 +215,6 @@ const OAUTH_REDIRECT_GUARD_WINDOW_MS = 15_000;
 const AUTO_ONCE_GUARD_KEY_PREFIX = 'auto_once_guard:';
 const MARKDOWN_LINK_PREVIEW_MAX_CHARS = 1800;
 const MARKDOWN_LINK_PREVIEW_MAX_LINES = 18;
-const READER_AI_SOURCE_MAX_CHARS = 140_000;
 const DRAFT_PERSIST_DELAY_MS = 250;
 const INPUT_GITHUB_REPO_FULL_NAME = 'inputmd/input';
 const INPUT_GITHUB_SOURCE_PATH = 'README.md';
@@ -398,59 +392,11 @@ function removeImagesFromHtml(html: string): string {
   return template.innerHTML;
 }
 
-function trimReaderAiSource(source: string): string {
-  if (source.length <= READER_AI_SOURCE_MAX_CHARS) return source;
-  return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
-}
-
-type ReaderAiConversationScope = { kind: 'document' } | { kind: 'selection'; source: string };
-
 function stripLeadingFrontMatter(source: string): string {
   const normalized = source.replace(/^\uFEFF/, '').replace(/^(?:[ \t]*\r?\n)+/, '');
   const frontMatter = parseMarkdownFrontMatterBlock(normalized);
   if (!frontMatter || frontMatter.error) return source;
   return frontMatter.content;
-}
-
-function estimateApproxReaderAiTokens(text: string): number {
-  if (!text) return 0;
-  return Math.ceil(new TextEncoder().encode(text).length / 4);
-}
-
-function buildReaderAiContextLogPayload(options: {
-  model: ReaderAiModel | null;
-  source: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  summary?: string;
-  mode: 'default' | 'prompt_list';
-  currentDocPath?: string | null;
-}) {
-  const summary = options.summary?.trim() ?? '';
-  const sourceTokens = estimateApproxReaderAiTokens(options.source);
-  const messageTokens =
-    options.messages.reduce((sum, message) => sum + estimateApproxReaderAiTokens(message.content) + 8, 0) +
-    options.messages.length * 4;
-  const summaryTokens = estimateApproxReaderAiTokens(summary);
-  const approxInputTokens = sourceTokens + messageTokens + summaryTokens;
-  const contextLength = options.model?.context_length ?? 0;
-  const approxRemainingTokens = contextLength > 0 ? Math.max(0, contextLength - approxInputTokens) : null;
-
-  return {
-    model: options.model?.id ?? 'unknown',
-    mode: options.mode,
-    currentDocPath: options.currentDocPath ?? null,
-    messageCount: options.messages.length,
-    sourceChars: options.source.length,
-    summaryChars: summary.length,
-    approxInputTokens,
-    approxRemainingTokens,
-    approxContextUsedPercent: contextLength > 0 ? Number(((approxInputTokens / contextLength) * 100).toFixed(2)) : null,
-    contextLength: contextLength > 0 ? contextLength : null,
-    note:
-      contextLength > 0
-        ? 'Approximate client-side estimate; excludes server-added system prompt and tool overhead.'
-        : 'Model context length unavailable.',
-  };
 }
 
 function clampSidebarWidth(width: number): number {
@@ -737,54 +683,6 @@ function buildEditorDiffPreview(change: ReaderAiStagedChange | undefined): Edito
   };
 }
 
-function buildReaderAiSelectedChange(
-  change: ReaderAiStagedChange,
-  selectedHunkIds: Set<string> | undefined,
-): ReaderAiStagedChange | null {
-  if (!change.hunks || change.hunks.length === 0) return change;
-  if (!selectedHunkIds || selectedHunkIds.size === 0) return null;
-  const visibleHunks = change.hunks.filter((hunk) => selectedHunkIds.has(hunk.id));
-  if (visibleHunks.length === 0) return null;
-  if (visibleHunks.length === change.hunks.length) return change;
-  const original =
-    change.type === 'create'
-      ? ''
-      : typeof change.originalContent === 'string'
-        ? change.originalContent
-        : change.originalContent === null
-          ? ''
-          : null;
-  if (original === null) return null;
-  const partialDiff = [
-    `--- a/${change.path}`,
-    `+++ b/${change.path}`,
-    ...visibleHunks.flatMap((hunk) => [
-      hunk.header,
-      ...hunk.lines.map((line) => {
-        if (line.type === 'add') return `+${line.content}`;
-        if (line.type === 'del') return `-${line.content}`;
-        return ` ${line.content}`;
-      }),
-    ]),
-  ].join('\n');
-  const patched = applyDiffPatch(original, partialDiff);
-  if (patched === false) return null;
-  return {
-    ...change,
-    diff: partialDiff,
-    modifiedContent: change.type === 'delete' ? null : patched,
-    hunks: visibleHunks,
-  } satisfies ReaderAiStagedChange;
-}
-
-function buildEffectiveReaderAiProposalChange(proposal: ReaderAiEditProposal): ReaderAiStagedChange | null {
-  if (proposal.status === 'rejected') return null;
-  return buildReaderAiSelectedChange(
-    proposal.change,
-    Array.isArray(proposal.selectedHunkIds) ? new Set(proposal.selectedHunkIds) : undefined,
-  );
-}
-
 function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | null {
   if (!state || typeof state !== 'object') return null;
   const restoreDraft = (state as { restoreDraft?: unknown }).restoreDraft;
@@ -824,24 +722,6 @@ function withScratchSidebarFile(files: SidebarFile[], scratchPath: string | null
   });
   nextFiles.sort((a, b) => a.path.localeCompare(b.path));
   return nextFiles;
-}
-
-type ReaderAiProposalToolCallStatus = 'accepted' | 'rejected' | 'ignored';
-
-function getReaderAiProposalStatusesFromHistory(
-  loaded: ReturnType<typeof loadReaderAiEntryFromHistory>,
-): Record<string, ReaderAiProposalToolCallStatus> {
-  if (loaded.proposalStatusesByToolCallId && Object.keys(loaded.proposalStatusesByToolCallId).length > 0) {
-    return loaded.proposalStatusesByToolCallId;
-  }
-  return Object.fromEntries(
-    (loaded.editProposals ?? [])
-      .filter(
-        (proposal): proposal is ReaderAiEditProposal & { toolCallId: string; status: 'accepted' | 'rejected' } =>
-          typeof proposal.toolCallId === 'string' && (proposal.status === 'accepted' || proposal.status === 'rejected'),
-      )
-      .map((proposal) => [proposal.toolCallId, proposal.status]),
-  );
 }
 
 async function copyTextToClipboard(text: string): Promise<void> {
@@ -980,38 +860,9 @@ export function App() {
     }
   });
   const [sidePaneWidth, setSidePaneWidth] = useState<number>(() => readStoredSidePaneWidth());
-  const [readerAiMessages, setReaderAiMessages] = useState<ReaderAiMessage[]>([]);
-  const [readerAiSummary, setReaderAiSummary] = useState<string>('');
-  const [readerAiConversationScope, setReaderAiConversationScope] = useState<ReaderAiConversationScope | null>(null);
-  const [readerAiHasEligibleSelection, setReaderAiHasEligibleSelection] = useState(false);
-  const [readerAiSending, setReaderAiSending] = useState(false);
   const [contentSourceViewVisible, setContentSourceViewVisible] = useState(false);
-  const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
-  const [readerAiToolLog, setReaderAiToolLog] = useState<
-    Array<{ type: 'call' | 'result' | 'progress'; id?: string; name: string; detail?: string; taskId?: string }>
-  >([]);
-  const [readerAiEditProposals, setReaderAiEditProposals] = useState<ReaderAiEditProposal[]>([]);
-  const [readerAiProposalStatusesByToolCallId, setReaderAiProposalStatusesByToolCallId] = useState<
-    Record<string, ReaderAiProposalToolCallStatus>
-  >({});
-  const [readerAiStagedChanges, setReaderAiStagedChanges] = useState<ReaderAiStagedChange[]>([]);
-  const readerAiStagedChangesStreaming =
-    readerAiSending && (readerAiEditProposals.length > 0 || readerAiStagedChanges.length > 0);
-  const [readerAiAppliedChanges, setReaderAiAppliedChanges] = useState<
-    Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>
-  >([]);
-  const [readerAiUndoState, setReaderAiUndoState] = useState<{
-    path: string;
-    content: string;
-    revision: number;
-  } | null>(null);
-  const [readerAiStagedChangesInvalid, setReaderAiStagedChangesInvalid] = useState(false);
-  const [readerAiStagedFileContents, setReaderAiStagedFileContents] = useState<Record<string, string>>({});
-  const [readerAiDocumentEditedContent, setReaderAiDocumentEditedContent] = useState<string | null>(null);
-  const [readerAiApplyingChanges, setReaderAiApplyingChanges] = useState(false);
   const [inlinePromptStreaming, setInlinePromptStreaming] = useState(false);
   const [inlinePromptProtectedRange, setInlinePromptProtectedRange] = useState<EditorProtectedRange | null>(null);
-  const [readerAiError, setReaderAiError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
   const [currentGistCreatedAt, setCurrentGistCreatedAt] = useState<string | null>(null);
@@ -1063,10 +914,6 @@ export function App() {
     } catch {}
     return DEFAULT_SIDEBAR_WIDTH_PX;
   });
-  const [readerAiSelectedChangeIds, setReaderAiSelectedChangeIds] = useState<Set<string>>(() => new Set());
-  const [readerAiSelectedHunkIdsByChangeId, setReaderAiSelectedHunkIdsByChangeId] = useState<
-    Record<string, Set<string>>
-  >(() => ({}));
   const [isDesktopWidth, setIsDesktopWidth] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
@@ -1074,49 +921,14 @@ export function App() {
   const defaultSidePane = useCallback(() => defaultSidePaneForViewport(), []);
   const previewVisible = sidePane === 'preview';
   const readerAiVisible = sidePane === 'reader-ai';
-  const effectiveReaderAiStagedChanges = useMemo(() => {
-    if (readerAiEditProposals.length > 0) {
-      const latestAcceptedByPath = new Map<string, ReaderAiStagedChange>();
-      for (const proposal of readerAiEditProposals) {
-        const effectiveChange = buildEffectiveReaderAiProposalChange(proposal);
-        if (!effectiveChange) continue;
-        latestAcceptedByPath.set(effectiveChange.path, effectiveChange);
-      }
-      return Array.from(latestAcceptedByPath.values());
-    }
-    return readerAiStagedChanges.flatMap((change) => {
-      if (change.id && !readerAiSelectedChangeIds.has(change.id)) return [];
-      const effectiveChange = buildReaderAiSelectedChange(
-        change,
-        change.id ? readerAiSelectedHunkIdsByChangeId[change.id] : undefined,
-      );
-      return effectiveChange ? [effectiveChange] : [];
-    });
-  }, [readerAiEditProposals, readerAiSelectedChangeIds, readerAiSelectedHunkIdsByChangeId, readerAiStagedChanges]);
-  const effectiveReaderAiStagedFileContents = useMemo(
-    () =>
-      Object.fromEntries(
-        effectiveReaderAiStagedChanges
-          .filter((change) => change.type !== 'delete' && typeof change.modifiedContent === 'string')
-          .map((change) => [change.path, change.modifiedContent as string]),
-      ),
-    [effectiveReaderAiStagedChanges],
-  );
   // Track initialization
   const initialized = useRef(false);
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
   const markdownLinkPreviewPendingRef = useRef(new Map<string, Promise<{ title: string; html: string } | null>>());
-  const readerAiAbortRef = useRef<AbortController | null>(null);
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const inlinePromptProtectedRangeRef = useRef<EditorProtectedRange | null>(inlinePromptProtectedRange);
   const editViewControllerRef = useRef<EditorController | null>(null);
-  const readerAiStagedChangesRef = useRef<ReaderAiStagedChange[]>(readerAiStagedChanges);
-  const readerAiEditProposalsRef = useRef<ReaderAiEditProposal[]>(readerAiEditProposals);
-  const readerAiSelectedChangeIdsRef = useRef<Set<string>>(readerAiSelectedChangeIds);
-  const readerAiSelectedHunkIdsByChangeIdRef = useRef<Record<string, Set<string>>>(readerAiSelectedHunkIdsByChangeId);
   const currentFileNameRef = useRef<string | null>(currentFileName);
-  const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
-  const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const prevRouteNameRef = useRef(route.name);
   const sidePaneSkipPersistRef = useRef(false);
   const pendingGistDraftDirtyRef = useRef(false);
@@ -1131,18 +943,6 @@ export function App() {
     window.clearTimeout(editContentSnapshotTimerRef.current);
     editContentSnapshotTimerRef.current = null;
   }, []);
-  useEffect(() => {
-    readerAiStagedChangesRef.current = readerAiStagedChanges;
-  }, [readerAiStagedChanges]);
-  useEffect(() => {
-    readerAiEditProposalsRef.current = readerAiEditProposals;
-  }, [readerAiEditProposals]);
-  useEffect(() => {
-    readerAiSelectedChangeIdsRef.current = readerAiSelectedChangeIds;
-  }, [readerAiSelectedChangeIds]);
-  useEffect(() => {
-    readerAiSelectedHunkIdsByChangeIdRef.current = readerAiSelectedHunkIdsByChangeId;
-  }, [readerAiSelectedHunkIdsByChangeId]);
   useEffect(() => {
     inlinePromptProtectedRangeRef.current = inlinePromptProtectedRange;
   }, [inlinePromptProtectedRange]);
@@ -1285,19 +1085,6 @@ export function App() {
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
   );
-  const currentEditorDiffPreview = useMemo(() => {
-    if (activeView !== 'edit' || !currentEditingDocPath) return null;
-    const currentChange = effectiveReaderAiStagedChanges.find((change) => change.path === currentEditingDocPath);
-    return buildEditorDiffPreview(currentChange);
-  }, [activeView, currentEditingDocPath, effectiveReaderAiStagedChanges]);
-  const currentEditorChangeMarkers = useMemo(() => {
-    if (activeView !== 'edit') return null;
-    if (currentDocumentSavedContent === null) return null;
-    if (!hasUnsavedChanges) return null;
-    if (currentEditorDiffPreview) return null;
-    const markers = buildEditorChangeMarkers(currentDocumentSavedContent, editContent);
-    return markers.length > 0 ? markers : null;
-  }, [activeView, currentDocumentSavedContent, editContent, hasUnsavedChanges, currentEditorDiffPreview]);
   const isScratchDocument = useMemo(
     () =>
       activeView === 'edit' &&
@@ -1340,9 +1127,6 @@ export function App() {
   useEffect(() => {
     document.title = browserWindowTitle;
   }, [browserWindowTitle]);
-  const readerAiSaveLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
-  const readerAiNavigationLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
-  const readerAiEditorLocked = activeView === 'edit' && readerAiApplyingChanges;
   const editorLockLabel = useMemo(() => {
     const selectedModel = readerAiModels.find((model) => model.id === readerAiSelectedModel);
     return selectedModel ? formatReaderAiModelDisplayName(selectedModel) : 'Reader AI';
@@ -1394,6 +1178,66 @@ export function App() {
       }),
     [currentRepoDocPath, currentGistId, currentFileName, repoAccessMode, selectedRepo, publicRepoRef, route],
   );
+  const {
+    acceptReaderAiProposal,
+    clearReaderAi,
+    clearReaderAiUndoState,
+    effectiveReaderAiStagedChanges,
+    effectiveReaderAiStagedFileContents,
+    ignoreAllReaderAiChanges,
+    pruneAppliedReaderAiPaths,
+    readerAiApplyingChanges,
+    readerAiConversationScope,
+    readerAiDocumentEditedContent,
+    readerAiEditProposals,
+    readerAiError,
+    readerAiHasEligibleSelection,
+    readerAiMessages,
+    readerAiProposalStatusesByToolCallId,
+    readerAiSelectedChangeIds,
+    readerAiSelectedHunkIdsByChangeId,
+    readerAiSending,
+    readerAiStagedChangesInvalid,
+    readerAiStagedChangesStreaming,
+    readerAiToolLog,
+    readerAiToolStatus,
+    readerAiUndoState,
+    rejectReaderAiChange,
+    rejectReaderAiHunk,
+    rejectReaderAiProposal,
+    recordReaderAiAppliedChanges,
+    resetReaderAiStagedState,
+    setReaderAiApplyingChanges,
+    setReaderAiError,
+    setReaderAiHasEligibleSelection,
+    setReaderAiUndoState,
+    startReaderAiStream,
+    stopReaderAi,
+    toggleReaderAiChangeSelection,
+    toggleReaderAiHunkSelection,
+    toggleReaderAiProposalHunkSelection,
+  } = useReaderAiSession({
+    historyEligible: readerAiHistoryEligible,
+    historyDocumentKey: readerAiHistoryDocumentKey,
+    resetInlinePromptState,
+    inlinePromptAbortRef,
+  });
+  const readerAiSaveLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
+  const readerAiNavigationLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
+  const readerAiEditorLocked = activeView === 'edit' && readerAiApplyingChanges;
+  const currentEditorDiffPreview = useMemo(() => {
+    if (activeView !== 'edit' || !currentEditingDocPath) return null;
+    const currentChange = effectiveReaderAiStagedChanges.find((change) => change.path === currentEditingDocPath);
+    return buildEditorDiffPreview(currentChange);
+  }, [activeView, currentEditingDocPath, effectiveReaderAiStagedChanges]);
+  const currentEditorChangeMarkers = useMemo(() => {
+    if (activeView !== 'edit') return null;
+    if (currentDocumentSavedContent === null) return null;
+    if (!hasUnsavedChanges) return null;
+    if (currentEditorDiffPreview) return null;
+    const markers = buildEditorChangeMarkers(currentDocumentSavedContent, editContent);
+    return markers.length > 0 ? markers : null;
+  }, [activeView, currentDocumentSavedContent, editContent, hasUnsavedChanges, currentEditorDiffPreview]);
   const currentDocumentScrollKey = useMemo(
     () => routeKeyFromRoute(route) ?? readerAiHistoryDocumentKey,
     [route, readerAiHistoryDocumentKey],
@@ -3746,115 +3590,6 @@ export function App() {
     void loadReaderAiModels();
   }, [loadReaderAiModels]);
 
-  useEffect(() => {
-    const prevHistoryKey = readerAiPrevHistoryKeyRef.current;
-    if (readerAiHistoryEligible && readerAiHistoryDocumentKey) {
-      if (prevHistoryKey !== readerAiHistoryDocumentKey) {
-        readerAiSkipPersistHistoryKeyRef.current = readerAiHistoryDocumentKey;
-        readerAiAbortRef.current?.abort();
-        readerAiAbortRef.current = null;
-        inlinePromptAbortRef.current?.abort();
-        resetInlinePromptState();
-        setReaderAiSending(false);
-        setReaderAiToolStatus(null);
-        const loaded = loadReaderAiEntryFromHistory(readerAiHistoryDocumentKey);
-        setReaderAiMessages(loaded.messages);
-        setReaderAiSummary(loaded.summary ?? '');
-        setReaderAiConversationScope(loaded.scope ?? null);
-        setReaderAiHasEligibleSelection(false);
-        setReaderAiToolLog(loaded.toolLog ?? []);
-        setReaderAiEditProposals(loaded.editProposals ?? []);
-        setReaderAiProposalStatusesByToolCallId(getReaderAiProposalStatusesFromHistory(loaded));
-        setReaderAiStagedChanges(loaded.stagedChanges ?? []);
-        setReaderAiSelectedChangeIds(
-          new Set(
-            (loaded.stagedChanges ?? [])
-              .map((change) => change.id)
-              .filter((id): id is string => typeof id === 'string'),
-          ),
-        );
-        setReaderAiSelectedHunkIdsByChangeId(
-          Object.fromEntries(
-            (loaded.stagedChanges ?? [])
-              .filter((change) => change.id && Array.isArray(change.hunks))
-              .map((change) => [
-                change.id as string,
-                new Set(
-                  (change.hunks ?? []).map((hunk) => hunk.id).filter((id): id is string => typeof id === 'string'),
-                ),
-              ]),
-          ),
-        );
-        setReaderAiStagedChangesInvalid(loaded.stagedChangesInvalid === true);
-        setReaderAiStagedFileContents(loaded.stagedFileContents ?? {});
-        setReaderAiAppliedChanges(loaded.appliedChanges ?? []);
-        setReaderAiError(null);
-      }
-      readerAiPrevHistoryKeyRef.current = readerAiHistoryDocumentKey;
-      return;
-    }
-    readerAiPrevHistoryKeyRef.current = null;
-    readerAiAbortRef.current?.abort();
-    readerAiAbortRef.current = null;
-    inlinePromptAbortRef.current?.abort();
-    resetInlinePromptState();
-    setReaderAiSending(false);
-    setReaderAiToolStatus(null);
-    setReaderAiToolLog([]);
-    setReaderAiEditProposals([]);
-    setReaderAiProposalStatusesByToolCallId({});
-    setReaderAiStagedChanges([]);
-    setReaderAiSelectedChangeIds(new Set());
-    setReaderAiSelectedHunkIdsByChangeId({});
-    setReaderAiAppliedChanges([]);
-    setReaderAiStagedChangesInvalid(false);
-    setReaderAiStagedFileContents({});
-    setReaderAiMessages([]);
-    setReaderAiSummary('');
-    setReaderAiConversationScope(null);
-    setReaderAiHasEligibleSelection(false);
-    setReaderAiError(null);
-  }, [readerAiHistoryEligible, readerAiHistoryDocumentKey, resetInlinePromptState]);
-
-  useEffect(() => {
-    if (!readerAiHistoryEligible || !readerAiHistoryDocumentKey) return;
-    if (readerAiSkipPersistHistoryKeyRef.current === readerAiHistoryDocumentKey) {
-      readerAiSkipPersistHistoryKeyRef.current = null;
-      return;
-    }
-    persistReaderAiMessagesToHistory(
-      readerAiHistoryDocumentKey,
-      readerAiMessages,
-      readerAiSummary || undefined,
-      readerAiConversationScope ?? undefined,
-      readerAiToolLog.length > 0 ? readerAiToolLog : undefined,
-      readerAiEditProposals.length > 0 ? readerAiEditProposals : undefined,
-      Object.keys(readerAiProposalStatusesByToolCallId).length > 0 ? readerAiProposalStatusesByToolCallId : undefined,
-      readerAiStagedChanges.length > 0 ? readerAiStagedChanges : undefined,
-      Object.keys(readerAiStagedFileContents).length > 0 ? readerAiStagedFileContents : undefined,
-      readerAiAppliedChanges.length > 0 ? readerAiAppliedChanges : undefined,
-    );
-  }, [
-    readerAiHistoryEligible,
-    readerAiMessages,
-    readerAiSummary,
-    readerAiConversationScope,
-    readerAiHistoryDocumentKey,
-    readerAiToolLog,
-    readerAiEditProposals,
-    readerAiProposalStatusesByToolCallId,
-    readerAiStagedChanges,
-    readerAiStagedFileContents,
-    readerAiAppliedChanges,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      readerAiAbortRef.current?.abort();
-      readerAiAbortRef.current = null;
-    };
-  }, []);
-
   const showReaderAiToggleCandidate = readerAiHistoryEligible;
 
   useEffect(() => {
@@ -3900,354 +3635,38 @@ export function App() {
   const isGistContext = currentGistId !== null && gistFiles !== null;
   const streamReaderAiAssistant = useCallback(
     async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
-      const model = readerAiSelectedModel;
-      // Read editContent from a ref to avoid recreating this callback on every keystroke.
+      if (!readerAiSelectedModel) return false;
+      const allowDocumentEdits = activeView === 'edit';
       const currentEditContent = editContentRef.current;
       const documentSource = trimReaderAiSource(
-        stripCriticMarkupComments(activeView === 'edit' ? currentEditContent : readerAiSource),
+        stripCriticMarkupComments(allowDocumentEdits ? currentEditContent : readerAiSource),
       );
-      if (!model) return false;
-      const assistantEdited = options?.edited === true;
-      const nextConversationScope =
-        readerAiConversationScope ??
-        (() => {
-          if (activeView !== 'edit') return { kind: 'document' } as ReaderAiConversationScope;
-          const selection = editViewControllerRef.current?.getSelectionText(READER_AI_SELECTION_MAX_CHARS);
-          if (!selection) return { kind: 'document' } as ReaderAiConversationScope;
-          const sanitizedSelection = stripCriticMarkupComments(selection);
-          if (!sanitizedSelection.trim()) return { kind: 'document' } as ReaderAiConversationScope;
-          return {
-            kind: 'selection',
-            source: sanitizedSelection,
-          } satisfies ReaderAiConversationScope;
-        })();
-      const source = nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
-      if (!source.trim()) {
-        showFailureToast('Reader AI needs document content before it can answer.');
-        return false;
-      }
-      readerAiAbortRef.current?.abort();
-      const controller = new AbortController();
-      readerAiAbortRef.current = controller;
-      if (readerAiConversationScope === null) {
-        setReaderAiConversationScope(nextConversationScope);
-      }
-      setReaderAiMessages([
-        ...baseMessages,
-        assistantEdited ? { role: 'assistant', content: '', edited: true } : { role: 'assistant', content: '' },
-      ]);
-
-      setReaderAiSending(true);
-      setReaderAiToolStatus(null);
-      setReaderAiToolLog([]);
-      setReaderAiEditProposals([]);
-      setReaderAiProposalStatusesByToolCallId({});
-      setReaderAiStagedChanges([]);
-      setReaderAiSelectedChangeIds(new Set());
-      setReaderAiSelectedHunkIdsByChangeId({});
-      setReaderAiUndoState(null);
-      setReaderAiStagedChangesInvalid(false);
-      setReaderAiStagedFileContents({});
-      setReaderAiDocumentEditedContent(null);
-      setReaderAiError(null);
-      let received = false;
-      let receivedStagedChanges = false;
-      let separateNextTurnOutput = false;
-      let streamErrorMessage: string | null = null;
-      let streamedResponseChars = 0;
-      const currentDocPath = activeView === 'edit' ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
-      const sanitizedMessages = baseMessages.map((message) => ({
-        role: message.role,
-        content: stripCriticMarkupComments(message.content),
-      }));
-      const streamContextLog = buildReaderAiContextLogPayload({
-        model: selectedReaderAiModel,
-        source,
-        messages: sanitizedMessages,
-        summary: readerAiSummary || undefined,
-        mode: 'default',
+      const selectionSource = allowDocumentEdits
+        ? (editViewControllerRef.current?.getSelectionText(READER_AI_SELECTION_MAX_CHARS) ?? null)
+        : null;
+      const currentDocPath = allowDocumentEdits ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
+      return startReaderAiStream({
+        allowDocumentEdits,
+        baseMessages,
         currentDocPath,
+        documentSource,
+        edited: options?.edited,
+        modelId: readerAiSelectedModel,
+        selectedModel: selectedReaderAiModel,
+        selectionSource,
+        showFailureToast,
       });
-      let loggedReceiveStart = false;
-      const logReceiveStart = (trigger: string) => {
-        if (loggedReceiveStart) return;
-        loggedReceiveStart = true;
-        console.log('[reader-ai-context] stream started', { ...streamContextLog, trigger });
-      };
-      console.log('[reader-ai-context] sending request', streamContextLog);
-
-      try {
-        await askReaderAiStream(
-          model,
-          source,
-          sanitizedMessages,
-          {
-            signal: controller.signal,
-            allowDocumentEdits: activeView === 'edit',
-            onSummary: (summary) => setReaderAiSummary(summary),
-            onToolCall: (event) => {
-              logReceiveStart('tool_call');
-              const labels: Record<string, string> = {
-                read_document: 'Reading document…',
-                search_document: 'Searching document…',
-                propose_edit_document: 'Proposing document edit…',
-                task: 'Running subagent…',
-              };
-              setReaderAiToolStatus(labels[event.name] ?? `Running ${event.name}…`);
-              const argsObj = typeof event.arguments === 'object' ? event.arguments : undefined;
-              const detail = argsObj
-                ? (((argsObj as Record<string, unknown>).path as string | undefined) ??
-                  ((argsObj as Record<string, unknown>).query as string | undefined))
-                : undefined;
-              setReaderAiToolLog((log) => [
-                ...log,
-                {
-                  type: 'call',
-                  id: event.id,
-                  name: event.name,
-                  detail: typeof detail === 'string' ? detail : undefined,
-                  taskId: event.name === 'task' ? event.id : undefined,
-                },
-              ]);
-            },
-            onToolResult: (event) => {
-              logReceiveStart('tool_result');
-              setReaderAiToolStatus(null);
-              setReaderAiToolLog((log) => [
-                ...log,
-                {
-                  type: 'result',
-                  id: event.id,
-                  name: event.name,
-                  detail: event.error ? `${event.error}${event.preview ? ` — ${event.preview}` : ''}` : event.preview,
-                  taskId: event.name === 'task' ? event.id : undefined,
-                  taskStatus: event.error ? 'error' : event.name === 'task' ? 'completed' : undefined,
-                },
-              ]);
-            },
-            onEditProposal: (proposal) => {
-              logReceiveStart('edit_proposal');
-              setReaderAiEditProposals((current) => {
-                const existing = current.find((entry) => entry.id === proposal.id);
-                const finalStatus = existing?.status ?? proposal.status;
-                if (proposal.toolCallId && (finalStatus === 'accepted' || finalStatus === 'rejected')) {
-                  setReaderAiProposalStatusesByToolCallId((currentStatuses) =>
-                    currentStatuses[proposal.toolCallId!]
-                      ? currentStatuses
-                      : {
-                          ...currentStatuses,
-                          [proposal.toolCallId!]: finalStatus,
-                        },
-                  );
-                }
-                const nextProposal: ReaderAiEditProposal = existing
-                  ? {
-                      ...proposal,
-                      status: finalStatus,
-                      selectedHunkIds: existing.selectedHunkIds ?? proposal.selectedHunkIds,
-                    }
-                  : proposal;
-                return [...current.filter((entry) => entry.id !== proposal.id), nextProposal];
-              });
-            },
-            onTaskProgress: (event) => {
-              logReceiveStart('task_progress');
-              const phaseLabel =
-                event.phase === 'started'
-                  ? 'Started'
-                  : event.phase === 'iteration_start'
-                    ? `Iteration ${event.iteration ?? '?'}`
-                    : event.phase === 'tool_call'
-                      ? 'Running tool'
-                      : event.phase === 'tool_result'
-                        ? 'Tool finished'
-                        : event.phase === 'completed'
-                          ? 'Completed'
-                          : 'Error';
-              const detail = event.detail ? `${phaseLabel}: ${event.detail}` : phaseLabel;
-              setReaderAiToolStatus(detail);
-              setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail, taskId: event.id }]);
-            },
-            onStagedChanges: (changes, _suggestedCommitMessage, documentContent, fileContents) => {
-              logReceiveStart('staged_changes');
-              receivedStagedChanges = changes.length > 0;
-              const previousChangeIds = new Set(
-                readerAiStagedChangesRef.current
-                  .map((change) => change.id)
-                  .filter((id): id is string => typeof id === 'string'),
-              );
-              const previousHunkIdsByChangeId = Object.fromEntries(
-                readerAiStagedChangesRef.current
-                  .filter((change) => change.id && Array.isArray(change.hunks))
-                  .map((change) => [
-                    change.id as string,
-                    new Set(
-                      (change.hunks ?? []).map((hunk) => hunk.id).filter((id): id is string => typeof id === 'string'),
-                    ),
-                  ]),
-              );
-              setReaderAiStagedChanges(changes);
-              setReaderAiSelectedChangeIds((_prev) => {
-                const latestSelectedChangeIds = readerAiSelectedChangeIdsRef.current;
-                const next = new Set<string>();
-                for (const change of changes) {
-                  if (!change.id) continue;
-                  if (!previousChangeIds.has(change.id) || latestSelectedChangeIds.has(change.id)) next.add(change.id);
-                }
-                return next;
-              });
-              setReaderAiSelectedHunkIdsByChangeId((_prev) => {
-                const latestSelectedHunkIdsByChangeId = readerAiSelectedHunkIdsByChangeIdRef.current;
-                const next: Record<string, Set<string>> = {};
-                for (const change of changes) {
-                  if (!change.id || !Array.isArray(change.hunks) || change.hunks.length === 0) continue;
-                  const previousHunkIds = previousHunkIdsByChangeId[change.id] ?? new Set<string>();
-                  const previousSelectedHunkIds = latestSelectedHunkIdsByChangeId[change.id] ?? new Set<string>();
-                  next[change.id] = new Set(
-                    change.hunks
-                      .map((hunk) => hunk.id)
-                      .filter((hunkId) => !previousHunkIds.has(hunkId) || previousSelectedHunkIds.has(hunkId)),
-                  );
-                }
-                return next;
-              });
-              setReaderAiStagedChangesInvalid(false);
-              setReaderAiStagedFileContents(() => {
-                const next: Record<string, string> = {};
-                const source = fileContents ?? {};
-                for (const change of changes) {
-                  if (change.type === 'delete') continue;
-                  const content = source[change.path];
-                  if (typeof content === 'string') next[change.path] = content;
-                }
-                return next;
-              });
-              setReaderAiDocumentEditedContent(typeof documentContent === 'string' ? documentContent : null);
-            },
-            onTurnStart: (iteration) => {
-              logReceiveStart('turn_start');
-              if (iteration <= 0 || !separateNextTurnOutput) return;
-              setReaderAiMessages((current) => {
-                if (current.length === 0) return current;
-                const updated = [...current];
-                const lastIndex = updated.length - 1;
-                const last = updated[lastIndex];
-                if (last.role !== 'assistant' || !last.content.trim()) return current;
-                if (last.content.endsWith('\n\n')) return current;
-                updated[lastIndex] = { ...last, content: `${last.content}\n\n` };
-                return updated;
-              });
-              separateNextTurnOutput = false;
-            },
-            onTurnEnd: (_iteration, reason) => {
-              if (reason === 'tool_calls') separateNextTurnOutput = true;
-            },
-            onStreamError: (message) => {
-              logReceiveStart('stream_error');
-              streamErrorMessage = message;
-              setReaderAiError(message);
-            },
-            onDelta: (delta) => {
-              if (!delta) return;
-              logReceiveStart('delta');
-              received = true;
-              streamedResponseChars += delta.length;
-              setReaderAiMessages((current) => {
-                if (current.length === 0) {
-                  return assistantEdited
-                    ? [{ role: 'assistant', content: delta, edited: true }]
-                    : [{ role: 'assistant', content: delta }];
-                }
-                const updated = [...current];
-                const lastIndex = updated.length - 1;
-                const last = updated[lastIndex];
-                if (last.role !== 'assistant') {
-                  updated.push(
-                    assistantEdited
-                      ? { role: 'assistant', content: delta, edited: true }
-                      : { role: 'assistant', content: delta },
-                  );
-                  return updated;
-                }
-                updated[lastIndex] = { ...last, content: `${last.content}${delta}` };
-                return updated;
-              });
-            },
-          },
-          readerAiSummary || undefined,
-          currentDocPath,
-          activeView === 'edit',
-        );
-        console.log('[reader-ai-context] stream finished', {
-          ...streamContextLog,
-          status: 'completed',
-          receivedResponseChars: streamedResponseChars,
-          hadStagedChanges: receivedStagedChanges,
-        });
-        if (!received) {
-          const fallback = streamErrorMessage
-            ? streamErrorMessage
-            : receivedStagedChanges
-              ? 'Done — see the proposed changes above.'
-              : model.trim().toLowerCase().endsWith(':free')
-                ? 'No response. Using a free endpoint, consider trying a different model.'
-                : 'No response.';
-          setReaderAiMessages((current) => {
-            if (current.length === 0) {
-              return assistantEdited
-                ? [{ role: 'assistant', content: fallback, edited: true }]
-                : [{ role: 'assistant', content: fallback }];
-            }
-            const updated = [...current];
-            const lastIndex = updated.length - 1;
-            const last = updated[lastIndex];
-            if (last.role !== 'assistant') {
-              updated.push(
-                assistantEdited
-                  ? { role: 'assistant', content: fallback, edited: true }
-                  : { role: 'assistant', content: fallback },
-              );
-              return updated;
-            }
-            if (!last.content.trim()) updated[lastIndex] = { ...last, content: fallback };
-            return updated;
-          });
-        }
-
-        return true;
-      } catch (err) {
-        console.log('[reader-ai-context] stream finished', {
-          ...streamContextLog,
-          status: err instanceof DOMException && err.name === 'AbortError' ? 'aborted' : 'errored',
-          error: err instanceof Error ? err.message : String(err),
-          receivedResponseChars: streamedResponseChars,
-        });
-        setReaderAiMessages((current) => {
-          if (current.length === 0) return current;
-          const last = current[current.length - 1];
-          if (last.role === 'assistant' && !last.content.trim()) return current.slice(0, -1);
-          return current;
-        });
-        if (err instanceof DOMException && err.name === 'AbortError') return true;
-        setReaderAiError(err instanceof Error ? err.message : 'Reader AI request failed');
-        return false;
-      } finally {
-        if (readerAiAbortRef.current === controller) readerAiAbortRef.current = null;
-        setReaderAiSending(false);
-        setReaderAiToolStatus(null);
-      }
     },
     [
-      readerAiSelectedModel,
-      readerAiSource,
-      readerAiSummary,
-      readerAiConversationScope,
-      currentRepoDocPath,
-      currentFileName,
       activeView,
       currentEditingDocPath,
-      selectedReaderAiModel,
+      currentFileName,
+      currentRepoDocPath,
+      readerAiSelectedModel,
+      readerAiSource,
       showFailureToast,
+      startReaderAiStream,
+      selectedReaderAiModel,
     ],
   );
 
@@ -4277,35 +3696,9 @@ export function App() {
     [readerAiMessages, streamReaderAiAssistant],
   );
 
-  const onReaderAiStop = useCallback(() => {
-    readerAiAbortRef.current?.abort();
-    readerAiAbortRef.current = null;
-    setReaderAiSending(false);
-    setReaderAiToolStatus(null);
-  }, []);
+  const onReaderAiStop = stopReaderAi;
 
-  const onReaderAiClear = useCallback(() => {
-    if (readerAiHistoryDocumentKey) clearReaderAiMessagesFromHistory(readerAiHistoryDocumentKey);
-    inlinePromptAbortRef.current?.abort();
-    resetInlinePromptState();
-    setReaderAiMessages([]);
-    setReaderAiSummary('');
-    setReaderAiConversationScope(null);
-
-    setReaderAiToolStatus(null);
-    setReaderAiToolLog([]);
-    setReaderAiEditProposals([]);
-    setReaderAiProposalStatusesByToolCallId({});
-    setReaderAiStagedChanges([]);
-    setReaderAiSelectedChangeIds(new Set());
-    setReaderAiSelectedHunkIdsByChangeId({});
-    setReaderAiAppliedChanges([]);
-    setReaderAiUndoState(null);
-    setReaderAiStagedChangesInvalid(false);
-    setReaderAiStagedFileContents({});
-    setReaderAiDocumentEditedContent(null);
-    setReaderAiError(null);
-  }, [readerAiHistoryDocumentKey, resetInlinePromptState]);
+  const onReaderAiClear = clearReaderAi;
 
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
@@ -4330,21 +3723,6 @@ export function App() {
       const selectedFileContents = effectiveReaderAiStagedFileContents;
       const changeTypeByPath = new Map(selectedChanges.map((change) => [change.path, change.type]));
       const modifiedMap = new Map(Object.entries(selectedFileContents));
-      const recordAppliedChanges = (paths: string[]) => {
-        if (paths.length === 0) return;
-        const appliedAt = new Date().toISOString();
-        setReaderAiAppliedChanges((prev) => {
-          const next = [
-            ...prev,
-            ...paths.map((path) => ({
-              path,
-              type: (changeTypeByPath.get(path) ?? 'edit') as 'edit' | 'create' | 'delete',
-              appliedAt,
-            })),
-          ];
-          return next.slice(-100);
-        });
-      };
       const hasCompleteStagedContent = selectedChanges.every(
         (change) => change.type === 'delete' || typeof selectedFileContents[change.path] === 'string',
       );
@@ -4382,13 +3760,8 @@ export function App() {
           } else {
             setReaderAiUndoState(null);
           }
-          if (currentPath) recordAppliedChanges([currentPath]);
-          setReaderAiEditProposals([]);
-          setReaderAiStagedChanges([]);
-          setReaderAiSelectedChangeIds(new Set());
-          setReaderAiSelectedHunkIdsByChangeId({});
-          setReaderAiStagedFileContents({});
-          setReaderAiDocumentEditedContent(null);
+          if (currentPath) recordReaderAiAppliedChanges([currentPath], changeTypeByPath);
+          resetReaderAiStagedState({ preserveUndoState: true });
           return;
         }
 
@@ -4433,14 +3806,8 @@ export function App() {
 
         if (failed.length > 0 && applied.length > 0) {
           // Partial success
-          recordAppliedChanges(applied);
-          setReaderAiEditProposals((prev) => prev.filter((proposal) => !applied.includes(proposal.change.path)));
-          setReaderAiStagedChanges((prev) => prev.filter((c) => !applied.includes(c.path)));
-          setReaderAiStagedFileContents((prev) => {
-            const next = { ...prev };
-            for (const path of applied) delete next[path];
-            return next;
-          });
+          recordReaderAiAppliedChanges(applied, changeTypeByPath);
+          pruneAppliedReaderAiPaths(applied, { clearDocumentEditedContentPath: currentEditingDocPath });
           const failedPaths = failed.map((f) => f.path).join(', ');
           setReaderAiError(`Applied ${applied.length} file(s), but ${failed.length} failed: ${failedPaths}`);
         } else if (failed.length > 0) {
@@ -4448,10 +3815,8 @@ export function App() {
           setReaderAiError(`Failed to apply changes: ${failedPaths}`);
         } else {
           // Full success — clear staged changes
-          recordAppliedChanges(applied);
-          setReaderAiEditProposals([]);
-          setReaderAiStagedChanges([]);
-          setReaderAiStagedFileContents({});
+          recordReaderAiAppliedChanges(applied, changeTypeByPath);
+          resetReaderAiStagedState();
         }
 
         // Invalidate caches so the UI reflects the applied changes
@@ -4487,96 +3852,22 @@ export function App() {
       showRateLimitToastIfNeeded,
       setHasUnsavedChanges,
       setHasUserTypedUnsavedChanges,
+      setReaderAiApplyingChanges,
+      setReaderAiError,
+      setReaderAiUndoState,
+      recordReaderAiAppliedChanges,
+      resetReaderAiStagedState,
+      pruneAppliedReaderAiPaths,
     ],
   );
 
-  const onReaderAiIgnoreChanges = useCallback(() => {
-    const toolCallIds = new Set(
-      readerAiEditProposalsRef.current
-        .map((proposal) => proposal.toolCallId)
-        .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string'),
-    );
-    if (toolCallIds.size > 0) {
-      setReaderAiProposalStatusesByToolCallId((currentStatuses) => {
-        const nextStatuses = { ...currentStatuses };
-        for (const toolCallId of toolCallIds) nextStatuses[toolCallId] = 'ignored';
-        return nextStatuses;
-      });
-    }
-    setReaderAiEditProposals([]);
-    setReaderAiStagedChanges([]);
-    setReaderAiSelectedChangeIds(new Set());
-    setReaderAiSelectedHunkIdsByChangeId({});
-    setReaderAiStagedChangesInvalid(false);
-    setReaderAiStagedFileContents({});
-    setReaderAiDocumentEditedContent(null);
-    setReaderAiUndoState(null);
-    setReaderAiError(null);
-  }, []);
+  const onReaderAiIgnoreChanges = ignoreAllReaderAiChanges;
 
-  const onReaderAiAcceptProposal = useCallback((proposalId: string) => {
-    setReaderAiEditProposals((current) => {
-      const targetIndex = current.findIndex((proposal) => proposal.id === proposalId);
-      if (targetIndex < 0) return current;
-      const target = current[targetIndex];
-      const acceptedToolCallIds = new Set(
-        current
-          .filter((proposal, index) => proposal.change.path === target.change.path && index <= targetIndex)
-          .map((proposal) => proposal.toolCallId)
-          .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string'),
-      );
-      if (acceptedToolCallIds.size > 0) {
-        setReaderAiProposalStatusesByToolCallId((currentStatuses) => {
-          const nextStatuses = { ...currentStatuses };
-          for (const toolCallId of acceptedToolCallIds) nextStatuses[toolCallId] = 'accepted';
-          return nextStatuses;
-        });
-      }
-      return current.map((proposal, index) =>
-        proposal.change.path === target.change.path && index <= targetIndex
-          ? { ...proposal, status: 'accepted' as const }
-          : proposal,
-      );
-    });
-  }, []);
+  const onReaderAiAcceptProposal = acceptReaderAiProposal;
 
-  const onReaderAiRejectProposal = useCallback((proposalId: string) => {
-    setReaderAiEditProposals((current) => {
-      const targetIndex = current.findIndex((proposal) => proposal.id === proposalId);
-      if (targetIndex < 0) return current;
-      const target = current[targetIndex];
-      const rejectedToolCallIds = new Set(
-        current
-          .filter((proposal, index) => proposal.change.path === target.change.path && index >= targetIndex)
-          .map((proposal) => proposal.toolCallId)
-          .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string'),
-      );
-      if (rejectedToolCallIds.size > 0) {
-        setReaderAiProposalStatusesByToolCallId((currentStatuses) => {
-          const nextStatuses = { ...currentStatuses };
-          for (const toolCallId of rejectedToolCallIds) nextStatuses[toolCallId] = 'rejected';
-          return nextStatuses;
-        });
-      }
-      return current.map((proposal, index) =>
-        proposal.change.path === target.change.path && index >= targetIndex
-          ? { ...proposal, status: 'rejected' as const }
-          : proposal,
-      );
-    });
-  }, []);
+  const onReaderAiRejectProposal = rejectReaderAiProposal;
 
-  const onReaderAiToggleProposalHunkSelection = useCallback((proposalId: string, hunkId: string, selected: boolean) => {
-    setReaderAiEditProposals((current) =>
-      current.map((proposal) => {
-        if (proposal.id !== proposalId) return proposal;
-        const selectedIds = new Set(proposal.selectedHunkIds ?? proposal.change.hunks?.map((hunk) => hunk.id) ?? []);
-        if (selected) selectedIds.add(hunkId);
-        else selectedIds.delete(hunkId);
-        return { ...proposal, selectedHunkIds: Array.from(selectedIds) };
-      }),
-    );
-  }, []);
+  const onReaderAiToggleProposalHunkSelection = toggleReaderAiProposalHunkSelection;
 
   const canUndoReaderAiApply =
     readerAiUndoState !== null &&
@@ -4587,19 +3878,20 @@ export function App() {
   const onReaderAiUndoApply = useCallback(() => {
     if (!readerAiUndoState) return;
     if (activeView !== 'edit' || currentEditingDocPath !== readerAiUndoState.path) {
-      setReaderAiUndoState(null);
+      clearReaderAiUndoState();
       return;
     }
     if (editContentRevision !== readerAiUndoState.revision + 1) {
-      setReaderAiUndoState(null);
+      clearReaderAiUndoState();
       return;
     }
     setNextEditContent(readerAiUndoState.content, { origin: 'appEdits', revision: readerAiUndoState.revision });
     setHasUserTypedUnsavedChanges(false);
     setHasUnsavedChanges(readerAiUndoState.content !== currentDocumentSavedContent);
-    setReaderAiUndoState(null);
+    clearReaderAiUndoState();
   }, [
     activeView,
+    clearReaderAiUndoState,
     currentDocumentSavedContent,
     currentEditingDocPath,
     editContentRevision,
@@ -8031,9 +7323,10 @@ export function App() {
       scheduleEditContentSnapshot(update);
       setHasUserTypedUnsavedChanges(true);
       setHasUnsavedChanges(true);
-      setReaderAiUndoState(null);
+      clearReaderAiUndoState();
     },
     [
+      clearReaderAiUndoState,
       currentGistId,
       draftMode,
       editingBackend,
@@ -8432,48 +7725,12 @@ export function App() {
               onRejectProposal={onReaderAiRejectProposal}
               onToggleProposalHunkSelection={onReaderAiToggleProposalHunkSelection}
               onUndoEditorApply={onReaderAiUndoApply}
-              onToggleChangeSelection={(changeId, selected) =>
-                setReaderAiSelectedChangeIds((prev) => {
-                  const next = new Set(prev);
-                  if (selected) next.add(changeId);
-                  else next.delete(changeId);
-                  return next;
-                })
-              }
-              onToggleHunkSelection={(changeId, hunkId, selected) =>
-                setReaderAiSelectedHunkIdsByChangeId((prev) => {
-                  const next = { ...prev };
-                  const current = new Set(next[changeId] ?? []);
-                  if (selected) current.add(hunkId);
-                  else current.delete(hunkId);
-                  next[changeId] = current;
-                  return next;
-                })
-              }
+              onToggleChangeSelection={toggleReaderAiChangeSelection}
+              onToggleHunkSelection={toggleReaderAiHunkSelection}
               selectedChangeIds={readerAiSelectedChangeIds}
               selectedHunkIds={readerAiSelectedHunkIdsByChangeId}
-              onRejectChange={(changeId) => {
-                setReaderAiSelectedChangeIds((prev) => {
-                  const next = new Set(prev);
-                  next.delete(changeId);
-                  return next;
-                });
-                setReaderAiStagedChanges((prev) => prev.filter((change) => change.id !== changeId));
-                setReaderAiSelectedHunkIdsByChangeId((prev) => {
-                  const next = { ...prev };
-                  delete next[changeId];
-                  return next;
-                });
-              }}
-              onRejectHunk={(changeId, hunkId) => {
-                setReaderAiSelectedHunkIdsByChangeId((prev) => {
-                  const next = { ...prev };
-                  const current = new Set(next[changeId] ?? []);
-                  current.delete(hunkId);
-                  next[changeId] = current;
-                  return next;
-                });
-              }}
+              onRejectChange={rejectReaderAiChange}
+              onRejectHunk={rejectReaderAiHunk}
               error={readerAiError}
               onSend={onReaderAiSend}
               onEditMessage={onReaderAiEditMessage}
