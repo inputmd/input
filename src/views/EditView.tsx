@@ -1,16 +1,7 @@
 import type { EditorView } from '@codemirror/view';
 import * as Popover from '@radix-ui/react-popover';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import {
-  AlertTriangle,
-  ArrowUpDown,
-  CheckCircle2,
-  ExternalLink,
-  Highlighter,
-  History,
-  LockOpen,
-  Pin,
-} from 'lucide-react';
+import { AlertTriangle, ArrowUpDown, ExternalLink, Highlighter, History, LockOpen, Pin } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { EditorChangeMarker } from '../components/codemirror_change_markers';
@@ -295,26 +286,26 @@ function readerAiBannerTone(
 
 function ReaderAiEditorReviewBar({
   overlay,
-  onOpenReviewTarget,
   onRestoreCheckpoint,
 }: {
   overlay: ReaderAiEditorOverlay;
-  onOpenReviewTarget?: (target: { changeId: string; hunkId?: string }) => void;
   onRestoreCheckpoint?: () => void;
 }) {
-  if (overlay.fileStatus === 'idle' && !overlay.provenance && !overlay.checkpoint) return null;
+  if (!overlay.checkpoint) return null;
 
   const tone = readerAiBannerTone(overlay.fileStatus);
-  const Icon = tone === 'success' ? CheckCircle2 : tone === 'danger' ? AlertTriangle : History;
-  const modelLabel = overlay.provenance?.modelId ?? 'Reader AI';
-  const conflictCount = overlay.conflicts.length;
-  const conflictSummary =
-    conflictCount > 0
-      ? `${conflictCount} conflicted hunk${conflictCount === 1 ? '' : 's'} need review in the editor below.`
-      : null;
+  const Icon = tone === 'danger' ? AlertTriangle : History;
+  const message =
+    overlay.fileStatus === 'applied'
+      ? 'Restore the pre-apply editor state if you want to undo these Reader AI changes.'
+      : 'A pre-apply checkpoint is available for this editor state.';
 
   return (
-    <div class={`editor-reader-ai-banner editor-reader-ai-banner--${tone}`} role="status" aria-live="polite">
+    <div
+      class={`editor-reader-ai-banner editor-reader-ai-banner--${tone} editor-reader-ai-banner--compact`}
+      role="status"
+      aria-live="polite"
+    >
       <div class="editor-reader-ai-banner-main">
         <div class="editor-reader-ai-banner-copy">
           <div class="editor-reader-ai-banner-pills">
@@ -322,50 +313,20 @@ function ReaderAiEditorReviewBar({
               <Icon size={13} aria-hidden="true" />
               <span>{overlay.statusLabel}</span>
             </span>
-            {overlay.provenance ? <span class="editor-reader-ai-pill">Reader AI</span> : null}
-            {overlay.provenance?.modelId ? (
-              <span class="editor-reader-ai-pill">{overlay.provenance.modelId}</span>
-            ) : null}
-            {overlay.checkpoint ? <span class="editor-reader-ai-pill">Checkpoint ready</span> : null}
+            <span class="editor-reader-ai-pill">Checkpoint ready</span>
           </div>
-          <div class="editor-reader-ai-banner-title">{modelLabel}</div>
-          {overlay.statusMessage ? <div class="editor-reader-ai-banner-message">{overlay.statusMessage}</div> : null}
+          <div class="editor-reader-ai-banner-message">{message}</div>
         </div>
         <div class="editor-reader-ai-banner-actions">
-          {overlay.primaryChangeId ? (
-            <button
-              type="button"
-              class="editor-reader-ai-action editor-reader-ai-action--secondary"
-              onClick={() => onOpenReviewTarget?.({ changeId: overlay.primaryChangeId! })}
-            >
-              Review in panel
-            </button>
-          ) : null}
-          {overlay.checkpoint ? (
-            <button
-              type="button"
-              class="editor-reader-ai-action editor-reader-ai-action--primary"
-              onClick={() => onRestoreCheckpoint?.()}
-            >
-              Restore checkpoint
-            </button>
-          ) : null}
+          <button
+            type="button"
+            class="editor-reader-ai-action editor-reader-ai-action--primary"
+            onClick={() => onRestoreCheckpoint?.()}
+          >
+            Restore checkpoint
+          </button>
         </div>
       </div>
-      {conflictSummary ? (
-        <div class="editor-reader-ai-conflict-summary">
-          <span>{conflictSummary}</span>
-          {overlay.primaryChangeId ? (
-            <button
-              type="button"
-              class="editor-reader-ai-action editor-reader-ai-action--secondary"
-              onClick={() => onOpenReviewTarget?.({ changeId: overlay.primaryChangeId! })}
-            >
-              Review in panel
-            </button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1750,11 +1711,7 @@ export function EditView({
           </div>
         ) : null}
         {readerAiEditorOverlay ? (
-          <ReaderAiEditorReviewBar
-            overlay={readerAiEditorOverlay}
-            onOpenReviewTarget={onReaderAiOpenReviewTarget}
-            onRestoreCheckpoint={onReaderAiRestoreCheckpoint}
-          />
+          <ReaderAiEditorReviewBar overlay={readerAiEditorOverlay} onRestoreCheckpoint={onReaderAiRestoreCheckpoint} />
         ) : null}
         {markdown ? (
           <MarkdownEditor
