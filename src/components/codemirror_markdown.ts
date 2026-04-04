@@ -700,7 +700,7 @@ function buildBracePromptDecorations(view: EditorView): DecorationSet {
 
 function rangeTouchesSelection(state: EditorState, from: number, to: number): boolean {
   return state.selection.ranges.some((range) => {
-    if (range.empty) return range.from >= from && range.from < to;
+    if (range.empty) return range.from >= from && range.from <= to;
     return range.from < to && range.to > from;
   });
 }

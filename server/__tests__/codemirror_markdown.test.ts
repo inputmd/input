@@ -148,6 +148,11 @@ test('markdown editor collapses markdown links until the selection enters them',
     view.dispatch({ selection: EditorSelection.cursor(linkLabelFrom + 1) });
 
     t.regex(view.dom.textContent ?? '', /\[docs\]\(https:\/\/example\.com\)/);
+
+    const linkEnd = doc.indexOf(' here.');
+    view.dispatch({ selection: EditorSelection.cursor(linkEnd) });
+
+    t.regex(view.dom.textContent ?? '', /\[docs\]\(https:\/\/example\.com\)/);
     view.destroy();
   } finally {
     restore();
@@ -177,8 +182,16 @@ test('markdown editor collapses emphasis markers until the selection enters the 
     view.dispatch({ selection: EditorSelection.cursor(italicFrom + 1) });
     t.regex(view.dom.textContent ?? '', /Use \*italic\* and bold here\./);
 
+    const italicEnd = doc.indexOf(' and');
+    view.dispatch({ selection: EditorSelection.cursor(italicEnd) });
+    t.regex(view.dom.textContent ?? '', /Use \*italic\* and bold here\./);
+
     const boldFrom = doc.indexOf('bold');
     view.dispatch({ selection: EditorSelection.cursor(boldFrom + 1) });
+    t.regex(view.dom.textContent ?? '', /Use italic and \*\*bold\*\* here\./);
+
+    const boldEnd = doc.indexOf(' here.');
+    view.dispatch({ selection: EditorSelection.cursor(boldEnd) });
     t.regex(view.dom.textContent ?? '', /Use italic and \*\*bold\*\* here\./);
     view.destroy();
   } finally {
@@ -209,13 +222,18 @@ test('markdown editor collapses double-colon highlight markers until the selecti
     view.dispatch({ selection: EditorSelection.cursor(highlightedFrom + 1) });
 
     t.regex(view.dom.textContent ?? '', /Use ::highlighted text:: here\./);
+
+    const highlightEnd = doc.indexOf(' here.');
+    view.dispatch({ selection: EditorSelection.cursor(highlightEnd) });
+
+    t.regex(view.dom.textContent ?? '', /Use ::highlighted text:: here\./);
     view.destroy();
   } finally {
     restore();
   }
 });
 
-test('markdown editor keeps double-colon highlights decorated when the cursor sits just after the closing marker', (t) => {
+test('markdown editor uncollapses double-colon highlights when the cursor sits just after the closing marker', (t) => {
   const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
   const restore = installDomGlobals(dom);
 
@@ -232,7 +250,7 @@ test('markdown editor keeps double-colon highlights decorated when the cursor si
     });
 
     t.truthy(view.dom.querySelector('.cm-double-colon-highlight'));
-    t.false((view.dom.textContent ?? '').includes('::signal lantern::'));
+    t.true((view.dom.textContent ?? '').includes('::signal lantern::'));
     view.destroy();
   } finally {
     restore();
