@@ -24,6 +24,7 @@ import {
   findReaderAiActiveChangeSet,
   markReaderAiChangeSetFileStatuses,
   markReaderAiRunStepRetryAttempt,
+  rebaseReaderAiChangeAgainstContent,
   resolveReaderAiStagedHunkState,
 } from '../reader_ai_controller_runtime';
 import {
@@ -680,6 +681,63 @@ export function useReaderAiSession({
             : changeSet.documentEditedContent,
         appliedPaths: Array.from(new Set([...changeSet.appliedPaths, ...appliedPaths])),
       }));
+    },
+    [updateReaderAiActiveChangeSet],
+  );
+
+  const repairReaderAiRemoteConflictPath = useCallback(
+    (options: { path: string; currentContent: string | null }) => {
+      if (options.currentContent === null) return false;
+      const targetChange = readerAiStagedChangesRef.current.find((change) => change.path === options.path) ?? null;
+      if (!targetChange) return false;
+      const repairedChange = rebaseReaderAiChangeAgainstContent(targetChange, options.currentContent) ?? {
+        ...targetChange,
+        originalContent: options.currentContent,
+      };
+      const nextModifiedContent =
+        repairedChange.type === 'delete'
+          ? null
+          : typeof repairedChange.modifiedContent === 'string'
+            ? repairedChange.modifiedContent
+            : (targetChange.modifiedContent ?? null);
+      setReaderAiStagedChanges((current) =>
+        current.map((change) =>
+          change.path !== options.path
+            ? change
+            : {
+                ...repairedChange,
+                originalContent: options.currentContent,
+                ...(nextModifiedContent !== null ? { modifiedContent: nextModifiedContent } : {}),
+              },
+        ),
+      );
+      if (nextModifiedContent !== null) {
+        setReaderAiStagedFileContents((current) => ({
+          ...current,
+          [options.path]: nextModifiedContent,
+        }));
+      }
+      updateReaderAiActiveChangeSet((changeSet) => ({
+        ...markReaderAiChangeSetFileStatuses(changeSet, { stalePaths: [options.path] }),
+        status: 'conflicted',
+        stagedChanges: changeSet.stagedChanges.map((change) =>
+          change.path !== options.path
+            ? change
+            : {
+                ...repairedChange,
+                originalContent: options.currentContent,
+                ...(nextModifiedContent !== null ? { modifiedContent: nextModifiedContent } : {}),
+              },
+        ),
+        stagedFileContents:
+          nextModifiedContent !== null
+            ? {
+                ...changeSet.stagedFileContents,
+                [options.path]: nextModifiedContent,
+              }
+            : changeSet.stagedFileContents,
+      }));
+      return true;
     },
     [updateReaderAiActiveChangeSet],
   );
@@ -1380,6 +1438,7 @@ export function useReaderAiSession({
     markReaderAiActiveChangeSetApplying,
     prependReaderAiQueuedCommands,
     pruneAppliedReaderAiPaths,
+    repairReaderAiRemoteConflictPath,
     readerAiActiveChangeSet,
     readerAiActiveRunId,
     readerAiApplyingChanges,

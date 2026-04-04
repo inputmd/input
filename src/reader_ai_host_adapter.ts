@@ -109,11 +109,13 @@ export type ReaderAiHostApplyExecution =
       kind: 'remote_partial';
       appliedPaths: string[];
       failedPaths: Array<{ path: string; error: string }>;
+      conflictPaths: string[];
       target: ReaderAiHostApplyTarget;
     }
   | {
       kind: 'remote_failed';
       failedPaths: Array<{ path: string; error: string }>;
+      conflictPaths: string[];
     };
 
 export function resolveReaderAiEditorApplyPlan(
@@ -138,14 +140,26 @@ export function resolveReaderAiEditorApplyPlan(
   };
 }
 
-export function createReaderAiApplyConflictMessage(conflict: { currentContent: string | null }): string {
+export function createReaderAiApplyConflictMessage(conflict: { path?: string; currentContent: string | null }): string {
   return conflict.currentContent !== null
-    ? 'The document changed after Reader AI generated this edit. Review the latest content, then retry.'
-    : 'The document changed after Reader AI generated this edit. Refresh the file and retry.';
+    ? 'The document changed after Reader AI generated this edit. The conflicting file remains staged for review.'
+    : 'The document changed after Reader AI generated this edit. The conflicting file remains staged for review.';
 }
 
 export function createReaderAiNoWriteAccessError(): Error {
   return new Error('Cannot apply changes: no write access');
+}
+
+function classifyReaderAiRemoteApplyFailure(error: string): 'conflict' | 'failed' {
+  const normalized = error.toLowerCase();
+  if (
+    normalized.includes('conflict') ||
+    normalized.includes('changed after') ||
+    normalized.includes('old_text not found')
+  ) {
+    return 'conflict';
+  }
+  return 'failed';
 }
 
 async function performReaderAiHostApply(options: PerformReaderAiApplyOptions): Promise<ReaderAiHostApplyOutcome> {
@@ -207,17 +221,25 @@ export async function executeReaderAiHostApply(
     };
   }
   if (outcome.result.failed.length > 0 && outcome.result.applied.length > 0) {
+    const conflictPaths = outcome.result.failed
+      .filter((entry) => classifyReaderAiRemoteApplyFailure(entry.error) === 'conflict')
+      .map((entry) => entry.path);
     return {
       kind: 'remote_partial',
       appliedPaths: outcome.result.applied,
       failedPaths: outcome.result.failed,
+      conflictPaths,
       target: outcome.target,
     };
   }
   if (outcome.result.failed.length > 0) {
+    const conflictPaths = outcome.result.failed
+      .filter((entry) => classifyReaderAiRemoteApplyFailure(entry.error) === 'conflict')
+      .map((entry) => entry.path);
     return {
       kind: 'remote_failed',
       failedPaths: outcome.result.failed,
+      conflictPaths,
     };
   }
   return {

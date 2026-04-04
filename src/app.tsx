@@ -1138,6 +1138,7 @@ export function App() {
     markReaderAiActiveChangeSetApplying,
     prependReaderAiQueuedCommands,
     pruneAppliedReaderAiPaths,
+    repairReaderAiRemoteConflictPath,
     readerAiActiveChangeSet,
     readerAiActiveRunId,
     readerAiApplyingChanges,
@@ -3877,35 +3878,64 @@ export function App() {
         }
 
         const handleApplyConflict = async (conflict: Parameters<typeof createReaderAiApplyConflictMessage>[0]) => {
-          const conflictMessage = createReaderAiApplyConflictMessage(conflict);
+          const repaired =
+            typeof conflict.path === 'string' && typeof conflict.currentContent === 'string'
+              ? repairReaderAiRemoteConflictPath({
+                  path: conflict.path,
+                  currentContent: conflict.currentContent,
+                })
+              : false;
+          const conflictMessage = repaired
+            ? `${createReaderAiApplyConflictMessage(conflict)} Reader AI refreshed the staged file against the latest remote content.`
+            : createReaderAiApplyConflictMessage(conflict);
           setReaderAiError(conflictMessage);
           await showAlert(conflictMessage);
         };
 
         if (outcome.kind === 'remote_conflict') {
-          finalizeReaderAiActiveChangeSet({ conflict: true });
+          finalizeReaderAiActiveChangeSet({ stalePaths: [outcome.conflict.path] });
           await handleApplyConflict(outcome.conflict);
           return;
         }
         if (outcome.kind === 'remote_partial') {
           applied.push(...outcome.appliedPaths);
           failed.push(...outcome.failedPaths);
-          // Partial success
           recordReaderAiAppliedChanges(applied, changeTypeByPath);
           finalizeReaderAiActiveChangeSet({
             appliedPaths: applied,
-            failedPaths: failed,
+            failedPaths: failed.filter((entry) => !outcome.conflictPaths.includes(entry.path)),
+            stalePaths: outcome.conflictPaths,
           });
           pruneAppliedReaderAiPaths(applied, { clearDocumentEditedContentPath: currentEditingDocPath });
-          const failedPaths = failed.map((f) => f.path).join(', ');
-          setReaderAiError(`Applied ${applied.length} file(s), but ${failed.length} failed: ${failedPaths}`);
+          const failedPaths = failed
+            .filter((entry) => !outcome.conflictPaths.includes(entry.path))
+            .map((entry) => entry.path);
+          const conflictPaths = outcome.conflictPaths;
+          const summaryParts = [
+            applied.length > 0 ? `Applied ${applied.length} file(s)` : null,
+            conflictPaths.length > 0 ? `${conflictPaths.length} file(s) remain staged with conflicts` : null,
+            failedPaths.length > 0 ? `${failedPaths.length} file(s) failed` : null,
+          ].filter((value): value is string => value !== null);
+          setReaderAiError(summaryParts.join('; '));
           invalidateReaderAiHostCaches(outcome.target, { clearGitHubAppCaches, clearGitHubCaches });
           return;
         }
         if (outcome.kind === 'remote_failed') {
-          finalizeReaderAiActiveChangeSet({ failedPaths: outcome.failedPaths });
-          const failedPaths = outcome.failedPaths.map((f) => `${f.path}: ${f.error}`).join('; ');
-          setReaderAiError(`Failed to apply changes: ${failedPaths}`);
+          finalizeReaderAiActiveChangeSet({
+            failedPaths: outcome.failedPaths.filter((entry) => !outcome.conflictPaths.includes(entry.path)),
+            stalePaths: outcome.conflictPaths,
+          });
+          const failedPaths = outcome.failedPaths
+            .filter((entry) => !outcome.conflictPaths.includes(entry.path))
+            .map((entry) => `${entry.path}: ${entry.error}`)
+            .join('; ');
+          const conflictSummary =
+            outcome.conflictPaths.length > 0
+              ? `Conflicting files remain staged: ${outcome.conflictPaths.join(', ')}.`
+              : '';
+          setReaderAiError(
+            failedPaths ? `${conflictSummary} Failed to apply changes: ${failedPaths}`.trim() : conflictSummary,
+          );
           return;
         }
         if (outcome.kind === 'remote_applied') {
@@ -3961,6 +3991,7 @@ export function App() {
       recordReaderAiAppliedChanges,
       resetReaderAiStagedState,
       pruneAppliedReaderAiPaths,
+      repairReaderAiRemoteConflictPath,
     ],
   );
 

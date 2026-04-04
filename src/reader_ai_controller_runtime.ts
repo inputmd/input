@@ -80,7 +80,7 @@ export function findReaderAiActiveChangeSet(
   return changeSets.find((changeSet) => changeSet.id === activeChangeSetId) ?? null;
 }
 
-function rebaseReaderAiSelectedChange(
+export function rebaseReaderAiChangeAgainstContent(
   change: ReaderAiStagedChange,
   currentDocumentContent: string,
 ): ReaderAiStagedChange | null {
@@ -148,7 +148,7 @@ export function prepareReaderAiSelectedChangesForApply(options: {
     const needsRepair =
       options.mode === 'without-saving' && isCurrentEditorDocument && (fileRecord?.status === 'stale' || hasLocalDrift);
     const repairedChange = needsRepair
-      ? rebaseReaderAiSelectedChange(change, options.currentEditingDocumentContent)
+      ? rebaseReaderAiChangeAgainstContent(change, options.currentEditingDocumentContent)
       : null;
 
     if (fileRecord?.status === 'stale' && !repairedChange) {
