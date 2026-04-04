@@ -1,8 +1,10 @@
 import test from 'ava';
+import type { ReaderAiStagedChange } from '../../src/reader_ai.ts';
 import {
   buildReaderAiRetryRequestFromRuns,
   completeReaderAiRunStepRetry,
   markReaderAiRunStepRetryAttempt,
+  prepareReaderAiSelectedChangesForApply,
 } from '../../src/reader_ai_controller_runtime.ts';
 import type { ReaderAiRunRecord } from '../../src/reader_ai_ledger.ts';
 
@@ -53,4 +55,136 @@ test('retry request only targets failed steps that are still ready', (t) => {
 
   const exhausted = completeReaderAiRunStepRetry(inProgress, 'step:1', false);
   t.is(buildReaderAiRetryRequestFromRuns([exhausted])?.retryStepId, undefined);
+});
+
+test('prepareReaderAiSelectedChangesForApply scopes local editor apply to the current file', (t) => {
+  const currentChange: ReaderAiStagedChange = {
+    id: 'change:current',
+    path: 'doc.md',
+    type: 'edit',
+    diff: '@@ -1 +1 @@\n-before\n+after\n',
+    revision: 3,
+    originalContent: 'before\n',
+    modifiedContent: 'after\n',
+    hunks: [
+      {
+        id: 'hunk:1',
+        header: '@@ -1 +1 @@',
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        lines: [
+          { type: 'del', content: 'before' },
+          { type: 'add', content: 'after' },
+        ],
+      },
+    ],
+  };
+  const otherChange: ReaderAiStagedChange = {
+    id: 'change:other',
+    path: 'other.md',
+    type: 'edit',
+    diff: '@@ -1 +1 @@\n-old\n+new\n',
+    revision: 1,
+    originalContent: 'old\n',
+    modifiedContent: 'new\n',
+  };
+
+  const prepared = prepareReaderAiSelectedChangesForApply({
+    activeChangeSet: {
+      id: 'changeset:1',
+      runId: 'run:1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      status: 'ready',
+      editProposals: [],
+      proposalStatusesByToolCallId: {},
+      stagedChanges: [currentChange, otherChange],
+      stagedFileContents: {
+        'doc.md': 'after\n',
+        'other.md': 'new\n',
+      },
+      documentEditedContent: null,
+      files: [
+        { path: 'doc.md', status: 'ready', hasCompleteContent: true, baseRevision: 3 },
+        { path: 'other.md', status: 'ready', hasCompleteContent: true, baseRevision: 1 },
+      ],
+      appliedPaths: [],
+      failedPaths: [],
+    },
+    currentEditContentRevision: 3,
+    currentEditingDocPath: 'doc.md',
+    currentEditingDocumentContent: 'before\n',
+    selectedChanges: [currentChange, otherChange],
+    selectedFileContents: {
+      'doc.md': 'after\n',
+      'other.md': 'new\n',
+    },
+    mode: 'without-saving',
+  });
+
+  t.deepEqual(
+    prepared.selectedChanges.map((change) => change.path),
+    ['doc.md'],
+  );
+  t.deepEqual(prepared.ignoredPaths, ['other.md']);
+  t.deepEqual(Object.keys(prepared.selectedFileContents), ['doc.md']);
+});
+
+test('prepareReaderAiSelectedChangesForApply rebases a stale current-document hunk onto live editor content', (t) => {
+  const currentChange: ReaderAiStagedChange = {
+    id: 'change:current',
+    path: 'doc.md',
+    type: 'edit',
+    diff: ['--- a/doc.md', '+++ b/doc.md', '@@ -1,3 +1,3 @@', ' alpha', '-before', '+after', ' tail'].join('\n'),
+    revision: 3,
+    originalContent: ['alpha', 'before', 'tail', ''].join('\n'),
+    modifiedContent: ['alpha', 'after', 'tail', ''].join('\n'),
+    hunks: [
+      {
+        id: 'hunk:1',
+        header: '@@ -2,2 +2,2 @@',
+        oldStart: 2,
+        oldLines: 2,
+        newStart: 2,
+        newLines: 2,
+        lines: [
+          { type: 'context', content: 'alpha' },
+          { type: 'del', content: 'before' },
+          { type: 'add', content: 'after' },
+          { type: 'context', content: 'tail' },
+        ],
+      },
+    ],
+  };
+
+  const prepared = prepareReaderAiSelectedChangesForApply({
+    activeChangeSet: {
+      id: 'changeset:1',
+      runId: 'run:1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      status: 'conflicted',
+      editProposals: [],
+      proposalStatusesByToolCallId: {},
+      stagedChanges: [currentChange],
+      stagedFileContents: { 'doc.md': ['alpha', 'after', 'tail'].join('\n') },
+      documentEditedContent: null,
+      files: [{ path: 'doc.md', status: 'stale', hasCompleteContent: true, baseRevision: 3 }],
+      appliedPaths: [],
+      failedPaths: [],
+    },
+    currentEditContentRevision: 4,
+    currentEditingDocPath: 'doc.md',
+    currentEditingDocumentContent: ['heading', 'alpha', 'before', 'tail', ''].join('\n'),
+    selectedChanges: [currentChange],
+    selectedFileContents: { 'doc.md': ['alpha', 'after', 'tail', ''].join('\n') },
+    mode: 'without-saving',
+  });
+
+  t.deepEqual(prepared.invalid, []);
+  t.deepEqual(prepared.repairedPaths, ['doc.md']);
+  t.true(prepared.selectedFileContents['doc.md']?.includes('heading') ?? false);
+  t.true(prepared.selectedFileContents['doc.md']?.includes('after') ?? false);
 });

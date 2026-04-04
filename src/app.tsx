@@ -145,7 +145,7 @@ import {
 import { buildReaderAiContextLogPayload, trimReaderAiSource } from './reader_ai_context';
 import {
   createReaderAiApplyBlockedMessage,
-  validateReaderAiSelectedChangesForApply,
+  prepareReaderAiSelectedChangesForApply,
 } from './reader_ai_controller_runtime';
 import { buildReaderAiEditorOverlay } from './reader_ai_editor_state';
 import {
@@ -3754,25 +3754,41 @@ export function App() {
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
       if (readerAiApplyingChanges || effectiveReaderAiStagedChanges.length === 0) return;
-      const selectedChanges = effectiveReaderAiStagedChanges;
-      if (
-        mode === 'without-saving' &&
-        selectedChanges.length > 1 &&
-        !(await showConfirm(`Apply ${selectedChanges.length} accepted edits to the current document?`, {
-          title: 'Apply multiple edits?',
-          confirmLabel: 'Apply',
-          defaultFocus: 'cancel',
-        }))
-      ) {
-        return;
-      }
-      const invalidSelectedChanges = validateReaderAiSelectedChangesForApply({
+      const preparedApply = prepareReaderAiSelectedChangesForApply({
         activeChangeSet: readerAiActiveChangeSet,
         currentEditContentRevision: editContentRevision,
         currentEditingDocPath,
         currentEditingDocumentContent: editContentRef.current,
-        selectedChanges,
+        selectedChanges: effectiveReaderAiStagedChanges,
+        selectedFileContents: effectiveReaderAiStagedFileContents,
+        mode,
       });
+      const selectedChanges = preparedApply.selectedChanges;
+      if (selectedChanges.length === 0) {
+        if (mode === 'without-saving' && currentEditingDocPath && preparedApply.ignoredPaths.length > 0) {
+          await showAlert(
+            'No accepted Reader AI edits target the current document. Other accepted file edits remain staged.',
+          );
+        }
+        return;
+      }
+      if (
+        mode === 'without-saving' &&
+        (preparedApply.ignoredPaths.length > 0 || selectedChanges.length > 1) &&
+        !(await showConfirm(
+          preparedApply.ignoredPaths.length > 0
+            ? `Apply the accepted Reader AI edit for the current document now? ${preparedApply.ignoredPaths.length} other file${preparedApply.ignoredPaths.length === 1 ? '' : 's'} will stay staged.`
+            : `Apply ${selectedChanges.length} accepted edits to the current document?`,
+          {
+            title: 'Apply current document edit?',
+            confirmLabel: 'Apply',
+            defaultFocus: 'cancel',
+          },
+        ))
+      ) {
+        return;
+      }
+      const invalidSelectedChanges = preparedApply.invalid;
       if (invalidSelectedChanges.length > 0) {
         const blockedMessage = createReaderAiApplyBlockedMessage(invalidSelectedChanges);
         finalizeReaderAiActiveChangeSet({
@@ -3791,7 +3807,7 @@ export function App() {
 
       const applied: string[] = [];
       const failed: Array<{ path: string; error: string }> = [];
-      const selectedFileContents = effectiveReaderAiStagedFileContents;
+      const selectedFileContents = preparedApply.selectedFileContents;
       const changeTypeByPath = new Map(selectedChanges.map((change) => [change.path, change.type]));
 
       try {
@@ -3829,8 +3845,9 @@ export function App() {
           setHasUserTypedUnsavedChanges(false);
           setHasUnsavedChanges(true);
           recordReaderAiAppliedChanges(outcome.appliedPaths, changeTypeByPath);
-          finalizeReaderAiActiveChangeSet({ appliedPaths: outcome.appliedPaths, clearActive: true });
-          resetReaderAiStagedState({ preserveEditorCheckpoint: true });
+          pruneAppliedReaderAiPaths(outcome.appliedPaths, {
+            clearDocumentEditedContentPath: currentEditingDocPath ?? undefined,
+          });
           return;
         }
 
@@ -7574,31 +7591,36 @@ export function App() {
       }),
     [currentMenuRepoFullName, recentRepos],
   );
-  const singleSelectedStagedChange =
-    effectiveReaderAiStagedChanges.length === 1 ? effectiveReaderAiStagedChanges[0] : null;
-  const hasCurrentEditingSelectedStagedContent = Boolean(
-    currentEditingDocPath &&
-      singleSelectedStagedChange &&
-      singleSelectedStagedChange.path === currentEditingDocPath &&
-      typeof effectiveReaderAiStagedFileContents[currentEditingDocPath] === 'string',
-  );
   const canApplyFromInlineDocumentEdit = readerAiDocumentEditedContent !== null;
-  const readerAiSelectedChangesApplyValidation = useMemo(
+  const readerAiSelectedChangesApplyPreparation = useMemo(
     () =>
-      validateReaderAiSelectedChangesForApply({
+      prepareReaderAiSelectedChangesForApply({
         activeChangeSet: readerAiActiveChangeSet,
         currentEditContentRevision: editContentRevision,
         currentEditingDocPath,
         currentEditingDocumentContent: editContentRef.current,
         selectedChanges: effectiveReaderAiStagedChanges,
+        selectedFileContents: effectiveReaderAiStagedFileContents,
+        mode: 'without-saving',
       }),
-    [currentEditingDocPath, editContentRevision, effectiveReaderAiStagedChanges, readerAiActiveChangeSet],
+    [
+      currentEditingDocPath,
+      editContentRevision,
+      effectiveReaderAiStagedChanges,
+      effectiveReaderAiStagedFileContents,
+      readerAiActiveChangeSet,
+    ],
+  );
+  const hasCurrentEditingSelectedStagedContent = Boolean(
+    currentEditingDocPath &&
+      readerAiSelectedChangesApplyPreparation.selectedChanges.some((change) => change.path === currentEditingDocPath) &&
+      typeof readerAiSelectedChangesApplyPreparation.selectedFileContents[currentEditingDocPath] === 'string',
   );
   const canApplyWithoutSaving =
     !readerAiStagedChangesInvalid &&
-    readerAiSelectedChangesApplyValidation.length === 0 &&
+    readerAiSelectedChangesApplyPreparation.invalid.length === 0 &&
     activeView === 'edit' &&
-    effectiveReaderAiStagedChanges.length === 1 &&
+    readerAiSelectedChangesApplyPreparation.selectedChanges.length === 1 &&
     (canApplyFromInlineDocumentEdit || hasCurrentEditingSelectedStagedContent);
   const isEditorProposalWorkflow = canApplyWithoutSaving;
   return (

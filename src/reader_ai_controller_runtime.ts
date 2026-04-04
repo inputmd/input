@@ -1,3 +1,4 @@
+import { applyPatch as applyDiffPatch } from 'diff';
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
 import type { ReaderAiStagedChange } from './reader_ai';
 import type {
@@ -76,35 +77,105 @@ export function findReaderAiActiveChangeSet(
   return changeSets.find((changeSet) => changeSet.id === activeChangeSetId) ?? null;
 }
 
-export function validateReaderAiSelectedChangesForApply(options: {
+function rebaseReaderAiSelectedChange(
+  change: ReaderAiStagedChange,
+  currentDocumentContent: string,
+): ReaderAiStagedChange | null {
+  if (change.type === 'delete') return null;
+  if (typeof change.diff !== 'string' || change.diff.length === 0) return null;
+  const rebasedContent = applyDiffPatch(currentDocumentContent, change.diff);
+  if (rebasedContent === false) return null;
+  return {
+    ...change,
+    modifiedContent: rebasedContent,
+  };
+}
+
+export function prepareReaderAiSelectedChangesForApply(options: {
   activeChangeSet: ReaderAiChangeSetRecord | null;
   currentEditContentRevision: number;
   currentEditingDocPath: string | null;
   currentEditingDocumentContent: string;
   selectedChanges: ReaderAiStagedChange[];
-}): Array<{ path: string; reason: 'missing_content' | 'stale' }> {
+  selectedFileContents: Record<string, string>;
+  mode: 'without-saving' | 'commit';
+}): {
+  selectedChanges: ReaderAiStagedChange[];
+  selectedFileContents: Record<string, string>;
+  invalid: Array<{ path: string; reason: 'missing_content' | 'stale' }>;
+  repairedPaths: string[];
+  ignoredPaths: string[];
+} {
   const fileRecordByPath = new Map(options.activeChangeSet?.files.map((file) => [file.path, file]) ?? []);
+  const scopeToCurrentEditor = options.mode === 'without-saving' && options.currentEditingDocPath;
+  const scopedChanges = scopeToCurrentEditor
+    ? options.selectedChanges.filter((change) => change.path === options.currentEditingDocPath)
+    : options.selectedChanges;
+  const ignoredPaths = scopeToCurrentEditor
+    ? Array.from(
+        new Set(
+          options.selectedChanges
+            .filter((change) => change.path !== options.currentEditingDocPath)
+            .map((change) => change.path),
+        ),
+      )
+    : [];
+  const selectedFileContents = Object.fromEntries(
+    scopedChanges
+      .filter((change) => change.type !== 'delete' && typeof options.selectedFileContents[change.path] === 'string')
+      .map((change) => [change.path, options.selectedFileContents[change.path]!]),
+  );
   const invalid: Array<{ path: string; reason: 'missing_content' | 'stale' }> = [];
-  for (const change of options.selectedChanges) {
+  const repairedPaths: string[] = [];
+  const preparedChanges: ReaderAiStagedChange[] = [];
+
+  for (const change of scopedChanges) {
     const fileRecord = fileRecordByPath.get(change.path);
     if (fileRecord && !fileRecord.hasCompleteContent) {
       invalid.push({ path: change.path, reason: 'missing_content' });
       continue;
     }
-    if (fileRecord?.status === 'stale') {
+
+    const isCurrentEditorDocument = change.path === options.currentEditingDocPath;
+    const hasLocalDrift =
+      isCurrentEditorDocument &&
+      ((typeof change.revision === 'number' && change.revision !== options.currentEditContentRevision) ||
+        (typeof change.originalContent === 'string' &&
+          change.originalContent !== options.currentEditingDocumentContent));
+    const needsRepair =
+      options.mode === 'without-saving' && isCurrentEditorDocument && (fileRecord?.status === 'stale' || hasLocalDrift);
+    const repairedChange = needsRepair
+      ? rebaseReaderAiSelectedChange(change, options.currentEditingDocumentContent)
+      : null;
+
+    if (fileRecord?.status === 'stale' && !repairedChange) {
       invalid.push({ path: change.path, reason: 'stale' });
       continue;
     }
-    if (
-      change.path === options.currentEditingDocPath &&
-      ((typeof change.revision === 'number' && change.revision !== options.currentEditContentRevision) ||
-        (typeof change.originalContent === 'string' &&
-          change.originalContent !== options.currentEditingDocumentContent))
-    ) {
+    if (hasLocalDrift && !repairedChange) {
       invalid.push({ path: change.path, reason: 'stale' });
+      continue;
     }
+
+    if (repairedChange) {
+      preparedChanges.push(repairedChange);
+      repairedPaths.push(change.path);
+      if (typeof repairedChange.modifiedContent === 'string') {
+        selectedFileContents[change.path] = repairedChange.modifiedContent;
+      }
+      continue;
+    }
+
+    preparedChanges.push(change);
   }
-  return invalid;
+
+  return {
+    selectedChanges: preparedChanges,
+    selectedFileContents,
+    invalid,
+    repairedPaths,
+    ignoredPaths,
+  };
 }
 
 export function createReaderAiApplyBlockedMessage(
