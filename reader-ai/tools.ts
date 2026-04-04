@@ -426,15 +426,133 @@ function countModifiedLines(lines: StagedHunkLine[]): number {
   return lines.filter((line) => line.type !== 'del').length;
 }
 
+function isMarkdownFenceMarker(content: string): boolean {
+  return /^ {0,3}(?:```|~~~)/.test(content);
+}
+
+function isMarkdownListItemStart(content: string): boolean {
+  return /^(?: {0,3}(?:[-*+]|\d+[.)]))\s+/.test(content);
+}
+
+function isMarkdownListContinuation(content: string): boolean {
+  return /^(?: {2,}|\t+)/.test(content) && content.trim().length > 0 && !isMarkdownListItemStart(content);
+}
+
+function isMarkdownBlockquoteContent(content: string): boolean {
+  return /^>\s*\S/.test(content);
+}
+
+function isMarkdownTableRow(content: string): boolean {
+  return /^\|(?:[^|\n]*\|)+\s*$/.test(content.trim());
+}
+
+function isMarkdownHeading(content: string): boolean {
+  return /^#{1,6}\s+\S/.test(content);
+}
+
+function isPlainParagraphLine(content: string): boolean {
+  const trimmed = content.trim();
+  if (!trimmed) return false;
+  return !isMarkdownBlockStart(content) && !isMarkdownListContinuation(content) && !/^(?: {4}|\t)/.test(content);
+}
+
+function looksLikeParagraphContinuation(previous: string, next: string): boolean {
+  return (
+    isPlainParagraphLine(previous) &&
+    isPlainParagraphLine(next) &&
+    /[.!?:]"?$/.test(previous.trim()) &&
+    /^[A-Z0-9]/.test(next.trim())
+  );
+}
+
+function isMarkdownBlockStart(content: string): boolean {
+  return (
+    isMarkdownFenceMarker(content) ||
+    isMarkdownHeading(content) ||
+    isMarkdownListItemStart(content) ||
+    isMarkdownBlockquoteContent(content) ||
+    isMarkdownTableRow(content)
+  );
+}
+
+function isProtectedMarkdownBoundary(previous: string, next: string): boolean {
+  if (previous.trim().length === 0 || next.trim().length === 0) return false;
+  if (
+    (isMarkdownListItemStart(previous) && isMarkdownListContinuation(next)) ||
+    (isMarkdownListContinuation(previous) && isMarkdownListContinuation(next))
+  ) {
+    return true;
+  }
+  if (isMarkdownBlockquoteContent(previous) && isMarkdownBlockquoteContent(next)) return true;
+  if (isMarkdownTableRow(previous) && isMarkdownTableRow(next)) return true;
+  if (isMarkdownHeading(previous) && !isMarkdownBlockStart(next)) return true;
+  if (looksLikeParagraphContinuation(previous, next)) return true;
+  return false;
+}
+
+function buildInsideFenceState(lines: StagedHunkLine[]): boolean[] {
+  const insideFenceByLine: boolean[] = [];
+  let insideFence = false;
+
+  for (const line of lines) {
+    insideFenceByLine.push(insideFence);
+    if (line.type === 'context' && isMarkdownFenceMarker(line.content)) {
+      insideFence = !insideFence;
+    }
+  }
+
+  return insideFenceByLine;
+}
+
+function chooseGapSplitPoint(
+  lines: StagedHunkLine[],
+  gapStart: number,
+  gapEndExclusive: number,
+  insideFenceByLine: boolean[],
+): number | null {
+  const gapLines = lines.slice(gapStart, gapEndExclusive);
+  const gap = gapLines.length;
+  if (gap <= 0) return 0;
+  if (insideFenceByLine[gapStart] || gapLines.some((line) => isMarkdownFenceMarker(line.content))) return null;
+
+  const minTrailing = Math.max(0, gap - SPLIT_HUNK_CONTEXT_LINES);
+  const maxTrailing = Math.min(SPLIT_HUNK_CONTEXT_LINES, gap);
+  let bestSplitPoint = minTrailing;
+  let bestStructuralScore = Number.NEGATIVE_INFINITY;
+  let bestCenterDistance = Number.POSITIVE_INFINITY;
+
+  for (let splitPoint = minTrailing; splitPoint <= maxTrailing; splitPoint += 1) {
+    const previous = gapLines[splitPoint - 1]?.content ?? '';
+    const next = gapLines[splitPoint]?.content ?? '';
+    if (splitPoint > 0 && splitPoint < gap && isProtectedMarkdownBoundary(previous, next)) continue;
+
+    const hasBlankBoundary = (splitPoint > 0 && previous === '') || (splitPoint < gap && next === '');
+    const structuralScore = hasBlankBoundary ? 3 : next && isMarkdownBlockStart(next) ? 2 : 0;
+    const centerDistance = Math.abs(splitPoint - gap / 2);
+
+    if (
+      structuralScore > bestStructuralScore ||
+      (structuralScore === bestStructuralScore && centerDistance < bestCenterDistance)
+    ) {
+      bestSplitPoint = splitPoint;
+      bestStructuralScore = structuralScore;
+      bestCenterDistance = centerDistance;
+    }
+  }
+
+  if (bestStructuralScore === Number.NEGATIVE_INFINITY) return null;
+  return bestSplitPoint;
+}
+
 function splitParsedUnifiedDiffHunk(hunk: StagedHunk): StagedHunk[] {
-  const changeSpans: Array<{ start: number; end: number }> = [];
+  const rawChangeSpans: Array<{ start: number; end: number }> = [];
   let currentChangeStart: number | null = null;
 
   for (let index = 0; index < hunk.lines.length; index += 1) {
     const line = hunk.lines[index];
     if (line?.type === 'context') {
       if (currentChangeStart !== null) {
-        changeSpans.push({ start: currentChangeStart, end: index - 1 });
+        rawChangeSpans.push({ start: currentChangeStart, end: index - 1 });
         currentChangeStart = null;
       }
       continue;
@@ -443,7 +561,25 @@ function splitParsedUnifiedDiffHunk(hunk: StagedHunk): StagedHunk[] {
   }
 
   if (currentChangeStart !== null) {
-    changeSpans.push({ start: currentChangeStart, end: hunk.lines.length - 1 });
+    rawChangeSpans.push({ start: currentChangeStart, end: hunk.lines.length - 1 });
+  }
+
+  if (rawChangeSpans.length <= 1) return [hunk];
+
+  const insideFenceByLine = buildInsideFenceState(hunk.lines);
+  const changeSpans: Array<{ start: number; end: number }> = [];
+  for (const span of rawChangeSpans) {
+    const previous = changeSpans[changeSpans.length - 1];
+    if (!previous) {
+      changeSpans.push({ ...span });
+      continue;
+    }
+    const splitPoint = chooseGapSplitPoint(hunk.lines, previous.end + 1, span.start, insideFenceByLine);
+    if (splitPoint === null) {
+      previous.end = span.end;
+      continue;
+    }
+    changeSpans.push({ ...span });
   }
 
   if (changeSpans.length <= 1) return [hunk];
@@ -456,10 +592,11 @@ function splitParsedUnifiedDiffHunk(hunk: StagedHunk): StagedHunk[] {
     const current = changeSpans[index];
     const next = changeSpans[index + 1];
     if (!current || !next) continue;
-    const gap = next.start - current.end - 1;
-    if (gap <= 0) continue;
-    const trailing = Math.min(SPLIT_HUNK_CONTEXT_LINES, Math.floor(gap / 2));
-    const leading = Math.min(SPLIT_HUNK_CONTEXT_LINES, gap - trailing);
+    const gapStart = current.end + 1;
+    const splitPoint = chooseGapSplitPoint(hunk.lines, gapStart, next.start, insideFenceByLine);
+    if (splitPoint === null) continue;
+    const leading = next.start - gapStart - splitPoint;
+    const trailing = splitPoint;
     trailingContexts[index] = trailing;
     leadingContexts[index + 1] = leading;
   }

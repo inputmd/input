@@ -53,6 +53,18 @@ function makeLines(count: number, prefix = 'Line'): string[] {
   return Array.from({ length: count }, (_, i) => `${prefix} ${i + 1}`);
 }
 
+function buildMarkdownParagraphDocument(paragraphs: string[]): string {
+  return [
+    '# Title',
+    '',
+    ...paragraphs.flatMap((paragraph, index) => (index < paragraphs.length - 1 ? [paragraph, ''] : [paragraph])),
+  ].join('\n');
+}
+
+function makeParagraph(index: number): string {
+  return `Paragraph ${index} first sentence.\nParagraph ${index} second sentence.`;
+}
+
 function sseChunk(data: unknown): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
@@ -1149,5 +1161,265 @@ test('parseUnifiedDiffHunks splits a merged raw hunk into smaller review hunks',
         ],
       },
     ],
+  );
+});
+
+test('parseUnifiedDiffHunks keeps markdown paragraph context intact when deleting alternating paragraphs', (t) => {
+  const paragraphs = Array.from({ length: 10 }, (_, index) => makeParagraph(index + 1));
+  const original = buildMarkdownParagraphDocument(paragraphs);
+  const modified = buildMarkdownParagraphDocument(paragraphs.filter((_, index) => ![0, 2, 4].includes(index)));
+
+  const diff = generateUnifiedDiff('doc.md', original, modified);
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.is(hunks.length, 3);
+  t.true(
+    hunks.every((hunk) => {
+      const hasParagraph2Line1 = hunk.lines.some((line) => line.content === 'Paragraph 2 first sentence.');
+      const hasParagraph2Line2 = hunk.lines.some((line) => line.content === 'Paragraph 2 second sentence.');
+      return hasParagraph2Line1 === hasParagraph2Line2;
+    }),
+  );
+  t.true(
+    hunks.every((hunk) => {
+      const hasParagraph4Line1 = hunk.lines.some((line) => line.content === 'Paragraph 4 first sentence.');
+      const hasParagraph4Line2 = hunk.lines.some((line) => line.content === 'Paragraph 4 second sentence.');
+      return hasParagraph4Line1 === hasParagraph4Line2;
+    }),
+  );
+});
+
+test('parseUnifiedDiffHunks splits insertion-only clusters inside a single raw hunk', (t) => {
+  const original = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].join('\n');
+  const modifiedLines = ['a', 'b', 'insert 1', 'c', 'd', 'e', 'insert 2', 'f', 'g', 'h'];
+
+  const diff = generateUnifiedDiff('insertions.txt', original, modifiedLines.join('\n'));
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.deepEqual(
+    hunks.map((hunk) => hunk.header),
+    ['@@ -1,3 +1,4 @@', '@@ -4,5 +5,6 @@'],
+  );
+});
+
+test('parseUnifiedDiffHunks splits deletion-only clusters inside a single raw hunk', (t) => {
+  const originalLines = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const modified = originalLines.filter((_, index) => index !== 2 && index !== 5).join('\n');
+
+  const diff = generateUnifiedDiff('deletions.txt', originalLines.join('\n'), modified);
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.deepEqual(
+    hunks.map((hunk) => hunk.header),
+    ['@@ -1,4 +1,3 @@', '@@ -5,4 +4,3 @@'],
+  );
+});
+
+test('parseUnifiedDiffHunks keeps adjacent replacements merged into one review hunk', (t) => {
+  const original = ['a', 'b', 'c', 'd', 'e', 'f'].join('\n');
+  const modified = ['a', 'b', 'C1', 'D1', 'e', 'f'].join('\n');
+
+  const diff = generateUnifiedDiff('adjacent.txt', original, modified);
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.is(hunks.length, 1);
+  t.is(hunks[0]?.header, '@@ -1,6 +1,6 @@');
+});
+
+test('parseUnifiedDiffHunks preserves valid edge ranges when splitting start and end edits', (t) => {
+  const original = ['start', 'a', 'b', 'c', 'd', 'e', 'end'].join('\n');
+  const modified = ['START', 'a', 'b', 'c', 'd', 'E', 'end'].join('\n');
+
+  const diff = generateUnifiedDiff('edges.txt', original, modified);
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.deepEqual(
+    hunks.map((hunk) => hunk.header),
+    ['@@ -1,3 +1,3 @@', '@@ -4,4 +4,4 @@'],
+  );
+});
+
+test('parseUnifiedDiffHunks splits mixed delete and replace clusters into separate review hunks', (t) => {
+  const original = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta'].join('\n');
+  const modified = ['alpha', 'gamma', 'delta', 'epsilon', 'ZETA!', 'eta', 'theta'].join('\n');
+
+  const diff = generateUnifiedDiff('mixed.txt', original, modified);
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.deepEqual(
+    hunks.map((hunk) => hunk.header),
+    ['@@ -1,3 +1,2 @@', '@@ -4,5 +3,5 @@'],
+  );
+});
+
+test('parseUnifiedDiffHunks does not split a surviving markdown list item across review hunks', (t) => {
+  const original = [
+    '# List',
+    '',
+    '- item 1 line 1',
+    '  item 1 line 2',
+    '- item 2 line 1',
+    '  item 2 line 2',
+    '- item 3 line 1',
+    '  item 3 line 2',
+    '- item 4 line 1',
+    '  item 4 line 2',
+  ].join('\n');
+  const modified = ['# List', '', '- item 2 line 1', '  item 2 line 2', '- item 4 line 1', '  item 4 line 2'].join(
+    '\n',
+  );
+
+  const hunks = parseUnifiedDiffHunks(generateUnifiedDiff('list.md', original, modified));
+
+  t.is(hunks.length, 2);
+  t.true(
+    hunks.every((hunk) => {
+      const hasFirstLine = hunk.lines.some((line) => line.content === '- item 2 line 1');
+      const hasSecondLine = hunk.lines.some((line) => line.content === '  item 2 line 2');
+      return hasFirstLine === hasSecondLine;
+    }),
+  );
+});
+
+test('parseUnifiedDiffHunks does not split a surviving blockquote paragraph across review hunks', (t) => {
+  const original = [
+    '# Quote',
+    '',
+    '> quote 1 line 1',
+    '> quote 1 line 2',
+    '> quote 2 line 1',
+    '> quote 2 line 2',
+    '> quote 3 line 1',
+    '> quote 3 line 2',
+    '> quote 4 line 1',
+    '> quote 4 line 2',
+  ].join('\n');
+  const modified = ['# Quote', '', '> quote 2 line 1', '> quote 2 line 2', '> quote 4 line 1', '> quote 4 line 2'].join(
+    '\n',
+  );
+
+  const hunks = parseUnifiedDiffHunks(generateUnifiedDiff('quote.md', original, modified));
+
+  t.is(hunks.length, 2);
+  t.true(
+    hunks.every((hunk) => {
+      const hasFirstLine = hunk.lines.some((line) => line.content === '> quote 2 line 1');
+      const hasSecondLine = hunk.lines.some((line) => line.content === '> quote 2 line 2');
+      return hasFirstLine === hasSecondLine;
+    }),
+  );
+});
+
+test('parseUnifiedDiffHunks keeps edits inside one fenced code block merged', (t) => {
+  const original = [
+    '# Code',
+    '',
+    '```js',
+    'const a = 1;',
+    'const keep1 = true;',
+    'const b = 2;',
+    'const keep2 = true;',
+    'const c = 3;',
+    '```',
+  ].join('\n');
+  const modified = ['# Code', '', '```js', 'const keep1 = true;', 'const keep2 = true;', '```'].join('\n');
+
+  const diff = generateUnifiedDiff('code.md', original, modified);
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.is(hunks.length, 1);
+});
+
+test('parseUnifiedDiffHunks keeps surviving paragraphs intact when a blank line is removed between review blocks', (t) => {
+  const paragraphs = Array.from({ length: 10 }, (_, index) => makeParagraph(index + 1));
+  const original = buildMarkdownParagraphDocument(paragraphs);
+  const kept = paragraphs.filter((_, index) => ![0, 2, 4].includes(index));
+  const modified = [
+    '# Title',
+    '',
+    kept[0],
+    kept[1],
+    '',
+    kept[2],
+    '',
+    kept[3],
+    '',
+    kept[4],
+    '',
+    kept[5],
+    '',
+    kept[6],
+  ].join('\n');
+
+  const hunks = parseUnifiedDiffHunks(generateUnifiedDiff('doc.md', original, modified));
+
+  t.is(hunks.length, 3);
+  t.true(
+    hunks.every((hunk) => {
+      const hasFirstLine = hunk.lines.some((line) => line.content === 'Paragraph 2 first sentence.');
+      const hasSecondLine = hunk.lines.some((line) => line.content === 'Paragraph 2 second sentence.');
+      return hasFirstLine === hasSecondLine;
+    }),
+  );
+  t.true(
+    hunks.every((hunk) => {
+      const hasFirstLine = hunk.lines.some((line) => line.content === 'Paragraph 4 first sentence.');
+      const hasSecondLine = hunk.lines.some((line) => line.content === 'Paragraph 4 second sentence.');
+      return hasFirstLine === hasSecondLine;
+    }),
+  );
+});
+
+test('parseUnifiedDiffHunks keeps deletion blocks grouped when an extra blank line is added between review blocks', (t) => {
+  const paragraphs = Array.from({ length: 10 }, (_, index) => makeParagraph(index + 1));
+  const original = buildMarkdownParagraphDocument(paragraphs);
+  const kept = paragraphs.filter((_, index) => ![0, 2, 4].includes(index));
+  const modified = [
+    '# Title',
+    '',
+    kept[0],
+    '',
+    '',
+    kept[1],
+    '',
+    kept[2],
+    '',
+    kept[3],
+    '',
+    kept[4],
+    '',
+    kept[5],
+    '',
+    kept[6],
+  ].join('\n');
+
+  const hunks = parseUnifiedDiffHunks(generateUnifiedDiff('doc.md', original, modified));
+
+  t.is(hunks.length, 3);
+  t.true(
+    hunks.every((hunk) =>
+      hunk.lines.some((line) => line.type === 'del') ? hunk.lines.some((line) => line.content === '') : true,
+    ),
+  );
+  t.true(
+    hunks.every((hunk) => {
+      const hasParagraph4 = hunk.lines.some((line) => line.content === 'Paragraph 4 first sentence.');
+      if (!hasParagraph4) return true;
+      return hunk.lines.some((line) => line.content === 'Paragraph 4 second sentence.');
+    }),
   );
 });

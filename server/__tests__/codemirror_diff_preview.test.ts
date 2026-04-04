@@ -161,6 +161,51 @@ test('editorDiffPreviewExtension mounts block preview decorations without crashi
   }
 });
 
+test('editorDiffPreviewExtension preserves paragraph breaks without an extra trailing widget newline', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const insertedText = [
+      'Paragraph 1 line 1',
+      'Paragraph 1 line 2',
+      '',
+      'Paragraph 2 line 1',
+      'Paragraph 2 line 2',
+      '',
+    ].join('\n');
+    const doc = 'Paragraph 1 line 1\nParagraph 1 line 2\n\nParagraph 2 line 1\nParagraph 2 line 2\n';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        extensions: [
+          editorDiffPreviewExtension({
+            blocks: [
+              {
+                from: 0,
+                to: doc.length,
+                insertedText,
+                deletedText: '',
+                label: '@@ -1,5 +1,5 @@',
+              },
+            ],
+          }),
+        ],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    const content = view.dom.querySelector<HTMLElement>('.cm-editor-diff-preview-content');
+    t.truthy(content);
+    t.is(content?.tagName, 'DIV');
+    t.is(content?.textContent, insertedText.slice(0, -1));
+    t.true((content?.textContent?.match(/\n\n/g)?.length ?? 0) === 1);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
 test('editorDiffPreviewExtension omits meta rows for proposal previews', (t) => {
   const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
   const restore = installDomGlobals(dom);

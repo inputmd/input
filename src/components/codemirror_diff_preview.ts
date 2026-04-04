@@ -264,17 +264,19 @@ class DiffPreviewWidget extends WidgetType {
 
     const deletedText = this.block.deletedText ?? '';
     if (deletedText.trim().length > 0) {
-      const deleted = document.createElement('pre');
+      const deleted = document.createElement('div');
       deleted.className = 'cm-editor-diff-preview-content cm-editor-diff-preview-content--deleted';
-      deleted.textContent = deletedText.length > 1200 ? `${deletedText.slice(0, 1200)}…` : deletedText;
+      const displayText = displayBlockPreviewText(deletedText);
+      deleted.textContent = displayText.length > 1200 ? `${displayText.slice(0, 1200)}…` : displayText;
       wrapper.append(deleted);
     }
 
     const insertedText = this.block.insertedText ?? '';
     if (insertedText.trim().length > 0) {
-      const content = document.createElement('pre');
+      const content = document.createElement('div');
       content.className = 'cm-editor-diff-preview-content';
-      content.textContent = insertedText.length > 1200 ? `${insertedText.slice(0, 1200)}…` : insertedText;
+      const displayText = displayBlockPreviewText(insertedText);
+      content.textContent = displayText.length > 1200 ? `${displayText.slice(0, 1200)}…` : displayText;
       wrapper.append(content);
     }
     this.appendActions(wrapper, 'block');
@@ -414,6 +416,10 @@ function previewLineClass(kind: 'insert' | 'replace' | 'delete'): string {
 
 function trimSingleTrailingNewline(text: string): string {
   return text.endsWith('\n') ? text.slice(0, -1) : text;
+}
+
+function displayBlockPreviewText(text: string): string {
+  return trimSingleTrailingNewline(text);
 }
 
 function isSingleLogicalLine(text: string | undefined): boolean {
