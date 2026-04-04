@@ -6,6 +6,9 @@ export interface EditorConflictWidget {
   lineNumber: number;
   title: string;
   message: string;
+  currentText?: string | null;
+  proposedText?: string | null;
+  baseText?: string | null;
   tone: 'stale' | 'conflicted' | 'failed';
   changeId: string;
   hunkId: string;
@@ -34,6 +37,9 @@ class ReaderAiConflictWidget extends WidgetType {
       this.widget.lineNumber === other.widget.lineNumber &&
       this.widget.title === other.widget.title &&
       this.widget.message === other.widget.message &&
+      this.widget.currentText === other.widget.currentText &&
+      this.widget.proposedText === other.widget.proposedText &&
+      this.widget.baseText === other.widget.baseText &&
       this.widget.tone === other.widget.tone &&
       this.widget.changeId === other.widget.changeId &&
       this.widget.hunkId === other.widget.hunkId &&
@@ -59,6 +65,21 @@ class ReaderAiConflictWidget extends WidgetType {
     message.className = 'cm-reader-ai-conflict-widget__message';
     message.textContent = this.widget.message;
     wrapper.append(message);
+
+    if (this.widget.currentText || this.widget.proposedText || this.widget.baseText) {
+      const preview = document.createElement('div');
+      preview.className = 'cm-reader-ai-conflict-widget__preview';
+      if (this.widget.currentText) {
+        preview.append(this.createSnippet('Current', this.widget.currentText, 'current'));
+      }
+      if (this.widget.proposedText) {
+        preview.append(this.createSnippet('AI', this.widget.proposedText, 'proposed'));
+      }
+      if (this.widget.baseText) {
+        preview.append(this.createSnippet('Base', this.widget.baseText, 'base'));
+      }
+      wrapper.append(preview);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'cm-reader-ai-conflict-widget__actions';
@@ -90,6 +111,23 @@ class ReaderAiConflictWidget extends WidgetType {
       onClick();
     });
     return button;
+  }
+
+  private createSnippet(label: string, text: string, tone: 'current' | 'proposed' | 'base'): HTMLElement {
+    const section = document.createElement('div');
+    section.className = `cm-reader-ai-conflict-widget__snippet cm-reader-ai-conflict-widget__snippet--${tone}`;
+
+    const heading = document.createElement('div');
+    heading.className = 'cm-reader-ai-conflict-widget__snippet-label';
+    heading.textContent = label;
+    section.append(heading);
+
+    const body = document.createElement('pre');
+    body.className = 'cm-reader-ai-conflict-widget__snippet-body';
+    body.textContent = text;
+    section.append(body);
+
+    return section;
   }
 }
 

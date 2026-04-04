@@ -151,4 +151,7 @@ test('buildReaderAiEditorOverlay exposes stale hunks as editor conflicts', (t) =
   t.is(overlay?.hunks[0]?.conflictReason, 'overlapping_local_edits');
   t.is(overlay?.conflicts[0]?.hunkId, 'hunk:1');
   t.true(overlay?.conflicts[0]?.message.includes('Restore the checkpoint') ?? false);
+  t.is(overlay?.conflicts[0]?.currentText, 'local drift');
+  t.is(overlay?.conflicts[0]?.proposedText, 'after');
+  t.is(overlay?.conflicts[0]?.baseText, 'before');
 });

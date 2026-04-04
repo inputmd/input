@@ -51,6 +51,9 @@ export interface ReaderAiEditorConflict {
   reason: ReaderAiEditorConflictReason;
   message: string;
   selected: boolean;
+  currentText: string | null;
+  proposedText: string | null;
+  baseText: string | null;
 }
 
 export interface ReaderAiEditorHunkOverlay {
@@ -337,6 +340,32 @@ function buildReaderAiEditorHunks(options: {
   });
 }
 
+function extractReaderAiDocumentLineRange(content: string, lineStart: number, lineEnd: number): string | null {
+  const lines = content.split('\n');
+  const startIndex = Math.max(0, lineStart - 1);
+  const endIndex = Math.max(startIndex, lineEnd);
+  const segment = lines.slice(startIndex, endIndex).join('\n').trimEnd();
+  return segment.length > 0 ? segment : null;
+}
+
+function buildReaderAiHunkBaseText(hunk: ReaderAiStagedHunk): string | null {
+  const text = hunk.lines
+    .filter((line) => line.type !== 'add')
+    .map((line) => line.content)
+    .join('\n')
+    .trimEnd();
+  return text.length > 0 ? text : null;
+}
+
+function buildReaderAiHunkProposedText(hunk: ReaderAiStagedHunk): string | null {
+  const text = hunk.lines
+    .filter((line) => line.type !== 'del')
+    .map((line) => line.content)
+    .join('\n')
+    .trimEnd();
+  return text.length > 0 ? text : null;
+}
+
 function buildReaderAiEditorConflicts(options: {
   path: string;
   change: ReaderAiStagedChange | undefined;
@@ -344,19 +373,26 @@ function buildReaderAiEditorConflicts(options: {
   fileStatus: ReaderAiEditorFileStatus;
   conflictReason: ReaderAiEditorConflictReason | null;
   failedEntry: ReaderAiChangeSetFailure | undefined;
+  currentDocumentContent: string;
 }): ReaderAiEditorConflict[] {
   if (!options.conflictReason) return [];
   const message = createReaderAiConflictMessage(options.conflictReason, options.failedEntry);
   if (options.hunks.length > 0) {
-    return options.hunks.map((hunk) => ({
-      changeId: hunk.changeId,
-      hunkId: hunk.hunkId,
-      path: options.path,
-      title: hunk.header,
-      reason: options.conflictReason!,
-      message,
-      selected: hunk.selected,
-    }));
+    return options.hunks.map((hunk) => {
+      const sourceHunk = options.change?.hunks?.find((entry) => entry.id === hunk.hunkId) ?? null;
+      return {
+        changeId: hunk.changeId,
+        hunkId: hunk.hunkId,
+        path: options.path,
+        title: hunk.header,
+        reason: options.conflictReason!,
+        message,
+        selected: hunk.selected,
+        currentText: extractReaderAiDocumentLineRange(options.currentDocumentContent, hunk.lineStart, hunk.lineEnd),
+        proposedText: sourceHunk ? buildReaderAiHunkProposedText(sourceHunk) : null,
+        baseText: sourceHunk ? buildReaderAiHunkBaseText(sourceHunk) : null,
+      };
+    });
   }
   return [
     {
@@ -367,6 +403,9 @@ function buildReaderAiEditorConflicts(options: {
       reason: options.conflictReason,
       message,
       selected: !!options.change?.id,
+      currentText: options.currentDocumentContent.trimEnd() || null,
+      proposedText: typeof options.change?.modifiedContent === 'string' ? options.change.modifiedContent : null,
+      baseText: typeof options.change?.originalContent === 'string' ? options.change.originalContent : null,
     },
   ];
 }
@@ -558,6 +597,7 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
     fileStatus,
     conflictReason,
     failedEntry,
+    currentDocumentContent: options.currentDocumentContent,
   });
   const statusMessage = createReaderAiStatusMessage({
     fileStatus,
