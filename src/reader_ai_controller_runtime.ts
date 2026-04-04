@@ -19,6 +19,15 @@ function hashReaderAiContent(content: string): string {
   return (hash >>> 0).toString(16);
 }
 
+function tryApplyReaderAiPatch(original: string, patch: string): string | null {
+  try {
+    const patched = applyDiffPatch(original, patch);
+    return patched === false ? null : patched;
+  } catch {
+    return null;
+  }
+}
+
 export function buildReaderAiChangeSetFileRecords(options: {
   stagedChanges: ReaderAiStagedChange[];
   stagedFileContents: Record<string, string>;
@@ -86,8 +95,8 @@ export function rebaseReaderAiChangeAgainstContent(
 ): ReaderAiStagedChange | null {
   if (change.type === 'delete') return null;
   if (typeof change.diff !== 'string' || change.diff.length === 0) return null;
-  const rebasedContent = applyDiffPatch(currentDocumentContent, change.diff);
-  if (rebasedContent === false) return null;
+  const rebasedContent = tryApplyReaderAiPatch(currentDocumentContent, change.diff);
+  if (rebasedContent === null) return null;
   return {
     ...change,
     modifiedContent: rebasedContent,

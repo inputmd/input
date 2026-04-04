@@ -10,6 +10,7 @@ import {
   resolveReaderAiStagedHunkState,
 } from '../../src/reader_ai_controller_runtime.ts';
 import type { ReaderAiRunRecord } from '../../src/reader_ai_ledger.ts';
+import { buildReaderAiSelectedChange } from '../../src/reader_ai_selectors.ts';
 
 function createRun(): ReaderAiRunRecord {
   return {
@@ -216,6 +217,50 @@ test('prepareReaderAiSelectedChangesForApply rebases a stale current-document hu
   t.deepEqual(prepared.repairedPaths, ['doc.md']);
   t.true(prepared.selectedFileContents['doc.md']?.includes('heading') ?? false);
   t.true(prepared.selectedFileContents['doc.md']?.includes('after') ?? false);
+});
+
+test('buildReaderAiSelectedChange ignores malformed hunks instead of throwing', (t) => {
+  const malformedChange: ReaderAiStagedChange = {
+    id: 'change:bad',
+    path: 'doc.md',
+    type: 'edit',
+    diff: '',
+    revision: 1,
+    originalContent: 'alpha\nbeta\ngamma\n',
+    modifiedContent: 'alpha\nbeta\ngamma\n',
+    hunks: [
+      {
+        id: 'hunk:good',
+        header: '@@ -1,1 +1,1 @@',
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        lines: [
+          { type: 'context', content: 'alpha' },
+          { type: 'del', content: 'beta' },
+          { type: 'add', content: 'beta changed' },
+        ],
+      },
+      {
+        id: 'hunk:bad',
+        header: '@@ -3,1 +3,2 @@',
+        oldStart: 3,
+        oldLines: 1,
+        newStart: 3,
+        newLines: 2,
+        lines: [
+          { type: 'context', content: 'gamma' },
+          { type: 'del', content: 'delta' },
+          { type: 'add', content: 'delta changed' },
+          { type: 'add', content: 'extra line' },
+          { type: 'add', content: 'one too many' },
+        ],
+      },
+    ],
+  };
+
+  t.is(buildReaderAiSelectedChange(malformedChange, new Set(['hunk:bad'])), null);
 });
 
 test('resolveReaderAiStagedHunkState removes a resolved hunk and keeps remaining hunks staged', (t) => {

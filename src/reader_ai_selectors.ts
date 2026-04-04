@@ -2,6 +2,15 @@ import { applyPatch as applyDiffPatch } from 'diff';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from './reader_ai';
 import type { ReaderAiSelectedHunkIdsByChangeId } from './reader_ai_state';
 
+function tryApplyReaderAiPatch(original: string, patch: string): string | null {
+  try {
+    const patched = applyDiffPatch(original, patch);
+    return patched === false ? null : patched;
+  } catch {
+    return null;
+  }
+}
+
 export function buildReaderAiSelectedChange(
   change: ReaderAiStagedChange,
   selectedHunkIds: Set<string> | undefined,
@@ -32,8 +41,8 @@ export function buildReaderAiSelectedChange(
       }),
     ]),
   ].join('\n');
-  const patched = applyDiffPatch(original, partialDiff);
-  if (patched === false) return null;
+  const patched = tryApplyReaderAiPatch(original, partialDiff);
+  if (patched === null) return null;
   return {
     ...change,
     diff: partialDiff,
