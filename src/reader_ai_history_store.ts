@@ -28,6 +28,10 @@ export function persistReaderAiHistoryEntry(historyKey: string, entry: ReaderAiH
     entry.stagedChangesInvalid,
     entry.stagedFileContents,
     entry.appliedChanges,
+    entry.runs,
+    entry.activeRunId,
+    entry.changeSets,
+    entry.activeChangeSetId,
   );
 }
 
@@ -60,12 +64,18 @@ export function createReaderAiSelectionStateFromHistoryEntry(loaded: ReaderAiHis
   selectedChangeIds: Set<string>;
   selectedHunkIdsByChangeId: ReaderAiSelectedHunkIdsByChangeId;
 } {
+  const stagedChanges =
+    loaded.stagedChanges ??
+    (loaded.activeChangeSetId
+      ? loaded.changeSets?.find((changeSet) => changeSet.id === loaded.activeChangeSetId)?.stagedChanges
+      : undefined) ??
+    [];
   return {
     selectedChangeIds: new Set(
-      (loaded.stagedChanges ?? []).map((change) => change.id).filter((id): id is string => typeof id === 'string'),
+      stagedChanges.map((change) => change.id).filter((id): id is string => typeof id === 'string'),
     ),
     selectedHunkIdsByChangeId: Object.fromEntries(
-      (loaded.stagedChanges ?? [])
+      stagedChanges
         .filter((change) => change.id && Array.isArray(change.hunks))
         .map((change) => [
           change.id as string,

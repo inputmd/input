@@ -17,6 +17,7 @@ export interface ReaderAiMessage {
 }
 
 interface ReaderAiPanelProps {
+  className?: string;
   models: ReaderAiModel[];
   modelsLoading: boolean;
   modelsError: string | null;
@@ -121,6 +122,7 @@ function ReaderAiAssistantMessage({
 }
 
 export function ReaderAiPanel({
+  className,
   models,
   modelsLoading,
   modelsError,
@@ -513,7 +515,12 @@ export function ReaderAiPanel({
   );
 
   return (
-    <aside ref={panelRef} class="reader-ai-panel" aria-label="Reader AI panel">
+    <aside
+      ref={panelRef}
+      class={className ? `reader-ai-panel ${className}` : 'reader-ai-panel'}
+      aria-label="Reader AI panel"
+      aria-hidden={className?.includes('reader-ai-panel--hidden') ? 'true' : undefined}
+    >
       <div class="reader-ai-messages" ref={messagesRef}>
         {composerAtTop ? composer : null}
         {!hasMessages ? (

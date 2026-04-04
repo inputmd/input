@@ -1184,11 +1184,14 @@ export function App() {
   );
   const {
     acceptReaderAiProposal,
+    buildReaderAiRetryRequest,
     clearReaderAi,
     clearReaderAiUndoState,
     effectiveReaderAiStagedChanges,
     effectiveReaderAiStagedFileContents,
+    finalizeReaderAiActiveChangeSet,
     ignoreAllReaderAiChanges,
+    markReaderAiActiveChangeSetApplying,
     pruneAppliedReaderAiPaths,
     readerAiApplyingChanges,
     readerAiConversationScope,
@@ -3638,8 +3641,12 @@ export function App() {
 
   const isGistContext = currentGistId !== null && gistFiles !== null;
   const streamReaderAiAssistant = useCallback(
-    async (baseMessages: ReaderAiMessage[], options?: { edited?: boolean }) => {
-      if (!readerAiSelectedModel) return false;
+    async (
+      baseMessages: ReaderAiMessage[],
+      options?: { edited?: boolean; modelId?: string | null; parentRunId?: string | null },
+    ) => {
+      const modelId = options?.modelId ?? readerAiSelectedModel;
+      if (!modelId) return false;
       const allowDocumentEdits = activeView === 'edit';
       const currentEditContent = editContentRef.current;
       const documentSource = trimReaderAiSource(
@@ -3649,14 +3656,18 @@ export function App() {
         ? (editViewControllerRef.current?.getSelectionText(READER_AI_SELECTION_MAX_CHARS) ?? null)
         : null;
       const currentDocPath = allowDocumentEdits ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
+      const selectedModel =
+        readerAiModels.find((model) => model.id === modelId) ??
+        (modelId === readerAiSelectedModel ? selectedReaderAiModel : null);
       return startReaderAiStream({
         allowDocumentEdits,
         baseMessages,
         currentDocPath,
         documentSource,
         edited: options?.edited,
-        modelId: readerAiSelectedModel,
-        selectedModel: selectedReaderAiModel,
+        modelId,
+        parentRunId: options?.parentRunId ?? undefined,
+        selectedModel,
         selectionSource,
         showFailureToast,
       });
@@ -3666,6 +3677,7 @@ export function App() {
       currentEditingDocPath,
       currentFileName,
       currentRepoDocPath,
+      readerAiModels,
       readerAiSelectedModel,
       readerAiSource,
       showFailureToast,
@@ -3720,6 +3732,7 @@ export function App() {
         return;
       }
       setReaderAiApplyingChanges(true);
+      markReaderAiActiveChangeSetApplying();
       setReaderAiError(null);
 
       const applied: string[] = [];
@@ -3753,6 +3766,7 @@ export function App() {
           setHasUnsavedChanges(true);
           setReaderAiUndoState(outcome.undoState);
           recordReaderAiAppliedChanges(outcome.appliedPaths, changeTypeByPath);
+          finalizeReaderAiActiveChangeSet({ appliedPaths: outcome.appliedPaths, clearActive: true });
           resetReaderAiStagedState({ preserveUndoState: true });
           return;
         }
@@ -3764,6 +3778,7 @@ export function App() {
         };
 
         if (outcome.result.conflict) {
+          finalizeReaderAiActiveChangeSet({ conflict: true });
           await handleApplyConflict(outcome.result.conflict);
           return;
         }
@@ -3773,15 +3788,21 @@ export function App() {
         if (failed.length > 0 && applied.length > 0) {
           // Partial success
           recordReaderAiAppliedChanges(applied, changeTypeByPath);
+          finalizeReaderAiActiveChangeSet({
+            appliedPaths: applied,
+            failedPaths: failed,
+          });
           pruneAppliedReaderAiPaths(applied, { clearDocumentEditedContentPath: currentEditingDocPath });
           const failedPaths = failed.map((f) => f.path).join(', ');
           setReaderAiError(`Applied ${applied.length} file(s), but ${failed.length} failed: ${failedPaths}`);
         } else if (failed.length > 0) {
+          finalizeReaderAiActiveChangeSet({ failedPaths: failed });
           const failedPaths = failed.map((f) => `${f.path}: ${f.error}`).join('; ');
           setReaderAiError(`Failed to apply changes: ${failedPaths}`);
         } else {
           // Full success — clear staged changes
           recordReaderAiAppliedChanges(applied, changeTypeByPath);
+          finalizeReaderAiActiveChangeSet({ appliedPaths: applied, clearActive: true });
           resetReaderAiStagedState();
         }
 
@@ -3791,6 +3812,14 @@ export function App() {
         }
       } catch (err) {
         showRateLimitToastIfNeeded(err);
+        finalizeReaderAiActiveChangeSet({
+          failedPaths: [
+            {
+              path: selectedChanges.map((change) => change.path).join(', '),
+              error: err instanceof Error ? err.message : 'Failed to apply changes',
+            },
+          ],
+        });
         setReaderAiError(err instanceof Error ? err.message : 'Failed to apply changes');
       } finally {
         setReaderAiApplyingChanges(false);
@@ -3820,6 +3849,8 @@ export function App() {
       setReaderAiApplyingChanges,
       setReaderAiError,
       setReaderAiUndoState,
+      finalizeReaderAiActiveChangeSet,
+      markReaderAiActiveChangeSetApplying,
       recordReaderAiAppliedChanges,
       resetReaderAiStagedState,
       pruneAppliedReaderAiPaths,
@@ -3878,9 +3909,15 @@ export function App() {
       }
     }
     if (lastUserIndex === -1) return;
-    const messagesToReplay = readerAiMessages.slice(0, lastUserIndex + 1);
-    await streamReaderAiAssistant(messagesToReplay);
-  }, [readerAiMessages, readerAiSending, streamReaderAiAssistant]);
+    const retryRequest = buildReaderAiRetryRequest();
+    const messagesToReplay = retryRequest?.baseMessages.length
+      ? retryRequest.baseMessages
+      : readerAiMessages.slice(0, lastUserIndex + 1);
+    await streamReaderAiAssistant(messagesToReplay, {
+      modelId: retryRequest?.modelId ?? readerAiSelectedModel,
+      parentRunId: retryRequest?.parentRunId ?? null,
+    });
+  }, [buildReaderAiRetryRequest, readerAiMessages, readerAiSelectedModel, readerAiSending, streamReaderAiAssistant]);
 
   const cancelInlinePrompt = useCallback(() => {
     inlinePromptAbortRef.current?.abort();
@@ -7338,6 +7375,7 @@ export function App() {
   const showHeaderLeftLoading = activeView === 'loading' && Boolean(user);
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
+  const mountReaderAiPanel = showReaderAiToggle;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
   const headerSidebarToggleAvailable = activeView === 'content' || activeView === 'edit';
   const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;
@@ -7584,10 +7622,10 @@ export function App() {
       <div
         class={`${showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}${showReaderAiPanel ? ' app-body--with-reader-ai' : ''}`}
         style={
-          showSidebar || showReaderAiPanel
+          showSidebar || mountReaderAiPanel
             ? ({
                 ...(showSidebar ? { '--sidebar-width': `${sidebarWidth}px` } : {}),
-                ...(showReaderAiPanel ? { '--reader-ai-width': `${sidePaneWidth}px` } : {}),
+                ...(mountReaderAiPanel ? { '--reader-ai-width': `${sidePaneWidth}px` } : {}),
               } as JSX.CSSProperties)
             : undefined
         }
@@ -7662,52 +7700,55 @@ export function App() {
               aria-orientation="vertical"
               onPointerDown={onReaderAiSplitPointerDown}
             />
-            <ReaderAiPanel
-              key={readerAiHistoryDocumentKey ?? 'reader-ai-panel'}
-              models={readerAiModels}
-              modelsLoading={readerAiModelsLoading}
-              modelsError={readerAiModelsError}
-              selectedModel={readerAiSelectedModel}
-              onSelectModel={setReaderAiSelectedModel}
-              localCodexEnabled={localCodexEnabled}
-              onEnableLocalCodex={enableLocalCodexModels}
-              showLoginForMoreModels={!user}
-              messages={readerAiMessages}
-              sending={readerAiSending}
-              toolStatus={readerAiToolStatus}
-              toolLog={readerAiToolLog}
-              editProposals={readerAiEditProposals}
-              proposalStatusesByToolCallId={readerAiProposalStatusesByToolCallId}
-              stagedChanges={effectiveReaderAiStagedChanges}
-              stagedChangesStreaming={readerAiStagedChangesStreaming}
-              applyingChanges={readerAiApplyingChanges}
-              canApplyWithoutSaving={canApplyWithoutSaving}
-              editorProposalMode={isEditorProposalWorkflow}
-              canUndoEditorApply={canUndoReaderAiApply}
-              onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
-              onIgnoreAll={onReaderAiIgnoreChanges}
-              onAcceptProposal={onReaderAiAcceptProposal}
-              onRejectProposal={onReaderAiRejectProposal}
-              onToggleProposalHunkSelection={onReaderAiToggleProposalHunkSelection}
-              onUndoEditorApply={onReaderAiUndoApply}
-              onToggleChangeSelection={toggleReaderAiChangeSelection}
-              onToggleHunkSelection={toggleReaderAiHunkSelection}
-              selectedChangeIds={readerAiSelectedChangeIds}
-              selectedHunkIds={readerAiSelectedHunkIdsByChangeId}
-              onRejectChange={rejectReaderAiChange}
-              onRejectHunk={rejectReaderAiHunk}
-              error={readerAiError}
-              onSend={onReaderAiSend}
-              onEditMessage={onReaderAiEditMessage}
-              onRetryLastUserMessage={onReaderAiRetryLastMessage}
-              onStop={onReaderAiStop}
-              onClear={onReaderAiClear}
-              selectionModeEnabled={
-                readerAiConversationScope?.kind === 'selection' ||
-                (readerAiConversationScope === null && readerAiHasEligibleSelection)
-              }
-            />
           </>
+        ) : null}
+        {mountReaderAiPanel ? (
+          <ReaderAiPanel
+            key={readerAiHistoryDocumentKey ?? 'reader-ai-panel'}
+            className={showReaderAiPanel ? undefined : 'reader-ai-panel--hidden'}
+            models={readerAiModels}
+            modelsLoading={readerAiModelsLoading}
+            modelsError={readerAiModelsError}
+            selectedModel={readerAiSelectedModel}
+            onSelectModel={setReaderAiSelectedModel}
+            localCodexEnabled={localCodexEnabled}
+            onEnableLocalCodex={enableLocalCodexModels}
+            showLoginForMoreModels={!user}
+            messages={readerAiMessages}
+            sending={readerAiSending}
+            toolStatus={readerAiToolStatus}
+            toolLog={readerAiToolLog}
+            editProposals={readerAiEditProposals}
+            proposalStatusesByToolCallId={readerAiProposalStatusesByToolCallId}
+            stagedChanges={effectiveReaderAiStagedChanges}
+            stagedChangesStreaming={readerAiStagedChangesStreaming}
+            applyingChanges={readerAiApplyingChanges}
+            canApplyWithoutSaving={canApplyWithoutSaving}
+            editorProposalMode={isEditorProposalWorkflow}
+            canUndoEditorApply={canUndoReaderAiApply}
+            onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
+            onIgnoreAll={onReaderAiIgnoreChanges}
+            onAcceptProposal={onReaderAiAcceptProposal}
+            onRejectProposal={onReaderAiRejectProposal}
+            onToggleProposalHunkSelection={onReaderAiToggleProposalHunkSelection}
+            onUndoEditorApply={onReaderAiUndoApply}
+            onToggleChangeSelection={toggleReaderAiChangeSelection}
+            onToggleHunkSelection={toggleReaderAiHunkSelection}
+            selectedChangeIds={readerAiSelectedChangeIds}
+            selectedHunkIds={readerAiSelectedHunkIdsByChangeId}
+            onRejectChange={rejectReaderAiChange}
+            onRejectHunk={rejectReaderAiHunk}
+            error={readerAiError}
+            onSend={onReaderAiSend}
+            onEditMessage={onReaderAiEditMessage}
+            onRetryLastUserMessage={onReaderAiRetryLastMessage}
+            onStop={onReaderAiStop}
+            onClear={onReaderAiClear}
+            selectionModeEnabled={
+              readerAiConversationScope?.kind === 'selection' ||
+              (readerAiConversationScope === null && readerAiHasEligibleSelection)
+            }
+          />
         ) : null}
       </div>
       {lightboxImage && <ImageLightbox src={lightboxImage.src} alt={lightboxImage.alt} onClose={onCloseLightbox} />}

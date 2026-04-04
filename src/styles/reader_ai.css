@@ -23,6 +23,12 @@
   z-index: 15;
 }
 
+.reader-ai-panel--hidden {
+  pointer-events: none;
+  visibility: hidden;
+  transform: translateX(100%);
+}
+
 .reader-ai-splitter {
   position: fixed;
   top: var(--toolbar-height);

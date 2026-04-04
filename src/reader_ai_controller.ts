@@ -2,6 +2,7 @@ import type { ReaderAiMessage } from './components/ReaderAiPanel';
 import type { ReaderAiToolLogEntry } from './components/ReaderAiToolLog';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from './reader_ai';
 import type { ReaderAiHistoryEntry } from './reader_ai_history_store';
+import type { ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
 import type { ReaderAiProposalToolCallStatus, ReaderAiSelectedHunkIdsByChangeId } from './reader_ai_state';
 
 export type ReaderAiConversationScope = { kind: 'document' } | { kind: 'selection'; source: string };
@@ -32,6 +33,10 @@ export interface ReaderAiSessionSnapshot {
   documentEditedContent: string | null;
   undoState: ReaderAiUndoState | null;
   error: string | null;
+  runs: ReaderAiRunRecord[];
+  activeRunId: string | null;
+  changeSets: ReaderAiChangeSetRecord[];
+  activeChangeSetId: string | null;
 }
 
 export function createEmptyReaderAiSessionSnapshot(): ReaderAiSessionSnapshot {
@@ -55,6 +60,10 @@ export function createEmptyReaderAiSessionSnapshot(): ReaderAiSessionSnapshot {
     documentEditedContent: null,
     undoState: null,
     error: null,
+    runs: [],
+    activeRunId: null,
+    changeSets: [],
+    activeChangeSetId: null,
   };
 }
 
@@ -66,20 +75,32 @@ export function createReaderAiSessionSnapshotFromHistory(options: {
 }): ReaderAiSessionSnapshot {
   const empty = createEmptyReaderAiSessionSnapshot();
   const { loaded, proposalStatusesByToolCallId, selectedChangeIds, selectedHunkIdsByChangeId } = options;
+  const activeChangeSet =
+    loaded.activeChangeSetId && loaded.changeSets
+      ? (loaded.changeSets.find((changeSet) => changeSet.id === loaded.activeChangeSetId) ?? null)
+      : null;
   return {
     ...empty,
     messages: loaded.messages,
     summary: loaded.summary ?? '',
     scope: loaded.scope ?? null,
     toolLog: (loaded.toolLog ?? []) as ReaderAiToolLogEntry[],
-    editProposals: loaded.editProposals ?? [],
-    proposalStatusesByToolCallId,
-    stagedChanges: loaded.stagedChanges ?? [],
+    editProposals: loaded.editProposals ?? activeChangeSet?.editProposals ?? [],
+    proposalStatusesByToolCallId:
+      Object.keys(proposalStatusesByToolCallId).length > 0
+        ? proposalStatusesByToolCallId
+        : (activeChangeSet?.proposalStatusesByToolCallId ?? {}),
+    stagedChanges: loaded.stagedChanges ?? activeChangeSet?.stagedChanges ?? [],
     selectedChangeIds,
     selectedHunkIdsByChangeId,
     appliedChanges: loaded.appliedChanges ?? [],
     stagedChangesInvalid: loaded.stagedChangesInvalid === true,
-    stagedFileContents: loaded.stagedFileContents ?? {},
+    stagedFileContents: loaded.stagedFileContents ?? activeChangeSet?.stagedFileContents ?? {},
+    documentEditedContent: activeChangeSet?.documentEditedContent ?? empty.documentEditedContent,
+    runs: loaded.runs ?? [],
+    activeRunId: loaded.activeRunId ?? null,
+    changeSets: loaded.changeSets ?? [],
+    activeChangeSetId: loaded.activeChangeSetId ?? null,
   };
 }
 
@@ -96,6 +117,10 @@ export function createReaderAiHistoryEntryFromSessionSnapshot(
     | 'stagedChangesInvalid'
     | 'stagedFileContents'
     | 'appliedChanges'
+    | 'runs'
+    | 'activeRunId'
+    | 'changeSets'
+    | 'activeChangeSetId'
   >,
 ): ReaderAiHistoryEntry {
   return {
@@ -111,5 +136,9 @@ export function createReaderAiHistoryEntryFromSessionSnapshot(
     ...(snapshot.stagedChangesInvalid ? { stagedChangesInvalid: true } : {}),
     ...(Object.keys(snapshot.stagedFileContents).length > 0 ? { stagedFileContents: snapshot.stagedFileContents } : {}),
     ...(snapshot.appliedChanges.length > 0 ? { appliedChanges: snapshot.appliedChanges } : {}),
+    ...(snapshot.runs.length > 0 ? { runs: snapshot.runs } : {}),
+    ...(snapshot.activeRunId ? { activeRunId: snapshot.activeRunId } : {}),
+    ...(snapshot.changeSets.length > 0 ? { changeSets: snapshot.changeSets } : {}),
+    ...(snapshot.activeChangeSetId ? { activeChangeSetId: snapshot.activeChangeSetId } : {}),
   };
 }

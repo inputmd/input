@@ -1,5 +1,6 @@
 import type { ReaderAiMessage } from './components/ReaderAiPanel';
 import type { ReaderAiEditProposal, ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
+import type { ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
 import type { Route } from './routing';
 import type { PublicRepoRef } from './wiki_links';
 
@@ -18,6 +19,8 @@ export interface ReaderAiHistoryEntry {
     name: string;
     detail?: string;
     taskId?: string;
+    taskStatus?: 'running' | 'completed' | 'error';
+    tone?: 'default' | 'success' | 'error';
   }>;
   editProposals?: ReaderAiEditProposal[];
   proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>;
@@ -25,6 +28,10 @@ export interface ReaderAiHistoryEntry {
   stagedChangesInvalid?: boolean;
   stagedFileContents?: Record<string, string>;
   appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>;
+  runs?: ReaderAiRunRecord[];
+  activeRunId?: string;
+  changeSets?: ReaderAiChangeSetRecord[];
+  activeChangeSetId?: string;
 }
 
 export interface ReaderAiHistoryStore {
@@ -249,6 +256,244 @@ function normalizePersistedAppliedChanges(value: unknown): NonNullable<ReaderAiH
   return applied.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
 }
 
+function normalizePersistedToolLog(value: unknown): NonNullable<ReaderAiHistoryEntry['toolLog']> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((toolEntry): NonNullable<ReaderAiHistoryEntry['toolLog']>[number] | null => {
+      if (!toolEntry || typeof toolEntry !== 'object') return null;
+      const type = (toolEntry as { type?: unknown }).type;
+      const name = (toolEntry as { name?: unknown }).name;
+      if ((type !== 'call' && type !== 'result' && type !== 'progress') || typeof name !== 'string' || !name.trim()) {
+        return null;
+      }
+      const taskStatus = (toolEntry as { taskStatus?: unknown }).taskStatus;
+      const tone = (toolEntry as { tone?: unknown }).tone;
+      return {
+        type,
+        name,
+        id: typeof (toolEntry as { id?: unknown }).id === 'string' ? (toolEntry as { id: string }).id : undefined,
+        detail:
+          typeof (toolEntry as { detail?: unknown }).detail === 'string'
+            ? (toolEntry as { detail: string }).detail
+            : undefined,
+        taskId:
+          typeof (toolEntry as { taskId?: unknown }).taskId === 'string'
+            ? (toolEntry as { taskId: string }).taskId
+            : undefined,
+        taskStatus:
+          taskStatus === 'running' || taskStatus === 'completed' || taskStatus === 'error' ? taskStatus : undefined,
+        tone: tone === 'default' || tone === 'success' || tone === 'error' ? tone : undefined,
+      };
+    })
+    .filter((toolEntry): toolEntry is NonNullable<ReaderAiHistoryEntry['toolLog']>[number] => toolEntry !== null);
+}
+
+function normalizePersistedRuns(value: unknown): NonNullable<ReaderAiHistoryEntry['runs']> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry): ReaderAiRunRecord | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const id = typeof (entry as { id?: unknown }).id === 'string' ? (entry as { id: string }).id : '';
+      const modelId =
+        typeof (entry as { modelId?: unknown }).modelId === 'string' ? (entry as { modelId: string }).modelId : '';
+      const createdAt =
+        typeof (entry as { createdAt?: unknown }).createdAt === 'string'
+          ? (entry as { createdAt: string }).createdAt
+          : '';
+      const updatedAt =
+        typeof (entry as { updatedAt?: unknown }).updatedAt === 'string'
+          ? (entry as { updatedAt: string }).updatedAt
+          : createdAt;
+      const status = (entry as { status?: unknown }).status;
+      if (
+        !id ||
+        !modelId ||
+        !createdAt ||
+        (status !== 'running' && status !== 'completed' && status !== 'failed' && status !== 'aborted')
+      ) {
+        return null;
+      }
+      const baseMessages = normalizeReaderAiMessages((entry as { baseMessages?: unknown }).baseMessages);
+      const scopeRaw = (entry as { scope?: unknown }).scope;
+      let scope: ReaderAiRunRecord['scope'] | undefined;
+      if (scopeRaw && typeof scopeRaw === 'object') {
+        const kind = (scopeRaw as { kind?: unknown }).kind;
+        const source = (scopeRaw as { source?: unknown }).source;
+        if (kind === 'document') scope = { kind: 'document' };
+        else if (kind === 'selection' && typeof source === 'string' && source) scope = { kind: 'selection', source };
+      }
+      const stepsRaw = (entry as { steps?: unknown }).steps;
+      const steps = Array.isArray(stepsRaw)
+        ? stepsRaw
+            .map((step): ReaderAiRunRecord['steps'][number] | null => {
+              if (!step || typeof step !== 'object') return null;
+              const stepId = typeof (step as { id?: unknown }).id === 'string' ? (step as { id: string }).id : '';
+              const kind = (step as { kind?: unknown }).kind;
+              const name = typeof (step as { name?: unknown }).name === 'string' ? (step as { name: string }).name : '';
+              const stepStatus = (step as { status?: unknown }).status;
+              const startedAt =
+                typeof (step as { startedAt?: unknown }).startedAt === 'string'
+                  ? (step as { startedAt: string }).startedAt
+                  : '';
+              if (
+                !stepId ||
+                (kind !== 'tool' && kind !== 'task') ||
+                !name ||
+                (stepStatus !== 'running' && stepStatus !== 'completed' && stepStatus !== 'failed') ||
+                !startedAt
+              ) {
+                return null;
+              }
+              return {
+                id: stepId,
+                kind,
+                name,
+                status: stepStatus,
+                startedAt,
+                retryCount:
+                  typeof (step as { retryCount?: unknown }).retryCount === 'number'
+                    ? (step as { retryCount: number }).retryCount
+                    : 0,
+                toolCallId:
+                  typeof (step as { toolCallId?: unknown }).toolCallId === 'string'
+                    ? (step as { toolCallId: string }).toolCallId
+                    : undefined,
+                taskId:
+                  typeof (step as { taskId?: unknown }).taskId === 'string'
+                    ? (step as { taskId: string }).taskId
+                    : undefined,
+                detail:
+                  typeof (step as { detail?: unknown }).detail === 'string'
+                    ? (step as { detail: string }).detail
+                    : undefined,
+                args:
+                  typeof (step as { args?: unknown }).args === 'string' ? (step as { args: string }).args : undefined,
+                error:
+                  typeof (step as { error?: unknown }).error === 'string'
+                    ? (step as { error: string }).error
+                    : undefined,
+                finishedAt:
+                  typeof (step as { finishedAt?: unknown }).finishedAt === 'string'
+                    ? (step as { finishedAt: string }).finishedAt
+                    : undefined,
+              };
+            })
+            .filter((step): step is ReaderAiRunRecord['steps'][number] => step !== null)
+        : [];
+      return {
+        id,
+        modelId,
+        createdAt,
+        updatedAt,
+        status,
+        baseMessages,
+        toolLog: normalizePersistedToolLog((entry as { toolLog?: unknown }).toolLog),
+        steps,
+        ...(scope ? { scope } : {}),
+        ...(typeof (entry as { parentRunId?: unknown }).parentRunId === 'string'
+          ? { parentRunId: (entry as { parentRunId: string }).parentRunId }
+          : {}),
+        ...(typeof (entry as { completedAt?: unknown }).completedAt === 'string'
+          ? { completedAt: (entry as { completedAt: string }).completedAt }
+          : {}),
+        ...(typeof (entry as { summary?: unknown }).summary === 'string'
+          ? { summary: (entry as { summary: string }).summary }
+          : {}),
+        ...(typeof (entry as { response?: unknown }).response === 'string'
+          ? { response: (entry as { response: string }).response }
+          : {}),
+        ...(typeof (entry as { error?: unknown }).error === 'string'
+          ? { error: (entry as { error: string }).error }
+          : {}),
+      };
+    })
+    .filter((run): run is ReaderAiRunRecord => run !== null);
+}
+
+function normalizePersistedChangeSets(value: unknown): NonNullable<ReaderAiHistoryEntry['changeSets']> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry): ReaderAiChangeSetRecord | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const id = typeof (entry as { id?: unknown }).id === 'string' ? (entry as { id: string }).id : '';
+      const runId = typeof (entry as { runId?: unknown }).runId === 'string' ? (entry as { runId: string }).runId : '';
+      const createdAt =
+        typeof (entry as { createdAt?: unknown }).createdAt === 'string'
+          ? (entry as { createdAt: string }).createdAt
+          : '';
+      const updatedAt =
+        typeof (entry as { updatedAt?: unknown }).updatedAt === 'string'
+          ? (entry as { updatedAt: string }).updatedAt
+          : createdAt;
+      const status = (entry as { status?: unknown }).status;
+      if (
+        !id ||
+        !runId ||
+        !createdAt ||
+        !updatedAt ||
+        (status !== 'draft' &&
+          status !== 'ready' &&
+          status !== 'applying' &&
+          status !== 'applied' &&
+          status !== 'partial' &&
+          status !== 'failed' &&
+          status !== 'conflicted' &&
+          status !== 'superseded')
+      ) {
+        return null;
+      }
+      const stagedChanges = normalizePersistedStagedChanges(
+        (entry as { stagedChanges?: unknown }).stagedChanges,
+      ).changes;
+      const editProposals = normalizePersistedEditProposals((entry as { editProposals?: unknown }).editProposals);
+      const proposalStatuses = normalizePersistedProposalStatuses(
+        (entry as { proposalStatusesByToolCallId?: unknown }).proposalStatusesByToolCallId,
+      );
+      const stagedFileContentsRaw = (entry as { stagedFileContents?: unknown }).stagedFileContents;
+      const stagedFileContents =
+        stagedFileContentsRaw && typeof stagedFileContentsRaw === 'object'
+          ? Object.fromEntries(
+              Object.entries(stagedFileContentsRaw).filter(
+                (item): item is [string, string] => typeof item[0] === 'string' && typeof item[1] === 'string',
+              ),
+            )
+          : {};
+      const appliedPathsRaw = (entry as { appliedPaths?: unknown }).appliedPaths;
+      const failedPathsRaw = (entry as { failedPaths?: unknown }).failedPaths;
+      return {
+        id,
+        runId,
+        createdAt,
+        updatedAt,
+        status,
+        editProposals,
+        proposalStatusesByToolCallId: proposalStatuses,
+        stagedChanges,
+        stagedFileContents,
+        documentEditedContent:
+          typeof (entry as { documentEditedContent?: unknown }).documentEditedContent === 'string'
+            ? (entry as { documentEditedContent: string }).documentEditedContent
+            : null,
+        appliedPaths: Array.isArray(appliedPathsRaw)
+          ? appliedPathsRaw.filter((path): path is string => typeof path === 'string')
+          : [],
+        failedPaths: Array.isArray(failedPathsRaw)
+          ? failedPathsRaw
+              .map((failed) => {
+                if (!failed || typeof failed !== 'object') return null;
+                const path =
+                  typeof (failed as { path?: unknown }).path === 'string' ? (failed as { path: string }).path : '';
+                const error =
+                  typeof (failed as { error?: unknown }).error === 'string' ? (failed as { error: string }).error : '';
+                return path && error ? { path, error } : null;
+              })
+              .filter((failed): failed is ReaderAiChangeSetRecord['failedPaths'][number] => failed !== null)
+          : [],
+      };
+    })
+    .filter((changeSet): changeSet is ReaderAiChangeSetRecord => changeSet !== null);
+}
+
 export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
   if (typeof window === 'undefined') return { order: [], entries: {} };
   try {
@@ -285,29 +530,8 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
             parsed.scope = { kind: 'selection', source };
           }
         }
-        if (Array.isArray(entry.toolLog) && entry.toolLog.length > 0)
-          parsed.toolLog = (entry.toolLog as Array<Record<string, unknown>>)
-            .map((toolEntry): NonNullable<ReaderAiHistoryEntry['toolLog']>[number] | null => {
-              const type = toolEntry.type;
-              const name = toolEntry.name;
-              if (
-                (type !== 'call' && type !== 'result' && type !== 'progress') ||
-                typeof name !== 'string' ||
-                !name.trim()
-              ) {
-                return null;
-              }
-              return {
-                type,
-                name,
-                id: typeof toolEntry.id === 'string' ? toolEntry.id : undefined,
-                detail: typeof toolEntry.detail === 'string' ? toolEntry.detail : undefined,
-                taskId: typeof toolEntry.taskId === 'string' ? toolEntry.taskId : undefined,
-              };
-            })
-            .filter(
-              (toolEntry): toolEntry is NonNullable<ReaderAiHistoryEntry['toolLog']>[number] => toolEntry !== null,
-            );
+        const normalizedToolLog = normalizePersistedToolLog(entry.toolLog);
+        if (normalizedToolLog.length > 0) parsed.toolLog = normalizedToolLog;
         const editProposals = normalizePersistedEditProposals((entry as { editProposals?: unknown }).editProposals);
         if (editProposals.length > 0) parsed.editProposals = editProposals;
         const proposalStatuses = normalizePersistedProposalStatuses(
@@ -327,6 +551,21 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
         }
         const normalizedAppliedChanges = normalizePersistedAppliedChanges(entry.appliedChanges);
         if (normalizedAppliedChanges.length > 0) parsed.appliedChanges = normalizedAppliedChanges;
+        const runs = normalizePersistedRuns((entry as { runs?: unknown }).runs);
+        if (runs.length > 0) parsed.runs = runs;
+        const activeRunId =
+          typeof (entry as { activeRunId?: unknown }).activeRunId === 'string'
+            ? (entry as { activeRunId: string }).activeRunId
+            : undefined;
+        if (activeRunId && runs.some((run) => run.id === activeRunId)) parsed.activeRunId = activeRunId;
+        const changeSets = normalizePersistedChangeSets((entry as { changeSets?: unknown }).changeSets);
+        if (changeSets.length > 0) parsed.changeSets = changeSets;
+        const activeChangeSetId =
+          typeof (entry as { activeChangeSetId?: unknown }).activeChangeSetId === 'string'
+            ? (entry as { activeChangeSetId: string }).activeChangeSetId
+            : undefined;
+        if (activeChangeSetId && changeSets.some((changeSet) => changeSet.id === activeChangeSetId))
+          parsed.activeChangeSetId = activeChangeSetId;
         entries[key] = parsed;
       }
     }
@@ -367,6 +606,10 @@ export function persistReaderAiMessagesToHistory(
   stagedChangesInvalid?: boolean,
   stagedFileContents?: Record<string, string>,
   appliedChanges?: Array<{ path: string; type: 'edit' | 'create' | 'delete'; appliedAt: string }>,
+  runs?: ReaderAiRunRecord[],
+  activeRunId?: string,
+  changeSets?: ReaderAiChangeSetRecord[],
+  activeChangeSetId?: string,
 ): void {
   if (typeof window === 'undefined') return;
   const store = loadReaderAiHistoryStore();
@@ -388,6 +631,11 @@ export function persistReaderAiMessagesToHistory(
   if (stagedFileContents && Object.keys(stagedFileContents).length > 0) entry.stagedFileContents = stagedFileContents;
   if (appliedChanges && appliedChanges.length > 0)
     entry.appliedChanges = appliedChanges.slice(-READER_AI_HISTORY_MAX_APPLIED_CHANGES);
+  if (runs && runs.length > 0) entry.runs = runs.slice(-12);
+  if (activeRunId && runs?.some((run) => run.id === activeRunId)) entry.activeRunId = activeRunId;
+  if (changeSets && changeSets.length > 0) entry.changeSets = changeSets.slice(-12);
+  if (activeChangeSetId && changeSets?.some((changeSet) => changeSet.id === activeChangeSetId))
+    entry.activeChangeSetId = activeChangeSetId;
   nextEntries[historyKey] = entry;
   nextOrder.unshift(historyKey);
   const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
