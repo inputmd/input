@@ -6,7 +6,7 @@ import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { EditorChangeMarker } from '../components/codemirror_change_markers';
 import type { EditorConflictWidget } from '../components/codemirror_conflict_widgets';
-import type { EditorDiffPreview } from '../components/codemirror_diff_preview';
+import type { EditorDiffPreview, EditorDiffPreviewActionEvent } from '../components/codemirror_diff_preview';
 import type { BracePromptRequest } from '../components/codemirror_inline_prompt';
 import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
@@ -225,6 +225,7 @@ export interface EditViewProps {
   contentSelection?: { anchor: number; head: number } | null;
   readerAiEditorOverlay?: ReaderAiEditorOverlay | null;
   onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
+  onReaderAiToggleReviewTarget?: (target: { changeId: string; hunkId?: string; selected: boolean }) => void;
   onReaderAiOpenReviewTarget?: (target: { changeId: string; hunkId?: string }) => void;
   onReaderAiApplyReviewTarget?: (target: { changeId: string; hunkId: string }) => void;
   onReaderAiKeepLocalReviewTarget?: (target: { changeId: string; hunkId: string }) => void;
@@ -340,6 +341,7 @@ export function EditView({
   contentSelection = null,
   readerAiEditorOverlay = null,
   onChangeMarkerClick,
+  onReaderAiToggleReviewTarget,
   onReaderAiOpenReviewTarget,
   onReaderAiApplyReviewTarget,
   onReaderAiKeepLocalReviewTarget,
@@ -1682,6 +1684,46 @@ export function EditView({
     [onEditorReady],
   );
   const showModelStatusIndicator = locked;
+  const handleDiffPreviewAction = useCallback(
+    (event: EditorDiffPreviewActionEvent) => {
+      if (event.actionId === 'review') {
+        onReaderAiOpenReviewTarget?.({
+          changeId: event.changeId,
+          ...(event.hunkId ? { hunkId: event.hunkId } : {}),
+        });
+        return;
+      }
+      if (event.actionId === 'accept') {
+        onReaderAiToggleReviewTarget?.({
+          changeId: event.changeId,
+          ...(event.hunkId ? { hunkId: event.hunkId } : {}),
+          selected: true,
+        });
+        return;
+      }
+      if (event.actionId === 'reject') {
+        onReaderAiToggleReviewTarget?.({
+          changeId: event.changeId,
+          ...(event.hunkId ? { hunkId: event.hunkId } : {}),
+          selected: false,
+        });
+        return;
+      }
+      if (event.hunkId && event.actionId === 'keep_mine') {
+        onReaderAiKeepLocalReviewTarget?.({ changeId: event.changeId, hunkId: event.hunkId });
+        return;
+      }
+      if (event.hunkId && event.actionId === 'use_ai') {
+        void onReaderAiApplyReviewTarget?.({ changeId: event.changeId, hunkId: event.hunkId });
+      }
+    },
+    [
+      onReaderAiApplyReviewTarget,
+      onReaderAiKeepLocalReviewTarget,
+      onReaderAiOpenReviewTarget,
+      onReaderAiToggleReviewTarget,
+    ],
+  );
 
   return (
     <div class="edit-view" data-has-user-typed-unsaved-changes={hasUserTypedUnsavedChanges ? 'true' : 'false'}>
@@ -1721,6 +1763,7 @@ export function EditView({
             contentRevision={contentRevision}
             contentSelection={contentSelection}
             diffPreview={diffPreview}
+            onDiffPreviewAction={handleDiffPreviewAction}
             changeMarkers={changeMarkers}
             onChangeMarkerClick={onChangeMarkerClick}
             conflictWidgets={conflictWidgets}
@@ -1750,6 +1793,7 @@ export function EditView({
             contentRevision={contentRevision}
             contentSelection={contentSelection}
             diffPreview={diffPreview}
+            onDiffPreviewAction={handleDiffPreviewAction}
             changeMarkers={changeMarkers}
             onChangeMarkerClick={onChangeMarkerClick}
             conflictWidgets={conflictWidgets}

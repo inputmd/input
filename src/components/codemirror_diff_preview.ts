@@ -5,10 +5,14 @@ import type { ReaderAiStagedHunk } from '../reader_ai';
 export interface EditorDiffPreviewBlock {
   from: number;
   to: number;
-  insert?: string;
-  kind?: 'insert' | 'replace' | 'delete';
+  insertedText?: string;
   label?: string;
   deletedText?: string;
+  changeId?: string;
+  hunkId?: string;
+  detail?: string;
+  status?: 'pending' | 'accepted' | 'rejected' | 'applied' | 'conflicted' | 'stale' | 'failed';
+  actions?: EditorDiffPreviewAction[];
 }
 
 export interface EditorDiffPreview {
@@ -17,11 +21,54 @@ export interface EditorDiffPreview {
   badge?: string;
 }
 
-type DiffPreviewWidgetDisplay = 'block' | 'inline';
+export type EditorDiffPreviewActionId = 'accept' | 'reject' | 'review' | 'keep_mine' | 'use_ai';
 
-interface InlineDiffPart {
-  kind: 'context' | 'deleted' | 'inserted';
-  text: string;
+export interface EditorDiffPreviewAction {
+  id: EditorDiffPreviewActionId;
+  label: string;
+  tone?: 'primary' | 'danger' | 'neutral';
+}
+
+export interface EditorDiffPreviewActionEvent {
+  actionId: EditorDiffPreviewActionId;
+  changeId: string;
+  hunkId?: string;
+  block: EditorDiffPreviewBlock;
+}
+
+type DiffPreviewWidgetDisplay = 'block' | 'inline';
+const INLINE_DIFF_PREVIEW_MAX_CHARS = 80;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function shouldRenderDiffPreviewMeta(display: DiffPreviewWidgetDisplay, badge?: string, source?: string): boolean {
+  if (display !== 'block') return false;
+  if (badge === 'Proposal') return false;
+  return Boolean(source || badge);
+}
+
+function shouldRenderDiffPreviewDetail(display: DiffPreviewWidgetDisplay, badge?: string, detail?: string): boolean {
+  if (display !== 'block') return false;
+  if (!detail) return false;
+  if (badge === 'Proposal') return false;
+  return true;
+}
+
+function createLucideStateIcon(kind: 'accept' | 'reject'): SVGSVGElement {
+  const icon = document.createElementNS(SVG_NS, 'svg');
+  icon.setAttribute('viewBox', '0 0 24 24');
+  icon.setAttribute('width', '12');
+  icon.setAttribute('height', '12');
+  icon.setAttribute('fill', 'none');
+  icon.setAttribute('stroke', 'currentColor');
+  icon.setAttribute('stroke-width', '2');
+  icon.setAttribute('stroke-linecap', 'round');
+  icon.setAttribute('stroke-linejoin', 'round');
+  icon.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', kind === 'accept' ? 'M20 6 9 17l-5-5' : 'M18 6 6 18M6 6l12 12');
+  icon.append(path);
+  return icon;
 }
 
 function buildLineStartOffsets(content: string): number[] {
@@ -80,14 +127,13 @@ export function buildDiffPreviewBlocksFromHunks(
     const insertFrom = offsetForLineStart(modifiedLineStarts, insertFromLine, modifiedContent.length);
     const insertTo = offsetForLineStart(modifiedLineStarts, insertToLine, modifiedContent.length);
     const deletedText = originalContent.slice(from, to);
-    const insert = modifiedContent.slice(insertFrom, insertTo);
+    const insertedText = modifiedContent.slice(insertFrom, insertTo);
 
-    if (!deletedText && !insert) continue;
+    if (!deletedText && !insertedText) continue;
     blocks.push({
-      kind: deletedText && insert ? 'replace' : insert ? 'insert' : 'delete',
       from,
       to,
-      insert,
+      insertedText,
       label: hunk.header,
       deletedText,
     });
@@ -96,51 +142,103 @@ export function buildDiffPreviewBlocksFromHunks(
   return blocks;
 }
 
+function commonPrefixLength(left: string, right: string): number {
+  const length = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < length && left[index] === right[index]) index += 1;
+  return index;
+}
+
+function commonSuffixLength(left: string, right: string, prefixLength = 0): number {
+  const maxLength = Math.min(left.length, right.length) - prefixLength;
+  let index = 0;
+  while (index < maxLength && left[left.length - 1 - index] === right[right.length - 1 - index]) {
+    index += 1;
+  }
+  return index;
+}
+
+export function buildDiffPreviewBlocksFromContent(
+  originalContent: string,
+  modifiedContent: string,
+  options?: { label?: string; status?: EditorDiffPreviewBlock['status'] },
+): EditorDiffPreviewBlock[] {
+  if (originalContent === modifiedContent) return [];
+  const start = commonPrefixLength(originalContent, modifiedContent);
+  const trailingOverlap = commonSuffixLength(originalContent, modifiedContent, start);
+  const originalTrimmedEnd = originalContent.length - trailingOverlap;
+  const modifiedTrimmedEnd = modifiedContent.length - trailingOverlap;
+  const deletedText = originalContent.slice(start, originalTrimmedEnd);
+  const insertedText = modifiedContent.slice(start, modifiedTrimmedEnd);
+  if (!deletedText && !insertedText) return [];
+  return [
+    {
+      from: Math.max(0, start),
+      to: Math.max(0, originalTrimmedEnd),
+      deletedText,
+      insertedText,
+      label: options?.label,
+      status: options?.status,
+    },
+  ];
+}
+
 class DiffPreviewWidget extends WidgetType {
-  private readonly text: string;
-  private readonly kind: NonNullable<EditorDiffPreviewBlock['kind']>;
-  private readonly label?: string;
-  private readonly deletedText?: string;
+  private readonly block: EditorDiffPreviewBlock;
+  private readonly kind: 'insert' | 'replace' | 'delete';
   private readonly display: DiffPreviewWidgetDisplay;
   private readonly source?: string;
   private readonly badge?: string;
+  private readonly onAction?: (event: EditorDiffPreviewActionEvent) => void;
+  private readonly actionSignature: string;
 
   constructor(
-    text: string,
-    kind: NonNullable<EditorDiffPreviewBlock['kind']>,
-    label?: string,
-    deletedText?: string,
+    block: EditorDiffPreviewBlock,
     display: DiffPreviewWidgetDisplay = 'block',
     source?: string,
     badge?: string,
+    onAction?: (event: EditorDiffPreviewActionEvent) => void,
   ) {
     super();
-    this.text = text;
-    this.kind = kind;
-    this.label = label;
-    this.deletedText = deletedText;
+    this.block = block;
+    this.kind = normalizeKind(block);
     this.display = display;
     this.source = source;
     this.badge = badge;
+    this.onAction = onAction;
+    this.actionSignature = (block.actions ?? [])
+      .map((action) => `${action.id}:${action.label}:${action.tone ?? 'neutral'}`)
+      .join('|');
   }
 
   eq(other: DiffPreviewWidget): boolean {
     return (
-      other.text === this.text &&
+      other.block.insertedText === this.block.insertedText &&
+      other.block.deletedText === this.block.deletedText &&
+      other.block.label === this.block.label &&
+      other.block.status === this.block.status &&
+      other.block.detail === this.block.detail &&
+      other.block.changeId === this.block.changeId &&
+      other.block.hunkId === this.block.hunkId &&
       other.kind === this.kind &&
-      other.label === this.label &&
-      other.deletedText === this.deletedText &&
       other.display === this.display &&
       other.source === this.source &&
-      other.badge === this.badge
+      other.badge === this.badge &&
+      other.onAction === this.onAction &&
+      other.actionSignature === this.actionSignature
     );
+  }
+
+  ignoreEvent(): boolean {
+    return true;
   }
 
   toDOM(): HTMLElement {
     const wrapper = document.createElement('div');
     wrapper.className = `cm-editor-diff-preview-widget cm-editor-diff-preview-widget--${this.kind} cm-editor-diff-preview-widget--${this.display}`;
+    if (this.block.status) wrapper.classList.add(`cm-editor-diff-preview-widget--status-${this.block.status}`);
 
-    if ((this.source || this.badge) && this.display === 'block') {
+    if (shouldRenderDiffPreviewMeta(this.display, this.badge, this.source)) {
       const meta = document.createElement('div');
       meta.className = 'cm-editor-diff-preview-meta';
       if (this.source) {
@@ -158,103 +256,177 @@ class DiffPreviewWidget extends WidgetType {
       wrapper.append(meta);
     }
 
-    if (this.label && this.display === 'block') {
-      const label = document.createElement('div');
-      label.className = 'cm-editor-diff-preview-label';
-      label.textContent = this.label;
-      wrapper.append(label);
-    }
-
     if (this.display === 'inline') {
       this.appendInlineDiffContent(wrapper);
+      this.appendActions(wrapper, 'inline');
       return wrapper;
     }
 
-    if (this.deletedText && this.deletedText.length > 0) {
+    const deletedText = this.block.deletedText ?? '';
+    if (deletedText.trim().length > 0) {
       const deleted = document.createElement('pre');
       deleted.className = 'cm-editor-diff-preview-content cm-editor-diff-preview-content--deleted';
-      deleted.textContent = this.deletedText.length > 1200 ? `${this.deletedText.slice(0, 1200)}…` : this.deletedText;
+      deleted.textContent = deletedText.length > 1200 ? `${deletedText.slice(0, 1200)}…` : deletedText;
       wrapper.append(deleted);
     }
 
-    if (this.text.length > 0 || !(this.deletedText && this.deletedText.length > 0)) {
+    const insertedText = this.block.insertedText ?? '';
+    if (insertedText.trim().length > 0) {
       const content = document.createElement('pre');
       content.className = 'cm-editor-diff-preview-content';
-      content.textContent = this.text.length > 1200 ? `${this.text.slice(0, 1200)}…` : this.text;
+      content.textContent = insertedText.length > 1200 ? `${insertedText.slice(0, 1200)}…` : insertedText;
       wrapper.append(content);
     }
+    this.appendActions(wrapper, 'block');
     return wrapper;
   }
 
   private appendInlineDiffContent(wrapper: HTMLElement): void {
-    const parts = buildInlineDiffParts(this.deletedText ?? '', this.text);
-    for (const part of parts) {
-      if (!part.text) continue;
+    if (this.kind === 'delete') {
+      const badge = document.createElement('span');
+      badge.className = 'cm-editor-diff-preview-inline-chip cm-editor-diff-preview-inline-chip--delete';
+      badge.textContent = 'Deleted';
+      wrapper.append(badge);
+      return;
+    }
+
+    const inserted = trimSingleTrailingNewline(this.block.insertedText ?? '');
+    if (inserted) {
       const span = document.createElement('span');
-      span.className = `cm-editor-diff-preview-inline-part cm-editor-diff-preview-inline-part--${part.kind}`;
-      span.textContent = part.text;
+      span.className = 'cm-editor-diff-preview-inline-part cm-editor-diff-preview-inline-part--inserted';
+      span.textContent = inserted;
       wrapper.append(span);
     }
   }
+
+  private appendActions(wrapper: HTMLElement, display: DiffPreviewWidgetDisplay): void {
+    if (!this.block.changeId || !this.onAction) {
+      return;
+    }
+    const actions = document.createElement('div');
+    actions.className = `cm-editor-diff-preview-actions cm-editor-diff-preview-actions--${display}`;
+    const renderedActionIds = new Set<EditorDiffPreviewActionId>();
+
+    if (this.block.status === 'accepted' || this.block.status === 'rejected') {
+      const currentActionId: EditorDiffPreviewActionId = this.block.status === 'accepted' ? 'accept' : 'reject';
+      const alternateActionId: EditorDiffPreviewActionId = currentActionId === 'accept' ? 'reject' : 'accept';
+      const stateGroup = document.createElement('div');
+      stateGroup.className = 'cm-editor-diff-preview-state-split';
+      stateGroup.setAttribute('role', 'group');
+      stateGroup.setAttribute('aria-label', 'Choose whether to accept or reject this change');
+      stateGroup.append(
+        this.createActionButton({
+          actionId: currentActionId,
+          label: currentActionId === 'accept' ? 'Accepted' : 'Rejected',
+          tone: currentActionId === 'accept' ? 'primary' : 'danger',
+          stateKind: currentActionId,
+          prominent: true,
+        }),
+        this.createActionButton({
+          actionId: alternateActionId,
+          label: alternateActionId === 'accept' ? 'Accept' : 'Reject',
+          tone: alternateActionId === 'accept' ? 'primary' : 'danger',
+          stateKind: alternateActionId,
+          compact: true,
+        }),
+      );
+      actions.append(stateGroup);
+      renderedActionIds.add('accept');
+      renderedActionIds.add('reject');
+    }
+
+    for (const action of this.block.actions ?? []) {
+      if (renderedActionIds.has(action.id)) continue;
+      actions.append(
+        this.createActionButton({
+          actionId: action.id,
+          label: action.label,
+          tone: action.tone ?? 'neutral',
+        }),
+      );
+    }
+
+    if (actions.childElementCount === 0) return;
+    if (shouldRenderDiffPreviewDetail(display, this.badge, this.block.detail)) {
+      const detail = document.createElement('div');
+      detail.className = 'cm-editor-diff-preview-detail';
+      detail.textContent = this.block.detail!;
+      actions.append(detail);
+    }
+    wrapper.append(actions);
+  }
+
+  private createActionButton(options: {
+    actionId: EditorDiffPreviewActionId;
+    label: string;
+    tone: EditorDiffPreviewAction['tone'];
+    stateKind?: 'accept' | 'reject';
+    prominent?: boolean;
+    compact?: boolean;
+  }): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `cm-editor-diff-preview-action cm-editor-diff-preview-action--${options.tone ?? 'neutral'}`;
+    if (options.prominent) button.classList.add('cm-editor-diff-preview-action--prominent');
+    if (options.compact) button.classList.add('cm-editor-diff-preview-action--compact');
+    if (options.stateKind) button.classList.add(`cm-editor-diff-preview-action--state-${options.stateKind}`);
+    if (options.stateKind) {
+      const icon = createLucideStateIcon(options.stateKind);
+      button.append(icon);
+    }
+    if (!options.compact) {
+      const label = document.createElement('span');
+      label.textContent = options.label;
+      button.append(label);
+    } else {
+      button.setAttribute('aria-label', options.label);
+      button.title = options.label;
+    }
+    button.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.onAction?.({
+        actionId: options.actionId,
+        changeId: this.block.changeId!,
+        ...(this.block.hunkId ? { hunkId: this.block.hunkId } : {}),
+        block: this.block,
+      });
+    });
+    return button;
+  }
 }
 
-function normalizeKind(block: EditorDiffPreviewBlock): NonNullable<EditorDiffPreviewBlock['kind']> {
-  if (block.kind === 'delete' || block.kind === 'replace' || block.kind === 'insert') return block.kind;
-  if ((block.insert ?? '').length > 0 && block.to > block.from) return 'replace';
-  if ((block.insert ?? '').length > 0) return 'insert';
+function normalizeKind(block: EditorDiffPreviewBlock): 'insert' | 'replace' | 'delete' {
+  if ((block.insertedText ?? '').length > 0 && (block.deletedText ?? '').length > 0) return 'replace';
+  if ((block.insertedText ?? '').length > 0) return 'insert';
   return 'delete';
 }
 
-function previewLineClass(kind: NonNullable<EditorDiffPreviewBlock['kind']>): string {
+function previewLineClass(kind: 'insert' | 'replace' | 'delete'): string {
   if (kind === 'insert') return 'cm-editor-diff-preview-line cm-editor-diff-preview-line--insert';
   if (kind === 'delete') return 'cm-editor-diff-preview-line cm-editor-diff-preview-line--delete';
   return 'cm-editor-diff-preview-line cm-editor-diff-preview-line--replace';
-}
-
-function previewTextVisualLineCount(text: string | undefined): number {
-  if (!text) return 0;
-  const normalized = text.endsWith('\n') ? text.slice(0, -1) : text;
-  if (!normalized) return 1;
-  return normalized.split('\n').length;
 }
 
 function trimSingleTrailingNewline(text: string): string {
   return text.endsWith('\n') ? text.slice(0, -1) : text;
 }
 
-function buildInlineDiffParts(deletedText: string, insertedText: string): InlineDiffPart[] {
-  const before = trimSingleTrailingNewline(deletedText);
-  const after = trimSingleTrailingNewline(insertedText);
-  const maxPrefixLength = Math.min(before.length, after.length);
-  let prefixLength = 0;
-  while (prefixLength < maxPrefixLength && before[prefixLength] === after[prefixLength]) prefixLength += 1;
-
-  const beforeRemainder = before.length - prefixLength;
-  const afterRemainder = after.length - prefixLength;
-  let suffixLength = 0;
-  while (
-    suffixLength < beforeRemainder &&
-    suffixLength < afterRemainder &&
-    before[before.length - 1 - suffixLength] === after[after.length - 1 - suffixLength]
-  ) {
-    suffixLength += 1;
-  }
-
-  const prefix = before.slice(0, prefixLength);
-  const deleted = before.slice(prefixLength, before.length - suffixLength);
-  const inserted = after.slice(prefixLength, after.length - suffixLength);
-  const suffix = before.slice(before.length - suffixLength);
-  const parts: InlineDiffPart[] = [];
-  if (prefix) parts.push({ kind: 'context', text: prefix });
-  if (deleted) parts.push({ kind: 'deleted', text: deleted });
-  if (inserted) parts.push({ kind: 'inserted', text: inserted });
-  if (suffix) parts.push({ kind: 'context', text: suffix });
-  if (parts.length === 0) parts.push({ kind: 'context', text: after || before });
-  return parts;
+function isSingleLogicalLine(text: string | undefined): boolean {
+  if (!text) return true;
+  if (text.endsWith('\n')) return false;
+  return !text.includes('\n');
 }
 
 function shouldRenderInlinePreview(block: EditorDiffPreviewBlock): boolean {
-  return previewTextVisualLineCount(block.insert) <= 1 && previewTextVisualLineCount(block.deletedText) <= 1;
+  const deletedText = trimSingleTrailingNewline(block.deletedText ?? '');
+  const insertedText = trimSingleTrailingNewline(block.insertedText ?? '');
+  if (!isSingleLogicalLine(block.deletedText) || !isSingleLogicalLine(block.insertedText)) return false;
+  return Math.max(deletedText.length, insertedText.length) <= INLINE_DIFF_PREVIEW_MAX_CHARS;
 }
 
 interface DecorationEntry {
@@ -277,6 +449,7 @@ function sortDecorationEntries(entries: DecorationEntry[]): DecorationEntry[] {
 function buildEditorDiffPreviewDecorations(
   state: EditorView['state'],
   preview: EditorDiffPreview | null,
+  onAction?: (event: EditorDiffPreviewActionEvent) => void,
 ): DecorationSet {
   if (!preview || !Array.isArray(preview.blocks) || preview.blocks.length === 0) return Decoration.none;
   const builder = new RangeSetBuilder<Decoration>();
@@ -287,7 +460,7 @@ function buildEditorDiffPreviewDecorations(
   for (const rawBlock of preview.blocks) {
     const from = Math.max(0, Math.min(docLength, Math.floor(rawBlock.from)));
     const to = Math.max(from, Math.min(docLength, Math.floor(rawBlock.to)));
-    const insert = rawBlock.insert ?? '';
+    const insertedText = rawBlock.insertedText ?? '';
     const kind = normalizeKind(rawBlock);
     const line = state.doc.lineAt(from);
     const inlinePreview = shouldRenderInlinePreview(rawBlock);
@@ -317,33 +490,17 @@ function buildEditorDiffPreviewDecorations(
       });
     }
 
-    if (insert.length > 0) {
+    if (insertedText.length > 0) {
       const value = inlinePreview
         ? Decoration.widget({
-            widget: new DiffPreviewWidget(
-              insert,
-              kind,
-              rawBlock.label,
-              rawBlock.deletedText,
-              'inline',
-              preview.source,
-              preview.badge,
-            ),
+            widget: new DiffPreviewWidget(rawBlock, 'inline', preview.source, preview.badge, onAction),
             side: 1,
           })
         : Decoration.replace({
-            widget: new DiffPreviewWidget(
-              insert,
-              kind,
-              rawBlock.label,
-              rawBlock.deletedText,
-              'block',
-              preview.source,
-              preview.badge,
-            ),
+            widget: new DiffPreviewWidget(rawBlock, 'block', preview.source, preview.badge, onAction),
             block: true,
           });
-      const position = inlinePreview ? line.to : to;
+      const position = to;
       entries.push({
         from: position,
         to: position,
@@ -353,30 +510,14 @@ function buildEditorDiffPreviewDecorations(
     } else if (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0) {
       const value = inlinePreview
         ? Decoration.widget({
-            widget: new DiffPreviewWidget(
-              '',
-              kind,
-              rawBlock.label,
-              rawBlock.deletedText,
-              'inline',
-              preview.source,
-              preview.badge,
-            ),
+            widget: new DiffPreviewWidget(rawBlock, 'inline', preview.source, preview.badge, onAction),
             side: 1,
           })
         : Decoration.replace({
-            widget: new DiffPreviewWidget(
-              '',
-              kind,
-              rawBlock.label,
-              rawBlock.deletedText,
-              'block',
-              preview.source,
-              preview.badge,
-            ),
+            widget: new DiffPreviewWidget(rawBlock, 'block', preview.source, preview.badge, onAction),
             block: true,
           });
-      const position = inlinePreview ? line.to : to;
+      const position = to;
       entries.push({
         from: position,
         to: position,
@@ -406,12 +547,12 @@ function buildEditorDiffPreviewAtomicRanges(
   for (const rawBlock of preview.blocks) {
     const from = Math.max(0, Math.min(docLength, Math.floor(rawBlock.from)));
     const to = Math.max(from, Math.min(docLength, Math.floor(rawBlock.to)));
-    const insert = rawBlock.insert ?? '';
+    const insertedText = rawBlock.insertedText ?? '';
     const kind = normalizeKind(rawBlock);
 
     if (
       !shouldRenderInlinePreview(rawBlock) &&
-      (insert.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0))
+      (insertedText.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0))
     ) {
       entries.push({
         from: to,
@@ -431,13 +572,16 @@ function buildEditorDiffPreviewAtomicRanges(
   return builder.finish();
 }
 
-export function editorDiffPreviewExtension(preview: EditorDiffPreview | null): Extension {
+export function editorDiffPreviewExtension(
+  preview: EditorDiffPreview | null,
+  options?: { onAction?: (event: EditorDiffPreviewActionEvent) => void },
+): Extension {
   const decorations = StateField.define<DecorationSet>({
     create(state) {
-      return buildEditorDiffPreviewDecorations(state, preview);
+      return buildEditorDiffPreviewDecorations(state, preview, options?.onAction);
     },
     update(value, tr) {
-      if (tr.docChanged) return buildEditorDiffPreviewDecorations(tr.state, preview);
+      if (tr.docChanged) return buildEditorDiffPreviewDecorations(tr.state, preview, options?.onAction);
       return value;
     },
     provide: (field) => EditorView.decorations.from(field),

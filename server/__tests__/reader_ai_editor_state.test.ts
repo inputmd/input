@@ -155,3 +155,55 @@ test('buildReaderAiEditorOverlay exposes stale hunks as editor conflicts', (t) =
   t.is(overlay?.conflicts[0]?.proposedText, 'after');
   t.is(overlay?.conflicts[0]?.baseText, 'before');
 });
+
+test('buildReaderAiEditorOverlay maps hunk review status into diff preview actions', (t) => {
+  const stagedChange: ReaderAiStagedChange = {
+    id: 'change:1',
+    path: 'doc.md',
+    type: 'edit',
+    diff: '@@ -1 +1 @@\n-before\n+after\n',
+    revision: 3,
+    originalContent: 'before\n',
+    modifiedContent: 'after\n',
+    hunks: [
+      {
+        id: 'hunk:1',
+        header: '@@ -1 +1 @@',
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        lines: [
+          { type: 'del', content: 'before' },
+          { type: 'add', content: 'after' },
+        ],
+      },
+    ],
+  };
+
+  const overlay = buildReaderAiEditorOverlay({
+    active: true,
+    path: 'doc.md',
+    revision: 3,
+    currentDocumentSavedContent: 'before\n',
+    currentDocumentContent: 'before\n',
+    hasUnsavedChanges: false,
+    effectiveStagedChanges: [stagedChange],
+    selectedChangeIds: new Set(['change:1']),
+    selectedHunkIdsByChangeId: { 'change:1': new Set(['hunk:1']) },
+    activeChangeSet: null,
+    activeEditorCheckpoint: null,
+    changeSets: [],
+    runs: [],
+  });
+
+  t.truthy(overlay);
+  t.is(overlay?.hunks[0]?.status, 'accepted');
+  t.deepEqual(overlay?.diffPreview?.blocks[0]?.actions, [
+    { id: 'reject', label: 'Reject', tone: 'danger' },
+    { id: 'review', label: 'Review' },
+  ]);
+  t.is(overlay?.diffPreview?.blocks[0]?.changeId, 'change:1');
+  t.is(overlay?.diffPreview?.blocks[0]?.hunkId, 'hunk:1');
+  t.is(overlay?.markers?.[0]?.status, 'accepted');
+});

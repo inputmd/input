@@ -7135,6 +7135,7 @@ export function App() {
             contentSelection={editContentSelection}
             readerAiEditorOverlay={readerAiEditorOverlay}
             onChangeMarkerClick={onReaderAiEditorMarkerClick}
+            onReaderAiToggleReviewTarget={onReaderAiToggleReviewTarget}
             onReaderAiOpenReviewTarget={openReaderAiReviewTarget}
             onReaderAiApplyReviewTarget={onReaderAiApplyReviewTarget}
             onReaderAiKeepLocalReviewTarget={onReaderAiKeepLocalReviewTarget}

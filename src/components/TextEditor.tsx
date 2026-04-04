@@ -30,7 +30,11 @@ import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { type EditorChangeMarker, editorChangeMarkersExtension } from './codemirror_change_markers';
 import { type EditorConflictWidget, editorConflictWidgetsExtension } from './codemirror_conflict_widgets';
 import { continuedIndentExtension } from './codemirror_continued_indent';
-import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
+import {
+  type EditorDiffPreview,
+  type EditorDiffPreviewActionEvent,
+  editorDiffPreviewExtension,
+} from './codemirror_diff_preview';
 import { detectedLanguageForFileName } from './codemirror_languages';
 import { appCodeMirrorHighlighter } from './codemirror_theme';
 import type { EditorController, EditorInteractionKind } from './editor_controller';
@@ -47,6 +51,7 @@ interface TextEditorProps {
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   diffPreview?: EditorDiffPreview | null;
+  onDiffPreviewAction?: (event: EditorDiffPreviewActionEvent) => void;
   changeMarkers?: EditorChangeMarker[] | null;
   onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
   conflictWidgets?: EditorConflictWidget[] | null;
@@ -76,6 +81,7 @@ export function TextEditor({
   contentRevision = 0,
   contentSelection = null,
   diffPreview = null,
+  onDiffPreviewAction,
   changeMarkers = null,
   onChangeMarkerClick,
   conflictWidgets = null,
@@ -428,7 +434,7 @@ export function TextEditor({
         readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
         placeholderCompartment.current.of(placeholderExt(placeholder)),
         languageCompartment.current.of(detectedLanguage?.extensions ?? []),
-        diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
+        diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview, { onAction: onDiffPreviewAction })),
         changeMarkersCompartment.current.of(
           editorChangeMarkersExtension(changeMarkers, { onMarkerClick: onChangeMarkerClick }),
         ),
@@ -708,9 +714,11 @@ export function TextEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: diffPreviewCompartment.current.reconfigure(editorDiffPreviewExtension(diffPreview)),
+      effects: diffPreviewCompartment.current.reconfigure(
+        editorDiffPreviewExtension(diffPreview, { onAction: onDiffPreviewAction }),
+      ),
     });
-  }, [diffPreview]);
+  }, [diffPreview, onDiffPreviewAction]);
 
   useEffect(() => {
     const view = viewRef.current;

@@ -1,5 +1,11 @@
 import { buildEditorChangeMarkers, type EditorChangeMarker } from './components/codemirror_change_markers.ts';
-import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './components/codemirror_diff_preview.ts';
+import {
+  buildDiffPreviewBlocksFromContent,
+  buildDiffPreviewBlocksFromHunks,
+  type EditorDiffPreview,
+  type EditorDiffPreviewAction,
+  type EditorDiffPreviewBlock,
+} from './components/codemirror_diff_preview.ts';
 import type { ReaderAiStagedChange, ReaderAiStagedHunk } from './reader_ai';
 import type { ReaderAiEditorCheckpoint } from './reader_ai_editor_checkpoints';
 import type {
@@ -103,20 +109,65 @@ interface BuildReaderAiEditorOverlayOptions {
   runs: ReaderAiRunRecord[];
 }
 
-function commonPrefixLength(left: string, right: string): number {
-  const length = Math.min(left.length, right.length);
-  let index = 0;
-  while (index < length && left[index] === right[index]) index += 1;
-  return index;
+function buildReaderAiDiffPreviewActions(hunk: ReaderAiEditorHunkOverlay): EditorDiffPreviewAction[] {
+  if (hunk.status === 'conflicted' || hunk.status === 'stale') {
+    return [
+      { id: 'keep_mine', label: 'Keep mine' },
+      { id: 'use_ai', label: 'Use AI', tone: 'primary' },
+      { id: 'review', label: 'Review' },
+    ];
+  }
+  if (hunk.status === 'accepted') {
+    return [
+      { id: 'reject', label: 'Reject', tone: 'danger' },
+      { id: 'review', label: 'Review' },
+    ];
+  }
+  if (hunk.status === 'rejected') {
+    return [
+      { id: 'accept', label: 'Accept', tone: 'primary' },
+      { id: 'review', label: 'Review' },
+    ];
+  }
+  return [];
 }
 
-function commonSuffixLength(left: string, right: string, prefixLength = 0): number {
-  const maxLength = Math.min(left.length, right.length) - prefixLength;
-  let index = 0;
-  while (index < maxLength && left[left.length - 1 - index] === right[right.length - 1 - index]) {
-    index += 1;
+function attachReaderAiReviewMetadataToBlocks(options: {
+  blocks: EditorDiffPreviewBlock[];
+  change: ReaderAiStagedChange;
+  fileStatus: ReaderAiEditorFileStatus;
+  hunks: ReaderAiEditorHunkOverlay[];
+  statusMessage: string | null;
+}): EditorDiffPreviewBlock[] {
+  if (options.hunks.length > 0) {
+    return options.blocks.map((block, index) => {
+      const hunk = options.hunks[index];
+      if (!hunk) return block;
+      return {
+        ...block,
+        changeId: hunk.changeId,
+        hunkId: hunk.hunkId,
+        status: hunk.status,
+        detail: options.statusMessage ?? undefined,
+        actions: buildReaderAiDiffPreviewActions(hunk),
+      };
+    });
   }
-  return index;
+  if (!options.change.id) return options.blocks;
+  return options.blocks.map((block) => ({
+    ...block,
+    changeId: options.change.id,
+    status:
+      options.fileStatus === 'ready' ? 'accepted' : options.fileStatus === 'conflicted' ? 'conflicted' : undefined,
+    detail: options.statusMessage ?? undefined,
+    actions:
+      options.fileStatus === 'ready'
+        ? [
+            { id: 'reject', label: 'Reject', tone: 'danger' },
+            { id: 'review', label: 'Review' },
+          ]
+        : [],
+  }));
 }
 
 function buildReaderAiContentDiffPreview(options: {
@@ -133,38 +184,12 @@ function buildReaderAiContentDiffPreview(options: {
     Array.isArray(options.hunks) && options.hunks.length > 0
       ? buildDiffPreviewBlocksFromHunks(original, modified, options.hunks)
       : [];
-  if (hunkBlocks.length > 0) {
-    return {
-      blocks: hunkBlocks,
-      source: options.sourceLabel,
-      badge: options.badgeLabel,
-    };
-  }
-  const start = commonPrefixLength(original, modified);
-  const trailingOverlap = commonSuffixLength(original, modified, start);
-  const originalTrimmedEnd = original.length - trailingOverlap;
-  const modifiedTrimmedEnd = modified.length - trailingOverlap;
-  const replacement = modified.slice(start, modifiedTrimmedEnd);
-  const deleted = original.slice(start, originalTrimmedEnd);
-  const blocks: EditorDiffPreview['blocks'] = [];
-  if (deleted.length > 0) {
-    blocks.push({
-      kind: replacement.length > 0 ? 'replace' : 'delete',
-      from: Math.max(0, start),
-      to: Math.max(0, originalTrimmedEnd),
-      label: replacement.length > 0 ? (options.hunkLabel ?? 'Replace') : (options.hunkLabel ?? 'Delete'),
-      deletedText: deleted,
-    });
-  }
-  if (replacement.length > 0) {
-    blocks.push({
-      kind: deleted.length > 0 ? 'replace' : 'insert',
-      from: Math.max(0, start),
-      to: Math.max(0, originalTrimmedEnd),
-      insert: replacement,
-      label: deleted.length > 0 ? (options.hunkLabel ?? 'Insert') : (options.hunkLabel ?? options.sourceLabel),
-    });
-  }
+  const blocks =
+    hunkBlocks.length > 0
+      ? hunkBlocks
+      : buildDiffPreviewBlocksFromContent(original, modified, {
+          label: options.hunkLabel ?? options.sourceLabel,
+        });
   if (blocks.length === 0) return null;
   return {
     blocks,
@@ -177,6 +202,8 @@ function buildReaderAiEditorDiffPreview(
   change: ReaderAiStagedChange | undefined,
   provenance: ReaderAiEditorProvenance | null,
   fileStatus: ReaderAiEditorFileStatus,
+  hunks: ReaderAiEditorHunkOverlay[],
+  statusMessage: string | null,
 ): EditorDiffPreview | null {
   if (!change || change.type === 'delete') return null;
   if (typeof change.modifiedContent !== 'string') return null;
@@ -186,11 +213,13 @@ function buildReaderAiEditorDiffPreview(
     return {
       blocks: [
         {
-          kind: 'insert',
           from: 0,
           to: 0,
-          insert: change.modifiedContent,
+          insertedText: change.modifiedContent,
           label: 'Reader AI proposal',
+          changeId: change.id,
+          status: fileStatus === 'ready' ? 'accepted' : fileStatus === 'conflicted' ? 'conflicted' : undefined,
+          detail: statusMessage ?? undefined,
         },
       ],
       source: sourceLabel,
@@ -199,7 +228,7 @@ function buildReaderAiEditorDiffPreview(
   }
   const original = typeof change.originalContent === 'string' ? change.originalContent : null;
   if (original === null) return null;
-  return buildReaderAiContentDiffPreview({
+  const preview = buildReaderAiContentDiffPreview({
     originalContent: original,
     modifiedContent: change.modifiedContent,
     sourceLabel,
@@ -207,6 +236,17 @@ function buildReaderAiEditorDiffPreview(
     hunks: change.hunks,
     hunkLabel: 'Reader AI proposal',
   });
+  if (!preview) return null;
+  return {
+    ...preview,
+    blocks: attachReaderAiReviewMetadataToBlocks({
+      blocks: preview.blocks,
+      change,
+      fileStatus,
+      hunks,
+      statusMessage,
+    }),
+  };
 }
 
 function buildAppliedReaderAiDiffPreview(options: {
@@ -608,7 +648,7 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
     failedEntry,
   });
   const diffPreview =
-    buildReaderAiEditorDiffPreview(currentChange, provenance, fileStatus) ??
+    buildReaderAiEditorDiffPreview(currentChange, provenance, fileStatus, hunks, statusMessage) ??
     (fileStatus === 'applied' || fileStatus === 'partial'
       ? buildAppliedReaderAiDiffPreview({
           checkpoint: options.activeEditorCheckpoint?.path === options.path ? options.activeEditorCheckpoint : null,

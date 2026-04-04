@@ -32,7 +32,11 @@ import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
 import { type EditorChangeMarker, editorChangeMarkersExtension } from './codemirror_change_markers';
 import { type EditorConflictWidget, editorConflictWidgetsExtension } from './codemirror_conflict_widgets';
 import { continuedIndentExtension } from './codemirror_continued_indent';
-import { type EditorDiffPreview, editorDiffPreviewExtension } from './codemirror_diff_preview';
+import {
+  type EditorDiffPreview,
+  type EditorDiffPreviewActionEvent,
+  editorDiffPreviewExtension,
+} from './codemirror_diff_preview';
 import { emojiCompletionSource } from './codemirror_emoji_completion';
 import { fencedCodeLineClassExtension } from './codemirror_fenced_code_lines';
 import { markdownEditorLanguageSupport, promptListAnsweringFacet } from './codemirror_markdown';
@@ -76,6 +80,7 @@ interface MarkdownEditorProps {
   placeholder?: string;
   scrollStorageKey?: string | null;
   diffPreview?: EditorDiffPreview | null;
+  onDiffPreviewAction?: (event: EditorDiffPreviewActionEvent) => void;
   changeMarkers?: EditorChangeMarker[] | null;
   onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
   conflictWidgets?: EditorConflictWidget[] | null;
@@ -136,6 +141,7 @@ export function MarkdownEditor({
   placeholder = 'Write here, or use ~ to prompt...',
   scrollStorageKey = null,
   diffPreview = null,
+  onDiffPreviewAction,
   changeMarkers = null,
   onChangeMarkerClick,
   conflictWidgets = null,
@@ -553,7 +559,7 @@ export function MarkdownEditor({
         highlightSelectionMatches(),
         promptListAnsweringCompartment.current.of(promptListAnsweringFacet.of(inlinePromptActive)),
         bracePromptPreviewCompartment.current.of([]),
-        diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview)),
+        diffPreviewCompartment.current.of(editorDiffPreviewExtension(diffPreview, { onAction: onDiffPreviewAction })),
         changeMarkersCompartment.current.of(
           editorChangeMarkersExtension(changeMarkers, { onMarkerClick: onChangeMarkerClick }),
         ),
@@ -950,9 +956,11 @@ export function MarkdownEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: diffPreviewCompartment.current.reconfigure(editorDiffPreviewExtension(diffPreview)),
+      effects: diffPreviewCompartment.current.reconfigure(
+        editorDiffPreviewExtension(diffPreview, { onAction: onDiffPreviewAction }),
+      ),
     });
-  }, [diffPreview]);
+  }, [diffPreview, onDiffPreviewAction]);
 
   useEffect(() => {
     const view = viewRef.current;
