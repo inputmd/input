@@ -14,7 +14,7 @@ import { ForkRepoDialog } from './components/ForkRepoDialog';
 import { ImageLightbox } from './components/ImageLightbox';
 import type { PromptListRequest } from './components/markdown_editor_commands';
 import { formatMarkdownEditorPaste } from './components/markdown_editor_paste';
-import { type ReaderAiMessage, ReaderAiPanel } from './components/ReaderAiPanel';
+import { ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFile, type SidebarFileFilter } from './components/Sidebar';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
@@ -97,7 +97,7 @@ import {
   useDocumentPersistence,
 } from './hooks/useDocumentPersistence';
 import { type StackEntry, useDocumentStack } from './hooks/useDocumentStack';
-import { buildReaderAiHistoryDocumentKey, useReaderAiSession } from './hooks/useReaderAiSession';
+import { buildReaderAiHistoryDocumentKey, useReaderAiController } from './hooks/useReaderAiController';
 import { useRoute } from './hooks/useRoute';
 import { buildImageMarkdown } from './image_markdown';
 import {
@@ -144,7 +144,6 @@ import {
 } from './reader_ai';
 import { buildReaderAiContextLogPayload, trimReaderAiSource } from './reader_ai_context';
 import {
-  buildReaderAiRetryRequestForStep,
   createReaderAiApplyBlockedMessage,
   prepareReaderAiSelectedChangesForApply,
 } from './reader_ai_controller_runtime';
@@ -154,7 +153,6 @@ import {
   executeReaderAiHostApply,
   invalidateReaderAiHostCaches,
 } from './reader_ai_host_adapter';
-import { READER_AI_SELECTION_MAX_CHARS } from './reader_ai_limits';
 import { buildReaderAiSelectedChange } from './reader_ai_selectors';
 import { matchRoute, type Route, routePath } from './routing';
 import {
@@ -1130,9 +1128,7 @@ export function App() {
   );
   const {
     acceptReaderAiProposal,
-    buildReaderAiRetryRequest,
     clearReaderAiQueuedCommands,
-    clearReaderAi,
     clearReaderAiUndoState,
     effectiveReaderAiStagedChanges,
     effectiveReaderAiStagedFileContents,
@@ -1164,6 +1160,12 @@ export function App() {
     readerAiStagedChangesStreaming,
     readerAiToolLog,
     readerAiToolStatus,
+    onReaderAiClear,
+    onReaderAiEditMessage,
+    onReaderAiRetryLastMessage,
+    onReaderAiRetryRunStep,
+    onReaderAiSend,
+    onReaderAiStop,
     rejectReaderAiChange,
     rejectReaderAiHunk,
     rejectReaderAiProposal,
@@ -1175,16 +1177,25 @@ export function App() {
     setReaderAiError,
     setReaderAiHasEligibleSelection,
     createReaderAiEditorRestorePoint,
-    startReaderAiStream,
-    stopReaderAi,
     toggleReaderAiChangeSelection,
     toggleReaderAiHunkSelection,
     toggleReaderAiProposalHunkSelection,
-  } = useReaderAiSession({
+  } = useReaderAiController({
+    activeView,
+    currentEditingDocPath,
+    currentFileName,
+    currentRepoDocPath,
+    getCurrentEditContent: () => editContentRef.current,
+    getSelectionSource: (maxChars) => editViewControllerRef.current?.getSelectionText(maxChars) ?? null,
     historyEligible: readerAiHistoryEligible,
     historyDocumentKey: readerAiHistoryDocumentKey,
-    resetInlinePromptState,
     inlinePromptAbortRef,
+    readerAiModels,
+    readerAiSelectedModel,
+    readerAiSource,
+    resetInlinePromptState,
+    selectedReaderAiModel,
+    showFailureToast,
   });
   const readerAiSaveLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
   const readerAiNavigationLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
@@ -3736,11 +3747,6 @@ export function App() {
   ]);
 
   const previousReaderAiAuthenticatedRef = useRef<boolean | null>(null);
-  const readerAiMessagesRef = useRef<ReaderAiMessage[]>(readerAiMessages);
-
-  useEffect(() => {
-    readerAiMessagesRef.current = readerAiMessages;
-  }, [readerAiMessages]);
 
   useEffect(() => {
     const previous = previousReaderAiAuthenticatedRef.current;
@@ -3769,83 +3775,6 @@ export function App() {
   }, [focusReaderAiComposerInput, onOpenReaderAi, readerAiEnabled]);
 
   const isGistContext = currentGistId !== null && gistFiles !== null;
-  const streamReaderAiAssistant = useCallback(
-    async (
-      baseMessages: ReaderAiMessage[],
-      options?: { edited?: boolean; modelId?: string | null; parentRunId?: string | null; retryStepId?: string },
-    ) => {
-      const modelId = options?.modelId ?? readerAiSelectedModel;
-      if (!modelId) return false;
-      const allowDocumentEdits = activeView === 'edit';
-      const currentEditContent = editContentRef.current;
-      const documentSource = trimReaderAiSource(
-        stripCriticMarkupComments(allowDocumentEdits ? currentEditContent : readerAiSource),
-      );
-      const selectionSource = allowDocumentEdits
-        ? (editViewControllerRef.current?.getSelectionText(READER_AI_SELECTION_MAX_CHARS) ?? null)
-        : null;
-      const currentDocPath = allowDocumentEdits ? currentEditingDocPath : (currentRepoDocPath ?? currentFileName);
-      const selectedModel =
-        readerAiModels.find((model) => model.id === modelId) ??
-        (modelId === readerAiSelectedModel ? selectedReaderAiModel : null);
-      return startReaderAiStream({
-        allowDocumentEdits,
-        baseMessages,
-        currentDocPath,
-        documentSource,
-        edited: options?.edited,
-        modelId,
-        parentRunId: options?.parentRunId ?? undefined,
-        retryStepId: options?.retryStepId ?? undefined,
-        selectedModel,
-        selectionSource,
-        showFailureToast,
-      });
-    },
-    [
-      activeView,
-      currentEditingDocPath,
-      currentFileName,
-      currentRepoDocPath,
-      readerAiModels,
-      readerAiSelectedModel,
-      readerAiSource,
-      showFailureToast,
-      startReaderAiStream,
-      selectedReaderAiModel,
-    ],
-  );
-
-  const onReaderAiSend = useCallback(
-    async (prompt: string) => {
-      const trimmedPrompt = prompt.trim();
-      if (!trimmedPrompt) return true;
-      return streamReaderAiAssistant([...readerAiMessagesRef.current, { role: 'user', content: trimmedPrompt }]);
-    },
-    [streamReaderAiAssistant],
-  );
-
-  const onReaderAiEditMessage = useCallback(
-    async (index: number, nextContent: string) => {
-      const trimmedContent = nextContent.trim();
-      if (!trimmedContent) return;
-      const currentMessages = readerAiMessagesRef.current;
-      if (index < 0 || index >= currentMessages.length) return;
-      const target = currentMessages[index];
-      if (!target || target.role !== 'user' || target.content === trimmedContent) return;
-      const updated = currentMessages
-        .slice(0, index + 1)
-        .map((message, messageIndex) =>
-          messageIndex === index ? { ...message, content: trimmedContent, edited: false } : message,
-        );
-      await streamReaderAiAssistant(updated, { edited: true });
-    },
-    [streamReaderAiAssistant],
-  );
-
-  const onReaderAiStop = stopReaderAi;
-
-  const onReaderAiClear = clearReaderAi;
 
   const onReaderAiApplyChanges = useCallback(
     async (mode: 'without-saving' | 'commit', commitMessage?: string) => {
@@ -4090,44 +4019,6 @@ export function App() {
     setHasUserTypedUnsavedChanges,
     showConfirm,
   ]);
-
-  const onReaderAiRetryLastMessage = useCallback(async () => {
-    if (readerAiSending) return;
-    const currentMessages = readerAiMessagesRef.current;
-    if (currentMessages.length === 0) return;
-    // Find the last user message and replay up to (and including) it
-    let lastUserIndex = -1;
-    for (let i = currentMessages.length - 1; i >= 0; i--) {
-      if (currentMessages[i].role === 'user') {
-        lastUserIndex = i;
-        break;
-      }
-    }
-    if (lastUserIndex === -1) return;
-    const retryRequest = buildReaderAiRetryRequest();
-    const messagesToReplay = retryRequest?.baseMessages.length
-      ? retryRequest.baseMessages
-      : currentMessages.slice(0, lastUserIndex + 1);
-    await streamReaderAiAssistant(messagesToReplay, {
-      modelId: retryRequest?.modelId ?? readerAiSelectedModel,
-      parentRunId: retryRequest?.parentRunId ?? null,
-      retryStepId: retryRequest?.retryStepId,
-    });
-  }, [buildReaderAiRetryRequest, readerAiSelectedModel, readerAiSending, streamReaderAiAssistant]);
-
-  const onReaderAiRetryRunStep = useCallback(
-    async ({ runId, stepId }: { runId: string; stepId: string }) => {
-      if (readerAiSending) return;
-      const retryRequest = buildReaderAiRetryRequestForStep(readerAiRuns, { runId, stepId });
-      if (!retryRequest) return;
-      await streamReaderAiAssistant(retryRequest.baseMessages, {
-        modelId: retryRequest.modelId ?? readerAiSelectedModel,
-        parentRunId: retryRequest.parentRunId ?? null,
-        retryStepId: retryRequest.retryStepId,
-      });
-    },
-    [readerAiRuns, readerAiSelectedModel, readerAiSending, streamReaderAiAssistant],
-  );
 
   const cancelInlinePrompt = useCallback(() => {
     inlinePromptAbortRef.current?.abort();
