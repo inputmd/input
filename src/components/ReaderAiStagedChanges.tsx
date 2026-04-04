@@ -322,7 +322,7 @@ export function StagedChangesSection({
                     onClick={() => onIgnoreAll?.()}
                     disabled={applying}
                   >
-                    Cancel
+                    Discard all changes
                   </button>
                 ) : null}
                 {canApplyWithoutSaving ? (
@@ -332,7 +332,7 @@ export function StagedChangesSection({
                     onClick={() => onApplyWithoutSaving?.()}
                     disabled={applying}
                   >
-                    {applying ? 'Applying…' : 'Apply'}
+                    {applying ? 'Applying…' : 'Apply changes'}
                   </button>
                 ) : null}
               </>

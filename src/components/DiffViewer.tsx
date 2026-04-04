@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { findUnifiedDiffReplacementPair } from './diff_viewer_utils.ts';
+import { findUnifiedDiffReplacementPair, getUnifiedDiffLineParts } from './diff_viewer_utils.ts';
 
 export interface DiffChangeEntry {
   path: string;
@@ -24,8 +24,8 @@ function commonSuffixLength(a: string, b: string, prefix: number): number {
 }
 
 function renderDiffContent(line: string, changedClass: string, pairLine?: string): ComponentChildren {
-  if (!pairLine) return line;
-  const content = line.slice(1);
+  const { content } = getUnifiedDiffLineParts(line);
+  if (!pairLine) return content;
   const pairContent = pairLine.slice(1);
   const prefix = commonPrefixLength(content, pairContent);
   const suffix = commonSuffixLength(content, pairContent, prefix);
@@ -57,6 +57,33 @@ function renderDiffContent(line: string, changedClass: string, pairLine?: string
   );
 }
 
+function renderUnifiedDiffLine(
+  key: string,
+  line: string,
+  className: string,
+  changedClass?: string,
+  pairLine?: string,
+): ComponentChildren {
+  const { hasSignColumn, sign } = getUnifiedDiffLineParts(line);
+
+  if (!hasSignColumn) {
+    return (
+      <div key={key} class={className}>
+        <span class="reader-ai-diff-line-text reader-ai-diff-line-text--full">{line}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div key={key} class={`${className} reader-ai-diff-line--split`}>
+      <span class="reader-ai-diff-line-sign" aria-hidden="true">
+        {sign}
+      </span>
+      <span class="reader-ai-diff-line-text">{renderDiffContent(line, changedClass ?? '', pairLine)}</span>
+    </div>
+  );
+}
+
 export function UnifiedDiffView({ diff }: { diff: string }) {
   const lines = diff.split('\n');
   const renderedLines: ComponentChildren[] = [];
@@ -66,14 +93,22 @@ export function UnifiedDiffView({ diff }: { diff: string }) {
     if (pairIndex !== null) {
       const pairLine = lines[pairIndex] ?? '';
       renderedLines.push(
-        <div key={`${i}-del`} class="reader-ai-diff-line reader-ai-diff-line--del">
-          {renderDiffContent(line, 'reader-ai-diff-inline-change--del', pairLine)}
-        </div>,
+        renderUnifiedDiffLine(
+          `${i}-del`,
+          line,
+          'reader-ai-diff-line reader-ai-diff-line--del',
+          'reader-ai-diff-inline-change--del',
+          pairLine,
+        ),
       );
       renderedLines.push(
-        <div key={`${pairIndex}-add`} class="reader-ai-diff-line reader-ai-diff-line--add">
-          {renderDiffContent(pairLine, 'reader-ai-diff-inline-change--add', line)}
-        </div>,
+        renderUnifiedDiffLine(
+          `${pairIndex}-add`,
+          pairLine,
+          'reader-ai-diff-line reader-ai-diff-line--add',
+          'reader-ai-diff-inline-change--add',
+          line,
+        ),
       );
       i = pairIndex;
       continue;
@@ -84,11 +119,7 @@ export function UnifiedDiffView({ diff }: { diff: string }) {
     else if (line.startsWith('@@')) cls += ' reader-ai-diff-line--hunk';
     else if (line.startsWith('+')) cls += ' reader-ai-diff-line--add';
     else if (line.startsWith('-')) cls += ' reader-ai-diff-line--del';
-    renderedLines.push(
-      <div key={`${i}`} class={cls}>
-        {line}
-      </div>,
-    );
+    renderedLines.push(renderUnifiedDiffLine(`${i}`, line, cls));
   }
 
   return <pre class="reader-ai-diff">{renderedLines}</pre>;

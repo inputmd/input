@@ -10,3 +10,25 @@ export function findUnifiedDiffReplacementPair(lines: string[], index: number): 
 
   return null;
 }
+
+export interface UnifiedDiffLineParts {
+  content: string;
+  hasSignColumn: boolean;
+  sign: string | null;
+}
+
+export function getUnifiedDiffLineParts(line: string): UnifiedDiffLineParts {
+  const hasSignColumn =
+    !line.startsWith('+++') &&
+    !line.startsWith('---') &&
+    !line.startsWith('@@') &&
+    (line.startsWith('+') || line.startsWith('-') || line.startsWith(' '));
+
+  if (!hasSignColumn) return { content: line, hasSignColumn: false, sign: null };
+
+  return {
+    content: line.slice(1),
+    hasSignColumn: true,
+    sign: line[0] === ' ' ? '\u00a0' : line[0],
+  };
+}

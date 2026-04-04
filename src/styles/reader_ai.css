@@ -1077,7 +1077,6 @@
 .reader-ai-run-history {
   margin: 6px 0 2px;
   padding-top: 8px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
 }
 
 .reader-ai-run-history-toggle {
@@ -1426,7 +1425,7 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-secondary);
-  padding: 6px 10px;
+  padding: 6px 7px 6px 10px;
   background: color-mix(in srgb, var(--btn-bg) 50%, transparent);
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -1486,7 +1485,7 @@
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 8px;
 }
 
 .reader-ai-staged-changes-footer--readonly {
@@ -1737,6 +1736,10 @@
   color: var(--text);
 }
 
+.reader-ai-staged-change-header-row > .reader-ai-staged-reveal-btn {
+  margin-right: 8px;
+}
+
 .reader-ai-staged-hunk-row {
   display: flex;
   align-items: flex-start;
@@ -1844,6 +1847,25 @@
 .reader-ai-diff-line {
   padding: 0 10px;
   color: var(--text-secondary);
+}
+
+.reader-ai-diff-line--split {
+  display: grid;
+  grid-template-columns: 1ch minmax(0, 1fr);
+  column-gap: 1ch;
+}
+
+.reader-ai-diff-line-sign,
+.reader-ai-diff-line-text {
+  white-space: pre-wrap;
+}
+
+.reader-ai-diff-line-text {
+  min-width: 0;
+}
+
+.reader-ai-diff-line-text--full {
+  display: block;
 }
 
 .reader-ai-diff-line--header {
@@ -1972,10 +1994,6 @@
 
 .reader-ai-diff-popout-file {
   border-bottom: 1px solid var(--border);
-}
-
-.reader-ai-diff-popout-file:last-child {
-  border-bottom: 0;
 }
 
 .reader-ai-diff-popout-file-path {
