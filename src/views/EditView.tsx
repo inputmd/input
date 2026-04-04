@@ -5,6 +5,7 @@ import { ArrowUpDown, ExternalLink, Highlighter, LockOpen, Pin } from 'lucide-re
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { EditorChangeMarker } from '../components/codemirror_change_markers';
+import type { EditorDiffPreview } from '../components/codemirror_diff_preview';
 import type { BracePromptRequest } from '../components/codemirror_inline_prompt';
 import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
@@ -27,6 +28,7 @@ import {
   togglePromptAnswerExpandedState,
   togglePromptListCollapsedStateInUrl,
 } from '../prompt_list_state';
+import type { ReaderAiEditorOverlay } from '../reader_ai_editor_state';
 import { getStoredScrollPosition } from '../scroll_positions';
 import { findToggleListFromTarget, syncToggleListPersistedState, toggleToggleListState } from '../toggle_list_state';
 import { MARKDOWN_EXT_RE } from '../util';
@@ -213,8 +215,6 @@ function findSyncBlockById(blocks: MarkdownSyncBlock[], id: string): MarkdownSyn
   return blocks.find((block) => block.id === id) ?? null;
 }
 
-import type { EditorDiffPreview } from '../components/codemirror_diff_preview';
-
 export interface EditViewProps {
   fileName?: string | null;
   markdown?: boolean;
@@ -222,8 +222,7 @@ export interface EditViewProps {
   contentOrigin?: 'userEdits' | 'external' | 'streaming' | 'appEdits';
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
-  diffPreview?: EditorDiffPreview | null;
-  changeMarkers?: EditorChangeMarker[] | null;
+  readerAiEditorOverlay?: ReaderAiEditorOverlay | null;
   previewHtml: string;
   previewCustomCss?: string | null;
   previewCustomCssScope?: string | null;
@@ -277,8 +276,7 @@ export function EditView({
   contentOrigin = 'external',
   contentRevision = 0,
   contentSelection = null,
-  diffPreview = null,
-  changeMarkers = null,
+  readerAiEditorOverlay = null,
   previewHtml,
   previewCustomCss = null,
   previewCustomCssScope = null,
@@ -316,6 +314,8 @@ export function EditView({
   lockLabel = 'Reader AI',
   imageUploadIssue,
 }: EditViewProps) {
+  const diffPreview: EditorDiffPreview | null = readerAiEditorOverlay?.diffPreview ?? null;
+  const changeMarkers: EditorChangeMarker[] | null = readerAiEditorOverlay?.markers ?? null;
   const splitRef = useRef<HTMLDivElement>(null);
   const previewPaneRef = useRef<HTMLDivElement | null>(null);
   const mobilePreviewPaneRef = useRef<HTMLDivElement | null>(null);

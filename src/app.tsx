@@ -5,8 +5,6 @@ import { parseAnsiToHtml } from './ansi';
 import { ApiError, isRateLimitError, rateLimitToastMessage, responseToApiError } from './api_error';
 import { onCacheEvent } from './cache_events';
 import { CompactCommitsDialog } from './components/CompactCommitsDialog';
-import { buildEditorChangeMarkers } from './components/codemirror_change_markers';
-import { buildDiffPreviewBlocksFromHunks, type EditorDiffPreview } from './components/codemirror_diff_preview';
 import type { BracePromptRequest } from './components/codemirror_inline_prompt';
 import { useDialogs } from './components/DialogProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -140,7 +138,6 @@ import {
   listReaderAiModels,
   localCodexEnabledByPreference,
   type ReaderAiModel,
-  type ReaderAiStagedChange,
   readerAiModelPriorityRank,
   setLocalCodexEnabledByPreference,
 } from './reader_ai';
@@ -149,6 +146,7 @@ import {
   createReaderAiApplyBlockedMessage,
   validateReaderAiSelectedChangesForApply,
 } from './reader_ai_controller_runtime';
+import { buildReaderAiEditorOverlay } from './reader_ai_editor_state';
 import {
   createReaderAiApplyConflictMessage,
   executeReaderAiHostApply,
@@ -629,66 +627,6 @@ function generateUnifiedDiff(path: string, oldContent: string, newContent: strin
   if (!lines.some((line) => line.startsWith('@@'))) return noChangesLabel;
   const result = lines.slice(startIndex).join('\n').trimEnd();
   return result || noChangesLabel;
-}
-
-function buildEditorDiffPreview(change: ReaderAiStagedChange | undefined): EditorDiffPreview | null {
-  if (!change || change.type === 'delete') return null;
-  if (typeof change.modifiedContent !== 'string') return null;
-  if (change.type === 'create') {
-    return {
-      blocks: [
-        {
-          kind: 'insert',
-          from: 0,
-          to: 0,
-          insert: change.modifiedContent,
-          label: 'Reader AI proposal',
-        },
-      ],
-      source: 'Reader AI proposal',
-    };
-  }
-  const original = typeof change.originalContent === 'string' ? change.originalContent : null;
-  if (original === null) return null;
-  const modified = change.modifiedContent;
-  if (original === modified) return null;
-  const hunkBlocks = buildDiffPreviewBlocksFromHunks(original, modified, change.hunks ?? []);
-  if (hunkBlocks.length > 0) {
-    return {
-      blocks: hunkBlocks,
-      source: 'Reader AI proposal',
-    };
-  }
-  const start = commonPrefixLength(original, modified);
-  const trailingOverlap = commonSuffixLength(original, modified, start);
-  const originalTrimmedEnd = original.length - trailingOverlap;
-  const modifiedTrimmedEnd = modified.length - trailingOverlap;
-  const replacement = modified.slice(start, modifiedTrimmedEnd);
-  const deleted = original.slice(start, originalTrimmedEnd);
-  const blocks: EditorDiffPreview['blocks'] = [];
-  if (deleted.length > 0) {
-    blocks.push({
-      kind: replacement.length > 0 ? 'replace' : 'delete',
-      from: Math.max(0, start),
-      to: Math.max(0, originalTrimmedEnd),
-      label: replacement.length > 0 ? 'Replace' : 'Delete',
-      deletedText: deleted,
-    });
-  }
-  if (replacement.length > 0) {
-    blocks.push({
-      kind: deleted.length > 0 ? 'replace' : 'insert',
-      from: Math.max(0, start),
-      to: Math.max(0, originalTrimmedEnd),
-      insert: replacement,
-      label: deleted.length > 0 ? 'Insert' : 'Reader AI proposal',
-    });
-  }
-  if (blocks.length === 0) return null;
-  return {
-    blocks,
-    source: 'Reader AI proposal',
-  };
 }
 
 function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | null {
@@ -1206,6 +1144,7 @@ export function App() {
     readerAiHasEligibleSelection,
     readerAiMessages,
     readerAiProposalStatusesByToolCallId,
+    readerAiRuns,
     readerAiSelectedChangeIds,
     readerAiSelectedHunkIdsByChangeId,
     readerAiSending,
@@ -1237,19 +1176,35 @@ export function App() {
   const readerAiSaveLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
   const readerAiNavigationLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
   const readerAiEditorLocked = activeView === 'edit' && readerAiApplyingChanges;
-  const currentEditorDiffPreview = useMemo(() => {
-    if (activeView !== 'edit' || !currentEditingDocPath) return null;
-    const currentChange = effectiveReaderAiStagedChanges.find((change) => change.path === currentEditingDocPath);
-    return buildEditorDiffPreview(currentChange);
-  }, [activeView, currentEditingDocPath, effectiveReaderAiStagedChanges]);
-  const currentEditorChangeMarkers = useMemo(() => {
-    if (activeView !== 'edit') return null;
-    if (currentDocumentSavedContent === null) return null;
-    if (!hasUnsavedChanges) return null;
-    if (currentEditorDiffPreview) return null;
-    const markers = buildEditorChangeMarkers(currentDocumentSavedContent, editContent);
-    return markers.length > 0 ? markers : null;
-  }, [activeView, currentDocumentSavedContent, editContent, hasUnsavedChanges, currentEditorDiffPreview]);
+  const readerAiEditorOverlay = useMemo(
+    () =>
+      buildReaderAiEditorOverlay({
+        active: activeView === 'edit',
+        path: currentEditingDocPath,
+        revision: editContentRevision,
+        currentDocumentSavedContent,
+        currentDocumentContent: editContent,
+        hasUnsavedChanges,
+        effectiveStagedChanges: effectiveReaderAiStagedChanges,
+        selectedChangeIds: readerAiSelectedChangeIds,
+        selectedHunkIdsByChangeId: readerAiSelectedHunkIdsByChangeId,
+        activeChangeSet: readerAiActiveChangeSet,
+        runs: readerAiRuns,
+      }),
+    [
+      activeView,
+      currentEditingDocPath,
+      editContentRevision,
+      currentDocumentSavedContent,
+      editContent,
+      hasUnsavedChanges,
+      effectiveReaderAiStagedChanges,
+      readerAiSelectedChangeIds,
+      readerAiSelectedHunkIdsByChangeId,
+      readerAiActiveChangeSet,
+      readerAiRuns,
+    ],
+  );
   const currentDocumentScrollKey = useMemo(
     () => routeKeyFromRoute(route) ?? readerAiHistoryDocumentKey,
     [route, readerAiHistoryDocumentKey],
@@ -7042,8 +6997,7 @@ export function App() {
             contentOrigin={editContentOrigin}
             contentRevision={editContentRevision}
             contentSelection={editContentSelection}
-            diffPreview={currentEditorDiffPreview}
-            changeMarkers={currentEditorChangeMarkers}
+            readerAiEditorOverlay={readerAiEditorOverlay}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             sidePaneWidth={sidePaneWidth}
