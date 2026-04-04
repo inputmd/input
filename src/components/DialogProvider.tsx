@@ -417,7 +417,14 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
               class="dialog-content"
               onOpenAutoFocus={(e: Event) => {
                 e.preventDefault();
-                setTimeout(() => promptInputRef.current?.focus(), 0);
+                setTimeout(() => {
+                  const input = promptInputRef.current;
+                  if (!input) return;
+                  input.focus();
+                  if (dialog.message === 'Filename:') {
+                    input.select();
+                  }
+                }, 0);
               }}
             >
               <DialogPrimitive.Description class="dialog-message">{dialog.message}</DialogPrimitive.Description>
