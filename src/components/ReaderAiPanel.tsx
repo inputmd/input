@@ -174,6 +174,8 @@ export function ReaderAiPanel({
   const messagesRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const queueDrainInFlightRef = useRef(false);
+  const pendingScrollToBottomOnSendRef = useRef(false);
   const thinkingStartedAtRef = useRef<number | null>(null);
   const pendingFocusAfterClearRef = useRef(false);
   const pinnedToBottomRef = useRef(true);
@@ -186,9 +188,12 @@ export function ReaderAiPanel({
     if (modelsLoading) return 'Loading free models...';
     if (modelsError) return modelsError;
     if (!selectedModel) return 'No free model available.';
+    if (sending && queuedCommands.length > 0) {
+      return `${queuedCommands.length} queued ${queuedCommands.length === 1 ? 'message' : 'messages'} will send next.`;
+    }
     return null;
-  }, [modelsLoading, modelsError, selectedModel]);
-  const composerInputDisabled = sending || !selectedModel;
+  }, [modelsLoading, modelsError, queuedCommands.length, selectedModel, sending]);
+  const composerInputDisabled = !selectedModel;
   let lastUserMessageIndex = -1;
   for (let i = messageCount - 1; i >= 0; i--) {
     if (messages[i].role === 'user') {
@@ -214,6 +219,13 @@ export function ReaderAiPanel({
     root.scrollTop = root.scrollHeight;
     pinnedToBottomRef.current = true;
   }, []);
+
+  const scheduleScrollMessagesToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      scrollMessagesToBottom();
+      requestAnimationFrame(() => scrollMessagesToBottom());
+    });
+  }, [scrollMessagesToBottom]);
 
   const maybeScrollMessagesToBottom = useCallback(() => {
     const root = messagesRef.current;
@@ -255,6 +267,12 @@ export function ReaderAiPanel({
     }, 250);
     return () => window.clearInterval(intervalId);
   }, [isAssistantThinking]);
+
+  useLayoutEffect(() => {
+    if (!pendingScrollToBottomOnSendRef.current || messageCount === 0) return;
+    pendingScrollToBottomOnSendRef.current = false;
+    scheduleScrollMessagesToBottom();
+  }, [messageCount, scheduleScrollMessagesToBottom]);
 
   useLayoutEffect(() => {
     const input = composerInputRef.current;
@@ -330,31 +348,60 @@ export function ReaderAiPanel({
     setQueuedCommands((prev) => prev.filter((_, commandIndex) => commandIndex !== index));
   };
 
+  const runQueuedCommands = useCallback(
+    async (commands: string[], options?: { draftValue?: string; queuedBeforeSubmit?: string[] }) => {
+      if (commands.length === 0 || !selectedModel) return;
+      queueDrainInFlightRef.current = true;
+      const draftValue = options?.draftValue;
+      const queuedBeforeSubmit = options?.queuedBeforeSubmit ?? [];
+      try {
+        scrollMessagesToBottom();
+        let failedCommandIndex = -1;
+        for (const [index, command] of commands.entries()) {
+          const ok = await onSend(command);
+          if (!ok) {
+            failedCommandIndex = index;
+            break;
+          }
+        }
+        if (failedCommandIndex >= 0) {
+          const failedQueuedCommands = commands.slice(failedCommandIndex, queuedBeforeSubmit.length);
+          if (failedQueuedCommands.length > 0) {
+            setQueuedCommands((prev) => [...failedQueuedCommands, ...prev].slice(0, 10));
+          }
+          if (typeof draftValue === 'string' && draftValue.trim()) setDraft(draftValue);
+        }
+      } finally {
+        queueDrainInFlightRef.current = false;
+      }
+    },
+    [onSend, scrollMessagesToBottom, selectedModel],
+  );
+
   const submit = async () => {
     const draftValue = draft;
     const prompt = draftValue.trim();
     const queued = queuedCommands;
-    if ((!prompt && queued.length === 0) || sending || !selectedModel) return;
-    scrollMessagesToBottom();
+    if ((!prompt && queued.length === 0) || !selectedModel) return;
+    if (sending) {
+      if (prompt) enqueueDraft();
+      return;
+    }
+    if (!composerAtTop) {
+      pendingScrollToBottomOnSendRef.current = true;
+      scheduleScrollMessagesToBottom();
+    }
     setDraft('');
     setQueuedCommands([]);
     const commands = prompt ? [...queued, prompt] : queued;
-    let failedCommandIndex = -1;
-    for (const [index, command] of commands.entries()) {
-      const ok = await onSend(command);
-      if (!ok) {
-        failedCommandIndex = index;
-        break;
-      }
-    }
-    if (failedCommandIndex >= 0) {
-      const failedQueuedCommands = commands.slice(failedCommandIndex, queued.length);
-      if (failedQueuedCommands.length > 0) {
-        setQueuedCommands((prev) => [...failedQueuedCommands, ...prev].slice(0, 10));
-      }
-      if (prompt) setDraft(draftValue);
-    }
+    await runQueuedCommands(commands, { draftValue, queuedBeforeSubmit: queued });
   };
+
+  useEffect(() => {
+    if (sending || !selectedModel || queuedCommands.length === 0 || queueDrainInFlightRef.current) return;
+    setQueuedCommands([]);
+    void runQueuedCommands(queuedCommands, { queuedBeforeSubmit: queuedCommands });
+  }, [queuedCommands, runQueuedCommands, selectedModel, sending]);
 
   const cancelEdit = () => {
     setEditingIndex(null);
@@ -406,7 +453,6 @@ export function ReaderAiPanel({
                   class="reader-ai-queue-remove"
                   onClick={() => removeQueuedCommand(index)}
                   aria-label={`Remove queued command ${index + 1}`}
-                  disabled={sending}
                 >
                   <X size={12} aria-hidden="true" />
                 </button>
@@ -488,7 +534,7 @@ export function ReaderAiPanel({
         <button
           type="button"
           class="reader-ai-queue-btn"
-          disabled={!canQueue || sending}
+          disabled={!canQueue}
           onClick={enqueueDraft}
           aria-label="Add command to queue"
           title={queuedCommands.length >= 10 ? 'Queue is full' : 'Add command to queue'}

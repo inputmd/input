@@ -3617,6 +3617,11 @@ export function App() {
   ]);
 
   const previousReaderAiAuthenticatedRef = useRef<boolean | null>(null);
+  const readerAiMessagesRef = useRef<ReaderAiMessage[]>(readerAiMessages);
+
+  useEffect(() => {
+    readerAiMessagesRef.current = readerAiMessages;
+  }, [readerAiMessages]);
 
   useEffect(() => {
     const previous = previousReaderAiAuthenticatedRef.current;
@@ -3696,26 +3701,27 @@ export function App() {
     async (prompt: string) => {
       const trimmedPrompt = prompt.trim();
       if (!trimmedPrompt) return true;
-      return streamReaderAiAssistant([...readerAiMessages, { role: 'user', content: trimmedPrompt }]);
+      return streamReaderAiAssistant([...readerAiMessagesRef.current, { role: 'user', content: trimmedPrompt }]);
     },
-    [readerAiMessages, streamReaderAiAssistant],
+    [streamReaderAiAssistant],
   );
 
   const onReaderAiEditMessage = useCallback(
     async (index: number, nextContent: string) => {
       const trimmedContent = nextContent.trim();
       if (!trimmedContent) return;
-      if (index < 0 || index >= readerAiMessages.length) return;
-      const target = readerAiMessages[index];
+      const currentMessages = readerAiMessagesRef.current;
+      if (index < 0 || index >= currentMessages.length) return;
+      const target = currentMessages[index];
       if (!target || target.role !== 'user' || target.content === trimmedContent) return;
-      const updated = readerAiMessages
+      const updated = currentMessages
         .slice(0, index + 1)
         .map((message, messageIndex) =>
           messageIndex === index ? { ...message, content: trimmedContent, edited: false } : message,
         );
       await streamReaderAiAssistant(updated, { edited: true });
     },
-    [readerAiMessages, streamReaderAiAssistant],
+    [streamReaderAiAssistant],
   );
 
   const onReaderAiStop = stopReaderAi;
@@ -3925,11 +3931,12 @@ export function App() {
 
   const onReaderAiRetryLastMessage = useCallback(async () => {
     if (readerAiSending) return;
-    if (readerAiMessages.length === 0) return;
+    const currentMessages = readerAiMessagesRef.current;
+    if (currentMessages.length === 0) return;
     // Find the last user message and replay up to (and including) it
     let lastUserIndex = -1;
-    for (let i = readerAiMessages.length - 1; i >= 0; i--) {
-      if (readerAiMessages[i].role === 'user') {
+    for (let i = currentMessages.length - 1; i >= 0; i--) {
+      if (currentMessages[i].role === 'user') {
         lastUserIndex = i;
         break;
       }
@@ -3938,13 +3945,13 @@ export function App() {
     const retryRequest = buildReaderAiRetryRequest();
     const messagesToReplay = retryRequest?.baseMessages.length
       ? retryRequest.baseMessages
-      : readerAiMessages.slice(0, lastUserIndex + 1);
+      : currentMessages.slice(0, lastUserIndex + 1);
     await streamReaderAiAssistant(messagesToReplay, {
       modelId: retryRequest?.modelId ?? readerAiSelectedModel,
       parentRunId: retryRequest?.parentRunId ?? null,
       retryStepId: retryRequest?.retryStepId,
     });
-  }, [buildReaderAiRetryRequest, readerAiMessages, readerAiSelectedModel, readerAiSending, streamReaderAiAssistant]);
+  }, [buildReaderAiRetryRequest, readerAiSelectedModel, readerAiSending, streamReaderAiAssistant]);
 
   const cancelInlinePrompt = useCallback(() => {
     inlinePromptAbortRef.current?.abort();
