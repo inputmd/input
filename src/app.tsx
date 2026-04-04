@@ -144,6 +144,7 @@ import {
 } from './reader_ai';
 import { buildReaderAiContextLogPayload, trimReaderAiSource } from './reader_ai_context';
 import {
+  buildReaderAiRetryRequestForStep,
   createReaderAiApplyBlockedMessage,
   prepareReaderAiSelectedChangesForApply,
 } from './reader_ai_controller_runtime';
@@ -4114,6 +4115,20 @@ export function App() {
     });
   }, [buildReaderAiRetryRequest, readerAiSelectedModel, readerAiSending, streamReaderAiAssistant]);
 
+  const onReaderAiRetryRunStep = useCallback(
+    async ({ runId, stepId }: { runId: string; stepId: string }) => {
+      if (readerAiSending) return;
+      const retryRequest = buildReaderAiRetryRequestForStep(readerAiRuns, { runId, stepId });
+      if (!retryRequest) return;
+      await streamReaderAiAssistant(retryRequest.baseMessages, {
+        modelId: retryRequest.modelId ?? readerAiSelectedModel,
+        parentRunId: retryRequest.parentRunId ?? null,
+        retryStepId: retryRequest.retryStepId,
+      });
+    },
+    [readerAiRuns, readerAiSelectedModel, readerAiSending, streamReaderAiAssistant],
+  );
+
   const cancelInlinePrompt = useCallback(() => {
     inlinePromptAbortRef.current?.abort();
     resetInlinePromptState();
@@ -7966,6 +7981,7 @@ export function App() {
             onSend={onReaderAiSend}
             onEditMessage={onReaderAiEditMessage}
             onRetryLastUserMessage={onReaderAiRetryLastMessage}
+            onRetryRunStep={onReaderAiRetryRunStep}
             onStop={onReaderAiStop}
             onClear={onReaderAiClear}
             selectionModeEnabled={

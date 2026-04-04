@@ -1,6 +1,7 @@
 import test from 'ava';
 import type { ReaderAiStagedChange } from '../../src/reader_ai.ts';
 import {
+  buildReaderAiRetryRequestForStep,
   buildReaderAiRetryRequestFromRuns,
   classifyReaderAiStepRetryPolicy,
   completeReaderAiRunStepRetry,
@@ -57,6 +58,18 @@ test('retry request only targets failed steps that are still ready', (t) => {
 
   const exhausted = completeReaderAiRunStepRetry(inProgress, 'step:1', false);
   t.is(buildReaderAiRetryRequestFromRuns([exhausted])?.retryStepId, undefined);
+});
+
+test('step retry request targets a specific retryable step', (t) => {
+  const run = createRun();
+  const retry = buildReaderAiRetryRequestForStep([run], { runId: 'run:1', stepId: 'step:1' });
+
+  t.deepEqual(retry, {
+    baseMessages: [{ role: 'user', content: 'Retry this' }],
+    modelId: 'model:test',
+    parentRunId: 'run:1',
+    retryStepId: 'step:1',
+  });
 });
 
 test('retry policy prefers typed error codes over string matching', (t) => {

@@ -67,6 +67,7 @@ interface ReaderAiPanelProps {
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<void>;
   onRetryLastUserMessage: () => Promise<void>;
+  onRetryRunStep?: (target: { runId: string; stepId: string }) => Promise<void>;
   onStop: () => void;
   onClear: () => void;
   selectionModeEnabled?: boolean;
@@ -183,6 +184,7 @@ export function ReaderAiPanel({
   onSend,
   onEditMessage,
   onRetryLastUserMessage,
+  onRetryRunStep,
   onStop,
   onClear,
   selectionModeEnabled = false,
@@ -779,7 +781,9 @@ export function ReaderAiPanel({
             onRejectHunk={onRejectHunk}
           />
         ) : null}
-        {runs.length > 0 ? <ReaderAiRunHistorySection runs={runs} activeRunId={activeRunId} /> : null}
+        {runs.length > 0 ? (
+          <ReaderAiRunHistorySection runs={runs} activeRunId={activeRunId} onRetryStep={onRetryRunStep} />
+        ) : null}
         {error ? <div class="reader-ai-error reader-ai-error--inline">{error}</div> : null}
         {composerAtTop ? null : <div class="reader-ai-messages-bottom-spacer" aria-hidden="true" />}
         {composerAtTop ? null : composer}

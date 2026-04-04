@@ -1115,10 +1115,10 @@
   border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   border-radius: 6px;
   background: color-mix(in srgb, var(--input-bg) 55%, transparent);
-  padding: 7px 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 7px 8px;
 }
 
 .reader-ai-run-step--empty {
@@ -1126,10 +1126,17 @@
   font-size: 11.5px;
 }
 
-.reader-ai-run-step-header {
+.reader-ai-run-step-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
   display: flex;
   align-items: baseline;
   gap: 8px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
 }
 
 .reader-ai-run-step-name {
@@ -1165,6 +1172,76 @@
 
 .reader-ai-run-step-error {
   color: color-mix(in srgb, var(--danger-border) 82%, var(--text));
+}
+
+.reader-ai-run-step-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.reader-ai-run-step-inspector-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reader-ai-run-step-inspector-label {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.reader-ai-run-step-inspector-code {
+  margin: 0;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 64%, var(--input-bg));
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reader-ai-run-step-inspector-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reader-ai-run-step-chip {
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  background: color-mix(in srgb, var(--btn-bg) 45%, transparent);
+}
+
+.reader-ai-run-step-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.reader-ai-run-step-action {
+  border: 1px solid color-mix(in srgb, var(--field-focus-border) 55%, var(--border));
+  border-radius: 6px;
+  padding: 5px 9px;
+  background: color-mix(in srgb, var(--btn-bg) 60%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.reader-ai-run-step-action:hover {
+  background: var(--btn-hover);
 }
 
 .reader-ai-edit-proposal {

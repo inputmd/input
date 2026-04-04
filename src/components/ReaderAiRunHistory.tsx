@@ -36,15 +36,26 @@ function readerAiRetryLabel(step: ReaderAiRunStep): string | null {
   return null;
 }
 
+function readerAiRetryReasonLabel(step: ReaderAiRunStep): string | null {
+  if (step.retryReason === 'tool-arguments') return 'Argument repair';
+  if (step.retryReason === 'task-failure') return 'Task retry';
+  if (step.retryReason === 'transient') return 'Transient retry';
+  if (step.retryReason === 'unknown') return 'Retry suggested';
+  return null;
+}
+
 export function ReaderAiRunHistorySection({
   runs,
   activeRunId,
+  onRetryStep,
 }: {
   runs: ReaderAiRunRecord[];
   activeRunId?: string | null;
+  onRetryStep?: (target: { runId: string; stepId: string }) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(() => new Set());
+  const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(() => new Set());
 
   const visibleRuns = useMemo(() => runs.slice().reverse().slice(0, 6), [runs]);
   if (visibleRuns.length === 0) return null;
@@ -60,6 +71,15 @@ export function ReaderAiRunHistorySection({
       const next = new Set(current);
       if (next.has(runId)) next.delete(runId);
       else next.add(runId);
+      return next;
+    });
+  };
+
+  const toggleStep = (stepId: string) => {
+    setExpandedStepIds((current) => {
+      const next = new Set(current);
+      if (next.has(stepId)) next.delete(stepId);
+      else next.add(stepId);
       return next;
     });
   };
@@ -106,16 +126,66 @@ export function ReaderAiRunHistorySection({
                           key={step.id}
                           class={`reader-ai-run-step reader-ai-run-step--${step.status}${step.retryState === 'in_progress' ? ' reader-ai-run-step--retrying' : ''}`}
                         >
-                          <div class="reader-ai-run-step-header">
+                          <button
+                            type="button"
+                            class="reader-ai-run-step-toggle"
+                            onClick={() => toggleStep(step.id)}
+                            aria-expanded={expandedStepIds.has(step.id)}
+                          >
+                            {expandedStepIds.has(step.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                             <span class="reader-ai-run-step-name">{step.name}</span>
                             <span class={`reader-ai-run-step-status reader-ai-run-step-status--${step.status}`}>
                               {readerAiStepStatusLabel(step)}
                             </span>
-                          </div>
+                          </button>
                           {step.detail ? <div class="reader-ai-run-step-detail">{step.detail}</div> : null}
                           {step.error ? <div class="reader-ai-run-step-error">{step.error}</div> : null}
                           {readerAiRetryLabel(step) ? (
                             <div class="reader-ai-run-step-retry">{readerAiRetryLabel(step)}</div>
+                          ) : null}
+                          {expandedStepIds.has(step.id) ? (
+                            <div class="reader-ai-run-step-inspector">
+                              {step.args ? (
+                                <div class="reader-ai-run-step-inspector-block">
+                                  <div class="reader-ai-run-step-inspector-label">Arguments</div>
+                                  <pre class="reader-ai-run-step-inspector-code">{step.args}</pre>
+                                </div>
+                              ) : null}
+                              {step.errorCode || readerAiRetryReasonLabel(step) ? (
+                                <div class="reader-ai-run-step-inspector-meta">
+                                  {step.errorCode ? (
+                                    <span class="reader-ai-run-step-chip">Error: {step.errorCode}</span>
+                                  ) : null}
+                                  {readerAiRetryReasonLabel(step) ? (
+                                    <span class="reader-ai-run-step-chip">{readerAiRetryReasonLabel(step)}</span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              <div class="reader-ai-run-step-inspector-meta">
+                                <span class="reader-ai-run-step-chip">
+                                  Started: {formatReaderAiRunTime(step.startedAt)}
+                                </span>
+                                {step.finishedAt ? (
+                                  <span class="reader-ai-run-step-chip">
+                                    Finished: {formatReaderAiRunTime(step.finishedAt)}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {step.retryable && step.retryState === 'ready' && onRetryStep ? (
+                                <div class="reader-ai-run-step-actions">
+                                  <button
+                                    type="button"
+                                    class="reader-ai-run-step-action"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void onRetryStep({ runId: run.id, stepId: step.id });
+                                    }}
+                                  >
+                                    Retry step
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
                       ))

@@ -408,3 +408,25 @@ export function buildReaderAiRetryRequestFromRuns(runs: ReaderAiRunRecord[]): {
     parentRunId: latestRun.id,
   };
 }
+
+export function buildReaderAiRetryRequestForStep(
+  runs: ReaderAiRunRecord[],
+  options: { runId: string; stepId: string },
+): {
+  baseMessages: ReaderAiMessage[];
+  modelId: string | null;
+  parentRunId: string | null;
+  retryStepId: string;
+} | null {
+  const run = runs.find((entry) => entry.id === options.runId) ?? null;
+  if (!run || run.baseMessages.length === 0) return null;
+  const step = run.steps.find((entry) => entry.id === options.stepId) ?? null;
+  if (!step || step.status !== 'failed' || !step.retryable || step.retryState !== 'ready') return null;
+  if (step.retryCount >= step.maxRetries) return null;
+  return {
+    baseMessages: run.baseMessages,
+    modelId: run.modelId,
+    parentRunId: run.id,
+    retryStepId: step.id,
+  };
+}
