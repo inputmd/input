@@ -391,7 +391,7 @@ export function EditView({
   previewSyncBlocks = [],
   previewVisible,
   canRenderPreview,
-  sidePaneWidth = 360,
+  sidePaneWidth = 480,
   scrollStorageKey = null,
   loading = false,
   onTogglePreview,
