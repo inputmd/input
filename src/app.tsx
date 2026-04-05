@@ -800,6 +800,7 @@ export function App() {
   });
   const [sidePaneWidth, setSidePaneWidth] = useState<number>(() => readStoredSidePaneWidth());
   const [readerAiReviewTarget, setReaderAiReviewTarget] = useState<{ changeId: string; hunkId?: string } | null>(null);
+  const [readerAiReviewRevealToken, setReaderAiReviewRevealToken] = useState(0);
   const [contentSourceViewVisible, setContentSourceViewVisible] = useState(false);
   const [inlinePromptStreaming, setInlinePromptStreaming] = useState(false);
   const [inlinePromptProtectedRange, setInlinePromptProtectedRange] = useState<EditorProtectedRange | null>(null);
@@ -1250,6 +1251,7 @@ export function App() {
   );
   const openReaderAiReviewTarget = useCallback((target: { changeId: string; hunkId?: string }) => {
     setReaderAiReviewTarget({ ...target });
+    setReaderAiReviewRevealToken((current) => current + 1);
     setSidePane('reader-ai');
   }, []);
   const onReaderAiRevealChangeInEditor = useCallback(
@@ -7891,6 +7893,7 @@ export function App() {
             onRejectHunk={rejectReaderAiHunk}
             currentEditorPath={currentEditingDocPath}
             activeReviewTarget={readerAiReviewTarget}
+            activeReviewTargetRevealToken={readerAiReviewRevealToken}
             onRevealChange={onReaderAiRevealChangeInEditor}
             onRevealHunk={onReaderAiRevealHunkInEditor}
             error={readerAiError}

@@ -1704,6 +1704,24 @@
   background: color-mix(in srgb, var(--selection-bg) 14%, transparent);
 }
 
+.reader-ai-staged-review-target-flash {
+  animation: reader-ai-review-target-flash 1.6s ease-out;
+}
+
+@keyframes reader-ai-review-target-flash {
+  0% {
+    background: color-mix(in srgb, var(--selection-bg) 34%, transparent);
+  }
+
+  45% {
+    background: color-mix(in srgb, var(--selection-bg) 22%, transparent);
+  }
+
+  100% {
+    background: color-mix(in srgb, var(--selection-bg) 14%, transparent);
+  }
+}
+
 .reader-ai-staged-change-toggle {
   width: 14px;
   height: 14px;

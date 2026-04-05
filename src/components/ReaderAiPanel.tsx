@@ -54,6 +54,7 @@ interface ReaderAiPanelProps {
   onRejectHunk?: (changeId: string, hunkId: string) => void;
   currentEditorPath?: string | null;
   activeReviewTarget?: { changeId: string; hunkId?: string } | null;
+  activeReviewTargetRevealToken?: number;
   onRevealChange?: (changeId: string) => void;
   onRevealHunk?: (changeId: string, hunkId: string) => void;
   error: string | null;
@@ -172,6 +173,7 @@ export function ReaderAiPanel({
   onRejectHunk,
   currentEditorPath = null,
   activeReviewTarget = null,
+  activeReviewTargetRevealToken = 0,
   onRevealChange,
   onRevealHunk,
   error,
@@ -906,6 +908,7 @@ export function ReaderAiPanel({
                 reviewControls={false}
                 currentEditorPath={currentEditorPath}
                 activeReviewTarget={activeReviewTarget}
+                activeReviewTargetRevealToken={activeReviewTargetRevealToken}
                 onApplyWithoutSaving={onApplyWithoutSaving}
                 onUndoEditorApply={onUndoEditorApply}
                 onIgnoreAll={onIgnoreAll}

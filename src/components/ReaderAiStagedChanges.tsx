@@ -56,6 +56,7 @@ export function StagedChangesSection({
   applyDisabledReasonLabel,
   currentEditorPath,
   activeReviewTarget,
+  activeReviewTargetRevealToken = 0,
   onIgnoreAll,
   onRevealChange,
   onRevealHunk,
@@ -79,6 +80,7 @@ export function StagedChangesSection({
   applyDisabledReasonLabel?: string | null;
   currentEditorPath?: string | null;
   activeReviewTarget?: { changeId: string; hunkId?: string } | null;
+  activeReviewTargetRevealToken?: number;
   onIgnoreAll?: () => void;
   onRevealChange?: (changeId: string) => void;
   onRevealHunk?: (changeId: string, hunkId: string) => void;
@@ -90,6 +92,7 @@ export function StagedChangesSection({
   onUndoEditorApply?: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const lastHandledRevealTokenRef = useRef(0);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     () => new Set(changes.filter((change) => shouldExpandChangeByDefault(change)).map((change) => change.path)),
   );
@@ -120,6 +123,14 @@ export function StagedChangesSection({
       next.add(targetChange.path);
       return next;
     });
+  }, [activeReviewTarget, changes]);
+
+  useEffect(() => {
+    if (!activeReviewTarget) return;
+    if (activeReviewTargetRevealToken <= 0 || lastHandledRevealTokenRef.current === activeReviewTargetRevealToken)
+      return;
+    lastHandledRevealTokenRef.current = activeReviewTargetRevealToken;
+    let flashResetId = 0;
     requestAnimationFrame(() => {
       const root = rootRef.current;
       if (!root) return;
@@ -127,9 +138,19 @@ export function StagedChangesSection({
         ? `[data-reader-ai-review-target="hunk:${activeReviewTarget.changeId}:${activeReviewTarget.hunkId}"]`
         : `[data-reader-ai-review-target="change:${activeReviewTarget.changeId}"]`;
       const target = root.querySelector<HTMLElement>(selector);
-      target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (!target) return;
+      target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      target.classList.remove('reader-ai-staged-review-target-flash');
+      void target.offsetWidth;
+      target.classList.add('reader-ai-staged-review-target-flash');
+      flashResetId = window.setTimeout(() => {
+        target.classList.remove('reader-ai-staged-review-target-flash');
+      }, 1800);
     });
-  }, [activeReviewTarget, changes]);
+    return () => {
+      if (flashResetId) window.clearTimeout(flashResetId);
+    };
+  }, [activeReviewTarget, activeReviewTargetRevealToken]);
 
   if (changes.length === 0) return null;
 
