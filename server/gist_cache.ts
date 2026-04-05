@@ -1,4 +1,4 @@
-import type { GistCacheEntry } from './types';
+import type { GistCacheEntry } from './types.ts';
 
 const GIST_CACHE_TTL_MS = 5 * 60 * 1000;
 const GIST_CACHE_MAX_BYTES = 50 * 1024 * 1024;

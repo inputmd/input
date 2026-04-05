@@ -6,11 +6,11 @@ import {
   buildCodexBridgeDeveloperInstructions,
   buildCodexBridgeInput,
   parseCodexBridgeStructuredOutput,
-} from './codex_bridge_prompts';
-import { CodexBridgeClient } from './codex_bridge_protocol';
-import { ClientError } from './errors';
-import { json, readJson } from './http_helpers';
-import { generateUnifiedDiff } from './reader_ai_tools';
+} from './codex_bridge_prompts.ts';
+import { CodexBridgeClient } from './codex_bridge_protocol.ts';
+import { ClientError } from './errors.ts';
+import { json, readJson } from './http_helpers.ts';
+import { generateUnifiedDiff } from './reader_ai_tools.ts';
 
 const DEFAULT_CODEX_BRIDGE_PORT = Number.parseInt(process.env.CODEX_BRIDGE_PORT ?? '8788', 10);
 const DEFAULT_CODEX_APP_SERVER_URL = (process.env.CODEX_APP_SERVER_URL ?? 'ws://127.0.0.1:8765').trim();

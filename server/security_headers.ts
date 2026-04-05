@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { CONTENT_SECURITY_POLICY } from './config';
+import { CONTENT_SECURITY_POLICY } from './config.ts';
 
 export function applySecurityHeaders(res: http.ServerResponse): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');

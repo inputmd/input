@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
@@ -215,9 +215,66 @@ interface ReaderAiChatBody {
   allow_document_edits?: unknown;
 }
 
+interface ReaderAiLabDocumentBody {
+  path?: unknown;
+  source?: unknown;
+}
+
+interface ReaderAiLabRunBody extends ReaderAiChatBody {
+  base_source?: unknown;
+  system_prompt_prefix?: unknown;
+  allowed_tools?: unknown;
+}
+
 interface ReaderAiChatMessage {
   role: 'user' | 'assistant';
   content: string;
+}
+
+interface ReaderAiLabDocumentRecord {
+  id: string;
+  path: string;
+  originalSource: string;
+  currentSource: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+  latestRunId: string | null;
+}
+
+interface ReaderAiLabRunRequestRecord {
+  model: string;
+  messages: ReaderAiChatMessage[];
+  mode: 'default' | 'prompt_list';
+  summary: string;
+  currentDocPath: string | null;
+  editModeCurrentDocOnly: boolean;
+  allowDocumentEdits: boolean;
+  baseSource: 'original' | 'current';
+  systemPromptPrefix: string;
+  allowedTools: string[] | null;
+}
+
+interface ReaderAiLabRunEventRecord {
+  kind: 'delta' | 'event';
+  at: string;
+  delta?: string;
+  event?: string;
+  data?: unknown;
+}
+
+interface ReaderAiLabRunRecord {
+  id: string;
+  documentId: string;
+  status: 'running' | 'completed' | 'error';
+  createdAtMs: number;
+  updatedAtMs: number;
+  sourceAtStart: string;
+  request: ReaderAiLabRunRequestRecord;
+  assistantText: string;
+  events: ReaderAiLabRunEventRecord[];
+  stagedDocumentContent: string | null;
+  stagedChangesPayload: unknown;
+  error: string | null;
 }
 
 function normalizeReaderAiModelText(value: string): string {
@@ -315,6 +372,97 @@ function normalizeReturnTo(raw: string | null): string {
   // Only allow same-origin relative paths.
   if (!raw.startsWith('/') || raw.startsWith('//')) return '/auth';
   return raw;
+}
+
+const READER_AI_LAB_DEFAULT_PATH = 'reader-ai-lab.md';
+const readerAiLabDocuments = new Map<string, ReaderAiLabDocumentRecord>();
+const readerAiLabRuns = new Map<string, ReaderAiLabRunRecord>();
+const readerAiToolNames = new Set(READER_AI_TOOLS.map((tool) => tool.function.name));
+
+function isLoopbackAddress(value: string | undefined): boolean {
+  if (!value) return false;
+  return value === '::1' || value === '127.0.0.1' || value === '::ffff:127.0.0.1';
+}
+
+function requireLocalReaderAiLabAccess(ctx: RouteContext): void {
+  if (isLoopbackAddress(ctx.req.socket.remoteAddress)) return;
+  throw new ClientError('Not found', 404);
+}
+
+function getReaderAiLabDocumentOrThrow(id: string): ReaderAiLabDocumentRecord {
+  const document = readerAiLabDocuments.get(id);
+  if (!document) throw new ClientError('Reader AI lab document not found', 404);
+  return document;
+}
+
+function getReaderAiLabRunOrThrow(id: string): ReaderAiLabRunRecord {
+  const run = readerAiLabRuns.get(id);
+  if (!run) throw new ClientError('Reader AI lab run not found', 404);
+  return run;
+}
+
+function serializeReaderAiLabDocument(document: ReaderAiLabDocumentRecord): Record<string, unknown> {
+  return {
+    id: document.id,
+    path: document.path,
+    original_source: document.originalSource,
+    current_source: document.currentSource,
+    created_at: new Date(document.createdAtMs).toISOString(),
+    updated_at: new Date(document.updatedAtMs).toISOString(),
+    latest_run_id: document.latestRunId,
+  };
+}
+
+function serializeReaderAiLabRun(run: ReaderAiLabRunRecord): Record<string, unknown> {
+  return {
+    id: run.id,
+    document_id: run.documentId,
+    status: run.status,
+    created_at: new Date(run.createdAtMs).toISOString(),
+    updated_at: new Date(run.updatedAtMs).toISOString(),
+    source_at_start: run.sourceAtStart,
+    request: {
+      model: run.request.model,
+      messages: run.request.messages,
+      mode: run.request.mode,
+      summary: run.request.summary,
+      current_doc_path: run.request.currentDocPath,
+      edit_mode_current_doc_only: run.request.editModeCurrentDocOnly,
+      allow_document_edits: run.request.allowDocumentEdits,
+      base_source: run.request.baseSource,
+      system_prompt_prefix: run.request.systemPromptPrefix,
+      allowed_tools: run.request.allowedTools,
+    },
+    assistant_text: run.assistantText,
+    staged_document_content: run.stagedDocumentContent,
+    staged_changes: run.stagedChangesPayload,
+    error: run.error,
+    event_count: run.events.length,
+    events: run.events,
+  };
+}
+
+function parseReaderAiLabAllowedTools(raw: unknown): string[] | null {
+  if (raw === undefined) return null;
+  if (!Array.isArray(raw)) throw new ClientError('allowed_tools must be an array of tool names', 400);
+  const names = raw.map((value) => {
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new ClientError('allowed_tools must be an array of tool names', 400);
+    }
+    const name = value.trim();
+    if (!readerAiToolNames.has(name)) throw new ClientError(`Unknown Reader AI tool: ${name}`, 400);
+    return name;
+  });
+  return [...new Set(names)];
+}
+
+function parseReaderAiLabBaseSource(
+  raw: unknown,
+  fallback: 'original' | 'current' = 'current',
+): 'original' | 'current' {
+  if (raw === undefined) return fallback;
+  if (raw === 'original' || raw === 'current') return raw;
+  throw new ClientError('base_source must be "original" or "current"', 400);
 }
 
 function splitRepoFullName(repoFullName: string): { owner: string; repo: string } {
@@ -553,6 +701,8 @@ function isRootContentsRequest(path: string): boolean {
 }
 
 const READER_AI_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
+const READER_AI_MODELS_FETCH_RETRY_DELAY_MS = 250;
+const READER_AI_MODELS_FETCH_MAX_ATTEMPTS = 2;
 const READER_AI_MAX_MESSAGES = 500;
 const READER_AI_MAX_MESSAGE_CHARS = 16_000;
 const READER_AI_CONTEXT_WINDOW_MESSAGES = 8;
@@ -564,6 +714,21 @@ const READER_AI_PER_CALL_TIMEOUT_MS = 60_000;
 const readerAiModelsCache = new Map<ReaderAiModelAccessScope, { value: ReaderAiModelEntry[]; expiresAt: number }>();
 /** In-flight model fetch promise for stampede protection. */
 const readerAiModelsFetchPromise = new Map<ReaderAiModelAccessScope, Promise<ReaderAiModelEntry[]>>();
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableReaderAiModelsStatus(status: number): boolean {
+  return status === 408 || status === 429 || (status >= 500 && status <= 504);
+}
+
+function isRetryableReaderAiModelsFetchError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === 'AbortError') ||
+    (error instanceof TypeError && /fetch|network/i.test(error.message))
+  );
+}
 
 function modelParamsEstimateBillions(entry: { id?: unknown; name?: unknown; description?: unknown }): number | null {
   const text = [
@@ -613,10 +778,10 @@ function readerAiModelAccessScopeForSession(session: Session | null): ReaderAiMo
   return readerAiModelAccessScopeForAuthenticated(session !== null);
 }
 
-function getOpenRouterApiKeyForModel(model: string, session: Session | null): string {
+function getOpenRouterApiKeyForModel(model: string, isAuthenticated: boolean): string {
   const source = getReaderAiModelSource(model, paidReaderAiModelIds);
   if (source === 'paid') {
-    if (!session) {
+    if (!isAuthenticated) {
       throw new ClientError('Selected paid model requires sign in', 401);
     }
     if (!OPENROUTER_PAID_API_KEY) {
@@ -690,7 +855,7 @@ async function summarizeReaderAiConversation(
   }
   const toSummarize = parts.join('\n\n');
 
-  const apiKey = getOpenRouterApiKeyForModel(model, session);
+  const apiKey = getOpenRouterApiKeyForModel(model, session !== null);
   const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: openRouterHeaders(req, apiKey),
@@ -720,8 +885,7 @@ async function summarizeReaderAiConversation(
   return summary ? summary.slice(0, READER_AI_MAX_SUMMARY_CHARS) : existingSummary;
 }
 
-async function fetchReaderAiModels(req: http.IncomingMessage, session: Session | null): Promise<ReaderAiModelEntry[]> {
-  const scope = readerAiModelAccessScopeForSession(session);
+async function fetchReaderAiModelsForScope(req: http.IncomingMessage, scope: ReaderAiModelAccessScope): Promise<ReaderAiModelEntry[]> {
   const now = Date.now();
   const cached = readerAiModelsCache.get(scope);
   if (cached && cached.expiresAt > now) return cached.value;
@@ -733,7 +897,16 @@ async function fetchReaderAiModels(req: http.IncomingMessage, session: Session |
     readerAiModelsFetchPromise.delete(scope);
   });
   readerAiModelsFetchPromise.set(scope, promise);
-  return promise;
+  try {
+    return await promise;
+  } catch (error) {
+    if (cached?.value.length) return cached.value;
+    throw error;
+  }
+}
+
+async function fetchReaderAiModels(req: http.IncomingMessage, session: Session | null): Promise<ReaderAiModelEntry[]> {
+  return fetchReaderAiModelsForScope(req, readerAiModelAccessScopeForSession(session));
 }
 
 async function fetchReaderAiModelsUncached(
@@ -744,16 +917,35 @@ async function fetchReaderAiModelsUncached(
   const modelsById = new Map<string, ReaderAiModelEntry>();
 
   if (OPENROUTER_API_KEY) {
-    const upstream = await fetch('https://openrouter.ai/api/v1/models', {
-      headers: openRouterHeaders(req, OPENROUTER_API_KEY),
-      signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
-    });
+    let payload: OpenRouterModelsResponse | null = null;
+    let success = false;
 
-    const payload = (await upstream.json().catch(() => null)) as OpenRouterModelsResponse | null;
-    if (!upstream.ok) {
-      const message = `OpenRouter model listing failed (${upstream.status})`;
-      throw new ClientError(message, 502);
+    for (let attempt = 1; attempt <= READER_AI_MODELS_FETCH_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const upstream = await fetch('https://openrouter.ai/api/v1/models', {
+          headers: openRouterHeaders(req, OPENROUTER_API_KEY),
+          signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+        });
+
+        payload = (await upstream.json().catch(() => null)) as OpenRouterModelsResponse | null;
+        if (upstream.ok) {
+          success = true;
+          break;
+        }
+        if (!isRetryableReaderAiModelsStatus(upstream.status) || attempt === READER_AI_MODELS_FETCH_MAX_ATTEMPTS) {
+          const message = `OpenRouter model listing failed (${upstream.status})`;
+          throw new ClientError(message, 502);
+        }
+      } catch (error) {
+        if (!isRetryableReaderAiModelsFetchError(error) || attempt === READER_AI_MODELS_FETCH_MAX_ATTEMPTS) {
+          if (error instanceof ClientError) throw error;
+          throw new ClientError('OpenRouter model listing failed', 502);
+        }
+      }
+
+      await sleep(READER_AI_MODELS_FETCH_RETRY_DELAY_MS);
     }
+    if (!success) throw new ClientError('OpenRouter model listing failed', 502);
 
     const data = Array.isArray(payload?.data) ? payload.data : [];
     for (const entry of data) {
@@ -791,6 +983,600 @@ async function fetchReaderAiModelsUncached(
 
   readerAiModelsCache.set(scope, { value: models, expiresAt: now + READER_AI_MODELS_CACHE_TTL_MS });
   return models;
+}
+
+interface ReaderAiStreamHooks {
+  onDelta?: (delta: string) => void;
+  onEvent?: (event: string, data: unknown) => void;
+}
+
+interface ReaderAiStreamRequest {
+  session: Session | null;
+  model: string;
+  mode: 'default' | 'prompt_list';
+  rawSource: string;
+  messages: ReaderAiChatMessage[];
+  summary: string;
+  currentDocPath: string | null;
+  editModeCurrentDocOnly: boolean;
+  allowDocumentEdits: boolean;
+  allowedTools?: string[] | null;
+  systemPromptPrefix?: string;
+  hooks?: ReaderAiStreamHooks;
+  /** When true, treat request as authenticated for model-access checks (used by local-only lab). */
+  labMode?: boolean;
+}
+
+interface ReaderAiStreamResult {
+  status: 'completed' | 'error';
+  stagedDocumentContent: string | null;
+  stagedDiff: string | null;
+  stagedChangesPayload: unknown;
+  errorMessage: string | null;
+}
+
+async function streamReaderAiChatResponse(
+  ctx: RouteContext,
+  request: ReaderAiStreamRequest,
+): Promise<ReaderAiStreamResult> {
+  const {
+    session,
+    model,
+    mode,
+    rawSource,
+    messages,
+    summary,
+    currentDocPath,
+    editModeCurrentDocOnly,
+    allowDocumentEdits,
+    allowedTools,
+    systemPromptPrefix = '',
+    hooks,
+    labMode = false,
+  } = request;
+
+  const effectivelyAuthenticated = labMode || session !== null;
+  ensureReaderAiConfigured(session);
+  const source = stripCriticMarkupComments(rawSource).trim();
+  if (!model) throw new ClientError('model is required', 400);
+  if (!source && mode !== 'prompt_list') throw new ClientError('source is required', 400);
+  if (!canAccessReaderAiModel(model, effectivelyAuthenticated, paidReaderAiModelIds)) {
+    throw new ClientError('Selected paid model requires sign in', 401);
+  }
+  const effectiveScope: ReaderAiModelAccessScope = effectivelyAuthenticated ? 'with_paid' : 'free_only';
+  const allowedModels = labMode
+    ? await fetchReaderAiModelsForScope(ctx.req, effectiveScope)
+    : await fetchReaderAiModels(ctx.req, session);
+  if (!allowedModels.some((entry) => entry.id === model)) {
+    throw new ClientError('Selected model is not available', 400);
+  }
+
+  const existingSummary = summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS);
+  const aiLines = source.split('\n');
+  let chatMessages: ReaderAiChatMessage[];
+  let newSummary: string | null = null;
+  let summarizationFailed = false;
+  if (mode === 'prompt_list') {
+    chatMessages = messages;
+  } else if (messages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
+    if (existingSummary) {
+      chatMessages = [
+        { role: 'user', content: `[Summary of earlier conversation]\n${existingSummary}` },
+        { role: 'assistant', content: 'Understood, I have the context from our earlier conversation.' },
+        ...messages,
+      ];
+    } else {
+      chatMessages = messages;
+    }
+  } else {
+    const evicted = messages.slice(0, -READER_AI_CONTEXT_WINDOW_MESSAGES);
+    const kept = messages.slice(-READER_AI_CONTEXT_WINDOW_MESSAGES);
+    try {
+      newSummary = await summarizeReaderAiConversation(model, evicted, existingSummary, ctx.req, session);
+    } catch {
+      newSummary = existingSummary || null;
+      if (!existingSummary) summarizationFailed = true;
+    }
+    const summaryText = newSummary || existingSummary;
+    if (summaryText) {
+      chatMessages = [
+        { role: 'user', content: `[Summary of earlier conversation]\n${summaryText}` },
+        { role: 'assistant', content: 'Understood, I have the context from our earlier conversation.' },
+        ...kept,
+      ];
+    } else {
+      chatMessages = kept;
+    }
+  }
+
+  const documentEditState = {
+    source: rawSource,
+    lines: rawSource.split('\n'),
+    currentDocPath,
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+    stagedRevision: 0,
+    lastReadSnapshot: null,
+  };
+  const modelEntry = allowedModels.find((entry) => entry.id === model);
+  const contextTokens = modelEntry?.context_length || 0;
+
+  let systemPrompt: string;
+  let tools: Array<(typeof READER_AI_TOOLS)[number]>;
+  if (mode === 'prompt_list') {
+    systemPrompt = buildReaderAiPromptListSystemPrompt();
+    tools = [];
+  } else {
+    const maxPreviewChars =
+      contextTokens > 0
+        ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
+        : READER_AI_DOC_PREVIEW_CHARS;
+    systemPrompt = buildReaderAiSystemPrompt(source, aiLines, maxPreviewChars, currentDocPath, allowDocumentEdits);
+    tools = !allowDocumentEdits
+      ? READER_AI_TOOLS.filter((tool) => {
+          const name = tool.function.name;
+          return name === 'read_document' || name === 'search_document' || name === 'task';
+        })
+      : editModeCurrentDocOnly
+        ? READER_AI_TOOLS.filter((tool) => {
+            const name = tool.function.name;
+            return name === 'read_document' || name === 'search_document' || name === 'propose_edit_document';
+          })
+        : READER_AI_TOOLS;
+  }
+
+  if (Array.isArray(allowedTools)) {
+    const allowedSet = new Set(allowedTools);
+    tools = tools.filter((tool) => allowedSet.has(tool.function.name));
+    const note =
+      allowedTools.length > 0
+        ? `\n\nTool availability override for this run: only these tools are enabled: ${allowedTools.join(', ')}. Do not call any other tools.`
+        : '\n\nTool availability override for this run: no tools are enabled. Respond without tool calls.';
+    systemPrompt += note;
+  }
+  if (systemPromptPrefix.trim()) {
+    systemPrompt = `${systemPromptPrefix.trim()}\n\n${systemPrompt}`;
+  }
+
+  const openRouterMessages: OpenRouterMessage[] = [
+    { role: 'system', content: systemPrompt },
+    ...chatMessages.map((message): OpenRouterMessage => ({ role: message.role, content: message.content })),
+  ];
+
+  const requestStart = Date.now();
+  const abortController = new AbortController();
+  const onClientClose = () => abortController.abort();
+  ctx.req.on('close', onClientClose);
+
+  const upstreamHeaders = openRouterHeaders(ctx.req, getOpenRouterApiKeyForModel(model, effectivelyAuthenticated));
+  const callUpstream = (timeoutMs: number) =>
+    fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: upstreamHeaders,
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: openRouterMessages,
+        tools,
+        ...(openRouterPromptCacheControl(model) ? { cache_control: openRouterPromptCacheControl(model) } : {}),
+      }),
+      signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), abortController.signal]),
+    });
+  const remainingMs = () => Math.max(0, READER_AI_TIMEOUT_MS - (Date.now() - requestStart));
+  const callTimeout = () => Math.min(READER_AI_PER_CALL_TIMEOUT_MS, remainingMs());
+  const maxContextTokens = contextTokens > 0 ? contextTokens : 32_000;
+  const conversationBudgetTokens = Math.floor(maxContextTokens * 0.6);
+
+  const executeSyncToolCall = (tc: ReaderAiToolCall, argsJsonOverride?: string): string => {
+    const toolArgsJson = argsJsonOverride ?? tc.arguments;
+    if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(toolArgsJson, documentEditState);
+    return executeReaderAiSyncToolWithState(tc.name, toolArgsJson, { lines: aiLines, state: documentEditState });
+  };
+
+  const emitNamedEvent = (event: string, data: unknown) => {
+    hooks?.onEvent?.(event, data);
+    if (ctx.res.writableEnded) return;
+    ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  let lastStagedChangesSignature: string | null = null;
+  let stagedChangesRevision = 0;
+  let lastStagedChangesPayload: unknown = null;
+  let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+  let needsDrain = false;
+  let streamFailed = false;
+  let streamErrorMessage: string | null = null;
+
+  const serializeReaderAiChange = (change: {
+    id: string;
+    path: string;
+    type: 'edit' | 'create' | 'delete';
+    diff: string;
+    revision?: number;
+    original: string | null;
+    modified: string | null;
+    hunks?: ReturnType<typeof parseUnifiedDiffHunks>;
+  }) => ({
+    id: change.id,
+    path: change.path,
+    type: change.type,
+    diff: change.diff,
+    revision: change.revision,
+    original_content: change.original,
+    modified_content: change.modified,
+    hunks: change.hunks ?? parseUnifiedDiffHunks(change.diff),
+  });
+  const getCurrentDocumentStagedChange = () =>
+    documentEditState.stagedContent && documentEditState.stagedDiff
+      ? {
+          id: `change:${currentDocPath || 'current-document.md'}`,
+          path: currentDocPath || 'current-document.md',
+          type: 'edit' as const,
+          original: documentEditState.stagedOriginalContent ?? rawSource,
+          modified: documentEditState.stagedContent,
+          diff: documentEditState.stagedDiff,
+          revision: documentEditState.stagedRevision,
+          hunks: parseUnifiedDiffHunks(documentEditState.stagedDiff),
+        }
+      : null;
+  const getChangeForToolCall = (toolName: string) => {
+    if (toolName === 'propose_edit_document') return getCurrentDocumentStagedChange();
+    return null;
+  };
+  const emitEditProposal = (toolCallId: string, toolName: string) => {
+    const change = getChangeForToolCall(toolName);
+    if (!change) return;
+    emitNamedEvent('edit_proposal', {
+      proposal_id: `proposal:${stagedChangesRevision}:${toolCallId}`,
+      tool_call_id: toolCallId,
+      revision: stagedChangesRevision,
+      change: serializeReaderAiChange(change),
+    });
+  };
+  const emitStagedChangesSnapshot = () => {
+    const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
+    const allChanges = hasDocumentStagedChange ? [getCurrentDocumentStagedChange()!] : [];
+    const changes = allChanges.map((change) => serializeReaderAiChange({ ...change, revision: stagedChangesRevision }));
+    const fileContents = Object.fromEntries(
+      allChanges
+        .filter((change) => typeof change.modified === 'string')
+        .map((change) => [change.path, change.modified as string]),
+    );
+    const suggestedCommitMessage =
+      allChanges.length === 1 ? `Update ${allChanges[0].path}` : 'Apply AI-suggested changes';
+    const payload = {
+      changes,
+      file_contents: fileContents,
+      suggested_commit_message: suggestedCommitMessage,
+      ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
+    };
+    const signature = JSON.stringify(payload);
+    if (signature === lastStagedChangesSignature) return;
+    emitNamedEvent('staged_changes', payload);
+    lastStagedChangesSignature = signature;
+    lastStagedChangesPayload = payload;
+  };
+  const awaitDrainIfNeeded = async () => {
+    if (!needsDrain || ctx.res.writableEnded) {
+      needsDrain = false;
+      return;
+    }
+    needsDrain = false;
+    await new Promise<void>((resolve) => {
+      ctx.res.once('drain', resolve);
+      setTimeout(resolve, 5000);
+    });
+  };
+
+  try {
+    const firstUpstream = await callUpstream(callTimeout());
+    if (!firstUpstream.ok) {
+      const rateLimitMsg = readUpstreamRateLimitMessage(firstUpstream.headers);
+      if (rateLimitMsg) throw new ClientError(rateLimitMsg, 429);
+      const payload = (await firstUpstream.json().catch(() => null)) as unknown;
+      const upstreamError = readUpstreamError(payload);
+      throw new ClientError(upstreamError || `OpenRouter request failed (${firstUpstream.status})`, 502);
+    }
+    if (!firstUpstream.body) throw new ClientError('OpenRouter did not return a stream', 502);
+
+    ctx.res.statusCode = 200;
+    ctx.res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    ctx.res.setHeader('Cache-Control', 'no-cache');
+    ctx.res.setHeader('Connection', 'keep-alive');
+    if (newSummary) emitNamedEvent('summary', { summary: newSummary });
+    if (summarizationFailed) {
+      emitNamedEvent('error', { message: 'Earlier conversation context could not be summarized and may be lost.' });
+    }
+
+    keepaliveInterval = setInterval(() => {
+      if (!ctx.res.writableEnded) ctx.res.write(': keepalive\n\n');
+    }, 15_000);
+
+    let currentBody: ReadableStream<Uint8Array> | null = firstUpstream.body;
+    for (let iteration = 0; iteration < READER_AI_MAX_TOOL_ITERATIONS; iteration++) {
+      emitNamedEvent('turn_start', { iteration });
+      let result: ReaderAiStreamParseResult;
+      try {
+        result = await parseReaderAiUpstreamStream(
+          currentBody,
+          (delta) => {
+            const ok = ctx.res.writableEnded
+              ? true
+              : ctx.res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`);
+            hooks?.onDelta?.(delta);
+            if (!ok) needsDrain = true;
+          },
+          {
+            repairBoundaries: getReaderAiModelSource(model, paidReaderAiModelIds) === 'free',
+          },
+        );
+      } catch (streamErr) {
+        await currentBody.cancel().catch(() => {});
+        currentBody = null;
+        throw streamErr;
+      }
+      currentBody = null;
+
+      if (result.toolCalls.length === 0) {
+        emitNamedEvent('turn_end', { iteration, reason: 'done' });
+        break;
+      }
+
+      openRouterMessages.push({
+        role: 'assistant',
+        content: result.content || null,
+        tool_calls: result.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      });
+
+      const taskCalls: Array<{ tc: ReaderAiToolCall; parsedArgs: Record<string, unknown> }> = [];
+      const syncCalls: Array<{
+        tc: ReaderAiToolCall;
+        parsedArgs: Record<string, unknown> | undefined;
+        parseError?: string;
+        repaired?: boolean;
+      }> = [];
+
+      for (const tc of result.toolCalls) {
+        const parsedArgsResult = parseToolArgumentsWithRepair(tc.arguments);
+        const parsedArgs = parsedArgsResult.parsedArgs;
+        if (parsedArgsResult.error) {
+          console.warn('[reader-ai-tool-json]', {
+            toolCallId: tc.id,
+            toolName: tc.name,
+            repaired: parsedArgsResult.repaired,
+            error: parsedArgsResult.error,
+            rawArgumentsPreview: tc.arguments.length > 300 ? `${tc.arguments.slice(0, 300)}…` : tc.arguments,
+          });
+        }
+        emitNamedEvent('tool_call', {
+          id: tc.id,
+          name: tc.name,
+          arguments: parsedArgs ?? tc.arguments,
+          parse_error: parsedArgsResult.error,
+          repaired: parsedArgsResult.repaired,
+        });
+
+        if (tc.name === 'task') {
+          if (parsedArgs) {
+            taskCalls.push({ tc, parsedArgs });
+          } else {
+            const retryMessage =
+              'Arguments could not be parsed as JSON. Retry the task call with a valid JSON object that includes a "prompt" field.';
+            openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: retryMessage });
+            emitNamedEvent('tool_result', {
+              id: tc.id,
+              name: 'task',
+              preview: '(invalid JSON arguments)',
+              error: parsedArgsResult.error ?? 'Invalid JSON arguments',
+              error_code: 'invalid_arguments',
+            });
+          }
+        } else {
+          syncCalls.push({
+            tc,
+            parsedArgs,
+            parseError: parsedArgsResult.error ?? undefined,
+            repaired: parsedArgsResult.repaired,
+          });
+        }
+      }
+
+      for (const { tc, parsedArgs, parseError, repaired } of syncCalls) {
+        if (!parsedArgs && parseError) {
+          const retryMessage = `Tool arguments could not be parsed as JSON. Retry ${tc.name} with valid JSON arguments.`;
+          openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: retryMessage });
+          emitNamedEvent('tool_result', {
+            id: tc.id,
+            name: tc.name,
+            preview: '(invalid JSON arguments)',
+            error: parseError,
+            error_code: 'invalid_arguments',
+            repaired,
+          });
+          continue;
+        }
+
+        const toolResult = executeSyncToolCall(tc, repaired && parsedArgs ? JSON.stringify(parsedArgs) : undefined);
+        openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
+        const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
+        const toolFailed =
+          /^\((invalid JSON|unknown tool|file not found|old_text not found|path is required|content is required|new_text is required|old_text is required)/.test(
+            toolResult,
+          );
+        emitNamedEvent('tool_result', {
+          id: tc.id,
+          name: tc.name,
+          preview: resultPreview,
+          ...(toolFailed ? { error: toolResult } : {}),
+          ...(toolFailed ? { error_code: classifyReaderAiToolErrorCode(toolResult) } : {}),
+          ...(repaired ? { repaired: true } : {}),
+        });
+        if (tc.name === 'propose_edit_document') {
+          stagedChangesRevision += 1;
+          emitEditProposal(tc.id, tc.name);
+          emitStagedChangesSnapshot();
+        }
+      }
+
+      if (taskCalls.length > 0) {
+        const batches: Array<typeof taskCalls> = [];
+        for (let i = 0; i < taskCalls.length; i += READER_AI_MAX_CONCURRENT_TASKS) {
+          batches.push(taskCalls.slice(i, i + READER_AI_MAX_CONCURRENT_TASKS));
+        }
+        for (const batch of batches) {
+          const taskResults = await Promise.all(
+            batch.map(async ({ tc, parsedArgs }) => {
+              const taskPrompt = typeof parsedArgs.prompt === 'string' ? parsedArgs.prompt : '';
+              const taskSystemPrompt =
+                typeof parsedArgs.system_prompt === 'string' ? parsedArgs.system_prompt : undefined;
+              if (!taskPrompt) return { id: tc.id, result: '(task tool requires a "prompt" argument)' };
+              try {
+                const taskResult = await executeReaderAiSubagent({
+                  model,
+                  prompt: taskPrompt,
+                  systemPrompt: taskSystemPrompt,
+                  lines: aiLines,
+                  source,
+                  openRouterHeaders: upstreamHeaders,
+                  signal: abortController.signal,
+                  onProgress: (event) => {
+                    emitNamedEvent('task_progress', {
+                      id: tc.id,
+                      name: 'task',
+                      phase: event.phase,
+                      iteration: event.iteration,
+                      detail: event.detail,
+                    });
+                  },
+                });
+                return { id: tc.id, result: taskResult };
+              } catch (taskErr) {
+                const message =
+                  taskErr instanceof DOMException && (taskErr.name === 'TimeoutError' || taskErr.name === 'AbortError')
+                    ? 'Subagent timed out'
+                    : taskErr instanceof Error
+                      ? taskErr.message
+                      : 'Subagent failed';
+                emitNamedEvent('task_progress', {
+                  id: tc.id,
+                  name: 'task',
+                  phase: 'error',
+                  detail: message,
+                  error_code: classifyReaderAiTaskErrorCode(taskErr),
+                });
+                return { id: tc.id, result: `[Subagent error: ${message}]` };
+              }
+            }),
+          );
+
+          for (const { id, result: taskResult } of taskResults) {
+            openRouterMessages.push({ role: 'tool', tool_call_id: id, content: taskResult });
+            const resultPreview = taskResult.length > 200 ? `${taskResult.slice(0, 200)}...` : taskResult;
+            emitNamedEvent('tool_result', { id, name: 'task', preview: resultPreview });
+          }
+        }
+      }
+
+      const currentTokens = estimateMessagesTokens(openRouterMessages);
+      if (currentTokens > conversationBudgetTokens) {
+        const reclaimed = compactToolResults(openRouterMessages, 4);
+        if (reclaimed > 0) {
+          const afterCompaction = estimateMessagesTokens(openRouterMessages);
+          if (afterCompaction > conversationBudgetTokens) {
+            emitNamedEvent('turn_end', { iteration, reason: 'context_budget' });
+            break;
+          }
+        } else {
+          emitNamedEvent('turn_end', { iteration, reason: 'context_budget' });
+          break;
+        }
+      }
+
+      if (remainingMs() <= 0) {
+        streamFailed = true;
+        streamErrorMessage = 'Request timed out during tool execution';
+        emitNamedEvent('error', { message: streamErrorMessage });
+        emitNamedEvent('turn_end', { iteration, reason: 'timeout' });
+        break;
+      }
+
+      emitNamedEvent('turn_end', { iteration, reason: 'tool_calls' });
+      await awaitDrainIfNeeded();
+
+      const nextUpstream = await callUpstream(callTimeout());
+      if (!nextUpstream.ok || !nextUpstream.body) {
+        const rateLimitMsg = readUpstreamRateLimitMessage(nextUpstream.headers);
+        const status = nextUpstream.status ?? 0;
+        const payload = rateLimitMsg ? null : ((await nextUpstream.json().catch(() => null)) as unknown);
+        streamFailed = true;
+        streamErrorMessage = rateLimitMsg || readUpstreamError(payload) || `Model returned an error (${status})`;
+        emitNamedEvent('error', { message: streamErrorMessage });
+        break;
+      }
+      currentBody = nextUpstream.body;
+    }
+    if (currentBody) await currentBody.cancel().catch(() => {});
+  } catch (err) {
+    if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      if (!ctx.res.headersSent) throw new ClientError('Reader AI request timed out', 504);
+      streamFailed = true;
+      streamErrorMessage = 'Request timed out';
+      if (!ctx.res.writableEnded) {
+        emitNamedEvent('error', { message: streamErrorMessage });
+        emitStagedChangesSnapshot();
+        ctx.res.write('data: [DONE]\n\n');
+        ctx.res.end();
+      }
+      return {
+        status: 'error',
+        stagedDocumentContent: documentEditState.stagedContent,
+        stagedDiff: documentEditState.stagedDiff,
+        stagedChangesPayload: lastStagedChangesPayload,
+        errorMessage: streamErrorMessage,
+      };
+    }
+    if (ctx.res.headersSent) {
+      console.warn('Reader AI stream failed after response start:', err);
+      streamFailed = true;
+      streamErrorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      if (!ctx.res.writableEnded) {
+        emitNamedEvent('error', { message: streamErrorMessage });
+        emitStagedChangesSnapshot();
+        ctx.res.write('data: [DONE]\n\n');
+        ctx.res.end();
+      }
+      return {
+        status: 'error',
+        stagedDocumentContent: documentEditState.stagedContent,
+        stagedDiff: documentEditState.stagedDiff,
+        stagedChangesPayload: lastStagedChangesPayload,
+        errorMessage: streamErrorMessage,
+      };
+    }
+    throw err;
+  } finally {
+    if (keepaliveInterval) clearInterval(keepaliveInterval);
+    ctx.req.off('close', onClientClose);
+  }
+
+  emitStagedChangesSnapshot();
+  if (!ctx.res.writableEnded) {
+    ctx.res.write('data: [DONE]\n\n');
+    ctx.res.end();
+  }
+
+  return {
+    status: streamFailed ? 'error' : 'completed',
+    stagedDocumentContent: documentEditState.stagedContent,
+    stagedDiff: documentEditState.stagedDiff,
+    stagedChangesPayload: lastStagedChangesPayload,
+    errorMessage: streamErrorMessage,
+  };
 }
 
 async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<Response> {
@@ -2716,544 +3502,225 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
 async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const session = getSession(ctx.req);
   if (!checkRateLimitForSession(ctx, session)) return;
-  ensureReaderAiConfigured(session);
-
   const body = (await readJson(ctx.req)) as ReaderAiChatBody | null;
   const model = typeof body?.model === 'string' ? body.model.trim() : '';
   const mode = body?.mode === 'prompt_list' ? 'prompt_list' : 'default';
-  const rawSource = typeof body?.source === 'string' ? body.source : '';
-  const source = stripCriticMarkupComments(rawSource).trim();
-  if (!model) throw new ClientError('model is required', 400);
-  if (!source && mode !== 'prompt_list') throw new ClientError('source is required', 400);
-  if (!canAccessReaderAiModel(model, session !== null, paidReaderAiModelIds)) {
-    throw new ClientError('Selected paid model requires sign in', 401);
-  }
-  const allowedModels = await fetchReaderAiModels(ctx.req, session);
-  if (!allowedModels.some((m) => m.id === model)) {
-    throw new ClientError('Selected model is not available', 400);
-  }
-  const allMessages = normalizeReaderAiMessages(body?.messages);
-  const existingSummary =
-    typeof body?.summary === 'string' ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS) : '';
-
-  const currentDocPath = typeof body?.current_doc_path === 'string' ? body.current_doc_path : null;
-  const editModeCurrentDocOnly = body?.edit_mode_current_doc_only === true;
-  const allowDocumentEdits = body?.allow_document_edits !== false;
-  const aiLines = source.split('\n');
-
-  let chatMessages: ReaderAiChatMessage[];
-  let newSummary: string | null = null;
-  let summarizationFailed = false;
-  if (mode === 'prompt_list') {
-    chatMessages = allMessages;
-  } else if (allMessages.length <= READER_AI_CONTEXT_WINDOW_MESSAGES) {
-    if (existingSummary) {
-      chatMessages = [
-        { role: 'user', content: `[Summary of earlier conversation]\n${existingSummary}` },
-        { role: 'assistant', content: 'Understood, I have the context from our earlier conversation.' },
-        ...allMessages,
-      ];
-    } else {
-      chatMessages = allMessages;
-    }
-  } else {
-    const evicted = allMessages.slice(0, -READER_AI_CONTEXT_WINDOW_MESSAGES);
-    const kept = allMessages.slice(-READER_AI_CONTEXT_WINDOW_MESSAGES);
-    try {
-      newSummary = await summarizeReaderAiConversation(model, evicted, existingSummary, ctx.req, session);
-    } catch {
-      newSummary = existingSummary || null;
-      if (!existingSummary) summarizationFailed = true;
-    }
-    const summaryText = newSummary || existingSummary;
-    if (summaryText) {
-      chatMessages = [
-        { role: 'user', content: `[Summary of earlier conversation]\n${summaryText}` },
-        { role: 'assistant', content: 'Understood, I have the context from our earlier conversation.' },
-        ...kept,
-      ];
-    } else {
-      chatMessages = kept;
-    }
-  }
-
-  // Prepare document for tool access
-  const documentEditState = {
-    source: rawSource,
-    lines: rawSource.split('\n'),
-    currentDocPath,
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-    lastReadSnapshot: null,
-  };
-  const modelEntry = allowedModels.find((m) => m.id === model);
-  const contextTokens = modelEntry?.context_length || 0;
-
-  // Build system prompt and tool set based on mode
-  let systemPrompt: string;
-  let tools: Array<(typeof READER_AI_TOOLS)[number]>;
-  if (mode === 'prompt_list') {
-    systemPrompt = buildReaderAiPromptListSystemPrompt();
-    tools = [];
-  } else {
-    const maxPreviewChars =
-      contextTokens > 0
-        ? Math.min(READER_AI_DOC_PREVIEW_CHARS, Math.floor(contextTokens * 3 * 0.25))
-        : READER_AI_DOC_PREVIEW_CHARS;
-    systemPrompt = buildReaderAiSystemPrompt(source, aiLines, maxPreviewChars, currentDocPath, allowDocumentEdits);
-    tools = !allowDocumentEdits
-      ? READER_AI_TOOLS.filter((tool) => {
-          const name = tool.function.name;
-          return name === 'read_document' || name === 'search_document' || name === 'task';
-        })
-      : editModeCurrentDocOnly
-        ? READER_AI_TOOLS.filter((tool) => {
-            const name = tool.function.name;
-            return name === 'read_document' || name === 'search_document' || name === 'propose_edit_document';
-          })
-        : READER_AI_TOOLS;
-  }
-
-  // Build messages for OpenRouter (internal format supports tool call/result messages)
-  const openRouterMessages: OpenRouterMessage[] = [
-    { role: 'system', content: systemPrompt },
-    ...chatMessages.map((m): OpenRouterMessage => ({ role: m.role, content: m.content })),
-  ];
-
-  const requestStart = Date.now();
-  const abortController = new AbortController();
-  const onClientClose = () => abortController.abort();
-  ctx.req.on('close', onClientClose);
-
-  const upstreamHeaders = openRouterHeaders(ctx.req, getOpenRouterApiKeyForModel(model, session));
-
-  const callUpstream = (timeoutMs: number) =>
-    fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: upstreamHeaders,
-      body: JSON.stringify({
-        model,
-        stream: true,
-        messages: openRouterMessages,
-        tools,
-        ...(openRouterPromptCacheControl(model) ? { cache_control: openRouterPromptCacheControl(model) } : {}),
-      }),
-      signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), abortController.signal]),
-    });
-
-  const remainingMs = () => Math.max(0, READER_AI_TIMEOUT_MS - (Date.now() - requestStart));
-  const callTimeout = () => Math.min(READER_AI_PER_CALL_TIMEOUT_MS, remainingMs());
-
-  // Token budget management — reserve space for system prompt, keep tool results within budget
-  const maxContextTokens = contextTokens > 0 ? contextTokens : 32_000;
-  // Reserve 25% for system prompt + file tree, 15% for output, 60% for conversation + tool results
-  const conversationBudgetTokens = Math.floor(maxContextTokens * 0.6);
-
-  const executeSyncToolCall = (tc: ReaderAiToolCall, argsJsonOverride?: string): string => {
-    const toolArgsJson = argsJsonOverride ?? tc.arguments;
-    if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(toolArgsJson, documentEditState);
-    return executeReaderAiSyncToolWithState(tc.name, toolArgsJson, { lines: aiLines, state: documentEditState });
-  };
-
-  const writeSseEvent = (event: string, data: unknown) => {
-    if (ctx.res.writableEnded) return;
-    ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  };
-
-  let lastStagedChangesSignature: string | null = null;
-  let stagedChangesRevision = 0;
-  const serializeReaderAiChange = (change: {
-    id: string;
-    path: string;
-    type: 'edit' | 'create' | 'delete';
-    diff: string;
-    revision?: number;
-    original: string | null;
-    modified: string | null;
-    hunks?: ReturnType<typeof parseUnifiedDiffHunks>;
-  }) => ({
-    id: change.id,
-    path: change.path,
-    type: change.type,
-    diff: change.diff,
-    revision: change.revision,
-    original_content: change.original,
-    modified_content: change.modified,
-    hunks: change.hunks ?? parseUnifiedDiffHunks(change.diff),
+  const messages = normalizeReaderAiMessages(body?.messages);
+  await streamReaderAiChatResponse(ctx, {
+    session,
+    model,
+    mode,
+    rawSource: typeof body?.source === 'string' ? body.source : '',
+    messages,
+    summary: typeof body?.summary === 'string' ? body.summary : '',
+    currentDocPath: typeof body?.current_doc_path === 'string' ? body.current_doc_path : null,
+    editModeCurrentDocOnly: body?.edit_mode_current_doc_only === true,
+    allowDocumentEdits: body?.allow_document_edits !== false,
   });
-  const getCurrentDocumentStagedChange = () =>
-    documentEditState.stagedContent && documentEditState.stagedDiff
-      ? {
-          id: `change:${currentDocPath || 'current-document.md'}`,
-          path: currentDocPath || 'current-document.md',
-          type: 'edit' as const,
-          original: documentEditState.stagedOriginalContent ?? rawSource,
-          modified: documentEditState.stagedContent,
-          diff: documentEditState.stagedDiff,
-          revision: documentEditState.stagedRevision,
-          hunks: parseUnifiedDiffHunks(documentEditState.stagedDiff),
-        }
-      : null;
-  const getChangeForToolCall = (toolName: string) => {
-    if (toolName === 'propose_edit_document') return getCurrentDocumentStagedChange();
-    return null;
-  };
-  const emitEditProposal = (toolCallId: string, toolName: string) => {
-    const change = getChangeForToolCall(toolName);
-    if (!change) return;
-    writeSseEvent('edit_proposal', {
-      proposal_id: `proposal:${stagedChangesRevision}:${toolCallId}`,
-      tool_call_id: toolCallId,
-      revision: stagedChangesRevision,
-      change: serializeReaderAiChange(change),
-    });
-  };
-  const emitStagedChangesSnapshot = () => {
-    const hasDocumentStagedChange = Boolean(documentEditState.stagedContent && documentEditState.stagedDiff);
-    const allChanges = hasDocumentStagedChange ? [getCurrentDocumentStagedChange()!] : [];
-    const changes = allChanges.map((change) => serializeReaderAiChange({ ...change, revision: stagedChangesRevision }));
-    const fileContents = Object.fromEntries(
-      allChanges.filter((c) => typeof c.modified === 'string').map((c) => [c.path, c.modified as string]),
-    );
-    const suggestedCommitMessage =
-      allChanges.length === 1 ? `Update ${allChanges[0].path}` : 'Apply AI-suggested changes';
-    const payload = {
-      changes,
-      file_contents: fileContents,
-      suggested_commit_message: suggestedCommitMessage,
-      ...(documentEditState.stagedContent ? { document_content: documentEditState.stagedContent } : {}),
-    };
-    const signature = JSON.stringify(payload);
-    if (signature === lastStagedChangesSignature || ctx.res.writableEnded) return;
-    writeSseEvent('staged_changes', payload);
-    lastStagedChangesSignature = signature;
-  };
+}
 
-  let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+async function handleCreateReaderAiLabDocument(ctx: RouteContext): Promise<void> {
+  requireLocalReaderAiLabAccess(ctx);
+  const body = (await readJson(ctx.req)) as ReaderAiLabDocumentBody | null;
+  const source = typeof body?.source === 'string' ? body.source : '';
+  if (!source) throw new ClientError('source is required', 400);
+  const path = typeof body?.path === 'string' && body.path.trim() ? body.path.trim() : READER_AI_LAB_DEFAULT_PATH;
+  const now = Date.now();
+  const document: ReaderAiLabDocumentRecord = {
+    id: randomUUID(),
+    path,
+    originalSource: source,
+    currentSource: source,
+    createdAtMs: now,
+    updatedAtMs: now,
+    latestRunId: null,
+  };
+  readerAiLabDocuments.set(document.id, document);
+  json(ctx.res, 201, { document: serializeReaderAiLabDocument(document) });
+}
+
+async function handleGetReaderAiLabDocument(ctx: RouteContext): Promise<void> {
+  requireLocalReaderAiLabAccess(ctx);
+  const document = getReaderAiLabDocumentOrThrow(ctx.match[1]);
+  const runs = [...readerAiLabRuns.values()]
+    .filter((run) => run.documentId === document.id)
+    .sort((a, b) => b.createdAtMs - a.createdAtMs)
+    .map((run) => ({ id: run.id, status: run.status, created_at: new Date(run.createdAtMs).toISOString() }));
+  json(ctx.res, 200, { document: serializeReaderAiLabDocument(document), runs });
+}
+
+async function handleResetReaderAiLabDocument(ctx: RouteContext): Promise<void> {
+  requireLocalReaderAiLabAccess(ctx);
+  const document = getReaderAiLabDocumentOrThrow(ctx.match[1]);
+  document.currentSource = document.originalSource;
+  document.updatedAtMs = Date.now();
+  json(ctx.res, 200, { document: serializeReaderAiLabDocument(document) });
+}
+
+function createReaderAiLabRunRecord(
+  document: ReaderAiLabDocumentRecord,
+  sourceAtStart: string,
+  request: ReaderAiLabRunRequestRecord,
+): ReaderAiLabRunRecord {
+  const now = Date.now();
+  const run: ReaderAiLabRunRecord = {
+    id: randomUUID(),
+    documentId: document.id,
+    status: 'running',
+    createdAtMs: now,
+    updatedAtMs: now,
+    sourceAtStart,
+    request,
+    assistantText: '',
+    events: [],
+    stagedDocumentContent: null,
+    stagedChangesPayload: null,
+    error: null,
+  };
+  readerAiLabRuns.set(run.id, run);
+  document.latestRunId = run.id;
+  document.updatedAtMs = now;
+  return run;
+}
+
+async function startReaderAiLabRun(
+  ctx: RouteContext,
+  document: ReaderAiLabDocumentRecord,
+  request: ReaderAiLabRunRequestRecord,
+): Promise<void> {
+  const session = getSession(ctx.req);
+  const sourceAtStart = request.baseSource === 'original' ? document.originalSource : document.currentSource;
+  const run = createReaderAiLabRunRecord(document, sourceAtStart, request);
+  ctx.res.setHeader('X-Reader-Ai-Lab-Run-Id', run.id);
 
   try {
-    // First call — errors before SSE starts can be returned as JSON
-    const firstUpstream = await callUpstream(callTimeout());
-    if (!firstUpstream.ok) {
-      const rateLimitMsg = readUpstreamRateLimitMessage(firstUpstream.headers);
-      if (rateLimitMsg) throw new ClientError(rateLimitMsg, 429);
-      const payload = (await firstUpstream.json().catch(() => null)) as unknown;
-      const upstreamError = readUpstreamError(payload);
-      throw new ClientError(upstreamError || `OpenRouter request failed (${firstUpstream.status})`, 502);
-    }
-    if (!firstUpstream.body) throw new ClientError('OpenRouter did not return a stream', 502);
-
-    // Start SSE response
-    ctx.res.statusCode = 200;
-    ctx.res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    ctx.res.setHeader('Cache-Control', 'no-cache');
-    ctx.res.setHeader('Connection', 'keep-alive');
-    if (newSummary) {
-      ctx.res.write(`event: summary\ndata: ${JSON.stringify({ summary: newSummary })}\n\n`);
-    }
-    if (summarizationFailed) {
-      writeSseEvent('error', { message: 'Earlier conversation context could not be summarized and may be lost.' });
-    }
-
-    let needsDrain = false;
-    const writeSseDelta = (delta: string) => {
-      if (ctx.res.writableEnded) return;
-      const ok = ctx.res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`);
-      if (!ok) needsDrain = true;
-    };
-    const awaitDrainIfNeeded = (): Promise<void> => {
-      if (!needsDrain || ctx.res.writableEnded) {
-        needsDrain = false;
-        return Promise.resolve();
-      }
-      needsDrain = false;
-      return new Promise((resolve) => {
-        ctx.res.once('drain', resolve);
-        // Safety timeout — don't block forever if the socket is gone
-        setTimeout(resolve, 5000);
-      });
-    };
-
-    // SSE keepalive: send a comment every 15s to prevent intermediary proxy idle-timeout kills
-    keepaliveInterval = setInterval(() => {
-      if (ctx.res.writableEnded) return;
-      ctx.res.write(': keepalive\n\n');
-    }, 15_000);
-
-    // Agentic tool-call loop
-    let currentBody: ReadableStream<Uint8Array> | null = firstUpstream.body;
-    for (let iteration = 0; iteration < READER_AI_MAX_TOOL_ITERATIONS; iteration++) {
-      writeSseEvent('turn_start', { iteration });
-      let result: ReaderAiStreamParseResult;
-      try {
-        result = await parseReaderAiUpstreamStream(currentBody, writeSseDelta, {
-          repairBoundaries: getReaderAiModelSource(model, paidReaderAiModelIds) === 'free',
-        });
-      } catch (streamErr) {
-        await currentBody.cancel().catch(() => {});
-        currentBody = null;
-        throw streamErr;
-      }
-      currentBody = null;
-
-      if (result.toolCalls.length === 0) {
-        writeSseEvent('turn_end', { iteration, reason: 'done' });
-        break;
-      }
-
-      // Add assistant message with tool calls
-      openRouterMessages.push({
-        role: 'assistant',
-        content: result.content || null,
-        tool_calls: result.toolCalls.map((tc) => ({
-          id: tc.id,
-          type: 'function' as const,
-          function: { name: tc.name, arguments: tc.arguments },
-        })),
-      });
-
-      // Execute each tool call — task calls run in parallel, sync tools run sequentially
-      const taskCalls: Array<{ tc: ReaderAiToolCall; parsedArgs: Record<string, unknown> }> = [];
-      const syncCalls: Array<{
-        tc: ReaderAiToolCall;
-        parsedArgs: Record<string, unknown> | undefined;
-        parseError?: string;
-        repaired?: boolean;
-      }> = [];
-
-      for (const tc of result.toolCalls) {
-        const parsedArgsResult = parseToolArgumentsWithRepair(tc.arguments);
-        const parsedArgs = parsedArgsResult.parsedArgs;
-        if (parsedArgsResult.error) {
-          console.warn('[reader-ai-tool-json]', {
-            toolCallId: tc.id,
-            toolName: tc.name,
-            repaired: parsedArgsResult.repaired,
-            error: parsedArgsResult.error,
-            rawArgumentsPreview: tc.arguments.length > 300 ? `${tc.arguments.slice(0, 300)}…` : tc.arguments,
-          });
-        }
-        writeSseEvent('tool_call', {
-          id: tc.id,
-          name: tc.name,
-          arguments: parsedArgs ?? tc.arguments,
-          parse_error: parsedArgsResult.error,
-          repaired: parsedArgsResult.repaired,
-        });
-
-        if (tc.name === 'task') {
-          if (parsedArgs) {
-            taskCalls.push({ tc, parsedArgs });
-          } else {
-            // Task call with malformed JSON — return an error tool result rather than
-            // silently falling through to the sync tool path (which would return "unknown tool: task").
-            const retryMessage =
-              'Arguments could not be parsed as JSON. Retry the task call with a valid JSON object that includes a "prompt" field.';
-            openRouterMessages.push({
-              role: 'tool',
-              tool_call_id: tc.id,
-              content: retryMessage,
-            });
-            writeSseEvent('tool_result', {
-              id: tc.id,
-              name: 'task',
-              preview: '(invalid JSON arguments)',
-              error: parsedArgsResult.error ?? 'Invalid JSON arguments',
-              error_code: 'invalid_arguments',
-            });
+    const result = await streamReaderAiChatResponse(ctx, {
+      session,
+      model: request.model,
+      mode: request.mode,
+      rawSource: sourceAtStart,
+      messages: request.messages,
+      summary: request.summary,
+      currentDocPath: request.currentDocPath ?? document.path,
+      editModeCurrentDocOnly: request.editModeCurrentDocOnly,
+      allowDocumentEdits: request.allowDocumentEdits,
+      allowedTools: request.allowedTools,
+      systemPromptPrefix: request.systemPromptPrefix,
+      labMode: true,
+      hooks: {
+        onDelta: (delta) => {
+          run.assistantText += delta;
+          run.updatedAtMs = Date.now();
+          run.events.push({ kind: 'delta', delta, at: new Date(run.updatedAtMs).toISOString() });
+        },
+        onEvent: (event, data) => {
+          run.updatedAtMs = Date.now();
+          run.events.push({ kind: 'event', event, data, at: new Date(run.updatedAtMs).toISOString() });
+          if (event === 'staged_changes') {
+            run.stagedChangesPayload = data;
+            const payload = data as { document_content?: unknown };
+            run.stagedDocumentContent = typeof payload.document_content === 'string' ? payload.document_content : null;
           }
-        } else {
-          syncCalls.push({
-            tc,
-            parsedArgs,
-            parseError: parsedArgsResult.error ?? undefined,
-            repaired: parsedArgsResult.repaired,
-          });
-        }
-      }
-
-      // Run sync tools first
-      for (const { tc, parsedArgs, parseError, repaired } of syncCalls) {
-        if (!parsedArgs && parseError) {
-          const retryMessage = `Tool arguments could not be parsed as JSON. Retry ${tc.name} with valid JSON arguments.`;
-          openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: retryMessage });
-          writeSseEvent('tool_result', {
-            id: tc.id,
-            name: tc.name,
-            preview: '(invalid JSON arguments)',
-            error: parseError,
-            error_code: 'invalid_arguments',
-            repaired,
-          });
-          continue;
-        }
-
-        const toolResult = executeSyncToolCall(tc, repaired && parsedArgs ? JSON.stringify(parsedArgs) : undefined);
-
-        openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
-        const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
-        const toolFailed =
-          /^\((invalid JSON|unknown tool|file not found|old_text not found|path is required|content is required|new_text is required|old_text is required)/.test(
-            toolResult,
-          );
-        writeSseEvent('tool_result', {
-          id: tc.id,
-          name: tc.name,
-          preview: resultPreview,
-          ...(toolFailed ? { error: toolResult } : {}),
-          ...(toolFailed ? { error_code: classifyReaderAiToolErrorCode(toolResult) } : {}),
-          ...(repaired ? { repaired: true } : {}),
-        });
-        if (tc.name === 'propose_edit_document') {
-          stagedChangesRevision += 1;
-          emitEditProposal(tc.id, tc.name);
-          emitStagedChangesSnapshot();
-        }
-      }
-
-      // Run task calls in parallel (up to READER_AI_MAX_CONCURRENT_TASKS)
-      if (taskCalls.length > 0) {
-        const batches: Array<typeof taskCalls> = [];
-        for (let i = 0; i < taskCalls.length; i += READER_AI_MAX_CONCURRENT_TASKS) {
-          batches.push(taskCalls.slice(i, i + READER_AI_MAX_CONCURRENT_TASKS));
-        }
-        for (const batch of batches) {
-          const taskPromises = batch.map(async ({ tc, parsedArgs }) => {
-            const taskPrompt = typeof parsedArgs.prompt === 'string' ? parsedArgs.prompt : '';
-            const taskSystemPrompt =
-              typeof parsedArgs.system_prompt === 'string' ? parsedArgs.system_prompt : undefined;
-
-            if (!taskPrompt) {
-              return { id: tc.id, result: '(task tool requires a "prompt" argument)' };
-            }
-
-            try {
-              const taskResult = await executeReaderAiSubagent({
-                model,
-                prompt: taskPrompt,
-                systemPrompt: taskSystemPrompt,
-                lines: aiLines,
-                source,
-                openRouterHeaders: upstreamHeaders,
-                signal: abortController.signal,
-                onProgress: (event) => {
-                  writeSseEvent('task_progress', {
-                    id: tc.id,
-                    name: 'task',
-                    phase: event.phase,
-                    iteration: event.iteration,
-                    detail: event.detail,
-                  });
-                },
-              });
-              return { id: tc.id, result: taskResult };
-            } catch (taskErr) {
-              const message =
-                taskErr instanceof DOMException && (taskErr.name === 'TimeoutError' || taskErr.name === 'AbortError')
-                  ? 'Subagent timed out'
-                  : taskErr instanceof Error
-                    ? taskErr.message
-                    : 'Subagent failed';
-              writeSseEvent('task_progress', {
-                id: tc.id,
-                name: 'task',
-                phase: 'error',
-                detail: message,
-                error_code: classifyReaderAiTaskErrorCode(taskErr),
-              });
-              return { id: tc.id, result: `[Subagent error: ${message}]` };
-            }
-          });
-
-          const taskResults = await Promise.all(taskPromises);
-          for (const { id, result: taskResult } of taskResults) {
-            openRouterMessages.push({ role: 'tool', tool_call_id: id, content: taskResult });
-            const resultPreview = taskResult.length > 200 ? `${taskResult.slice(0, 200)}...` : taskResult;
-            writeSseEvent('tool_result', { id, name: 'task', preview: resultPreview });
-          }
-        }
-      }
-
-      // Check if conversation has grown beyond the token budget
-      const currentTokens = estimateMessagesTokens(openRouterMessages);
-      if (currentTokens > conversationBudgetTokens) {
-        // Try compacting old tool results before giving up
-        const reclaimed = compactToolResults(openRouterMessages, 4);
-        if (reclaimed > 0) {
-          const afterCompaction = estimateMessagesTokens(openRouterMessages);
-          if (afterCompaction > conversationBudgetTokens) {
-            writeSseEvent('turn_end', { iteration, reason: 'context_budget' });
-            break;
-          }
-          // Compaction freed enough space — continue
-        } else {
-          writeSseEvent('turn_end', { iteration, reason: 'context_budget' });
-          break;
-        }
-      }
-
-      // Check remaining time before next call
-      if (remainingMs() <= 0) {
-        writeSseEvent('error', { message: 'Request timed out during tool execution' });
-        writeSseEvent('turn_end', { iteration, reason: 'timeout' });
-        break;
-      }
-
-      writeSseEvent('turn_end', { iteration, reason: 'tool_calls' });
-
-      // Allow the write buffer to drain before making the next upstream call
-      await awaitDrainIfNeeded();
-
-      const nextUpstream = await callUpstream(callTimeout());
-      if (!nextUpstream.ok || !nextUpstream.body) {
-        const rateLimitMsg = readUpstreamRateLimitMessage(nextUpstream.headers);
-        const status = nextUpstream.status ?? 0;
-        const payload = rateLimitMsg ? null : ((await nextUpstream.json().catch(() => null)) as unknown);
-        const detail = rateLimitMsg || readUpstreamError(payload) || `Model returned an error (${status})`;
-        writeSseEvent('error', { message: detail });
-        break;
-      }
-      currentBody = nextUpstream.body;
-    }
-    // Cancel any unconsumed stream body
-    if (currentBody) await currentBody.cancel().catch(() => {});
-  } catch (err) {
-    if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-      if (!ctx.res.headersSent) throw new ClientError('Reader AI request timed out', 504);
-      if (!ctx.res.writableEnded) {
-        writeSseEvent('error', { message: 'Request timed out' });
-        emitStagedChangesSnapshot();
-        ctx.res.write('data: [DONE]\n\n');
-        ctx.res.end();
-      }
-      return;
-    }
-    if (ctx.res.headersSent) {
-      console.warn('Reader AI stream failed after response start:', err);
-      if (!ctx.res.writableEnded) {
-        const message = err instanceof Error ? err.message : 'An unexpected error occurred';
-        writeSseEvent('error', { message });
-        emitStagedChangesSnapshot();
-        ctx.res.write('data: [DONE]\n\n');
-        ctx.res.end();
-      }
-      return;
-    }
-    throw err;
-  } finally {
-    if (keepaliveInterval) clearInterval(keepaliveInterval);
-    ctx.req.off('close', onClientClose);
+        },
+      },
+    });
+    run.status = result.status;
+    run.updatedAtMs = Date.now();
+    run.stagedDocumentContent = result.stagedDocumentContent;
+    run.stagedChangesPayload = result.stagedChangesPayload;
+    run.error = result.errorMessage;
+  } catch (error) {
+    run.status = 'error';
+    run.updatedAtMs = Date.now();
+    run.error = error instanceof Error ? error.message : 'Reader AI lab run failed';
+    throw error;
   }
+}
 
-  // Emit the latest staged-change snapshot, including an empty payload if staged edits were reverted.
-  emitStagedChangesSnapshot();
+function parseReaderAiLabRunRequest(
+  body: ReaderAiLabRunBody | null,
+  defaults: Partial<ReaderAiLabRunRequestRecord> = {},
+): ReaderAiLabRunRequestRecord {
+  const model =
+    typeof body?.model === 'string' && body.model.trim()
+      ? body.model.trim()
+      : typeof defaults.model === 'string'
+        ? defaults.model
+        : '';
+  if (!model) throw new ClientError('model is required', 400);
+  const messages = body?.messages !== undefined ? normalizeReaderAiMessages(body.messages) : defaults.messages;
+  if (!messages || messages.length === 0) throw new ClientError('messages are required', 400);
+  return {
+    model,
+    messages,
+    mode:
+      body?.mode === 'prompt_list'
+        ? 'prompt_list'
+        : body?.mode === 'default'
+          ? 'default'
+          : (defaults.mode ?? 'default'),
+    summary:
+      typeof body?.summary === 'string'
+        ? body.summary.trim().slice(0, READER_AI_MAX_SUMMARY_CHARS)
+        : (defaults.summary ?? ''),
+    currentDocPath:
+      typeof body?.current_doc_path === 'string'
+        ? body.current_doc_path.trim() || null
+        : (defaults.currentDocPath ?? null),
+    editModeCurrentDocOnly:
+      body?.edit_mode_current_doc_only === true
+        ? true
+        : body?.edit_mode_current_doc_only === false
+          ? false
+          : (defaults.editModeCurrentDocOnly ?? false),
+    allowDocumentEdits:
+      body?.allow_document_edits === false
+        ? false
+        : body?.allow_document_edits === true
+          ? true
+          : (defaults.allowDocumentEdits ?? true),
+    baseSource: parseReaderAiLabBaseSource(body?.base_source, defaults.baseSource ?? 'current'),
+    systemPromptPrefix:
+      typeof body?.system_prompt_prefix === 'string'
+        ? body.system_prompt_prefix.trim()
+        : (defaults.systemPromptPrefix ?? ''),
+    allowedTools:
+      body?.allowed_tools !== undefined
+        ? parseReaderAiLabAllowedTools(body.allowed_tools)
+        : (defaults.allowedTools ?? null),
+  };
+}
 
-  if (!ctx.res.writableEnded) {
-    ctx.res.write('data: [DONE]\n\n');
-    ctx.res.end();
-  }
+async function handleCreateReaderAiLabRun(ctx: RouteContext): Promise<void> {
+  requireLocalReaderAiLabAccess(ctx);
+  const document = getReaderAiLabDocumentOrThrow(ctx.match[1]);
+  const body = (await readJson(ctx.req)) as ReaderAiLabRunBody | null;
+  await startReaderAiLabRun(ctx, document, parseReaderAiLabRunRequest(body));
+}
+
+async function handleGetReaderAiLabRun(ctx: RouteContext): Promise<void> {
+  requireLocalReaderAiLabAccess(ctx);
+  const run = getReaderAiLabRunOrThrow(ctx.match[1]);
+  json(ctx.res, 200, { run: serializeReaderAiLabRun(run) });
+}
+
+async function handleRetryReaderAiLabRun(ctx: RouteContext): Promise<void> {
+  requireLocalReaderAiLabAccess(ctx);
+  const priorRun = getReaderAiLabRunOrThrow(ctx.match[1]);
+  const document = getReaderAiLabDocumentOrThrow(priorRun.documentId);
+  const body = (await readJson(ctx.req)) as ReaderAiLabRunBody | null;
+  await startReaderAiLabRun(ctx, document, parseReaderAiLabRunRequest(body, priorRun.request));
+}
+
+async function handleApplyReaderAiLabRun(ctx: RouteContext): Promise<void> {
+  requireLocalReaderAiLabAccess(ctx);
+  const run = getReaderAiLabRunOrThrow(ctx.match[1]);
+  const document = getReaderAiLabDocumentOrThrow(run.documentId);
+  if (!run.stagedDocumentContent) throw new ClientError('Run does not contain staged document content', 400);
+  document.currentSource = run.stagedDocumentContent;
+  document.updatedAtMs = Date.now();
+  document.latestRunId = run.id;
+  json(ctx.res, 200, { document: serializeReaderAiLabDocument(document) });
 }
 
 // ── Repo tarball download (bulk file fetch for AI repo mode) ──
@@ -3422,6 +3889,12 @@ const SHARE_REPO_FILE_LIST_PATTERN = /^\/api\/share\/repo-file-links$/;
 const SHARE_REPO_FILE_PATTERN = /^\/api\/share\/repo-file\/([^/]+)$/;
 const SHARE_REPO_FILE_REF_PATTERN = /^\/api\/share\/repo-file\/([^/]+)\/([^/]+)\/(.+)$/;
 const EDITOR_SHARE_REPO_FILE_PATTERN = /^\/api\/editor-share\/repo-file\/([^/]+)\/([^/]+)\/(.+)$/;
+const READER_AI_LAB_DOCUMENT_PATTERN = /^\/api\/test\/reader-ai\/documents\/([^/]+)$/;
+const READER_AI_LAB_DOCUMENT_RUNS_PATTERN = /^\/api\/test\/reader-ai\/documents\/([^/]+)\/runs$/;
+const READER_AI_LAB_DOCUMENT_RESET_PATTERN = /^\/api\/test\/reader-ai\/documents\/([^/]+)\/reset$/;
+const READER_AI_LAB_RUN_PATTERN = /^\/api\/test\/reader-ai\/runs\/([^/]+)$/;
+const READER_AI_LAB_RUN_RETRY_PATTERN = /^\/api\/test\/reader-ai\/runs\/([^/]+)\/retry$/;
+const READER_AI_LAB_RUN_APPLY_PATTERN = /^\/api\/test\/reader-ai\/runs\/([^/]+)\/apply$/;
 
 const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/auth\/github\/start$/, handler: handleAuthStart },
@@ -3462,6 +3935,13 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
   { method: 'POST', pattern: /^\/api\/ai\/apply$/, handler: handleReaderAiApply },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },
+  { method: 'POST', pattern: /^\/api\/test\/reader-ai\/documents$/, handler: handleCreateReaderAiLabDocument },
+  { method: 'GET', pattern: READER_AI_LAB_DOCUMENT_PATTERN, handler: handleGetReaderAiLabDocument },
+  { method: 'POST', pattern: READER_AI_LAB_DOCUMENT_RESET_PATTERN, handler: handleResetReaderAiLabDocument },
+  { method: 'POST', pattern: READER_AI_LAB_DOCUMENT_RUNS_PATTERN, handler: handleCreateReaderAiLabRun },
+  { method: 'GET', pattern: READER_AI_LAB_RUN_PATTERN, handler: handleGetReaderAiLabRun },
+  { method: 'POST', pattern: READER_AI_LAB_RUN_RETRY_PATTERN, handler: handleRetryReaderAiLabRun },
+  { method: 'POST', pattern: READER_AI_LAB_RUN_APPLY_PATTERN, handler: handleApplyReaderAiLabRun },
 ];
 
 export async function handleApiRequest(

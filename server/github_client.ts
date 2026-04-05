@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { GITHUB_FETCH_TIMEOUT_MS } from './config';
-import { ClientError } from './errors';
-import { base64url, requireEnv } from './http_helpers';
-import type { TokenCacheRecord } from './types';
+import { GITHUB_FETCH_TIMEOUT_MS } from './config.ts';
+import { ClientError } from './errors.ts';
+import { base64url, requireEnv } from './http_helpers.ts';
+import type { TokenCacheRecord } from './types.ts';
 
 const installationTokenCache = new Map<string, TokenCacheRecord>();
 const MAX_TOKEN_CACHE_SIZE = 1000;

@@ -1,6 +1,6 @@
 import type http from 'node:http';
-import { json } from './http_helpers';
-import type { RateLimitEntry } from './types';
+import { json } from './http_helpers.ts';
+import type { RateLimitEntry } from './types.ts';
 
 const RATE_LIMIT_MAX = 100;
 const RATE_LIMIT_AUTHENTICATED_MAX = 500;

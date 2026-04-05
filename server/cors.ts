@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { isAllowedOrigin } from './config';
+import { isAllowedOrigin } from './config.ts';
 
 export function applyCors(req: http.IncomingMessage, res: http.ServerResponse): void {
   const origin = req.headers.origin;
