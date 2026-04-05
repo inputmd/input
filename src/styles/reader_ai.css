@@ -142,15 +142,6 @@
   border-color: var(--reader-ai-active-border);
 }
 
-.reader-ai-model-trigger--composer {
-  position: absolute;
-  left: 10px;
-  bottom: 15px;
-  width: calc(100% - 54px);
-  max-width: initial;
-  z-index: 1;
-}
-
 .reader-ai-model-menu {
   min-width: 240px;
   max-height: min(65vh, 520px);
@@ -772,7 +763,7 @@
   border-radius: 4px;
   background: var(--input-bg);
   color: var(--text);
-  padding: 10px 44px 46px 12px;
+  padding: 10px 44px 14px 12px;
   font: inherit;
   font-size: 13.5px;
   line-height: 1.45;

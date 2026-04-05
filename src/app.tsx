@@ -7858,14 +7858,9 @@ export function App() {
         {mountReaderAiPanel ? (
           <ReaderAiPanel
             className={showReaderAiPanel ? undefined : 'reader-ai-panel--hidden'}
-            models={readerAiModels}
             modelsLoading={readerAiModelsLoading}
             modelsError={readerAiModelsError}
             selectedModel={readerAiSelectedModel}
-            onSelectModel={setReaderAiSelectedModel}
-            localCodexEnabled={localCodexEnabled}
-            onEnableLocalCodex={enableLocalCodexModels}
-            showLoginForMoreModels={!user}
             messages={readerAiMessages}
             runs={readerAiRuns}
             activeRunId={readerAiActiveRunId}

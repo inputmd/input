@@ -3,9 +3,8 @@ import { ArrowRight, CircleStop, MoreHorizontal, Pencil, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
-import type { ReaderAiEditProposal, ReaderAiModel, ReaderAiStagedChange } from '../reader_ai';
+import type { ReaderAiEditProposal, ReaderAiStagedChange } from '../reader_ai';
 import type { ReaderAiRunRecord } from '../reader_ai_ledger';
-import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 import { ReaderAiRunHistorySection } from './ReaderAiRunHistory';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
@@ -20,14 +19,9 @@ export interface ReaderAiMessage {
 
 interface ReaderAiPanelProps {
   className?: string;
-  models: ReaderAiModel[];
   modelsLoading: boolean;
   modelsError: string | null;
   selectedModel: string;
-  onSelectModel: (modelId: string) => void;
-  localCodexEnabled?: boolean;
-  onEnableLocalCodex?: () => void;
-  showLoginForMoreModels?: boolean;
   messages: ReaderAiMessage[];
   runs: ReaderAiRunRecord[];
   activeRunId?: string | null;
@@ -143,14 +137,9 @@ function ReaderAiAssistantMessage({
 
 export function ReaderAiPanel({
   className,
-  models,
   modelsLoading,
   modelsError,
   selectedModel,
-  onSelectModel,
-  localCodexEnabled = false,
-  onEnableLocalCodex,
-  showLoginForMoreModels = false,
   messages,
   runs,
   activeRunId = null,
@@ -551,15 +540,6 @@ export function ReaderAiPanel({
     [getActionErrorMessage, onRetryRunStep],
   );
 
-  const handleSelectModel = (modelId: string) => {
-    onSelectModel(modelId);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        focusComposerInput();
-      });
-    });
-  };
-
   const composer = (
     <div
       class={`reader-ai-input-wrap reader-ai-input-wrap--composer${composerAtTop ? '' : ' reader-ai-input-wrap--composer-bottom'}`}
@@ -605,18 +585,6 @@ export function ReaderAiPanel({
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
-        <ReaderAiModelSelector
-          models={models}
-          modelsLoading={modelsLoading}
-          modelsError={modelsError}
-          selectedModel={selectedModel}
-          onSelectModel={handleSelectModel}
-          localCodexEnabled={localCodexEnabled}
-          onEnableLocalCodex={onEnableLocalCodex}
-          disabled={sending}
-          triggerClassName="reader-ai-model-trigger reader-ai-model-trigger--composer"
-          showLoginForMoreModels={showLoginForMoreModels}
-        />
         <textarea
           ref={composerInputRef}
           class={`reader-ai-input${hasMessages ? ' reader-ai-input--bottom' : ''}`}
