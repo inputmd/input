@@ -7567,6 +7567,10 @@ export function App() {
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const mountReaderAiPanel = showReaderAiToggle;
+  useEffect(() => {
+    if (!showReaderAiPanel) return;
+    focusReaderAiComposerInput();
+  }, [focusReaderAiComposerInput, showReaderAiPanel]);
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
   const headerSidebarToggleAvailable = activeView === 'content' || activeView === 'edit';
   const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;
