@@ -61,6 +61,14 @@ function buildMarkdownParagraphDocument(paragraphs: string[]): string {
   ].join('\n');
 }
 
+function buildSingleLineParagraphDocument(paragraphs: string[]): string {
+  return [
+    '# Title',
+    '',
+    ...paragraphs.flatMap((paragraph, index) => (index < paragraphs.length - 1 ? [paragraph, ''] : [paragraph])),
+  ].join('\n');
+}
+
 function makeParagraph(index: number): string {
   return `Paragraph ${index} first sentence.\nParagraph ${index} second sentence.`;
 }
@@ -1454,6 +1462,29 @@ test('parseUnifiedDiffHunks keeps deletion blocks grouped when an extra blank li
       const hasParagraph4 = hunk.lines.some((line) => line.content === 'Paragraph 4 first sentence.');
       if (!hasParagraph4) return true;
       return hunk.lines.some((line) => line.content === 'Paragraph 4 second sentence.');
+    }),
+  );
+});
+
+test('parseUnifiedDiffHunks keeps paragraph deletions grouped with adjacent blank-line additions for single-line paragraphs', (t) => {
+  const paragraphs = Array.from({ length: 7 }, (_, index) => `Paragraph ${index + 1}.`);
+  const original = buildSingleLineParagraphDocument(paragraphs);
+  const kept = paragraphs.filter((_, index) => ![0, 2, 4].includes(index));
+  const modified = ['# Title', '', kept[0], '', '', kept[1], '', '', kept[2], '', kept[3]].join('\n');
+
+  const diff = generateUnifiedDiff('doc.md', original, modified);
+  t.is(diff.match(/^@@/gm)?.length ?? 0, 1);
+
+  const hunks = parseUnifiedDiffHunks(diff);
+
+  t.is(hunks.length, 3);
+  t.true(
+    hunks.every((hunk) => {
+      const blankAddCount = hunk.lines.filter((line) => line.type === 'add' && line.content === '').length;
+      const nonBlankDeleteCount = hunk.lines.filter(
+        (line) => line.type === 'del' && line.content.trim().length > 0,
+      ).length;
+      return blankAddCount === 0 || nonBlankDeleteCount > 0;
     }),
   );
 });

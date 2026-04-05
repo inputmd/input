@@ -544,6 +544,16 @@ function chooseGapSplitPoint(
   return bestSplitPoint;
 }
 
+function spanTouchesOnlyBlankLines(lines: StagedHunkLine[], start: number, end: number): boolean {
+  return lines.slice(start, end + 1).every((line) => line.content.trim().length === 0);
+}
+
+function gapContainsOnlyBlankContext(lines: StagedHunkLine[], gapStart: number, gapEndExclusive: number): boolean {
+  return lines
+    .slice(gapStart, gapEndExclusive)
+    .every((line) => line.type === 'context' && line.content.trim().length === 0);
+}
+
 function splitParsedUnifiedDiffHunk(hunk: StagedHunk): StagedHunk[] {
   const rawChangeSpans: Array<{ start: number; end: number }> = [];
   let currentChangeStart: number | null = null;
@@ -574,8 +584,18 @@ function splitParsedUnifiedDiffHunk(hunk: StagedHunk): StagedHunk[] {
       changeSpans.push({ ...span });
       continue;
     }
-    const splitPoint = chooseGapSplitPoint(hunk.lines, previous.end + 1, span.start, insideFenceByLine);
+    const gapStart = previous.end + 1;
+    const splitPoint = chooseGapSplitPoint(hunk.lines, gapStart, span.start, insideFenceByLine);
+    const shouldMergeBlankAdjustment =
+      splitPoint !== null &&
+      gapContainsOnlyBlankContext(hunk.lines, gapStart, span.start) &&
+      (spanTouchesOnlyBlankLines(hunk.lines, previous.start, previous.end) ||
+        spanTouchesOnlyBlankLines(hunk.lines, span.start, span.end));
     if (splitPoint === null) {
+      previous.end = span.end;
+      continue;
+    }
+    if (shouldMergeBlankAdjustment) {
       previous.end = span.end;
       continue;
     }
