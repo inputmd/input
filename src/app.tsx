@@ -1051,12 +1051,13 @@ export function App() {
   const currentDocumentLabel =
     currentFileName ?? currentRepoDocPath ?? (isScratchDocument ? UNSAVED_FILE_LABEL : 'this document');
   const browserWindowTitle = currentRepoDocPath ?? currentFileName ?? 'Input';
+  const readerAiContentFileEligible = isSidebarTextFileName(currentFileName);
   const readerAiEditEligible =
     routeView === 'edit' && (isMarkdownFileName(currentFileName ?? editTitle) || isScratchDocument);
   const readerAiContentEligible =
     routeView === 'content' &&
-    ((renderMode === 'markdown' && Boolean(readerAiSource)) ||
-      (contentLoadPending && isMarkdownFileName(currentFileName)));
+    (((renderMode === 'markdown' || renderMode === 'ansi') && Boolean(readerAiSource)) ||
+      (contentLoadPending && readerAiContentFileEligible));
   const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
   const setInlinePromptProtectedRangeState = useCallback((range: EditorProtectedRange | null) => {
     inlinePromptProtectedRangeRef.current = range;
@@ -1652,7 +1653,7 @@ export function App() {
       setRenderedCustomCssScope(null);
       setRenderedText(content);
       setRenderMode('ansi');
-      setReaderAiSource('');
+      setReaderAiSource(content);
       setContentImagePreview(null);
       setContentAlertMessage(null);
       setContentAlertDownloadHref(null);
