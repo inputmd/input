@@ -151,9 +151,8 @@ export function prepareReaderAiSelectedChangesForApply(options: {
     const isCurrentEditorDocument = change.path === options.currentEditingDocPath;
     const hasLocalDrift =
       isCurrentEditorDocument &&
-      ((typeof change.revision === 'number' && change.revision !== options.currentEditContentRevision) ||
-        (typeof change.originalContent === 'string' &&
-          change.originalContent !== options.currentEditingDocumentContent));
+      typeof change.originalContent === 'string' &&
+      change.originalContent !== options.currentEditingDocumentContent;
     const needsRepair =
       options.mode === 'without-saving' && isCurrentEditorDocument && (fileRecord?.status === 'stale' || hasLocalDrift);
     const repairedChange = needsRepair

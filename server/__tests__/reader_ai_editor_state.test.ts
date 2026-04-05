@@ -207,3 +207,60 @@ test('buildReaderAiEditorOverlay maps hunk review status into diff preview actio
   t.is(overlay?.diffPreview?.blocks[0]?.hunkId, 'hunk:1');
   t.is(overlay?.markers?.[0]?.status, 'accepted');
 });
+
+test('buildReaderAiEditorOverlay ignores superseded change sets when no active proposal remains', (t) => {
+  const supersededChange: ReaderAiStagedChange = {
+    id: 'change:1',
+    path: 'doc.md',
+    type: 'edit',
+    diff: '@@ -1 +1 @@\n-before\n+after\n',
+    revision: 3,
+    originalContent: 'before\n',
+    modifiedContent: 'after\n',
+  };
+
+  const overlay = buildReaderAiEditorOverlay({
+    active: true,
+    path: 'doc.md',
+    revision: 3,
+    currentDocumentSavedContent: 'before\n',
+    currentDocumentContent: 'before\n',
+    hasUnsavedChanges: false,
+    effectiveStagedChanges: [],
+    selectedChangeIds: new Set(),
+    selectedHunkIdsByChangeId: {},
+    activeChangeSet: null,
+    activeEditorCheckpoint: null,
+    changeSets: [
+      {
+        id: 'changeset:1',
+        runId: 'run:1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        status: 'superseded',
+        editProposals: [],
+        proposalStatusesByToolCallId: {},
+        stagedChanges: [supersededChange],
+        stagedFileContents: { 'doc.md': 'after\n' },
+        documentEditedContent: null,
+        files: [
+          {
+            path: 'doc.md',
+            status: 'ready',
+            hasCompleteContent: true,
+            baseRevision: 3,
+          },
+        ],
+        appliedPaths: [],
+        failedPaths: [],
+      },
+    ],
+    runs: [createRun()],
+  });
+
+  t.truthy(overlay);
+  t.is(overlay?.fileStatus, 'idle');
+  t.is(overlay?.statusLabel, 'Editor');
+  t.is(overlay?.diffPreview, null);
+  t.is(overlay?.markers, null);
+});

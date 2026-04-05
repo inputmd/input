@@ -533,6 +533,7 @@ function findRelevantReaderAiChangeSet(options: {
   }
   for (let index = options.changeSets.length - 1; index >= 0; index -= 1) {
     const changeSet = options.changeSets[index];
+    if (changeSet?.status === 'superseded') continue;
     if (
       changeSet.stagedChanges.some((change) => change.path === options.path) ||
       changeSet.files.some((file) => file.path === options.path) ||

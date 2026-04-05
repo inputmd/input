@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'preact/hooks';
 import type { ReaderAiMessage } from '../components/ReaderAiPanel';
-import { stripCriticMarkupComments } from '../criticmarkup.ts';
 import type { ReaderAiModel } from '../reader_ai';
-import { trimReaderAiSource } from '../reader_ai_context';
+import { buildReaderAiDocumentSource } from '../reader_ai_context.ts';
 import { buildReaderAiRetryRequestForStep } from '../reader_ai_controller_runtime';
 import { READER_AI_SELECTION_MAX_CHARS } from '../reader_ai_limits';
 import {
@@ -55,9 +54,11 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       if (!modelId) return false;
       const allowDocumentEdits = options.activeView === 'edit';
       const currentEditContent = options.getCurrentEditContent();
-      const documentSource = trimReaderAiSource(
-        stripCriticMarkupComments(allowDocumentEdits ? currentEditContent : options.readerAiSource),
-      );
+      const documentSource = buildReaderAiDocumentSource({
+        allowDocumentEdits,
+        currentEditContent,
+        readerAiSource: options.readerAiSource,
+      });
       const selectionSource = allowDocumentEdits ? options.getSelectionSource(READER_AI_SELECTION_MAX_CHARS) : null;
       const currentDocPath = allowDocumentEdits
         ? options.currentEditingDocPath
@@ -142,6 +143,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
     const messagesToReplay = retryRequest?.baseMessages.length
       ? retryRequest.baseMessages
       : currentMessages.slice(0, lastUserIndex + 1);
+    session.resetReaderAiProposalsForRetry();
     await streamReaderAiAssistant(messagesToReplay, {
       modelId: retryRequest?.modelId ?? options.readerAiSelectedModel,
       parentRunId: retryRequest?.parentRunId ?? null,
@@ -167,13 +169,20 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       if (session.readerAiSending) return;
       const retryRequest = buildReaderAiRetryRequestForStep(session.readerAiRuns, { runId, stepId });
       if (!retryRequest) return;
+      session.resetReaderAiProposalsForRetry();
       await streamReaderAiAssistant(retryRequest.baseMessages, {
         modelId: retryRequest.modelId ?? options.readerAiSelectedModel,
         parentRunId: retryRequest.parentRunId ?? null,
         retryStepId: retryRequest.retryStepId,
       });
     },
-    [options.readerAiSelectedModel, session.readerAiRuns, session.readerAiSending, streamReaderAiAssistant],
+    [
+      options.readerAiSelectedModel,
+      session.readerAiRuns,
+      session.readerAiSending,
+      session.resetReaderAiProposalsForRetry,
+      streamReaderAiAssistant,
+    ],
   );
 
   return useMemo(

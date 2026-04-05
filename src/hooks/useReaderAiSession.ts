@@ -648,6 +648,7 @@ export function useReaderAiSession({
   const resetReaderAiStagedState = useCallback(
     (options?: { clearError?: boolean; preserveEditorCheckpoint?: boolean }) => {
       setReaderAiEditProposals([]);
+      setReaderAiProposalStatusesByToolCallId({});
       setReaderAiStagedChanges([]);
       setReaderAiSelectedChangeIds(new Set());
       setReaderAiSelectedHunkIdsByChangeId({});
@@ -667,6 +668,40 @@ export function useReaderAiSession({
     },
     [readerAiActiveEditorCheckpointId],
   );
+
+  const resetReaderAiProposalsForRetry = useCallback(() => {
+    const activeChangeSetId = readerAiActiveChangeSetId;
+    setReaderAiEditProposals([]);
+    setReaderAiProposalStatusesByToolCallId({});
+    setReaderAiStagedChanges([]);
+    setReaderAiSelectedChangeIds(new Set());
+    setReaderAiSelectedHunkIdsByChangeId({});
+    setReaderAiStagedChangesInvalid(false);
+    setReaderAiStagedFileContents({});
+    setReaderAiDocumentEditedContent(null);
+    if (activeChangeSetId) {
+      setReaderAiChangeSets((current) =>
+        current.map((changeSet) =>
+          changeSet.id !== activeChangeSetId
+            ? changeSet
+            : {
+                ...changeSet,
+                updatedAt: new Date().toISOString(),
+                status: 'superseded',
+                editProposals: [],
+                proposalStatusesByToolCallId: {},
+                stagedChanges: [],
+                stagedFileContents: {},
+                documentEditedContent: null,
+                files: [],
+                failedPaths: [],
+              },
+        ),
+      );
+    }
+    setReaderAiActiveChangeSetId(null);
+    setReaderAiError(null);
+  }, [readerAiActiveChangeSetId]);
 
   const pruneAppliedReaderAiPaths = useCallback(
     (appliedPaths: string[], options?: PruneAppliedReaderAiPathsOptions) => {
@@ -1496,6 +1531,7 @@ export function useReaderAiSession({
     removeReaderAiQueuedCommand,
     recordReaderAiAppliedChanges,
     readerAiStagedChanges,
+    resetReaderAiProposalsForRetry,
     rewindReaderAiConversation,
     resetReaderAiStagedState,
     resolveReaderAiStagedHunk,

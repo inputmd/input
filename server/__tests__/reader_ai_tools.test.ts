@@ -278,7 +278,7 @@ test('propose_edit_document returns ambiguity hints', (t) => {
   t.true((parsed.error?.details?.matches?.[0]?.start_line ?? 0) >= 1);
 });
 
-test('propose_edit_document updates staged original content for each successive proposal', (t) => {
+test('propose_edit_document preserves the true original and cumulative diff across successive proposals', (t) => {
   const state = {
     source: 'alpha\nbeta\ngamma',
     lines: ['alpha', 'beta', 'gamma'],
@@ -288,13 +288,20 @@ test('propose_edit_document updates staged original content for each successive 
     stagedDiff: null as string | null,
   };
 
-  executeReaderAiEditDocumentTool('{"old_text":"beta","new_text":"BETA"}', state);
+  const firstRaw = executeReaderAiEditDocumentTool('{"old_text":"beta","new_text":"BETA"}', state);
+  const firstParsed = JSON.parse(firstRaw) as { ok: boolean; diff?: string };
+  t.true(firstParsed.ok);
   t.is(state.stagedOriginalContent, 'alpha\nbeta\ngamma');
   t.is(state.stagedContent, 'alpha\nBETA\ngamma');
+  t.is(firstParsed.diff, generateUnifiedDiff('doc.md', 'alpha\nbeta\ngamma', 'alpha\nBETA\ngamma'));
 
-  executeReaderAiEditDocumentTool('{"old_text":"gamma","new_text":"GAMMA"}', state);
-  t.is(state.stagedOriginalContent, 'alpha\nBETA\ngamma');
+  const secondRaw = executeReaderAiEditDocumentTool('{"old_text":"gamma","new_text":"GAMMA"}', state);
+  const secondParsed = JSON.parse(secondRaw) as { ok: boolean; diff?: string };
+  t.true(secondParsed.ok);
+  t.is(state.stagedOriginalContent, 'alpha\nbeta\ngamma');
   t.is(state.stagedContent, 'alpha\nBETA\nGAMMA');
+  t.is(state.stagedDiff, generateUnifiedDiff('doc.md', 'alpha\nbeta\ngamma', 'alpha\nBETA\nGAMMA'));
+  t.is(secondParsed.diff, generateUnifiedDiff('doc.md', 'alpha\nbeta\ngamma', 'alpha\nBETA\nGAMMA'));
 });
 
 // ── executeReaderAiSearchDocument ──

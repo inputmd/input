@@ -7,6 +7,14 @@ export function trimReaderAiSource(source: string): string {
   return source.slice(source.length - READER_AI_SOURCE_MAX_CHARS);
 }
 
+export function buildReaderAiDocumentSource(options: {
+  allowDocumentEdits: boolean;
+  currentEditContent: string;
+  readerAiSource: string;
+}): string {
+  return trimReaderAiSource(options.allowDocumentEdits ? options.currentEditContent : options.readerAiSource);
+}
+
 function estimateApproxReaderAiTokens(text: string): number {
   if (!text) return 0;
   return Math.ceil(new TextEncoder().encode(text).length / 4);
