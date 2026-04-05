@@ -859,9 +859,6 @@ export function Toolbar({
                         </>
                       ) : null}
                       <DropdownMenu.Separator class="user-menu-separator" />
-                      <DropdownMenu.Item class="repo-menu-item" onSelect={() => void onPromptOpenRepo()}>
-                        Open...
-                      </DropdownMenu.Item>
                       <DropdownMenu.Sub>
                         <DropdownMenu.SubTrigger class="repo-menu-item user-menu-subtrigger" disabled={!hasRecentRepos}>
                           <span class="repo-menu-item-main">
@@ -887,6 +884,10 @@ export function Toolbar({
                                   </span>
                                 </DropdownMenu.Item>
                               ))}
+                              <DropdownMenu.Separator class="user-menu-separator" />
+                              <DropdownMenu.Item class="repo-menu-item" onSelect={() => void onPromptOpenRepo()}>
+                                Open...
+                              </DropdownMenu.Item>
                             </DropdownMenu.SubContent>
                           </DropdownMenu.Portal>
                         ) : null}
