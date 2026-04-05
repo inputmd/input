@@ -354,6 +354,86 @@ button:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-border) 12%, transparent);
 }
 
+button.button-danger,
+button.dialog-action-danger {
+  border-color: color-mix(in srgb, var(--danger-border) 72%, transparent);
+  background: color-mix(in srgb, var(--danger-bg) 92%, var(--toolbar-bg));
+  color: var(--error-color);
+}
+
+button.button-danger:hover,
+button.dialog-action-danger:hover {
+  border-color: color-mix(in srgb, var(--danger-border) 80%, transparent);
+  background: color-mix(in srgb, var(--danger-bg) 98%, var(--toolbar-bg));
+  color: var(--error-color);
+}
+
+button.button-danger:focus,
+button.button-danger:focus-visible,
+button.dialog-action-danger:focus,
+button.dialog-action-danger:focus-visible {
+  border-color: var(--danger-border);
+}
+
+button.button-warning,
+button.dialog-action-warning {
+  border-color: color-mix(in srgb, var(--warning-color) 72%, transparent);
+  background: color-mix(in srgb, var(--warning-color) 18%, var(--toolbar-bg));
+  color: var(--warning-color);
+}
+
+button.button-warning:hover,
+button.dialog-action-warning:hover {
+  border-color: color-mix(in srgb, var(--warning-color) 78%, transparent);
+  background: color-mix(in srgb, var(--warning-color) 22%, var(--toolbar-bg));
+  color: var(--warning-color);
+}
+
+button.button-warning:focus,
+button.button-warning:focus-visible,
+button.dialog-action-warning:focus,
+button.dialog-action-warning:focus-visible {
+  border-color: var(--warning-color);
+}
+
+button.button-success,
+button.dialog-action-success {
+  border-color: color-mix(in srgb, var(--success-border) 72%, transparent);
+  background: color-mix(in srgb, var(--success-bg) 92%, var(--toolbar-bg));
+  color: var(--success-color);
+}
+
+button.button-success:hover,
+button.dialog-action-success:hover {
+  border-color: color-mix(in srgb, var(--success-border) 78%, transparent);
+  background: color-mix(in srgb, var(--success-bg) 98%, var(--toolbar-bg));
+  color: var(--success-color);
+}
+
+button.button-success:focus,
+button.button-success:focus-visible,
+button.dialog-action-success:focus,
+button.dialog-action-success:focus-visible {
+  border-color: var(--success-border);
+}
+
+button.button-success-solid {
+  border-color: color-mix(in srgb, var(--success-border) 86%, transparent);
+  background: var(--success-color);
+  color: #ffffff;
+}
+
+button.button-success-solid:hover {
+  border-color: color-mix(in srgb, var(--success-border) 86%, transparent);
+  background: color-mix(in srgb, var(--success-color) 86%, #000000 14%);
+  color: #ffffff;
+}
+
+button.button-success-solid:focus,
+button.button-success-solid:focus-visible {
+  border-color: var(--success-border);
+}
+
 @media (max-width: 768px) {
   button {
     padding: 6px 12px;

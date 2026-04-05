@@ -183,7 +183,7 @@ export function CompactCommitsDialog({
             </DialogPrimitive.Close>
             <button
               type="button"
-              class="dialog-action-danger"
+              class="button-danger"
               onClick={onSubmit}
               disabled={loading || submitting || !selectionValid || commitMessage.trim().length === 0}
             >

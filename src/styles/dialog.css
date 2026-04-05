@@ -129,6 +129,29 @@
   box-shadow: none;
 }
 
+.fork-repo-targets {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.fork-repo-target-btn {
+  flex: 1 1 0;
+  margin: 0;
+}
+
+.fork-repo-target-btn--active {
+  border-color: var(--focus-border);
+  background: color-mix(in srgb, var(--focus-border) 12%, var(--btn-bg));
+}
+
+.fork-repo-target-hint {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -335,72 +358,19 @@
   box-shadow: none;
 }
 
-.dialog-action-danger {
-  border-color: var(--danger-border);
-  background: var(--danger-bg);
-  color: var(--error-color);
-}
-
-.dialog-action-danger:hover {
-  filter: brightness(0.95);
-}
-
-.dialog-action-danger:focus,
-.dialog-action-danger:focus-visible {
-  border-color: var(--danger-border);
+.dialog-actions button.button-danger:focus,
+.dialog-actions button.button-danger:focus-visible,
+.dialog-actions button.dialog-action-danger:focus,
+.dialog-actions button.dialog-action-danger:focus-visible,
+.dialog-actions button.button-warning:focus,
+.dialog-actions button.button-warning:focus-visible,
+.dialog-actions button.dialog-action-warning:focus,
+.dialog-actions button.dialog-action-warning:focus-visible,
+.dialog-actions button.button-success:focus,
+.dialog-actions button.button-success:focus-visible,
+.dialog-actions button.dialog-action-success:focus,
+.dialog-actions button.dialog-action-success:focus-visible {
   box-shadow: none;
-}
-
-.dialog-action-warning {
-  border-color: color-mix(in srgb, #d29922 72%, transparent);
-  background: color-mix(in srgb, #d29922 18%, var(--toolbar-bg));
-  color: #d29922;
-}
-
-.dialog-action-warning:hover {
-  filter: brightness(0.96);
-}
-
-.dialog-action-warning:focus,
-.dialog-action-warning:focus-visible {
-  border-color: #d29922;
-  box-shadow: none;
-}
-
-.dialog-action-success {
-  border-color: color-mix(in srgb, var(--success-color) 72%, transparent);
-  background: color-mix(in srgb, var(--success-color) 18%, var(--toolbar-bg));
-  color: var(--success-color);
-}
-
-.dialog-action-success:hover {
-  filter: brightness(0.96);
-}
-
-.dialog-action-success:focus,
-.dialog-action-success:focus-visible {
-  border-color: var(--success-color);
-  box-shadow: none;
-}
-
-[data-theme="light"] .dialog-action-warning {
-  border-color: color-mix(in srgb, #9a6700 68%, transparent);
-  background: color-mix(in srgb, #9a6700 12%, var(--toolbar-bg));
-  color: #9a6700;
-}
-
-[data-theme="light"] .dialog-action-warning:focus-visible {
-  border-color: #9a6700;
-}
-
-[data-theme="light"] .dialog-action-success {
-  border-color: color-mix(in srgb, #1a7f37 68%, transparent);
-  background: color-mix(in srgb, #1a7f37 12%, var(--toolbar-bg));
-  color: #1a7f37;
-}
-
-[data-theme="light"] .dialog-action-success:focus-visible {
-  border-color: #1a7f37;
 }
 
 .toast-viewport {

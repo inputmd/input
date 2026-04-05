@@ -1487,31 +1487,6 @@
   border-color: color-mix(in srgb, var(--field-focus-border) 55%, var(--border));
 }
 
-.reader-ai-edit-proposal-action--active {
-  color: color-mix(in srgb, #ffffff 94%, var(--text) 6%);
-  border-color: color-mix(in srgb, var(--success-color) 86%, transparent);
-  background: var(--success-color);
-  font-weight: 600;
-}
-
-.reader-ai-edit-proposal-action--active:hover {
-  color: color-mix(in srgb, #ffffff 94%, var(--text) 6%);
-  border-color: color-mix(in srgb, var(--success-color) 86%, transparent);
-  background: color-mix(in srgb, var(--success-color) 86%, #000000 14%);
-}
-
-.reader-ai-edit-proposal-action--danger {
-  color: color-mix(in srgb, var(--danger-border) 80%, var(--text));
-  border-color: color-mix(in srgb, var(--danger-border) 46%, transparent);
-  background: color-mix(in srgb, var(--danger-border) 10%, transparent);
-}
-
-.reader-ai-edit-proposal-action--danger:hover {
-  color: color-mix(in srgb, var(--danger-border) 88%, var(--text));
-  border-color: color-mix(in srgb, var(--danger-border) 58%, transparent);
-  background: color-mix(in srgb, var(--danger-border) 16%, transparent);
-}
-
 /* ── Staged changes ── */
 
 .reader-ai-staged-changes {
@@ -1632,17 +1607,9 @@
   font-weight: 400;
   text-transform: none;
   letter-spacing: normal;
-  color: #ffffff;
-  background: var(--success-color);
-  border: 1px solid color-mix(in srgb, var(--success-color) 86%, transparent);
   border-radius: 4px;
   padding: 3px 10px;
-  cursor: pointer;
   flex: 0 0 auto;
-}
-
-.reader-ai-staged-changes-apply:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--success-color) 86%, #000000 14%);
 }
 
 .reader-ai-staged-changes-apply:disabled {
@@ -1652,7 +1619,7 @@
 
 .reader-ai-staged-changes-apply:disabled:hover {
   background: var(--success-color);
-  border-color: color-mix(in srgb, var(--success-color) 86%, transparent);
+  border-color: color-mix(in srgb, var(--success-border) 86%, transparent);
 }
 
 .reader-ai-staged-changes-secondary {
@@ -1677,6 +1644,22 @@
 .reader-ai-staged-changes-secondary:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.reader-ai-staged-reject-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.reader-ai-staged-reject-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 .reader-ai-staged-change {

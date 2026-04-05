@@ -158,9 +158,9 @@ export function DialogProvider({ children }: { children: ComponentChildren }) {
   );
 
   const dialogActionClassName = (intent: ConfirmDialogIntent): string | undefined => {
-    if (intent === 'danger') return 'dialog-action-danger';
-    if (intent === 'warning') return 'dialog-action-warning';
-    if (intent === 'success') return 'dialog-action-success';
+    if (intent === 'danger') return 'button-danger';
+    if (intent === 'warning') return 'button-warning';
+    if (intent === 'success') return 'button-success';
     return undefined;
   };
 

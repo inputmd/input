@@ -253,7 +253,7 @@ export function StagedChangesSection({
                 </button>
                 <button
                   type="button"
-                  class="reader-ai-staged-reject-btn"
+                  class="reader-ai-staged-reject-btn button-danger"
                   onClick={() => onRejectChange?.(change.id!)}
                   title="Reject this file"
                 >
@@ -312,7 +312,7 @@ export function StagedChangesSection({
                           {reviewControls ? (
                             <button
                               type="button"
-                              class="reader-ai-staged-reject-btn"
+                              class="reader-ai-staged-reject-btn button-danger"
                               onClick={() => change.id && onRejectHunk?.(change.id, hunk.id)}
                               title="Reject this hunk"
                             >
@@ -358,7 +358,7 @@ export function StagedChangesSection({
             ) : null}
             <button
               type="button"
-              class="reader-ai-staged-changes-apply"
+              class="reader-ai-staged-changes-apply button-success-solid"
               onClick={() => onApplyWithoutSaving?.()}
               disabled={applying || !canApply}
             >

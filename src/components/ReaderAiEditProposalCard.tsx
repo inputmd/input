@@ -55,11 +55,19 @@ export function ReaderAiEditProposalCard({
         </a>
         <div class="reader-ai-edit-proposal-actions">
           {rejected ? (
-            <button type="button" class="reader-ai-edit-proposal-action" onClick={() => onAccept?.(proposal.id)}>
+            <button
+              type="button"
+              class="reader-ai-edit-proposal-action button-success"
+              onClick={() => onAccept?.(proposal.id)}
+            >
               Undo reject
             </button>
           ) : (
-            <button type="button" class="reader-ai-edit-proposal-action" onClick={() => onReject?.(proposal.id)}>
+            <button
+              type="button"
+              class="reader-ai-edit-proposal-action button-danger"
+              onClick={() => onReject?.(proposal.id)}
+            >
               Reject
             </button>
           )}
