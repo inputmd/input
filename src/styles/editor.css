@@ -870,7 +870,18 @@
 .cm-editor .cm-editor-diff-preview-action--compact {
   min-width: 24px;
   justify-content: center;
-  padding: 2px 8px 2px 6px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.cm-editor .cm-editor-diff-preview-action--compact.cm-editor-diff-preview-action--start {
+  padding-left: 8px;
+  padding-right: 6px;
+}
+
+.cm-editor .cm-editor-diff-preview-action--compact.cm-editor-diff-preview-action--end {
+  padding-left: 6px;
+  padding-right: 8px;
 }
 
 .cm-editor .cm-editor-diff-preview-action svg {

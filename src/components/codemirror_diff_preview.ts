@@ -39,6 +39,7 @@ export interface EditorDiffPreviewActionEvent {
 type DiffPreviewWidgetDisplay = 'block' | 'inline';
 const INLINE_DIFF_PREVIEW_MAX_CHARS = 80;
 const SVG_NS = 'http://www.w3.org/2000/svg';
+type DiffPreviewActionSide = 'start' | 'end';
 
 function shouldRenderDiffPreviewMeta(display: DiffPreviewWidgetDisplay, badge?: string, source?: string): boolean {
   if (display !== 'block') return false;
@@ -311,25 +312,28 @@ class DiffPreviewWidget extends WidgetType {
 
     if (this.block.status === 'accepted' || this.block.status === 'rejected') {
       const currentActionId: EditorDiffPreviewActionId = this.block.status === 'accepted' ? 'accept' : 'reject';
-      const alternateActionId: EditorDiffPreviewActionId = currentActionId === 'accept' ? 'reject' : 'accept';
       const stateGroup = document.createElement('div');
       stateGroup.className = 'cm-editor-diff-preview-state-split';
       stateGroup.setAttribute('role', 'group');
       stateGroup.setAttribute('aria-label', 'Choose whether to accept or reject this change');
       stateGroup.append(
         this.createActionButton({
-          actionId: currentActionId,
-          label: currentActionId === 'accept' ? 'Accepted' : 'Rejected',
-          tone: currentActionId === 'accept' ? 'primary' : 'danger',
-          stateKind: currentActionId,
-          prominent: true,
+          actionId: 'accept',
+          label: currentActionId === 'accept' ? 'Accepted' : 'Accept',
+          tone: 'primary',
+          stateKind: 'accept',
+          prominent: currentActionId === 'accept',
+          compact: currentActionId !== 'accept',
+          side: 'start',
         }),
         this.createActionButton({
-          actionId: alternateActionId,
-          label: alternateActionId === 'accept' ? 'Accept' : 'Reject',
-          tone: alternateActionId === 'accept' ? 'primary' : 'danger',
-          stateKind: alternateActionId,
-          compact: true,
+          actionId: 'reject',
+          label: currentActionId === 'reject' ? 'Rejected' : 'Reject',
+          tone: 'danger',
+          stateKind: 'reject',
+          prominent: currentActionId === 'reject',
+          compact: currentActionId !== 'reject',
+          side: 'end',
         }),
       );
       actions.append(stateGroup);
@@ -365,12 +369,14 @@ class DiffPreviewWidget extends WidgetType {
     stateKind?: 'accept' | 'reject';
     prominent?: boolean;
     compact?: boolean;
+    side?: DiffPreviewActionSide;
   }): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `cm-editor-diff-preview-action cm-editor-diff-preview-action--${options.tone ?? 'neutral'}`;
     if (options.prominent) button.classList.add('cm-editor-diff-preview-action--prominent');
     if (options.compact) button.classList.add('cm-editor-diff-preview-action--compact');
+    if (options.side) button.classList.add(`cm-editor-diff-preview-action--${options.side}`);
     if (options.stateKind) button.classList.add(`cm-editor-diff-preview-action--state-${options.stateKind}`);
     if (options.stateKind) {
       const icon = createLucideStateIcon(options.stateKind);
