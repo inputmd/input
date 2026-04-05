@@ -21,6 +21,7 @@ export interface ReaderAiHistoryEntry {
     id?: string;
     name: string;
     detail?: string;
+    toolArguments?: string;
     taskId?: string;
     taskStatus?: 'running' | 'completed' | 'error';
     tone?: 'default' | 'success' | 'error';
@@ -342,6 +343,10 @@ function normalizePersistedToolLog(value: unknown): NonNullable<ReaderAiHistoryE
         detail:
           typeof (toolEntry as { detail?: unknown }).detail === 'string'
             ? (toolEntry as { detail: string }).detail
+            : undefined,
+        toolArguments:
+          typeof (toolEntry as { toolArguments?: unknown }).toolArguments === 'string'
+            ? (toolEntry as { toolArguments: string }).toolArguments
             : undefined,
         taskId:
           typeof (toolEntry as { taskId?: unknown }).taskId === 'string'

@@ -1136,6 +1136,8 @@ export function useReaderAiSession({
               };
               setReaderAiToolStatus(labels[event.name] ?? `Running ${event.name}…`);
               const argsObj = typeof event.arguments === 'object' ? event.arguments : undefined;
+              const toolArguments =
+                typeof event.arguments === 'string' ? event.arguments : argsObj ? JSON.stringify(argsObj) : undefined;
               const detail = argsObj
                 ? (((argsObj as Record<string, unknown>).path as string | undefined) ??
                   ((argsObj as Record<string, unknown>).query as string | undefined))
@@ -1147,6 +1149,7 @@ export function useReaderAiSession({
                   id: event.id,
                   name: event.name,
                   detail: typeof detail === 'string' ? detail : undefined,
+                  toolArguments,
                   taskId: event.name === 'task' ? event.id : undefined,
                 },
               ]);
@@ -1162,12 +1165,7 @@ export function useReaderAiSession({
                     name: event.name,
                     status: 'running',
                     detail: typeof detail === 'string' ? detail : undefined,
-                    args:
-                      typeof event.arguments === 'string'
-                        ? event.arguments
-                        : argsObj
-                          ? JSON.stringify(argsObj)
-                          : undefined,
+                    args: toolArguments,
                     startedAt: new Date().toISOString(),
                     retryCount: 0,
                     maxRetries: 0,

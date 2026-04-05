@@ -468,8 +468,9 @@ function accessibleReaderAiModels(models: ReaderAiModel[], authenticated: boolea
   return authenticated ? models : models.filter((model) => !isPaidReaderAiModel(model));
 }
 
-function firstPaidReaderAiModelId(models: ReaderAiModel[]): string {
-  return models.find(isPaidReaderAiModel)?.id ?? '';
+function lastPaidReaderAiModelId(models: ReaderAiModel[]): string {
+  const paidModels = models.filter(isPaidReaderAiModel);
+  return paidModels.at(-1)?.id ?? '';
 }
 
 function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
@@ -1135,7 +1136,6 @@ export function App() {
     pruneAppliedReaderAiPaths,
     repairReaderAiRemoteConflictPath,
     readerAiActiveChangeSet,
-    readerAiActiveRunId,
     readerAiApplyingChanges,
     readerAiConversationScope,
     readerAiChangeSets,
@@ -3706,7 +3706,7 @@ export function App() {
     setReaderAiModelsError(null);
     try {
       const models = prioritizeReaderAiModels(await listReaderAiModels());
-      const preferredPaidModelId = preferPaidReaderAiModelOnNextLoadRef.current ? firstPaidReaderAiModelId(models) : '';
+      const preferredPaidModelId = preferPaidReaderAiModelOnNextLoadRef.current ? lastPaidReaderAiModelId(models) : '';
       preferPaidReaderAiModelOnNextLoadRef.current = false;
       setReaderAiConfigured(true);
       setReaderAiModels(models);
@@ -7926,7 +7926,6 @@ export function App() {
             selectedModel={readerAiSelectedModel}
             messages={readerAiMessages}
             runs={readerAiRuns}
-            activeRunId={readerAiActiveRunId}
             queuedCommands={readerAiQueuedCommands}
             sending={readerAiSending}
             toolStatus={readerAiToolStatus}

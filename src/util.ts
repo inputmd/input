@@ -59,3 +59,35 @@ export function encodePathForHref(path: string): string {
 export function reusableImageSrc(image: Pick<HTMLImageElement, 'src' | 'currentSrc' | 'getAttribute'>): string {
   return image.src.trim() || image.currentSrc.trim() || (image.getAttribute('src') ?? '').trim();
 }
+
+export async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.setAttribute('readonly', '');
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  document.body.append(input);
+  input.select();
+  document.execCommand('copy');
+  input.remove();
+}
+
+export function buildToolCallJson(options: { id?: string; name: string; argumentsJson?: string }): string {
+  return JSON.stringify(
+    {
+      ...(options.id ? { id: options.id } : {}),
+      type: 'function',
+      function: {
+        name: options.name,
+        arguments: options.argumentsJson ?? '{}',
+      },
+    },
+    null,
+    2,
+  );
+}

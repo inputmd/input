@@ -32,7 +32,6 @@ interface ReaderAiPanelProps {
   selectedModel: string;
   messages: ReaderAiMessage[];
   runs: ReaderAiRunRecord[];
-  activeRunId?: string | null;
   queuedCommands: string[];
   sending: boolean;
   toolStatus: string | null;
@@ -153,7 +152,6 @@ export function ReaderAiPanel({
   selectedModel,
   messages,
   runs,
-  activeRunId = null,
   queuedCommands,
   sending,
   toolStatus,
@@ -676,20 +674,20 @@ export function ReaderAiPanel({
       {panelView === 'history' ? (
         <div class="reader-ai-history-view">
           <div class="reader-ai-history-view-header">
+            <div class="reader-ai-history-view-title-group">
+              <div class="reader-ai-history-view-title">History</div>
+            </div>
+            <div class="reader-ai-history-view-count">
+              {runs.length === 0 ? 'No runs yet' : `${runs.length} run${runs.length === 1 ? '' : 's'} recorded`}
+            </div>
             <button type="button" class="reader-ai-history-back-btn" onClick={returnToChatView}>
               <ArrowLeft size={14} aria-hidden="true" />
               <span>Back to chat</span>
             </button>
-            <div class="reader-ai-history-view-title-group">
-              <div class="reader-ai-history-view-title">History</div>
-              <div class="reader-ai-history-view-subtitle">
-                {runs.length === 0 ? 'No runs yet' : `${runs.length} run${runs.length === 1 ? '' : 's'} recorded`}
-              </div>
-            </div>
           </div>
           <div class="reader-ai-history-view-body">
             {runs.length > 0 ? (
-              <ReaderAiRunHistorySection runs={runs} activeRunId={activeRunId} onRetryStep={retryRunStep} />
+              <ReaderAiRunHistorySection runs={runs} onRetryStep={retryRunStep} />
             ) : (
               <div class="reader-ai-history-empty">Reader AI history will appear here after you run prompts.</div>
             )}

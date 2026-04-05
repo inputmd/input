@@ -1,6 +1,7 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { useMemo, useState } from 'preact/hooks';
 import type { ReaderAiEditProposal } from '../reader_ai';
+import { buildToolCallJson, copyTextToClipboard } from '../util';
 import { ReaderAiEditProposalCard } from './ReaderAiEditProposalCard';
 
 export interface ReaderAiToolLogEntry {
@@ -8,6 +9,7 @@ export interface ReaderAiToolLogEntry {
   id?: string;
   name: string;
   detail?: string;
+  toolArguments?: string;
   taskId?: string;
   taskStatus?: 'running' | 'completed' | 'error';
   tone?: 'default' | 'success' | 'error';
@@ -51,7 +53,13 @@ export function ToolLogSection({
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(() => new Set());
   if (entries.length === 0) return null;
 
-  const activityCount = entries.length;
+  const activityCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const entry of entries) {
+      if (entry.id) ids.add(entry.id);
+    }
+    return ids.size;
+  }, [entries]);
   const summary = live
     ? `${activityCount} tool call${activityCount === 1 ? '' : 's'}…`
     : `${activityCount} tool call${activityCount === 1 ? '' : 's'}`;
@@ -138,6 +146,17 @@ export function ToolLogSection({
   const showProposalStatusNote = (entry: ReaderAiToolLogEntry): boolean =>
     entry.type === 'call' && entry.name === 'propose_edit_document';
 
+  const handleCopyToolCall = (entry: ReaderAiToolLogEntry) => {
+    if (entry.type !== 'call') return;
+    void copyTextToClipboard(
+      buildToolCallJson({
+        id: entry.id,
+        name: entry.name,
+        argumentsJson: entry.toolArguments,
+      }),
+    );
+  };
+
   return (
     <div class="reader-ai-tool-log">
       <a
@@ -164,6 +183,20 @@ export function ToolLogSection({
                   }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
                 >
                   <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
+                  {entry.type === 'call' ? (
+                    <button
+                      type="button"
+                      class="reader-ai-tool-copy-btn"
+                      aria-label={`Copy ${entry.name} tool call JSON`}
+                      title="Copy tool call JSON"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleCopyToolCall(entry);
+                      }}
+                    >
+                      <Copy size={12} aria-hidden="true" />
+                    </button>
+                  ) : null}
                   {showProposalStatusNote(entry) && proposalStatus ? (
                     <span
                       class={`reader-ai-tool-log-status-note${proposalStatusClassName(entry.id) ? ` ${proposalStatusClassName(entry.id)}` : ''}`}
@@ -212,6 +245,20 @@ export function ToolLogSection({
                             }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
                           >
                             <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
+                            {entry.type === 'call' ? (
+                              <button
+                                type="button"
+                                class="reader-ai-tool-copy-btn"
+                                aria-label={`Copy ${entry.name} tool call JSON`}
+                                title="Copy tool call JSON"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleCopyToolCall(entry);
+                                }}
+                              >
+                                <Copy size={12} aria-hidden="true" />
+                              </button>
+                            ) : null}
                             {showProposalStatusNote(entry) && proposalStatus ? (
                               <span
                                 class={`reader-ai-tool-log-status-note${proposalStatusClassName(entry.id) ? ` ${proposalStatusClassName(entry.id)}` : ''}`}
