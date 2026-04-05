@@ -1,8 +1,5 @@
 export function formatPromptListAnswer(text: string, indent: string): string {
   const normalizePromptListContinuationLine = (line: string): string => {
-    if (/^\d+([.)])\s+/.test(line)) {
-      return line.replace(/^(\d+)([.)])(\s+)/, '$1\\$2$3');
-    }
     if (/^(#|```|~~~)/.test(line)) return `\\${line}`;
     return line;
   };

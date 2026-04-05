@@ -7,10 +7,10 @@ test('formatPromptListAnswer preserves unordered list continuation lines', (t) =
   t.is(formatted, 'Intro\n  - first\n  * second');
 });
 
-test('formatPromptListAnswer still escapes ordered list continuation lines', (t) => {
+test('formatPromptListAnswer preserves ordered list continuation lines', (t) => {
   const formatted = formatPromptListAnswer('Intro\n1. first\n2) second', '');
 
-  t.is(formatted, 'Intro\n  1\\. first\n  2\\) second');
+  t.is(formatted, 'Intro\n  1. first\n  2) second');
 });
 
 test('formatPromptListAnswer still escapes headings and fences but preserves blockquotes', (t) => {
