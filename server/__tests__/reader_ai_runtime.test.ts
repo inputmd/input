@@ -275,6 +275,59 @@ test('prepareReaderAiSelectedChangesForApply does not treat a proposal as stale 
   t.is(prepared.selectedChanges[0]?.path, 'doc.md');
 });
 
+test('prepareReaderAiSelectedChangesForApply does not treat a proposal as stale when editor content is empty', (t) => {
+  const currentChange: ReaderAiStagedChange = {
+    id: 'change:current',
+    path: 'doc.md',
+    type: 'edit',
+    diff: '@@ -1 +1 @@\n-before\n+after\n',
+    revision: 1,
+    originalContent: 'before\n',
+    modifiedContent: 'after\n',
+    hunks: [
+      {
+        id: 'hunk:1',
+        header: '@@ -1 +1 @@',
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        lines: [
+          { type: 'del', content: 'before' },
+          { type: 'add', content: 'after' },
+        ],
+      },
+    ],
+  };
+
+  const prepared = prepareReaderAiSelectedChangesForApply({
+    activeChangeSet: {
+      id: 'changeset:1',
+      runId: 'run:1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      status: 'ready',
+      editProposals: [],
+      proposalStatusesByToolCallId: {},
+      stagedChanges: [currentChange],
+      stagedFileContents: { 'doc.md': 'after\n' },
+      documentEditedContent: null,
+      files: [{ path: 'doc.md', status: 'ready', hasCompleteContent: true, baseRevision: 1 }],
+      appliedPaths: [],
+      failedPaths: [],
+    },
+    currentEditContentRevision: 0,
+    currentEditingDocPath: 'doc.md',
+    currentEditingDocumentContent: '',
+    selectedChanges: [currentChange],
+    selectedFileContents: { 'doc.md': 'after\n' },
+    mode: 'without-saving',
+  });
+
+  t.deepEqual(prepared.invalid, []);
+  t.is(prepared.selectedChanges.length, 1);
+});
+
 test('buildReaderAiSelectedChange ignores malformed hunks instead of throwing', (t) => {
   const malformedChange: ReaderAiStagedChange = {
     id: 'change:bad',

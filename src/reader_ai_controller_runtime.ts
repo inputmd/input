@@ -149,8 +149,10 @@ export function prepareReaderAiSelectedChangesForApply(options: {
     }
 
     const isCurrentEditorDocument = change.path === options.currentEditingDocPath;
+    const editorContentLoaded = options.currentEditingDocumentContent.length > 0;
     const hasLocalDrift =
       isCurrentEditorDocument &&
+      editorContentLoaded &&
       typeof change.originalContent === 'string' &&
       change.originalContent !== options.currentEditingDocumentContent;
     const needsRepair =
