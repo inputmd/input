@@ -1162,7 +1162,7 @@ export function App() {
     onReaderAiClear,
     onReaderAiEditMessage,
     onReaderAiResetToMessage,
-    onReaderAiRetryLastMessage,
+    onReaderAiRetryUserMessage,
     onReaderAiRetryRunStep,
     onReaderAiSend,
     onReaderAiStop,
@@ -8082,7 +8082,7 @@ export function App() {
             onSend={onReaderAiSend}
             onEditMessage={onReaderAiEditMessage}
             onResetToMessage={onReaderAiResetToMessage}
-            onRetryLastUserMessage={onReaderAiRetryLastMessage}
+            onRetryUserMessage={onReaderAiRetryUserMessage}
             onRetryRunStep={onReaderAiRetryRunStep}
             onStop={onReaderAiStop}
             onClear={onReaderAiClear}

@@ -6,6 +6,7 @@ import { matchesPrimaryShortcut } from '../keyboard_shortcuts';
 import { parseMarkdownToHtml } from '../markdown';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from '../reader_ai';
 import type { ReaderAiRunRecord } from '../reader_ai_ledger';
+import { copyTextToClipboard } from '../util';
 import { ReaderAiRunHistorySection } from './ReaderAiRunHistory';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
@@ -72,7 +73,7 @@ interface ReaderAiPanelProps {
   onSend: (prompt: string) => Promise<boolean>;
   onEditMessage: (index: number, content: string) => Promise<boolean>;
   onResetToMessage?: (index: number) => Promise<string | undefined>;
-  onRetryLastUserMessage: () => Promise<void>;
+  onRetryUserMessage: (index: number) => Promise<void>;
   onRetryRunStep?: (target: { runId: string; stepId: string }) => Promise<void>;
   onStop: () => void;
   onClear: () => void;
@@ -107,6 +108,37 @@ function findInlineSpinnerHost(root: HTMLElement): HTMLElement {
   }
 
   return root;
+}
+
+function buildReaderAiTranscript(options: {
+  selectedModel: string;
+  messages: ReaderAiMessage[];
+  runs: ReaderAiRunRecord[];
+  toolLog: ReaderAiToolLogEntry[];
+  editProposals: ReaderAiEditProposal[];
+  stagedChanges: ReaderAiStagedChange[];
+  queuedCommands: string[];
+  toolStatus: string | null;
+  sending: boolean;
+}): string {
+  return JSON.stringify(
+    {
+      type: 'reader_ai_transcript',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      selectedModel: options.selectedModel,
+      sending: options.sending,
+      toolStatus: options.toolStatus,
+      queuedCommands: options.queuedCommands,
+      messages: options.messages,
+      toolLog: options.toolLog,
+      runs: options.runs,
+      editProposals: options.editProposals,
+      stagedChanges: options.stagedChanges,
+    },
+    null,
+    2,
+  );
 }
 
 function ReaderAiAssistantMessage({
@@ -191,7 +223,7 @@ export function ReaderAiPanel({
   onSend,
   onEditMessage,
   onResetToMessage,
-  onRetryLastUserMessage,
+  onRetryUserMessage,
   onRetryRunStep,
   onStop,
   onClear,
@@ -475,14 +507,17 @@ export function ReaderAiPanel({
     }
   };
 
-  const retryLastUserMessage = useCallback(async () => {
-    try {
-      setActionError(null);
-      await onRetryLastUserMessage();
-    } catch (error) {
-      setActionError(getActionErrorMessage(error, 'Failed to retry Reader AI message.'));
-    }
-  }, [getActionErrorMessage, onRetryLastUserMessage]);
+  const retryUserMessage = useCallback(
+    async (index: number) => {
+      try {
+        setActionError(null);
+        await onRetryUserMessage(index);
+      } catch (error) {
+        setActionError(getActionErrorMessage(error, 'Failed to retry Reader AI message.'));
+      }
+    },
+    [getActionErrorMessage, onRetryUserMessage],
+  );
 
   const clearChat = (focusComposer: boolean) => {
     if (!hasMessages && queuedCommands.length === 0) return;
@@ -551,6 +586,38 @@ export function ReaderAiPanel({
     setPanelView('history');
   }, []);
 
+  const copyTranscript = useCallback(async () => {
+    try {
+      setActionError(null);
+      await copyTextToClipboard(
+        buildReaderAiTranscript({
+          selectedModel,
+          messages,
+          runs,
+          toolLog,
+          editProposals,
+          stagedChanges,
+          queuedCommands,
+          toolStatus,
+          sending,
+        }),
+      );
+    } catch (error) {
+      setActionError(getActionErrorMessage(error, 'Failed to copy Reader AI transcript.'));
+    }
+  }, [
+    editProposals,
+    getActionErrorMessage,
+    messages,
+    queuedCommands,
+    runs,
+    selectedModel,
+    sending,
+    stagedChanges,
+    toolLog,
+    toolStatus,
+  ]);
+
   const returnToChatView = useCallback(() => {
     setPanelView('chat');
     focusComposerInput();
@@ -613,6 +680,14 @@ export function ReaderAiPanel({
               </DropdownMenu.Item>
               <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={openHistoryView}>
                 History
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                class="reader-ai-composer-menu-item"
+                onSelect={() => {
+                  void copyTranscript();
+                }}
+              >
+                Copy transcript
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
@@ -775,9 +850,9 @@ export function ReaderAiPanel({
                                   </DropdownMenu.Item>
                                   <DropdownMenu.Item
                                     class="reader-ai-composer-menu-item"
-                                    disabled={sending || !selectedModel || index !== lastUserMessageIndex}
+                                    disabled={sending || !selectedModel}
                                     onSelect={() => {
-                                      void retryLastUserMessage();
+                                      void retryUserMessage(index);
                                     }}
                                   >
                                     Retry

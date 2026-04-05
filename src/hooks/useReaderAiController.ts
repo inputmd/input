@@ -127,29 +127,44 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
     [streamReaderAiAssistant],
   );
 
-  const onReaderAiRetryLastMessage = useCallback(async () => {
-    if (session.readerAiSending) return;
-    const currentMessages = readerAiMessagesRef.current;
-    if (currentMessages.length === 0) return;
-    let lastUserIndex = -1;
-    for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
-      if (currentMessages[index].role === 'user') {
-        lastUserIndex = index;
-        break;
+  const onReaderAiRetryUserMessage = useCallback(
+    async (targetIndex: number) => {
+      if (session.readerAiSending) return;
+      const currentMessages = readerAiMessagesRef.current;
+      if (currentMessages.length === 0) return;
+      if (targetIndex < 0 || targetIndex >= currentMessages.length) return;
+      const target = currentMessages[targetIndex];
+      if (!target || target.role !== 'user') return;
+      let lastUserIndex = -1;
+      for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
+        if (currentMessages[index].role === 'user') {
+          lastUserIndex = index;
+          break;
+        }
       }
-    }
-    if (lastUserIndex === -1) return;
-    const retryRequest = session.buildReaderAiRetryRequest();
-    const messagesToReplay = retryRequest?.baseMessages.length
-      ? retryRequest.baseMessages
-      : currentMessages.slice(0, lastUserIndex + 1);
-    session.resetReaderAiProposalsForRetry();
-    await streamReaderAiAssistant(messagesToReplay, {
-      modelId: retryRequest?.modelId ?? options.readerAiSelectedModel,
-      parentRunId: retryRequest?.parentRunId ?? null,
-      retryStepId: retryRequest?.retryStepId,
-    });
-  }, [options.readerAiSelectedModel, session, streamReaderAiAssistant]);
+      if (lastUserIndex === -1) return;
+      if (targetIndex !== lastUserIndex) {
+        const messagesToReplay = currentMessages.slice(0, targetIndex + 1);
+        session.rewindReaderAiConversation(messagesToReplay);
+        session.resetReaderAiProposalsForRetry();
+        await streamReaderAiAssistant(messagesToReplay, {
+          modelId: options.readerAiSelectedModel,
+        });
+        return;
+      }
+      const retryRequest = session.buildReaderAiRetryRequest();
+      const messagesToReplay = retryRequest?.baseMessages.length
+        ? retryRequest.baseMessages
+        : currentMessages.slice(0, lastUserIndex + 1);
+      session.resetReaderAiProposalsForRetry();
+      await streamReaderAiAssistant(messagesToReplay, {
+        modelId: retryRequest?.modelId ?? options.readerAiSelectedModel,
+        parentRunId: retryRequest?.parentRunId ?? null,
+        retryStepId: retryRequest?.retryStepId,
+      });
+    },
+    [options.readerAiSelectedModel, session, streamReaderAiAssistant],
+  );
 
   const onReaderAiResetToMessage = useCallback(
     async (index: number) => {
@@ -191,7 +206,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       onReaderAiClear: session.clearReaderAi,
       onReaderAiEditMessage,
       onReaderAiResetToMessage,
-      onReaderAiRetryLastMessage,
+      onReaderAiRetryUserMessage,
       onReaderAiRetryRunStep,
       onReaderAiSend,
       onReaderAiStop: session.stopReaderAi,
@@ -200,7 +215,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
     [
       onReaderAiEditMessage,
       onReaderAiResetToMessage,
-      onReaderAiRetryLastMessage,
+      onReaderAiRetryUserMessage,
       onReaderAiRetryRunStep,
       onReaderAiSend,
       session,
