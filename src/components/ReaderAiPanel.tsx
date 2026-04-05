@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowRight, CircleStop, MoreHorizontal, Pencil, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CircleStop, MoreHorizontal, Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import { parseMarkdownToHtml } from '../markdown';
@@ -10,6 +10,8 @@ import { StagedChangesSection } from './ReaderAiStagedChanges';
 import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
 
 export type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
+
+type ReaderAiPanelView = 'chat' | 'history';
 
 export interface ReaderAiMessage {
   role: 'user' | 'assistant';
@@ -193,6 +195,7 @@ export function ReaderAiPanel({
   const [editingDraft, setEditingDraft] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
+  const [panelView, setPanelView] = useState<ReaderAiPanelView>('chat');
   const panelRef = useRef<HTMLElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
@@ -527,6 +530,15 @@ export function ReaderAiPanel({
     [focusComposerInput, getActionErrorMessage, onSend],
   );
 
+  const openHistoryView = useCallback(() => {
+    setPanelView('history');
+  }, []);
+
+  const returnToChatView = useCallback(() => {
+    setPanelView('chat');
+    focusComposerInput();
+  }, [focusComposerInput]);
+
   const retryRunStep = useCallback(
     async (target: { runId: string; stepId: string }) => {
       if (!onRetryRunStep) return;
@@ -581,6 +593,9 @@ export function ReaderAiPanel({
                 <span class="reader-ai-composer-menu-item-shortcut" aria-hidden="true">
                   {clearChatShortcutLabel}
                 </span>
+              </DropdownMenu.Item>
+              <DropdownMenu.Item class="reader-ai-composer-menu-item" onSelect={openHistoryView}>
+                History
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
@@ -646,175 +661,221 @@ export function ReaderAiPanel({
       aria-label="Reader AI panel"
       aria-hidden={className?.includes('reader-ai-panel--hidden') ? 'true' : undefined}
     >
-      <div class="reader-ai-messages" ref={messagesRef}>
-        {composerAtTop ? composer : null}
-        {!hasMessages ? (
-          <div class="reader-ai-empty">
-            <button
-              type="button"
-              class="reader-ai-summarize-btn"
-              disabled={composerInputDisabled}
-              onClick={() => {
-                void sendQuickPrompt(selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.');
-              }}
-            >
-              Summarize
+      {panelView === 'history' ? (
+        <div class="reader-ai-history-view">
+          <div class="reader-ai-history-view-header">
+            <button type="button" class="reader-ai-history-back-btn" onClick={returnToChatView}>
+              <ArrowLeft size={14} aria-hidden="true" />
+              <span>Back to chat</span>
             </button>
-            <button
-              type="button"
-              class="reader-ai-summarize-btn"
-              disabled={composerInputDisabled}
-              onClick={() => {
-                void sendQuickPrompt(
-                  selectionModeEnabled
-                    ? 'Identify any questions raised by this selection.'
-                    : 'Identify any questions raised by this document.',
-                );
-              }}
-            >
-              Identify questions
-            </button>
+            <div class="reader-ai-history-view-title-group">
+              <div class="reader-ai-history-view-title">History</div>
+              <div class="reader-ai-history-view-subtitle">
+                {runs.length === 0 ? 'No runs yet' : `${runs.length} run${runs.length === 1 ? '' : 's'} recorded`}
+              </div>
+            </div>
           </div>
-        ) : null}
-        {messages.map((message, index) => (
-          <div key={`${message.role}-${index}`}>
-            <div class={`reader-ai-message reader-ai-message--${message.role}`}>
-              <div class="reader-ai-message-role">
-                {message.role === 'user' ? (
-                  <>
-                    <span>You</span>
-                    {editingIndex === index ? null : (
-                      <span class="reader-ai-message-actions">
-                        <button
-                          type="button"
-                          class="reader-ai-message-icon-btn"
-                          onClick={() => {
-                            setEditingIndex(index);
-                            setEditingDraft(message.content);
-                          }}
-                          disabled={sending || !selectedModel}
-                          aria-label="Edit message"
-                        >
-                          <Pencil size={13} aria-hidden="true" />
-                        </button>
-                        <DropdownMenu.Root onOpenChange={blurOnClose}>
-                          <DropdownMenu.Trigger asChild>
+          <div class="reader-ai-history-view-body">
+            {runs.length > 0 ? (
+              <ReaderAiRunHistorySection runs={runs} activeRunId={activeRunId} onRetryStep={retryRunStep} />
+            ) : (
+              <div class="reader-ai-history-empty">Reader AI history will appear here after you run prompts.</div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div class="reader-ai-messages" ref={messagesRef}>
+            {composerAtTop ? composer : null}
+            {!hasMessages ? (
+              <div class="reader-ai-empty">
+                <button
+                  type="button"
+                  class="reader-ai-summarize-btn"
+                  disabled={composerInputDisabled}
+                  onClick={() => {
+                    void sendQuickPrompt(
+                      selectionModeEnabled ? 'Summarize this selection.' : 'Summarize this document.',
+                    );
+                  }}
+                >
+                  Summarize
+                </button>
+                <button
+                  type="button"
+                  class="reader-ai-summarize-btn"
+                  disabled={composerInputDisabled}
+                  onClick={() => {
+                    void sendQuickPrompt(
+                      selectionModeEnabled
+                        ? 'Identify any questions raised by this selection.'
+                        : 'Identify any questions raised by this document.',
+                    );
+                  }}
+                >
+                  Identify questions
+                </button>
+              </div>
+            ) : null}
+            {messages.map((message, index) => (
+              <div key={`${message.role}-${index}`}>
+                <div class={`reader-ai-message reader-ai-message--${message.role}`}>
+                  <div class="reader-ai-message-role">
+                    {message.role === 'user' ? (
+                      <>
+                        <span>You</span>
+                        {editingIndex === index ? null : (
+                          <span class="reader-ai-message-actions">
                             <button
                               type="button"
-                              class="reader-ai-message-menu-trigger"
-                              aria-label="Message actions"
-                              disabled={!selectedModel}
+                              class="reader-ai-message-icon-btn"
+                              onClick={() => {
+                                setEditingIndex(index);
+                                setEditingDraft(message.content);
+                              }}
+                              disabled={sending || !selectedModel}
+                              aria-label="Edit message"
                             >
-                              <MoreHorizontal size={13} aria-hidden="true" />
+                              <Pencil size={13} aria-hidden="true" />
                             </button>
-                          </DropdownMenu.Trigger>
-                          <DropdownMenu.Portal>
-                            <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
-                              <DropdownMenu.Item
-                                class="reader-ai-composer-menu-item"
-                                disabled={sending || !selectedModel}
-                                onSelect={() => {
-                                  setEditingIndex(index);
-                                  setEditingDraft(message.content);
-                                }}
-                              >
-                                Edit
-                              </DropdownMenu.Item>
-                              <DropdownMenu.Item
-                                class="reader-ai-composer-menu-item"
-                                disabled={sending || !selectedModel || index !== lastUserMessageIndex}
-                                onSelect={() => {
-                                  void retryLastUserMessage();
-                                }}
-                              >
-                                Retry
-                              </DropdownMenu.Item>
-                              <DropdownMenu.Item
-                                class="reader-ai-composer-menu-item"
-                                disabled={sending || !selectedModel || !onResetToMessage}
-                                onSelect={() => {
-                                  void resetToMessage(index);
-                                }}
-                              >
-                                Reset to here
-                              </DropdownMenu.Item>
-                            </DropdownMenu.Content>
-                          </DropdownMenu.Portal>
-                        </DropdownMenu.Root>
-                      </span>
+                            <DropdownMenu.Root onOpenChange={blurOnClose}>
+                              <DropdownMenu.Trigger asChild>
+                                <button
+                                  type="button"
+                                  class="reader-ai-message-menu-trigger"
+                                  aria-label="Message actions"
+                                  disabled={!selectedModel}
+                                >
+                                  <MoreHorizontal size={13} aria-hidden="true" />
+                                </button>
+                              </DropdownMenu.Trigger>
+                              <DropdownMenu.Portal>
+                                <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
+                                  <DropdownMenu.Item
+                                    class="reader-ai-composer-menu-item"
+                                    disabled={sending || !selectedModel}
+                                    onSelect={() => {
+                                      setEditingIndex(index);
+                                      setEditingDraft(message.content);
+                                    }}
+                                  >
+                                    Edit
+                                  </DropdownMenu.Item>
+                                  <DropdownMenu.Item
+                                    class="reader-ai-composer-menu-item"
+                                    disabled={sending || !selectedModel || index !== lastUserMessageIndex}
+                                    onSelect={() => {
+                                      void retryLastUserMessage();
+                                    }}
+                                  >
+                                    Retry
+                                  </DropdownMenu.Item>
+                                  <DropdownMenu.Item
+                                    class="reader-ai-composer-menu-item"
+                                    disabled={sending || !selectedModel || !onResetToMessage}
+                                    onSelect={() => {
+                                      void resetToMessage(index);
+                                    }}
+                                  >
+                                    Reset to here
+                                  </DropdownMenu.Item>
+                                </DropdownMenu.Content>
+                              </DropdownMenu.Portal>
+                            </DropdownMenu.Root>
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span>Reader AI</span>
+                        {message.edited ? <span class="reader-ai-message-edited">Edited</span> : null}
+                      </>
                     )}
-                  </>
-                ) : (
-                  <>
-                    <span>Reader AI</span>
-                    {message.edited ? <span class="reader-ai-message-edited">Edited</span> : null}
-                  </>
-                )}
-              </div>
-              {message.role === 'assistant' ? (
-                sending && index === messageCount - 1 && !message.content.trim() ? (
-                  <div class="reader-ai-thinking">
-                    <span class="reader-ai-thinking-spinner" aria-hidden="true" />
-                    <span>{thinkingSeconds >= 5 ? `Thinking... (${thinkingSeconds} seconds)` : 'Thinking...'}</span>
                   </div>
-                ) : (
-                  <ReaderAiAssistantMessage
-                    content={message.content}
-                    streaming={sending && index === messageCount - 1}
-                    onRendered={sending && index === messageCount - 1 ? maybeScrollMessagesToBottom : undefined}
-                  />
-                )
-              ) : editingIndex === index ? (
-                <div class="reader-ai-inline-edit">
-                  <textarea
-                    ref={editInputRef}
-                    class="reader-ai-inline-edit-input"
-                    value={editingDraft}
-                    onInput={(event) => setEditingDraft(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === 'Enter' &&
-                        !event.shiftKey &&
-                        !event.altKey &&
-                        !event.metaKey &&
-                        !event.ctrlKey
-                      ) {
-                        event.preventDefault();
-                        void applyEdit();
-                        return;
-                      }
-                      if (event.key === 'Escape') {
-                        event.preventDefault();
-                        cancelEdit();
-                      }
-                    }}
-                    rows={3}
-                    disabled={sending || !selectedModel}
-                  />
-                  <div class="reader-ai-inline-edit-actions">
-                    <button
-                      type="button"
-                      class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--secondary"
-                      onClick={cancelEdit}
-                      disabled={sending}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--primary"
-                      onClick={() => void applyEdit()}
-                      disabled={sending || !selectedModel || editingDraft.trim().length === 0}
-                    >
-                      Save
-                    </button>
-                  </div>
+                  {message.role === 'assistant' ? (
+                    sending && index === messageCount - 1 && !message.content.trim() ? (
+                      <div class="reader-ai-thinking">
+                        <span class="reader-ai-thinking-spinner" aria-hidden="true" />
+                        <span>{thinkingSeconds >= 5 ? `Thinking... (${thinkingSeconds} seconds)` : 'Thinking...'}</span>
+                      </div>
+                    ) : (
+                      <ReaderAiAssistantMessage
+                        content={message.content}
+                        streaming={sending && index === messageCount - 1}
+                        onRendered={sending && index === messageCount - 1 ? maybeScrollMessagesToBottom : undefined}
+                      />
+                    )
+                  ) : editingIndex === index ? (
+                    <div class="reader-ai-inline-edit">
+                      <textarea
+                        ref={editInputRef}
+                        class="reader-ai-inline-edit-input"
+                        value={editingDraft}
+                        onInput={(event) => setEditingDraft(event.currentTarget.value)}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === 'Enter' &&
+                            !event.shiftKey &&
+                            !event.altKey &&
+                            !event.metaKey &&
+                            !event.ctrlKey
+                          ) {
+                            event.preventDefault();
+                            void applyEdit();
+                            return;
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault();
+                            cancelEdit();
+                          }
+                        }}
+                        rows={3}
+                        disabled={sending || !selectedModel}
+                      />
+                      <div class="reader-ai-inline-edit-actions">
+                        <button
+                          type="button"
+                          class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--secondary"
+                          onClick={cancelEdit}
+                          disabled={sending}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--primary"
+                          onClick={() => void applyEdit()}
+                          disabled={sending || !selectedModel || editingDraft.trim().length === 0}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div class="reader-ai-message-content">{message.content}</div>
+                  )}
                 </div>
-              ) : (
-                <div class="reader-ai-message-content">{message.content}</div>
-              )}
-            </div>
-            {index === lastUserMessageIndex ? (
+                {index === lastUserMessageIndex ? (
+                  <>
+                    {toolLog.length > 0 ? (
+                      <ToolLogSection
+                        entries={toolLog}
+                        live={sending}
+                        proposals={editProposals}
+                        proposalStatusesByToolCallId={proposalStatusesByToolCallId}
+                        onAcceptProposal={onAcceptProposal}
+                        onRejectProposal={onRejectProposal}
+                        onToggleProposalHunkSelection={onToggleProposalHunkSelection}
+                      />
+                    ) : null}
+                    {sending && toolStatus && toolLog.length === 0 ? (
+                      <div class="reader-ai-tool-status">{toolStatus}</div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            ))}
+            {lastUserMessageIndex === -1 ? (
               <>
                 {toolLog.length > 0 ? (
                   <ToolLogSection
@@ -832,62 +893,41 @@ export function ReaderAiPanel({
                 ) : null}
               </>
             ) : null}
-          </div>
-        ))}
-        {lastUserMessageIndex === -1 ? (
-          <>
-            {toolLog.length > 0 ? (
-              <ToolLogSection
-                entries={toolLog}
-                live={sending}
-                proposals={editProposals}
-                proposalStatusesByToolCallId={proposalStatusesByToolCallId}
-                onAcceptProposal={onAcceptProposal}
-                onRejectProposal={onRejectProposal}
-                onToggleProposalHunkSelection={onToggleProposalHunkSelection}
+            {stagedChanges.length > 0 ? (
+              <StagedChangesSection
+                changes={stagedChanges}
+                streaming={stagedChangesStreaming}
+                title={editProposals.length > 0 ? 'Proposed changes' : undefined}
+                applying={applyingChanges}
+                canApplyWithoutSaving={canApplyWithoutSaving}
+                applyDisabledReasonLabel={applyDisabledReasonLabel}
+                editorProposalMode={editorProposalMode}
+                canUndoEditorApply={canUndoEditorApply}
+                reviewControls={false}
+                currentEditorPath={currentEditorPath}
+                activeReviewTarget={activeReviewTarget}
+                onApplyWithoutSaving={onApplyWithoutSaving}
+                onUndoEditorApply={onUndoEditorApply}
+                onIgnoreAll={onIgnoreAll}
+                onRevealChange={onRevealChange}
+                onRevealHunk={onRevealHunk}
+                onToggleChangeSelection={onToggleChangeSelection}
+                onToggleHunkSelection={onToggleHunkSelection}
+                selectedChangeIds={selectedChangeIds}
+                selectedHunkIds={selectedHunkIds}
+                onRejectChange={onRejectChange}
+                onRejectHunk={onRejectHunk}
               />
             ) : null}
-            {sending && toolStatus && toolLog.length === 0 ? (
-              <div class="reader-ai-tool-status">{toolStatus}</div>
+            {error || actionError ? (
+              <div class="reader-ai-error reader-ai-error--inline">{error ?? actionError}</div>
             ) : null}
-          </>
-        ) : null}
-        {stagedChanges.length > 0 ? (
-          <StagedChangesSection
-            changes={stagedChanges}
-            streaming={stagedChangesStreaming}
-            title={editProposals.length > 0 ? 'Proposed changes' : undefined}
-            applying={applyingChanges}
-            canApplyWithoutSaving={canApplyWithoutSaving}
-            applyDisabledReasonLabel={applyDisabledReasonLabel}
-            editorProposalMode={editorProposalMode}
-            canUndoEditorApply={canUndoEditorApply}
-            reviewControls={false}
-            currentEditorPath={currentEditorPath}
-            activeReviewTarget={activeReviewTarget}
-            onApplyWithoutSaving={onApplyWithoutSaving}
-            onUndoEditorApply={onUndoEditorApply}
-            onIgnoreAll={onIgnoreAll}
-            onRevealChange={onRevealChange}
-            onRevealHunk={onRevealHunk}
-            onToggleChangeSelection={onToggleChangeSelection}
-            onToggleHunkSelection={onToggleHunkSelection}
-            selectedChangeIds={selectedChangeIds}
-            selectedHunkIds={selectedHunkIds}
-            onRejectChange={onRejectChange}
-            onRejectHunk={onRejectHunk}
-          />
-        ) : null}
-        {runs.length > 0 ? (
-          <ReaderAiRunHistorySection runs={runs} activeRunId={activeRunId} onRetryStep={retryRunStep} />
-        ) : null}
-        {error || actionError ? (
-          <div class="reader-ai-error reader-ai-error--inline">{error ?? actionError}</div>
-        ) : null}
-        {composerAtTop ? null : <div class="reader-ai-messages-bottom-spacer" aria-hidden="true" />}
-        {composerAtTop ? null : composer}
-      </div>
-      {statusText ? <div class="reader-ai-status">{statusText}</div> : null}
+            {composerAtTop ? null : <div class="reader-ai-messages-bottom-spacer" aria-hidden="true" />}
+            {composerAtTop ? null : composer}
+          </div>
+          {statusText ? <div class="reader-ai-status">{statusText}</div> : null}
+        </>
+      )}
     </aside>
   );
 }

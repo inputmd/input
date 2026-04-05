@@ -581,6 +581,74 @@
   color: var(--text-secondary);
 }
 
+.reader-ai-history-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.reader-ai-history-view-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+.reader-ai-history-back-btn {
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.reader-ai-history-back-btn:hover {
+  background: var(--btn-hover);
+}
+
+.reader-ai-history-view-title-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reader-ai-history-view-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.reader-ai-history-view-subtitle {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.reader-ai-history-view-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+}
+
+.reader-ai-history-empty {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--btn-bg) 35%, transparent);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 .reader-ai-error {
   color: var(--error-color);
 }
@@ -1066,34 +1134,14 @@
 }
 
 .reader-ai-run-history {
-  margin: 6px 0 2px;
-  padding-top: 8px;
-}
-
-.reader-ai-run-history-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-.reader-ai-run-history-toggle:hover {
-  color: var(--text);
-  background: var(--btn-hover);
+  display: flex;
+  flex-direction: column;
 }
 
 .reader-ai-run-history-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px 0 2px 0;
 }
 
 .reader-ai-run-card {

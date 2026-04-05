@@ -44,7 +44,7 @@ function readerAiRetryReasonLabel(step: ReaderAiRunStep): string | null {
   return null;
 }
 
-function handleReaderAiHistoryToggleKeyDown(event: KeyboardEvent, onToggle: () => void): void {
+function handleReaderAiDisclosureKeyDown(event: KeyboardEvent, onToggle: () => void): void {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
   onToggle();
@@ -59,7 +59,6 @@ export function ReaderAiRunHistorySection({
   activeRunId?: string | null;
   onRetryStep?: (target: { runId: string; stepId: string }) => Promise<void>;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(() => {
     const initialRun = runs.at(-1);
     return initialRun ? new Set([initialRun.id]) : new Set();
@@ -67,11 +66,8 @@ export function ReaderAiRunHistorySection({
   const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(() => new Set());
   const previousActiveRunIdRef = useRef<string | null>(activeRunId ?? null);
 
-  const visibleRuns = useMemo(() => runs.slice().reverse().slice(0, 6), [runs]);
+  const visibleRuns = useMemo(() => runs.slice().reverse(), [runs]);
   if (visibleRuns.length === 0) return null;
-
-  const runningCount = visibleRuns.filter((run) => run.status === 'running').length;
-  const summary = runningCount > 0 ? `History · ${runningCount} active` : 'History';
 
   const toggleRun = (runId: string) => {
     setExpandedRunIds((current) => {
@@ -103,128 +99,113 @@ export function ReaderAiRunHistorySection({
 
   return (
     <div class="reader-ai-run-history">
-      <div
-        class="reader-ai-run-history-toggle"
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-        onKeyDown={(event) => handleReaderAiHistoryToggleKeyDown(event, () => setExpanded((current) => !current))}
-      >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <span>{summary}</span>
-      </div>
-      {expanded ? (
-        <div class="reader-ai-run-history-list">
-          {visibleRuns.map((run) => {
-            const runExpanded = expandedRunIds.has(run.id);
-            return (
+      <div class="reader-ai-run-history-list">
+        {visibleRuns.map((run) => {
+          const runExpanded = expandedRunIds.has(run.id);
+          return (
+            <div
+              key={run.id}
+              class={`reader-ai-run-card reader-ai-run-card--${run.status}${run.id === activeRunId ? ' reader-ai-run-card--active' : ''}`}
+            >
               <div
-                key={run.id}
-                class={`reader-ai-run-card reader-ai-run-card--${run.status}${run.id === activeRunId ? ' reader-ai-run-card--active' : ''}`}
+                class="reader-ai-run-card-toggle"
+                role="button"
+                tabIndex={0}
+                aria-expanded={runExpanded}
+                onClick={() => toggleRun(run.id)}
+                onKeyDown={(event) => handleReaderAiDisclosureKeyDown(event, () => toggleRun(run.id))}
               >
-                <div
-                  class="reader-ai-run-card-toggle"
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={runExpanded}
-                  onClick={() => toggleRun(run.id)}
-                  onKeyDown={(event) => handleReaderAiHistoryToggleKeyDown(event, () => toggleRun(run.id))}
-                >
-                  {runExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  <span class="reader-ai-run-card-title">{run.modelId}</span>
-                  <span class={`reader-ai-run-card-status reader-ai-run-card-status--${run.status}`}>
-                    {readerAiRunStatusLabel(run)}
+                {runExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                <span class="reader-ai-run-card-title">{run.modelId}</span>
+                <span class={`reader-ai-run-card-status reader-ai-run-card-status--${run.status}`}>
+                  {readerAiRunStatusLabel(run)}
+                </span>
+              </div>
+              {runExpanded ? (
+                <div class="reader-ai-run-card-meta">
+                  <span>{formatReaderAiRunTime(run.createdAt)}</span>
+                  <span>
+                    {run.steps.length} step{run.steps.length === 1 ? '' : 's'}
                   </span>
                 </div>
-                {runExpanded ? (
-                  <div class="reader-ai-run-card-meta">
-                    <span>{formatReaderAiRunTime(run.createdAt)}</span>
-                    <span>
-                      {run.steps.length} step{run.steps.length === 1 ? '' : 's'}
-                    </span>
-                  </div>
-                ) : null}
-                {runExpanded ? (
-                  <>
-                    <div class="reader-ai-run-steps">
-                      {run.steps.length > 0 ? (
-                        run.steps.map((step) => (
+              ) : null}
+              {runExpanded ? (
+                <>
+                  <div class="reader-ai-run-steps">
+                    {run.steps.length > 0 ? (
+                      run.steps.map((step) => (
+                        <div
+                          key={step.id}
+                          class={`reader-ai-run-step reader-ai-run-step--${step.status}${step.retryState === 'in_progress' ? ' reader-ai-run-step--retrying' : ''}`}
+                        >
                           <div
-                            key={step.id}
-                            class={`reader-ai-run-step reader-ai-run-step--${step.status}${step.retryState === 'in_progress' ? ' reader-ai-run-step--retrying' : ''}`}
+                            class="reader-ai-run-step-toggle"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => toggleStep(step.id)}
+                            onKeyDown={(event) => handleReaderAiDisclosureKeyDown(event, () => toggleStep(step.id))}
+                            aria-expanded={expandedStepIds.has(step.id)}
                           >
-                            <div
-                              class="reader-ai-run-step-toggle"
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => toggleStep(step.id)}
-                              onKeyDown={(event) =>
-                                handleReaderAiHistoryToggleKeyDown(event, () => toggleStep(step.id))
-                              }
-                              aria-expanded={expandedStepIds.has(step.id)}
-                            >
-                              {expandedStepIds.has(step.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              <span class="reader-ai-run-step-name">{step.name}</span>
-                              <span class={`reader-ai-run-step-status reader-ai-run-step-status--${step.status}`}>
-                                {readerAiStepStatusLabel(step)}
-                              </span>
-                            </div>
-                            {step.detail ? <div class="reader-ai-run-step-detail">{step.detail}</div> : null}
-                            {step.error ? <div class="reader-ai-run-step-error">{step.error}</div> : null}
-                            {readerAiRetryLabel(step) ? (
-                              <div class="reader-ai-run-step-retry">{readerAiRetryLabel(step)}</div>
-                            ) : null}
-                            {expandedStepIds.has(step.id) ? (
-                              <div class="reader-ai-run-step-inspector">
-                                {step.args ? (
-                                  <div class="reader-ai-run-step-inspector-block">
-                                    <div class="reader-ai-run-step-inspector-label">Arguments</div>
-                                    <pre class="reader-ai-run-step-inspector-code">{step.args}</pre>
-                                  </div>
-                                ) : null}
-                                {step.errorCode || readerAiRetryReasonLabel(step) ? (
-                                  <div class="reader-ai-run-step-inspector-meta">
-                                    {step.errorCode ? (
-                                      <span class="reader-ai-run-step-chip">Error: {step.errorCode}</span>
-                                    ) : null}
-                                    {readerAiRetryReasonLabel(step) ? (
-                                      <span class="reader-ai-run-step-chip">{readerAiRetryReasonLabel(step)}</span>
-                                    ) : null}
-                                  </div>
-                                ) : null}
-                                {step.retryable && step.retryState === 'ready' && onRetryStep ? (
-                                  <div class="reader-ai-run-step-actions">
-                                    <button
-                                      type="button"
-                                      class="reader-ai-run-step-action"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        void onRetryStep({ runId: run.id, stepId: step.id });
-                                      }}
-                                    >
-                                      Retry step
-                                    </button>
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
+                            {expandedStepIds.has(step.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            <span class="reader-ai-run-step-name">{step.name}</span>
+                            <span class={`reader-ai-run-step-status reader-ai-run-step-status--${step.status}`}>
+                              {readerAiStepStatusLabel(step)}
+                            </span>
                           </div>
-                        ))
-                      ) : (
-                        <div class="reader-ai-run-step reader-ai-run-step--empty">
-                          No tool or task steps were recorded.
+                          {step.detail ? <div class="reader-ai-run-step-detail">{step.detail}</div> : null}
+                          {step.error ? <div class="reader-ai-run-step-error">{step.error}</div> : null}
+                          {readerAiRetryLabel(step) ? (
+                            <div class="reader-ai-run-step-retry">{readerAiRetryLabel(step)}</div>
+                          ) : null}
+                          {expandedStepIds.has(step.id) ? (
+                            <div class="reader-ai-run-step-inspector">
+                              {step.args ? (
+                                <div class="reader-ai-run-step-inspector-block">
+                                  <div class="reader-ai-run-step-inspector-label">Arguments</div>
+                                  <pre class="reader-ai-run-step-inspector-code">{step.args}</pre>
+                                </div>
+                              ) : null}
+                              {step.errorCode || readerAiRetryReasonLabel(step) ? (
+                                <div class="reader-ai-run-step-inspector-meta">
+                                  {step.errorCode ? (
+                                    <span class="reader-ai-run-step-chip">Error: {step.errorCode}</span>
+                                  ) : null}
+                                  {readerAiRetryReasonLabel(step) ? (
+                                    <span class="reader-ai-run-step-chip">{readerAiRetryReasonLabel(step)}</span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              {step.retryable && step.retryState === 'ready' && onRetryStep ? (
+                                <div class="reader-ai-run-step-actions">
+                                  <button
+                                    type="button"
+                                    class="reader-ai-run-step-action"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void onRetryStep({ runId: run.id, stepId: step.id });
+                                    }}
+                                  >
+                                    Retry step
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                      )}
-                    </div>
-                    {run.error ? <div class="reader-ai-run-card-error">{run.error}</div> : null}
-                  </>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+                      ))
+                    ) : (
+                      <div class="reader-ai-run-step reader-ai-run-step--empty">
+                        No tool or task steps were recorded.
+                      </div>
+                    )}
+                  </div>
+                  {run.error ? <div class="reader-ai-run-card-error">{run.error}</div> : null}
+                </>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
