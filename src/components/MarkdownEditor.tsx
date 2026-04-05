@@ -956,14 +956,22 @@ export function MarkdownEditor({
     });
   }, [bracePrompt.getPreview]);
 
-  useEffect(() => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: local scroll helpers are stable enough for diff preview reconfigure
+  useLayoutEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    const scrollTopBefore = getScrollMetrics(view).top;
     view.dispatch({
       effects: diffPreviewCompartment.current.reconfigure(
         editorDiffPreviewExtension(diffPreview, { onAction: onDiffPreviewAction }),
       ),
     });
+    setScrollTop(view, scrollTopBefore);
+    const frameId = window.requestAnimationFrame(() => {
+      if (viewRef.current !== view) return;
+      setScrollTop(view, scrollTopBefore);
+    });
+    return () => window.cancelAnimationFrame(frameId);
   }, [diffPreview, onDiffPreviewAction]);
 
   useEffect(() => {
