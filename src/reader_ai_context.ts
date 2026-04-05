@@ -10,8 +10,12 @@ export function trimReaderAiSource(source: string): string {
 export function buildReaderAiDocumentSource(options: {
   allowDocumentEdits: boolean;
   currentEditContent: string;
+  documentEditedContent?: string | null;
   readerAiSource: string;
 }): string {
+  if (options.allowDocumentEdits && typeof options.documentEditedContent === 'string') {
+    return trimReaderAiSource(options.documentEditedContent);
+  }
   return trimReaderAiSource(options.allowDocumentEdits ? options.currentEditContent : options.readerAiSource);
 }
 

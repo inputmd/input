@@ -12,7 +12,7 @@ import {
   compactToolResults,
   estimateMessagesTokens,
   executeReaderAiEditDocumentTool,
-  executeReaderAiSyncTool,
+  executeReaderAiSyncToolWithState,
   parseToolArgumentsWithRepair,
   parseUnifiedDiffHunks,
   READER_AI_MAX_CONCURRENT_TASKS,
@@ -176,6 +176,7 @@ export async function* runReaderAiLoop(
     stagedContent: null,
     stagedDiff: null,
     stagedRevision: 0,
+    lastReadSnapshot: null,
   };
 
   // -- Build system prompt and tool set --
@@ -243,7 +244,7 @@ export async function* runReaderAiLoop(
   const executeSyncToolCall = (tc: ToolCall, argsJsonOverride?: string): string => {
     const toolArgsJson = argsJsonOverride ?? tc.arguments;
     if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(toolArgsJson, documentEditState);
-    return executeReaderAiSyncTool(tc.name, toolArgsJson, aiLines);
+    return executeReaderAiSyncToolWithState(tc.name, toolArgsJson, { lines: aiLines, state: documentEditState });
   };
 
   // -- Staged changes tracking --

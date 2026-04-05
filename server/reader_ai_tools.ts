@@ -33,6 +33,7 @@ export {
   executeReaderAiReadDocument,
   executeReaderAiSearchDocument,
   executeReaderAiSyncTool,
+  executeReaderAiSyncToolWithState,
   generateUnifiedDiff,
   parseReaderAiToolArguments,
   parseToolArgumentsWithRepair,

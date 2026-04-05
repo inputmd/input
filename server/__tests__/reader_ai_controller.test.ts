@@ -16,10 +16,22 @@ test('buildReaderAiDocumentSource preserves CriticMarkup comments in edit mode',
   t.true(source.includes('{>>keep this comment<<}'));
 });
 
+test('buildReaderAiDocumentSource prefers staged proposal content in edit mode', (t) => {
+  const source = buildReaderAiDocumentSource({
+    allowDocumentEdits: true,
+    currentEditContent: 'Editor buffer\n',
+    documentEditedContent: 'Pending staged edit\n',
+    readerAiSource: 'Rendered view content\n',
+  });
+
+  t.is(source, 'Pending staged edit\n');
+});
+
 test('buildReaderAiDocumentSource uses the non-editor source outside edit mode', (t) => {
   const source = buildReaderAiDocumentSource({
     allowDocumentEdits: false,
     currentEditContent: 'ignored',
+    documentEditedContent: 'Pending staged edit\n',
     readerAiSource: 'Rendered view content\n',
   });
 

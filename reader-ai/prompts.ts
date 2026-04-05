@@ -48,7 +48,13 @@ export function buildReaderAiSystemPrompt(
     '- If the document content already visible contains the answer, respond directly without tools.',
     ...(allowDocumentEdits
       ? [
-          '- If you suggest or intend any document change, call propose_edit_document instead of only describing the edit in text.',
+          '- To suggest or make any document change, call propose_edit_document instead of describing the edit in text.',
+          '- Before any propose_edit_document call, first call read_document for the exact affected span. The read result tells you whether you are looking at the original or staged document and whether a proposal is already pending. Use the latest read_document result as the only source for old_text or expected_old_text; do not copy edit text from memory, search_document, or earlier narration.',
+          '- For paragraph or sentence edits, prefer exact-text replacement with old_text copied directly from the latest read_document result. Use start_line/end_line only after re-reading the relevant lines and only for a single contiguous block you have just verified.',
+          '- For paragraph or block removals, first call read_document for the exact affected span, then make exactly one propose_edit_document call that replaces the full span atomically, then stop. Splitting an intended edit into multiple delete/fix proposals WILL NOT WORK because of line number drift.',
+          '- After each propose_edit_document call, treat the tool result and its document_state summary as the source of truth. Do not describe edit outcomes from memory. If there is any doubt, re-read the document before proposing another edit.',
+          '- If a proposal is wrong, do not patch the previous proposal incrementally. Recompute the next proposal from the user intent and the current staged document state.',
+          '- If you must use a line-range edit, include expected_old_text from the fresh read and set dry_run explicitly to true or false so the intent is unambiguous.',
         ]
       : [
           '- This chat is read-only while the user is viewing the document. Do not call edit tools or present edits as pending actions.',

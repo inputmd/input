@@ -994,18 +994,20 @@ export function useReaderAiSession({
       showWarningToast,
     }: StartReaderAiStreamOptions) => {
       const assistantEdited = edited === true;
-      const nextConversationScope =
-        readerAiConversationScope ??
-        (() => {
-          if (!allowDocumentEdits) return { kind: 'document' } as ReaderAiConversationScope;
-          if (!selectionSource) return { kind: 'document' } as ReaderAiConversationScope;
-          const sanitizedSelection = stripCriticMarkupComments(selectionSource);
-          if (!sanitizedSelection.trim()) return { kind: 'document' } as ReaderAiConversationScope;
-          return {
-            kind: 'selection',
-            source: sanitizedSelection,
-          } satisfies ReaderAiConversationScope;
-        })();
+      const hasPendingDocumentProposal = allowDocumentEdits && typeof readerAiDocumentEditedContent === 'string';
+      const fallbackConversationScope = (() => {
+        if (!allowDocumentEdits) return { kind: 'document' } as ReaderAiConversationScope;
+        if (!selectionSource) return { kind: 'document' } as ReaderAiConversationScope;
+        const sanitizedSelection = stripCriticMarkupComments(selectionSource);
+        if (!sanitizedSelection.trim()) return { kind: 'document' } as ReaderAiConversationScope;
+        return {
+          kind: 'selection',
+          source: sanitizedSelection,
+        } satisfies ReaderAiConversationScope;
+      })();
+      const nextConversationScope = hasPendingDocumentProposal
+        ? ({ kind: 'document' } as ReaderAiConversationScope)
+        : (readerAiConversationScope ?? fallbackConversationScope);
       const source = nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
       if (!source.trim()) {
         showWarningToast('Reader AI needs document content before it can answer.');
@@ -1027,7 +1029,7 @@ export function useReaderAiSession({
       readerAiCurrentRunIdRef.current = currentRun.id;
       setReaderAiRuns((current) => [...current, currentRun].slice(-12));
       setReaderAiActiveRunId(currentRun.id);
-      if (readerAiConversationScope === null) {
+      if (readerAiConversationScope === null || hasPendingDocumentProposal) {
         setReaderAiConversationScope(nextConversationScope);
       }
       setReaderAiMessages([
@@ -1444,7 +1446,13 @@ export function useReaderAiSession({
         setReaderAiToolStatus(null);
       }
     },
-    [ensureReaderAiActiveChangeSet, readerAiConversationScope, readerAiSummary, updateReaderAiRun],
+    [
+      ensureReaderAiActiveChangeSet,
+      readerAiConversationScope,
+      readerAiDocumentEditedContent,
+      readerAiSummary,
+      updateReaderAiRun,
+    ],
   );
 
   return {

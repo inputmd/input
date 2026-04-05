@@ -14,6 +14,7 @@ import {
   executeReaderAiReadDocument,
   executeReaderAiSearchDocument,
   executeReaderAiSyncTool,
+  executeReaderAiSyncToolWithState,
   generateUnifiedDiff,
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
@@ -182,14 +183,64 @@ test('propose_edit_document supports line-range replacement', (t) => {
     stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
+    stagedRevision: 0,
   };
-  const raw = executeReaderAiEditDocumentTool('{"start_line":2,"end_line":3,"new_text":"X\\nY"}', state);
-  const parsed = JSON.parse(raw) as { ok: boolean; mode?: string };
+  executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 3 }, state);
+  const raw = executeReaderAiEditDocumentTool(
+    '{"start_line":2,"end_line":3,"expected_old_text":"b\\nc","new_text":"X\\nY","dry_run":false}',
+    state,
+  );
+  const parsed = JSON.parse(raw) as {
+    ok: boolean;
+    mode?: string;
+    document_state?: {
+      current_document?: string;
+      proposal_state?: string;
+      staged_revision?: number;
+      total_lines?: number;
+    };
+  };
   t.true(parsed.ok);
   t.is(parsed.mode, 'line_range');
+  t.is(parsed.document_state?.current_document, 'staged');
+  t.is(parsed.document_state?.proposal_state, 'pending');
+  t.is(parsed.document_state?.staged_revision, 1);
+  t.is(parsed.document_state?.total_lines, 4);
   t.is(state.source, 'a\nX\nY\nd');
   t.truthy(state.stagedContent);
   t.is(state.stagedOriginalContent, 'a\nb\nc\nd');
+});
+
+test('propose_edit_document requires explicit dry_run for line-range replacement', (t) => {
+  const state = {
+    source: 'a\nb\nc\nd',
+    lines: ['a', 'b', 'c', 'd'],
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+    stagedRevision: 0,
+  };
+  executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 3 }, state);
+  const raw = executeReaderAiEditDocumentTool(
+    '{"start_line":2,"end_line":3,"expected_old_text":"b\\nc","new_text":"X\\nY"}',
+    state,
+  );
+  const parsed = JSON.parse(raw) as {
+    ok: boolean;
+    error?: { code?: string; message?: string; next_action?: string; details?: { missing_fields?: string[] } };
+    document_state?: { current_document?: string; proposal_state?: string };
+  };
+  t.false(parsed.ok);
+  t.is(parsed.error?.code, 'invalid_args');
+  t.true(parsed.error?.message?.includes('explicit dry_run value') ?? false);
+  t.true(parsed.error?.next_action?.includes('Set dry_run to true') ?? false);
+  t.deepEqual(parsed.error?.details?.missing_fields, ['dry_run']);
+  t.is(parsed.document_state?.current_document, 'original');
+  t.is(parsed.document_state?.proposal_state, 'none');
+  t.is(state.source, 'a\nb\nc\nd');
+  t.is(state.stagedOriginalContent, null);
+  t.is(state.stagedContent, null);
 });
 
 test('propose_edit_document supports atomic batched edits', (t) => {
@@ -200,9 +251,11 @@ test('propose_edit_document supports atomic batched edits', (t) => {
     stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
+    stagedRevision: 0,
   };
+  executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 2 }, state);
   const raw = executeReaderAiEditDocumentTool(
-    '{"edits":[{"old_text":"one","new_text":"ONE"},{"start_line":2,"end_line":2,"new_text":"TWO"}]}',
+    '{"edits":[{"old_text":"one","new_text":"ONE"},{"start_line":2,"end_line":2,"expected_old_text":"two","new_text":"TWO"}],"dry_run":false}',
     state,
   );
   const parsed = JSON.parse(raw) as { ok: boolean; mode?: string; edits_applied?: number };
@@ -210,6 +263,69 @@ test('propose_edit_document supports atomic batched edits', (t) => {
   t.is(parsed.mode, 'batch');
   t.is(parsed.edits_applied, 2);
   t.is(state.source, 'ONE\nTWO\nthree');
+});
+
+test('propose_edit_document defaults new_text to empty string for snippet deletion', (t) => {
+  const state = {
+    source: 'keep\ndelete me\nkeep too',
+    lines: ['keep', 'delete me', 'keep too'],
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+    stagedRevision: 0,
+  };
+  executeReaderAiReadDocument(state.lines, {}, state);
+  const raw = executeReaderAiEditDocumentTool('{"old_text":"\\ndelete me"}', state);
+  const parsed = JSON.parse(raw) as { ok: boolean; mode?: string };
+  t.true(parsed.ok);
+  t.is(parsed.mode, 'snippet');
+  t.is(state.source, 'keep\nkeep too');
+});
+
+test('propose_edit_document defaults new_text to empty string for batch snippet deletion', (t) => {
+  const state = {
+    source: 'aaa\nbbb\nccc\nddd\neee',
+    lines: ['aaa', 'bbb', 'ccc', 'ddd', 'eee'],
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+    stagedRevision: 0,
+  };
+  executeReaderAiReadDocument(state.lines, {}, state);
+  const raw = executeReaderAiEditDocumentTool(
+    '{"edits":[{"old_text":"bbb"},{"old_text":"ddd"}]}',
+    state,
+  );
+  const parsed = JSON.parse(raw) as { ok: boolean; edits_applied?: number };
+  t.true(parsed.ok);
+  t.is(parsed.edits_applied, 2);
+  t.is(state.source, 'aaa\n\nccc\n\neee');
+});
+
+test('propose_edit_document batch line-range edits use original line numbers', (t) => {
+  const state = {
+    source: 'line1\nline2\nline3\nline4\nline5',
+    lines: ['line1', 'line2', 'line3', 'line4', 'line5'],
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+    stagedRevision: 0,
+  };
+  executeReaderAiReadDocument(state.lines, {}, state);
+  // Delete lines 2 and 4 using original-document line numbers.
+  // Without offset adjustment, the second edit would hit line 4 in the
+  // mutated document (originally line 5) instead of original line 4.
+  const raw = executeReaderAiEditDocumentTool(
+    '{"edits":[{"start_line":2,"end_line":2,"expected_old_text":"line2","dry_run":false},{"start_line":4,"end_line":4,"expected_old_text":"line4","dry_run":false}],"dry_run":false}',
+    state,
+  );
+  const parsed = JSON.parse(raw) as { ok: boolean; edits_applied?: number };
+  t.true(parsed.ok);
+  t.is(parsed.edits_applied, 2);
+  t.is(state.source, 'line1\n\nline3\n\nline5');
 });
 
 test('propose_edit_document batch failures are atomic', (t) => {
@@ -220,15 +336,56 @@ test('propose_edit_document batch failures are atomic', (t) => {
     stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
+    stagedRevision: 0,
   };
+  executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 2 }, state);
   const raw = executeReaderAiEditDocumentTool(
     '{"edits":[{"old_text":"alpha","new_text":"ALPHA"},{"old_text":"missing","new_text":"x"}]}',
     state,
   );
-  const parsed = JSON.parse(raw) as { ok: boolean; error?: { code?: string } };
+  const parsed = JSON.parse(raw) as {
+    ok: boolean;
+    error?: { code?: string; next_action?: string };
+    document_state?: { proposal_state?: string };
+  };
   t.false(parsed.ok);
-  t.is(parsed.error?.code, 'not_found');
+  t.is(parsed.error?.code, 'missing_read');
+  t.true(parsed.error?.next_action?.includes('Call read_document') ?? false);
+  t.is(parsed.document_state?.proposal_state, 'none');
   t.is(state.source, 'alpha\nbeta');
+  t.is(state.stagedContent, null);
+});
+
+test('propose_edit_document guarded line-range edits fail on stale text', (t) => {
+  const state = {
+    source: 'alpha\nbeta\ngamma',
+    lines: ['alpha', 'beta', 'gamma'],
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+    stagedRevision: 0,
+  };
+  executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 2 }, state);
+  const raw = executeReaderAiEditDocumentTool(
+    '{"start_line":2,"end_line":2,"new_text":"BETA","expected_old_text":"stale beta","dry_run":false}',
+    state,
+  );
+  const parsed = JSON.parse(raw) as {
+    ok: boolean;
+    error?: {
+      code?: string;
+      message?: string;
+      next_action?: string;
+      details?: { current_text?: string; expected_old_text?: string; edit_mode?: string };
+    };
+  };
+  t.false(parsed.ok);
+  t.is(parsed.error?.code, 'missing_read');
+  t.true(parsed.error?.message?.includes('expected_old_text copied from the latest read_document result') ?? false);
+  t.true(parsed.error?.next_action?.includes('Call read_document for the exact line range') ?? false);
+  t.is(parsed.error?.details?.edit_mode, 'line_range');
+  t.is(state.source, 'alpha\nbeta\ngamma');
   t.is(state.stagedContent, null);
 });
 
@@ -240,7 +397,9 @@ test('propose_edit_document dry_run previews without applying', (t) => {
     stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
+    stagedRevision: 0,
   };
+  executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 1 }, state);
   const raw = executeReaderAiEditDocumentTool('{"old_text":"left","new_text":"LEFT","dry_run":true}', state);
   const parsed = JSON.parse(raw) as { ok: boolean; dry_run?: boolean; applied?: boolean };
   t.true(parsed.ok);
@@ -259,11 +418,29 @@ test('propose_edit_document returns structured invalid_json error', (t) => {
     stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
+    stagedRevision: 0,
   };
   const raw = executeReaderAiEditDocumentTool('{bad', state);
   const parsed = JSON.parse(raw) as { ok: boolean; error?: { code?: string } };
   t.false(parsed.ok);
   t.is(parsed.error?.code, 'invalid_json');
+});
+
+test('propose_edit_document requires a fresh read before editing', (t) => {
+  const state = {
+    source: 'left right',
+    lines: ['left right'],
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+    stagedRevision: 0,
+  };
+  const raw = executeReaderAiEditDocumentTool('{"old_text":"left","new_text":"LEFT","dry_run":false}', state);
+  const parsed = JSON.parse(raw) as { ok: boolean; error?: { code?: string; message?: string } };
+  t.false(parsed.ok);
+  t.is(parsed.error?.code, 'missing_read');
+  t.true(parsed.error?.message?.includes('call read_document') ?? false);
 });
 
 test('propose_edit_document returns ambiguity hints', (t) => {
@@ -274,7 +451,9 @@ test('propose_edit_document returns ambiguity hints', (t) => {
     stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
+    stagedRevision: 0,
   };
+  executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 5 }, state);
   const raw = executeReaderAiEditDocumentTool('{"old_text":"repeat","new_text":"R"}', state);
   const parsed = JSON.parse(raw) as {
     ok: boolean;
@@ -294,8 +473,10 @@ test('propose_edit_document preserves the true original and cumulative diff acro
     stagedOriginalContent: null as string | null,
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
+    stagedRevision: 0,
   };
 
+  executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 2 }, state);
   const firstRaw = executeReaderAiEditDocumentTool('{"old_text":"beta","new_text":"BETA"}', state);
   const firstParsed = JSON.parse(firstRaw) as { ok: boolean; diff?: string };
   t.true(firstParsed.ok);
@@ -303,6 +484,7 @@ test('propose_edit_document preserves the true original and cumulative diff acro
   t.is(state.stagedContent, 'alpha\nBETA\ngamma');
   t.is(firstParsed.diff, generateUnifiedDiff('doc.md', 'alpha\nbeta\ngamma', 'alpha\nBETA\ngamma'));
 
+  executeReaderAiReadDocument(state.lines, { start_line: 3, end_line: 3 }, state);
   const secondRaw = executeReaderAiEditDocumentTool('{"old_text":"gamma","new_text":"GAMMA"}', state);
   const secondParsed = JSON.parse(secondRaw) as { ok: boolean; diff?: string };
   t.true(secondParsed.ok);
@@ -405,6 +587,23 @@ test('sync tool handles empty args string', (t) => {
   t.is(result, '1: Line 1\n2: Line 2');
 });
 
+test('sync tool uses staged document state when provided', (t) => {
+  const state = {
+    source: 'alpha\nbeta',
+    lines: ['alpha', 'beta'],
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: 'alpha\nbeta' as string | null,
+    stagedDiff: '--- a/doc.md\n+++ b/doc.md' as string | null,
+    stagedRevision: 1,
+  };
+  const result = executeReaderAiSyncToolWithState('read_document', '{"start_line":2,"end_line":2}', {
+    lines: ['stale one', 'stale two'],
+    state,
+  });
+  t.is(result, '(staged document; staged revision 1; 2 total lines; proposal state: pending)\n2: beta');
+});
+
 // ── READER_AI_TOOLS / READER_AI_SUBAGENT_TOOLS ──
 
 test('READER_AI_TOOLS contains task tool', (t) => {
@@ -413,6 +612,48 @@ test('READER_AI_TOOLS contains task tool', (t) => {
   t.true(names.includes('read_document'));
   t.true(names.includes('search_document'));
   t.true(names.includes('propose_edit_document'));
+});
+
+test('edit-related tool descriptions steer toward atomic block edits', (t) => {
+  const readTool = READER_AI_TOOLS.find((tool) => tool.function.name === 'read_document');
+  const editTool = READER_AI_TOOLS.find((tool) => tool.function.name === 'propose_edit_document');
+  const oldText = editTool?.function.parameters.properties.old_text as { description?: string } | undefined;
+  const newText = editTool?.function.parameters.properties.new_text as { description?: string } | undefined;
+  const startLine = editTool?.function.parameters.properties.start_line as { description?: string } | undefined;
+  const edits = editTool?.function.parameters.properties.edits as { description?: string } | undefined;
+
+  t.truthy(readTool);
+  t.truthy(editTool);
+  t.true(readTool?.function.description.includes('read the exact affected span immediately before proposing the edit'));
+  t.true(readTool?.function.description.includes('copy old_text from the latest read_document result'));
+  t.true(readTool?.function.description.includes('whether you are reading the original or staged document'));
+  t.true(editTool?.function.description.includes('single atomic exact-text replacement after reading the target span'));
+  t.true(editTool?.function.description.includes('preferred when the target text is stable'));
+  t.true(editTool?.function.description.includes('omit it to delete the matched content'));
+  t.true(editTool?.function.description.includes('Whitespace and blank lines are literal'));
+  t.true(
+    editTool?.function.description.includes('Line-range edits require expected_old_text and an explicit dry_run value'),
+  );
+  t.true(
+    editTool?.function.description.includes(
+      '{ ok: false, tool: "propose_edit_document", error: { code, message, details, next_action }, document_state }',
+    ),
+  );
+  t.true(oldText?.description?.includes('full paragraph or enough surrounding text') ?? false);
+  t.true(oldText?.description?.includes('latest read_document result') ?? false);
+  t.true(newText?.description?.includes('Omit to delete the matched content') ?? false);
+  t.true(newText?.description?.includes('Whitespace and newlines are literal') ?? false);
+  t.true(startLine?.description?.includes('exact positions from a fresh read_document call') ?? false);
+  t.true(
+    edits?.description?.includes(
+      '{ ok: false, tool: "propose_edit_document", error: { code, message, details, next_action }, document_state }',
+    ) ?? false,
+  );
+  t.true(
+    (
+      editTool?.function.parameters.properties.expected_old_text as { description?: string } | undefined
+    )?.description?.includes('For line-range edits this is required') ?? false,
+  );
 });
 
 test('READER_AI_SUBAGENT_TOOLS excludes task tool', (t) => {
@@ -465,7 +706,19 @@ test('system prompt omits propose_edit_document when document edits are disabled
 test('system prompt discourages task by default and requires proposal tools for edits', (t) => {
   const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000);
   t.true(prompt.includes('Do not use the task tool unless the user explicitly asks for it'));
-  t.true(prompt.includes('call propose_edit_document instead of only describing the edit in text'));
+  t.true(prompt.includes('whether you are looking at the original or staged document'));
+  t.true(prompt.includes('call propose_edit_document instead of describing the edit in text'));
+  t.true(prompt.includes('Use the latest read_document result as the only source for old_text or expected_old_text'));
+  t.true(
+    prompt.includes('prefer exact-text replacement with old_text copied directly from the latest read_document result'),
+  );
+  t.true(prompt.includes('first call read_document for the exact affected span'));
+  t.true(prompt.includes('make exactly one propose_edit_document call'));
+  t.true(prompt.includes('Splitting an intended edit into multiple delete/fix proposals WILL NOT WORK'));
+  t.true(prompt.includes('document_state summary as the source of truth'));
+  t.true(prompt.includes('Do not describe edit outcomes from memory'));
+  t.true(prompt.includes('do not patch the previous proposal incrementally'));
+  t.true(prompt.includes('set dry_run explicitly to true or false'));
 });
 
 test('system prompt includes document info', (t) => {

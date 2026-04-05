@@ -48,7 +48,7 @@ import {
   estimateMessagesTokens,
   executeReaderAiEditDocumentTool,
   executeReaderAiSubagent,
-  executeReaderAiSyncTool,
+  executeReaderAiSyncToolWithState,
   type OpenRouterMessage,
   parseReaderAiUpstreamStream,
   parseToolArgumentsWithRepair,
@@ -2786,6 +2786,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
     stagedRevision: 0,
+    lastReadSnapshot: null,
   };
   const modelEntry = allowedModels.find((m) => m.id === model);
   const contextTokens = modelEntry?.context_length || 0;
@@ -2853,7 +2854,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   const executeSyncToolCall = (tc: ReaderAiToolCall, argsJsonOverride?: string): string => {
     const toolArgsJson = argsJsonOverride ?? tc.arguments;
     if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(toolArgsJson, documentEditState);
-    return executeReaderAiSyncTool(tc.name, toolArgsJson, aiLines);
+    return executeReaderAiSyncToolWithState(tc.name, toolArgsJson, { lines: aiLines, state: documentEditState });
   };
 
   const writeSseEvent = (event: string, data: unknown) => {

@@ -163,6 +163,14 @@ export interface ReaderAiStagedChangeSnapshot {
   hunks?: StagedHunk[];
 }
 
+export interface DocumentReadSnapshot {
+  startLine: number;
+  endLine: number;
+  visibleText: string;
+  sourceAtRead: string;
+  truncated: boolean;
+}
+
 export interface DocumentEditState {
   source: string;
   lines: string[];
@@ -171,6 +179,7 @@ export interface DocumentEditState {
   stagedContent: string | null;
   stagedDiff: string | null;
   stagedRevision: number;
+  lastReadSnapshot?: DocumentReadSnapshot | null;
 }
 
 export interface StagedHunkLine {

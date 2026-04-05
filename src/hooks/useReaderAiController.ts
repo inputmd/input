@@ -57,6 +57,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       const documentSource = buildReaderAiDocumentSource({
         allowDocumentEdits,
         currentEditContent,
+        documentEditedContent: session.readerAiDocumentEditedContent,
         readerAiSource: options.readerAiSource,
       });
       const selectionSource = allowDocumentEdits ? options.getSelectionSource(READER_AI_SELECTION_MAX_CHARS) : null;
@@ -92,6 +93,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       options.readerAiSource,
       options.selectedReaderAiModel,
       options.showWarningToast,
+      session.readerAiDocumentEditedContent,
       session,
     ],
   );
