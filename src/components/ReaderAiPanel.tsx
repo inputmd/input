@@ -81,6 +81,7 @@ interface ReaderAiPanelProps {
 }
 
 const INLINE_SPINNER_HOST_TAGS = new Set(['P', 'LI', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TD', 'TH']);
+const READER_AI_BOTTOM_BUFFER_PX = 12;
 
 function getLastMeaningfulNode(root: ParentNode): ChildNode | null {
   for (let node = root.lastChild; node; node = node.previousSibling) {
@@ -239,8 +240,10 @@ export function ReaderAiPanel({
   const [panelView, setPanelView] = useState<ReaderAiPanelView>('chat');
   const panelRef = useRef<HTMLElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const lastMessageRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const composerWrapRef = useRef<HTMLDivElement>(null);
   const queueDrainInFlightRef = useRef(false);
   const pendingScrollToBottomOnSendRef = useRef(false);
   const thinkingStartedAtRef = useRef<number | null>(null);
@@ -248,6 +251,7 @@ export function ReaderAiPanel({
   const pendingSelectDraftRef = useRef(false);
   const pinnedToBottomRef = useRef(true);
   const lastHandledActivationRequestRef = useRef(0);
+  const [bottomComposerHeight, setBottomComposerHeight] = useState(0);
   const messageCount = messages.length;
   const canSend = draft.trim().length > 0 && !sending && Boolean(selectedModel);
   const hasMessages = messageCount > 0;
@@ -280,17 +284,38 @@ export function ReaderAiPanel({
     return value instanceof Error && value.message.trim().length > 0 ? value.message : fallback;
   }, []);
 
-  const isNearMessagesBottom = useCallback((root: HTMLDivElement) => {
-    const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
-    return distanceFromBottom <= 24;
-  }, []);
+  const getBottomComposerHeight = useCallback(() => {
+    if (composerAtTop) return 0;
+    return (composerWrapRef.current?.offsetHeight ?? bottomComposerHeight) + READER_AI_BOTTOM_BUFFER_PX;
+  }, [bottomComposerHeight, composerAtTop]);
+
+  const getConversationEndScrollTop = useCallback(
+    (root: HTMLDivElement) => {
+      const anchor = lastMessageRef.current;
+      if (!anchor) return Math.max(0, root.scrollHeight - root.clientHeight);
+      const rootBounds = root.getBoundingClientRect();
+      const anchorBounds = anchor.getBoundingClientRect();
+      const anchorBottom = anchorBounds.bottom - rootBounds.top + root.scrollTop;
+      const targetScrollTop = anchorBottom - root.clientHeight + getBottomComposerHeight();
+      const maxScrollTop = Math.max(0, root.scrollHeight - root.clientHeight);
+      return Math.max(0, Math.min(maxScrollTop, targetScrollTop));
+    },
+    [getBottomComposerHeight],
+  );
+
+  const isNearConversationEnd = useCallback(
+    (root: HTMLDivElement) => {
+      return Math.abs(root.scrollTop - getConversationEndScrollTop(root)) <= 24;
+    },
+    [getConversationEndScrollTop],
+  );
 
   const scrollMessagesToBottom = useCallback(() => {
     const root = messagesRef.current;
     if (!root) return;
-    root.scrollTop = root.scrollHeight;
+    root.scrollTop = getConversationEndScrollTop(root);
     pinnedToBottomRef.current = true;
-  }, []);
+  }, [getConversationEndScrollTop]);
 
   const scheduleScrollMessagesToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -302,17 +327,17 @@ export function ReaderAiPanel({
   const maybeScrollMessagesToBottom = useCallback(() => {
     const root = messagesRef.current;
     if (!root) return;
-    if (!pinnedToBottomRef.current && !isNearMessagesBottom(root)) return;
-    root.scrollTop = root.scrollHeight;
-  }, [isNearMessagesBottom]);
+    if (!pinnedToBottomRef.current && !isNearConversationEnd(root)) return;
+    root.scrollTop = getConversationEndScrollTop(root);
+  }, [getConversationEndScrollTop, isNearConversationEnd]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length and editProposals.length trigger scroll on new activity
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
-    if (!pinnedToBottomRef.current && !isNearMessagesBottom(root)) return;
-    root.scrollTop = root.scrollHeight;
-  }, [editProposals.length, isNearMessagesBottom, messageCount, sending, toolLog.length]);
+    if (!pinnedToBottomRef.current && !isNearConversationEnd(root)) return;
+    root.scrollTop = getConversationEndScrollTop(root);
+  }, [editProposals.length, getConversationEndScrollTop, isNearConversationEnd, messageCount, sending, toolLog.length]);
 
   useEffect(() => {
     if (editingIndex === null) return;
@@ -352,6 +377,24 @@ export function ReaderAiPanel({
     input.style.height = 'auto';
     input.style.height = `${input.scrollHeight}px`;
   });
+
+  useLayoutEffect(() => {
+    const composer = composerWrapRef.current;
+    if (!composer || composerAtTop) {
+      setBottomComposerHeight(0);
+      return;
+    }
+    const updateComposerHeight = () => {
+      setBottomComposerHeight(composer.offsetHeight);
+    };
+    updateComposerHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      updateComposerHeight();
+    });
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [composerAtTop]);
 
   useEffect(() => {
     if (hasMessages || !pendingFocusAfterClearRef.current) return;
@@ -394,13 +437,13 @@ export function ReaderAiPanel({
       }
 
       activeMessages.scrollTop = clamped;
-      pinnedToBottomRef.current = isNearMessagesBottom(activeMessages);
+      pinnedToBottomRef.current = isNearConversationEnd(activeMessages);
       event.preventDefault();
     };
 
     const onScroll = () => {
       if (!messagesRef.current) return;
-      pinnedToBottomRef.current = isNearMessagesBottom(messagesRef.current);
+      pinnedToBottomRef.current = isNearConversationEnd(messagesRef.current);
     };
 
     panel.addEventListener('wheel', onWheel, { passive: false });
@@ -409,7 +452,7 @@ export function ReaderAiPanel({
       panel.removeEventListener('wheel', onWheel);
       messages.removeEventListener('scroll', onScroll);
     };
-  }, [isNearMessagesBottom]);
+  }, [isNearConversationEnd]);
 
   const enqueueDraft = () => {
     const prompt = draft.trim();
@@ -638,6 +681,7 @@ export function ReaderAiPanel({
 
   const composer = (
     <div
+      ref={composerWrapRef}
       class={`reader-ai-input-wrap reader-ai-input-wrap--composer${composerAtTop ? '' : ' reader-ai-input-wrap--composer-bottom'}`}
     >
       {queuedCommands.length > 0 ? (
@@ -805,7 +849,7 @@ export function ReaderAiPanel({
               </div>
             ) : null}
             {messages.map((message, index) => (
-              <div key={`${message.role}-${index}`}>
+              <div key={`${message.role}-${index}`} ref={index === messageCount - 1 ? lastMessageRef : undefined}>
                 <div class={`reader-ai-message reader-ai-message--${message.role}`}>
                   <div class="reader-ai-message-role">
                     {message.role === 'user' ? (
@@ -1035,7 +1079,13 @@ export function ReaderAiPanel({
             {error || actionError ? (
               <div class="reader-ai-error reader-ai-error--inline">{error ?? actionError}</div>
             ) : null}
-            {composerAtTop ? null : <div class="reader-ai-messages-bottom-spacer" aria-hidden="true" />}
+            {composerAtTop ? null : (
+              <div
+                class="reader-ai-messages-bottom-spacer"
+                style={bottomComposerHeight > 0 ? { height: `${bottomComposerHeight}px` } : undefined}
+                aria-hidden="true"
+              />
+            )}
             {composerAtTop ? null : composer}
           </div>
           {statusText ? <div class="reader-ai-status">{statusText}</div> : null}
