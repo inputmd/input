@@ -12,7 +12,6 @@ import type {
   ReaderAiChangeSetFailure,
   ReaderAiChangeSetFileRecord,
   ReaderAiChangeSetRecord,
-  ReaderAiChangeSetStatus,
   ReaderAiRunRecord,
 } from './reader_ai_ledger';
 import type { ReaderAiSelectedHunkIdsByChangeId } from './reader_ai_state';
@@ -249,21 +248,6 @@ function buildReaderAiEditorDiffPreview(
   };
 }
 
-function buildAppliedReaderAiDiffPreview(options: {
-  checkpoint: ReaderAiEditorCheckpoint | null;
-  currentDocumentContent: string;
-  provenance: ReaderAiEditorProvenance | null;
-}): EditorDiffPreview | null {
-  if (!options.checkpoint) return null;
-  return buildReaderAiContentDiffPreview({
-    originalContent: options.checkpoint.content,
-    modifiedContent: options.currentDocumentContent,
-    sourceLabel: options.provenance?.sourceLabel ?? 'Reader AI',
-    badgeLabel: 'Applied',
-    hunkLabel: 'Applied Reader AI change',
-  });
-}
-
 function buildReaderAiHunkLineRange(hunk: ReaderAiStagedHunk): { lineStart: number; lineEnd: number } {
   const firstChangeIndex = hunk.lines.findIndex((line) => line.type !== 'context');
   if (firstChangeIndex < 0) {
@@ -287,14 +271,17 @@ function buildReaderAiHunkLineRange(hunk: ReaderAiStagedHunk): { lineStart: numb
 }
 
 function resolveReaderAiEditorFileStatus(
+  path: string,
   change: ReaderAiStagedChange | undefined,
   fileRecord: ReaderAiChangeSetFileRecord | undefined,
-  changeSetStatus: ReaderAiChangeSetStatus | undefined,
+  changeSet: ReaderAiChangeSetRecord | null,
 ): ReaderAiEditorFileStatus {
   if (fileRecord?.status === 'stale') return 'stale';
   if (fileRecord?.status === 'conflicted') return 'conflicted';
   if (fileRecord?.status === 'failed' || fileRecord?.status === 'missing_content') return 'failed';
   if (fileRecord?.status === 'applied') return 'applied';
+  if (changeSet?.appliedPaths.includes(path)) return 'applied';
+  const changeSetStatus = changeSet?.status;
   if (changeSetStatus === 'applying') return 'applying';
   if (changeSetStatus === 'applied') return 'applied';
   if (changeSetStatus === 'partial') return 'partial';
@@ -461,6 +448,7 @@ function buildReaderAiEditorMarkers(options: {
   provenance: ReaderAiEditorProvenance | null;
   statusMessage: string | null;
 }): EditorChangeMarker[] | null {
+  if (options.fileStatus === 'applied') return null;
   if (options.change?.id && options.hunks.length > 0) {
     return options.hunks.map((hunk) => ({
       lineNumber: hunk.lineStart,
@@ -483,15 +471,13 @@ function buildReaderAiEditorMarkers(options: {
         source: 'reader_ai',
         changeId: options.change.id,
         status:
-          options.fileStatus === 'applied'
-            ? 'applied'
-            : options.fileStatus === 'failed'
-              ? 'failed'
-              : options.fileStatus === 'conflicted'
-                ? 'conflicted'
-                : options.fileStatus === 'stale'
-                  ? 'stale'
-                  : 'accepted',
+          options.fileStatus === 'failed'
+            ? 'failed'
+            : options.fileStatus === 'conflicted'
+              ? 'conflicted'
+              : options.fileStatus === 'stale'
+                ? 'stale'
+                : 'accepted',
         label: options.change.path,
         sourceLabel: options.provenance?.sourceLabel ?? 'Reader AI',
         detail: options.statusMessage ?? undefined,
@@ -617,7 +603,7 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
           sourceLabel: 'Reader AI',
         }
       : null;
-  const fileStatus = resolveReaderAiEditorFileStatus(currentChange, fileRecord, relevantChangeSet?.status);
+  const fileStatus = resolveReaderAiEditorFileStatus(options.path, currentChange, fileRecord, relevantChangeSet);
   const conflictReason = resolveReaderAiConflictReason(
     fileStatus,
     fileRecord,
@@ -649,14 +635,9 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
     failedEntry,
   });
   const diffPreview =
-    buildReaderAiEditorDiffPreview(currentChange, provenance, fileStatus, hunks, statusMessage) ??
-    (fileStatus === 'applied' || fileStatus === 'partial'
-      ? buildAppliedReaderAiDiffPreview({
-          checkpoint: options.activeEditorCheckpoint?.path === options.path ? options.activeEditorCheckpoint : null,
-          currentDocumentContent: options.currentDocumentContent,
-          provenance,
-        })
-      : null);
+    fileStatus === 'applied'
+      ? null
+      : buildReaderAiEditorDiffPreview(currentChange, provenance, fileStatus, hunks, statusMessage);
   const markers = buildReaderAiEditorMarkers({
     change: currentChange,
     fileStatus,

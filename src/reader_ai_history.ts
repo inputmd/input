@@ -275,6 +275,7 @@ function normalizePersistedEditorCheckpoints(value: unknown): NonNullable<Reader
       const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path : '';
       const content =
         typeof (entry as { content?: unknown }).content === 'string' ? (entry as { content: string }).content : '';
+      const appliedContentRaw = (entry as { appliedContent?: unknown }).appliedContent;
       const revision =
         typeof (entry as { revision?: unknown }).revision === 'number' ? (entry as { revision: number }).revision : NaN;
       const createdAt =
@@ -307,6 +308,7 @@ function normalizePersistedEditorCheckpoints(value: unknown): NonNullable<Reader
         id,
         path,
         content,
+        appliedContent: typeof appliedContentRaw === 'string' ? appliedContentRaw : null,
         revision,
         selection,
         scrollTop: typeof scrollTopRaw === 'number' ? scrollTopRaw : null,

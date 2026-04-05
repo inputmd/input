@@ -31,7 +31,7 @@ function createCheckpoint(): ReaderAiEditorCheckpoint {
   };
 }
 
-test('buildReaderAiEditorOverlay keeps applied provenance markers when a checkpoint exists', (t) => {
+test('buildReaderAiEditorOverlay suppresses editor diff artifacts after apply when a checkpoint exists', (t) => {
   const changeSets: ReaderAiChangeSetRecord[] = [
     {
       id: 'changeset:1',
@@ -75,10 +75,68 @@ test('buildReaderAiEditorOverlay keeps applied provenance markers when a checkpo
 
   t.truthy(overlay);
   t.is(overlay?.fileStatus, 'applied');
-  t.is(overlay?.diffPreview?.badge, 'Applied');
-  t.is(overlay?.markers?.[0]?.source, 'reader_ai');
-  t.is(overlay?.markers?.[0]?.status, 'applied');
+  t.is(overlay?.diffPreview, null);
+  t.is(overlay?.markers, null);
   t.is(overlay?.provenance?.modelId, 'model:test');
+});
+
+test('buildReaderAiEditorOverlay keeps applied file status when the change set remains partial', (t) => {
+  const otherChange: ReaderAiStagedChange = {
+    id: 'change:other',
+    path: 'other.md',
+    type: 'edit',
+    diff: '@@ -1 +1 @@\n-old\n+new\n',
+    revision: 3,
+    originalContent: 'old\n',
+    modifiedContent: 'new\n',
+  };
+
+  const changeSets: ReaderAiChangeSetRecord[] = [
+    {
+      id: 'changeset:1',
+      runId: 'run:1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      status: 'partial',
+      editProposals: [],
+      proposalStatusesByToolCallId: {},
+      stagedChanges: [otherChange],
+      stagedFileContents: { 'other.md': 'new\n' },
+      documentEditedContent: null,
+      files: [
+        {
+          path: 'other.md',
+          status: 'ready',
+          hasCompleteContent: true,
+          baseRevision: 3,
+        },
+      ],
+      appliedPaths: ['doc.md'],
+      failedPaths: [],
+    },
+  ];
+
+  const overlay = buildReaderAiEditorOverlay({
+    active: true,
+    path: 'doc.md',
+    revision: 4,
+    currentDocumentSavedContent: 'before\n',
+    currentDocumentContent: 'after\n',
+    hasUnsavedChanges: true,
+    effectiveStagedChanges: [],
+    selectedChangeIds: new Set(),
+    selectedHunkIdsByChangeId: {},
+    activeChangeSet: changeSets[0] ?? null,
+    activeEditorCheckpoint: createCheckpoint(),
+    changeSets,
+    runs: [createRun()],
+  });
+
+  t.truthy(overlay);
+  t.is(overlay?.fileStatus, 'applied');
+  t.is(overlay?.statusLabel, 'Applied');
+  t.is(overlay?.diffPreview, null);
+  t.is(overlay?.markers, null);
 });
 
 test('buildReaderAiEditorOverlay exposes stale hunks as editor conflicts', (t) => {
@@ -201,7 +259,7 @@ test('buildReaderAiEditorOverlay maps hunk review status into diff preview actio
   t.is(overlay?.hunks[0]?.status, 'accepted');
   t.deepEqual(overlay?.diffPreview?.blocks[0]?.actions, [
     { id: 'reject', label: 'Reject', tone: 'danger' },
-    { id: 'review', label: 'Review' },
+    { id: 'review', label: 'View in sidebar' },
   ]);
   t.is(overlay?.diffPreview?.blocks[0]?.changeId, 'change:1');
   t.is(overlay?.diffPreview?.blocks[0]?.hunkId, 'hunk:1');

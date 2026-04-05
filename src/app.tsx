@@ -147,6 +147,7 @@ import {
   createReaderAiApplyBlockedMessage,
   prepareReaderAiSelectedChangesForApply,
 } from './reader_ai_controller_runtime';
+import { findLatestReaderAiEditorCheckpointForPath } from './reader_ai_editor_checkpoints';
 import { buildReaderAiEditorOverlay } from './reader_ai_editor_state';
 import {
   createReaderAiApplyConflictMessage,
@@ -1121,6 +1122,7 @@ export function App() {
   );
   const {
     acceptReaderAiProposal,
+    activateReaderAiEditorRestorePoint,
     clearReaderAiQueuedCommands,
     clearReaderAiUndoState,
     effectiveReaderAiStagedChanges,
@@ -1138,6 +1140,7 @@ export function App() {
     readerAiConversationScope,
     readerAiChangeSets,
     readerAiDocumentEditedContent,
+    readerAiEditorCheckpoints,
     readerAiEditProposals,
     readerAiError,
     readerAiHasEligibleSelection,
@@ -1339,17 +1342,18 @@ export function App() {
         openReaderAiReviewTarget(target);
         return;
       }
+      const nextContent = preparedApply.selectedFileContents[currentEditingDocPath] ?? selectedChange.modifiedContent;
       if (!readerAiActiveEditorCheckpoint || readerAiActiveEditorCheckpoint.path !== currentEditingDocPath) {
         createReaderAiEditorRestorePoint({
           path: currentEditingDocPath,
           content: editContentRef.current,
+          appliedContent: nextContent,
           revision: editContentRevision,
           selection: editViewControllerRef.current?.getSelectionRange() ?? null,
           scrollTop: editViewControllerRef.current?.getScrollMetrics().top ?? null,
           changeSetId: readerAiActiveChangeSet?.id ?? null,
         });
       }
-      const nextContent = preparedApply.selectedFileContents[currentEditingDocPath] ?? selectedChange.modifiedContent;
       setNextEditContent(nextContent, { origin: 'appEdits' });
       setHasUserTypedUnsavedChanges(false);
       setHasUnsavedChanges(true);
@@ -3854,6 +3858,7 @@ export function App() {
             createReaderAiEditorRestorePoint({
               path: currentEditingDocPath,
               content: editContentRef.current,
+              appliedContent: outcome.nextContent,
               revision: editContentRevision,
               selection: editViewControllerRef.current?.getSelectionRange() ?? null,
               scrollTop: editViewControllerRef.current?.getScrollMetrics().top ?? null,
@@ -3998,10 +4003,30 @@ export function App() {
 
   const onReaderAiToggleProposalHunkSelection = toggleReaderAiProposalHunkSelection;
 
+  const readerAiVisibleEditorCheckpoint = useMemo(() => {
+    if (activeView !== 'edit') return null;
+    const checkpoint = findLatestReaderAiEditorCheckpointForPath(readerAiEditorCheckpoints, currentEditingDocPath);
+    if (!checkpoint || checkpoint.status === 'discarded') return null;
+    return checkpoint;
+  }, [activeView, currentEditingDocPath, readerAiEditorCheckpoints]);
   const canUndoReaderAiApply =
     readerAiActiveEditorCheckpoint !== null &&
     activeView === 'edit' &&
     currentEditingDocPath === readerAiActiveEditorCheckpoint.path;
+  const canReapplyReaderAiApply =
+    readerAiVisibleEditorCheckpoint?.status === 'restored' &&
+    typeof readerAiVisibleEditorCheckpoint.appliedContent === 'string' &&
+    activeView === 'edit' &&
+    currentEditingDocPath === readerAiVisibleEditorCheckpoint.path;
+  const readerAiSidebarCheckpoint = useMemo(() => {
+    const checkpoint = readerAiVisibleEditorCheckpoint;
+    if (!checkpoint || (checkpoint.status !== 'active' && checkpoint.status !== 'restored')) return null;
+    return {
+      status: checkpoint.status,
+      canRestore: checkpoint.status === 'active' && canUndoReaderAiApply,
+      canReapply: checkpoint.status === 'restored' && canReapplyReaderAiApply,
+    };
+  }, [canReapplyReaderAiApply, canUndoReaderAiApply, readerAiVisibleEditorCheckpoint]);
 
   const onReaderAiUndoApply = useCallback(async () => {
     if (!readerAiActiveEditorCheckpoint) return;
@@ -4032,7 +4057,7 @@ export function App() {
         editViewControllerRef.current?.setScrollTop(checkpointScrollTop);
       });
     }
-    clearReaderAiUndoState();
+    clearReaderAiUndoState('restored');
   }, [
     activeView,
     clearReaderAiUndoState,
@@ -4043,6 +4068,43 @@ export function App() {
     setNextEditContent,
     setHasUnsavedChanges,
     setHasUserTypedUnsavedChanges,
+    showConfirm,
+  ]);
+
+  const onReaderAiReapplyApply = useCallback(async () => {
+    const checkpoint = readerAiVisibleEditorCheckpoint;
+    if (
+      !checkpoint ||
+      checkpoint.status !== 'restored' ||
+      typeof checkpoint.appliedContent !== 'string' ||
+      activeView !== 'edit' ||
+      currentEditingDocPath !== checkpoint.path
+    ) {
+      return;
+    }
+    if (
+      editContentRef.current !== checkpoint.content &&
+      !(await showConfirm('Reapply the saved Reader AI edits and replace the current editor content?', {
+        title: 'Reapply Reader AI edits?',
+        confirmLabel: 'Reapply',
+        defaultFocus: 'cancel',
+      }))
+    ) {
+      return;
+    }
+    setNextEditContent(checkpoint.appliedContent, { origin: 'appEdits' });
+    setHasUserTypedUnsavedChanges(false);
+    setHasUnsavedChanges(checkpoint.appliedContent !== currentDocumentSavedContent);
+    activateReaderAiEditorRestorePoint(checkpoint.id);
+  }, [
+    activateReaderAiEditorRestorePoint,
+    activeView,
+    currentDocumentSavedContent,
+    currentEditingDocPath,
+    readerAiVisibleEditorCheckpoint,
+    setHasUnsavedChanges,
+    setHasUserTypedUnsavedChanges,
+    setNextEditContent,
     showConfirm,
   ]);
 
@@ -7141,7 +7203,6 @@ export function App() {
             onReaderAiOpenReviewTarget={openReaderAiReviewTarget}
             onReaderAiApplyReviewTarget={onReaderAiApplyReviewTarget}
             onReaderAiKeepLocalReviewTarget={onReaderAiKeepLocalReviewTarget}
-            onReaderAiRestoreCheckpoint={onReaderAiUndoApply}
             previewVisible={previewVisible}
             canRenderPreview={canRenderPreview}
             sidePaneWidth={sidePaneWidth}
@@ -7879,12 +7940,14 @@ export function App() {
             applyDisabledReasonLabel={applyDisabledReasonLabel}
             editorProposalMode={isEditorProposalWorkflow}
             canUndoEditorApply={canUndoReaderAiApply}
+            editorCheckpoint={readerAiSidebarCheckpoint}
             onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
+            onUndoEditorApply={onReaderAiUndoApply}
+            onReapplyEditorApply={onReaderAiReapplyApply}
             onIgnoreAll={onReaderAiIgnoreChanges}
             onAcceptProposal={onReaderAiAcceptProposal}
             onRejectProposal={onReaderAiRejectProposal}
             onToggleProposalHunkSelection={onReaderAiToggleProposalHunkSelection}
-            onUndoEditorApply={onReaderAiUndoApply}
             onToggleChangeSelection={toggleReaderAiChangeSelection}
             onToggleHunkSelection={toggleReaderAiHunkSelection}
             selectedChangeIds={readerAiSelectedChangeIds}

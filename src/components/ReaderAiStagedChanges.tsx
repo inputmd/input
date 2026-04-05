@@ -332,9 +332,7 @@ export function StagedChangesSection({
         </div>
       ))}
       {streaming ? (
-        <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">
-          Reviewing live proposals. Apply actions unlock when streaming finishes.
-        </div>
+        <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">Still working...</div>
       ) : (
         <div class="reader-ai-staged-changes-footer">
           <div class="reader-ai-staged-changes-actions">

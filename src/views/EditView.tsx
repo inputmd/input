@@ -1,7 +1,7 @@
 import type { EditorView } from '@codemirror/view';
 import * as Popover from '@radix-ui/react-popover';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { AlertTriangle, ArrowUpDown, ExternalLink, Highlighter, History, LockOpen, Pin } from 'lucide-react';
+import { ArrowUpDown, ExternalLink, Highlighter, LockOpen, Pin } from 'lucide-react';
 import type { JSX } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { EditorChangeMarker } from '../components/codemirror_change_markers';
@@ -229,7 +229,6 @@ export interface EditViewProps {
   onReaderAiOpenReviewTarget?: (target: { changeId: string; hunkId?: string }) => void;
   onReaderAiApplyReviewTarget?: (target: { changeId: string; hunkId: string }) => void;
   onReaderAiKeepLocalReviewTarget?: (target: { changeId: string; hunkId: string }) => void;
-  onReaderAiRestoreCheckpoint?: () => void;
   previewHtml: string;
   previewCustomCss?: string | null;
   previewCustomCssScope?: string | null;
@@ -276,62 +275,6 @@ export interface EditViewProps {
   } | null;
 }
 
-function readerAiBannerTone(
-  fileStatus: ReaderAiEditorOverlay['fileStatus'],
-): 'info' | 'success' | 'warning' | 'danger' {
-  if (fileStatus === 'applied') return 'success';
-  if (fileStatus === 'conflicted' || fileStatus === 'failed') return 'danger';
-  if (fileStatus === 'stale' || fileStatus === 'partial' || fileStatus === 'superseded') return 'warning';
-  return 'info';
-}
-
-function ReaderAiEditorReviewBar({
-  overlay,
-  onRestoreCheckpoint,
-}: {
-  overlay: ReaderAiEditorOverlay;
-  onRestoreCheckpoint?: () => void;
-}) {
-  if (!overlay.checkpoint) return null;
-
-  const tone = readerAiBannerTone(overlay.fileStatus);
-  const Icon = tone === 'danger' ? AlertTriangle : History;
-  const message =
-    overlay.fileStatus === 'applied'
-      ? 'Restore the pre-apply editor state if you want to undo these Reader AI changes.'
-      : 'A pre-apply checkpoint is available for this editor state.';
-
-  return (
-    <div
-      class={`editor-reader-ai-banner editor-reader-ai-banner--${tone} editor-reader-ai-banner--compact`}
-      role="status"
-      aria-live="polite"
-    >
-      <div class="editor-reader-ai-banner-main">
-        <div class="editor-reader-ai-banner-copy">
-          <div class="editor-reader-ai-banner-pills">
-            <span class={`editor-reader-ai-pill editor-reader-ai-pill--${tone}`}>
-              <Icon size={13} aria-hidden="true" />
-              <span>{overlay.statusLabel}</span>
-            </span>
-            <span class="editor-reader-ai-pill">Checkpoint ready</span>
-          </div>
-          <div class="editor-reader-ai-banner-message">{message}</div>
-        </div>
-        <div class="editor-reader-ai-banner-actions">
-          <button
-            type="button"
-            class="editor-reader-ai-action editor-reader-ai-action--primary"
-            onClick={() => onRestoreCheckpoint?.()}
-          >
-            Restore checkpoint
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function EditView({
   fileName = null,
   markdown = true,
@@ -345,7 +288,6 @@ export function EditView({
   onReaderAiOpenReviewTarget,
   onReaderAiApplyReviewTarget,
   onReaderAiKeepLocalReviewTarget,
-  onReaderAiRestoreCheckpoint,
   previewHtml,
   previewCustomCss = null,
   previewCustomCssScope = null,
@@ -1751,9 +1693,6 @@ export function EditView({
           <div class="editor-loading-overlay" role="status" aria-live="polite" aria-label="Loading file into editor">
             <span class="editor-loading-spinner" aria-hidden="true" />
           </div>
-        ) : null}
-        {readerAiEditorOverlay ? (
-          <ReaderAiEditorReviewBar overlay={readerAiEditorOverlay} onRestoreCheckpoint={onReaderAiRestoreCheckpoint} />
         ) : null}
         {markdown ? (
           <MarkdownEditor

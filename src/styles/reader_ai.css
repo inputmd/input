@@ -662,6 +662,59 @@
   background: color-mix(in srgb, var(--error-color) 8%, transparent);
 }
 
+.reader-ai-checkpoint-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--btn-bg) 42%, transparent);
+}
+
+.reader-ai-checkpoint-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reader-ai-checkpoint-status {
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.reader-ai-checkpoint-status--active {
+  color: color-mix(in srgb, var(--success-color) 68%, var(--text));
+}
+
+.reader-ai-checkpoint-status--restored {
+  color: color-mix(in srgb, var(--field-focus-border) 56%, var(--text));
+}
+
+.reader-ai-checkpoint-card-action {
+  margin-left: auto;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--text);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.reader-ai-checkpoint-card-action:hover:not(:disabled) {
+  background: var(--btn-hover);
+}
+
+.reader-ai-checkpoint-card-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .reader-ai-suggest-project-mode {
   font-size: 13px;
   line-height: 1.35;

@@ -11,6 +11,7 @@ export interface ReaderAiEditorCheckpoint {
   id: string;
   path: string;
   content: string;
+  appliedContent?: string | null;
   revision: number;
   selection: ReaderAiEditorCheckpointSelection | null;
   scrollTop: number | null;
@@ -22,6 +23,7 @@ export interface ReaderAiEditorCheckpoint {
 export function createReaderAiEditorCheckpoint(options: {
   path: string;
   content: string;
+  appliedContent?: string | null;
   revision: number;
   selection?: ReaderAiEditorCheckpointSelection | null;
   scrollTop?: number | null;
@@ -31,6 +33,7 @@ export function createReaderAiEditorCheckpoint(options: {
     id: createReaderAiLedgerId('checkpoint'),
     path: options.path,
     content: options.content,
+    appliedContent: options.appliedContent ?? null,
     revision: options.revision,
     selection: options.selection ?? null,
     scrollTop: options.scrollTop ?? null,
@@ -46,6 +49,18 @@ export function findActiveReaderAiEditorCheckpoint(
 ): ReaderAiEditorCheckpoint | null {
   if (!activeCheckpointId) return null;
   return checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ?? null;
+}
+
+export function findLatestReaderAiEditorCheckpointForPath(
+  checkpoints: ReaderAiEditorCheckpoint[],
+  path: string | null,
+): ReaderAiEditorCheckpoint | null {
+  if (!path) return null;
+  for (let index = checkpoints.length - 1; index >= 0; index -= 1) {
+    const checkpoint = checkpoints[index];
+    if (checkpoint?.path === path && checkpoint.status !== 'discarded') return checkpoint;
+  }
+  return null;
 }
 
 export function appendReaderAiEditorCheckpoint(
@@ -77,5 +92,24 @@ export function updateReaderAiEditorCheckpointStatus(
           ...checkpoint,
           status,
         },
+  );
+}
+
+export function activateReaderAiEditorCheckpoint(
+  checkpoints: ReaderAiEditorCheckpoint[],
+  checkpointId: string,
+): ReaderAiEditorCheckpoint[] {
+  return checkpoints.map((checkpoint) =>
+    checkpoint.id === checkpointId
+      ? {
+          ...checkpoint,
+          status: 'active',
+        }
+      : checkpoint.status !== 'active'
+        ? checkpoint
+        : {
+            ...checkpoint,
+            status: 'discarded',
+          },
   );
 }

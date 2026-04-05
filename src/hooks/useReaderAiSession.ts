@@ -28,6 +28,7 @@ import {
   resolveReaderAiStagedHunkState,
 } from '../reader_ai_controller_runtime';
 import {
+  activateReaderAiEditorCheckpoint,
   appendReaderAiEditorCheckpoint,
   createReaderAiEditorCheckpoint,
   findActiveReaderAiEditorCheckpoint,
@@ -550,6 +551,7 @@ export function useReaderAiSession({
     (options: {
       path: string;
       content: string;
+      appliedContent?: string | null;
       revision: number;
       selection?: { anchor: number; head: number } | null;
       scrollTop?: number | null;
@@ -563,13 +565,21 @@ export function useReaderAiSession({
     [],
   );
 
-  const clearReaderAiUndoState = useCallback(() => {
-    if (!readerAiActiveEditorCheckpointId) return;
-    setReaderAiEditorCheckpoints((current) =>
-      updateReaderAiEditorCheckpointStatus(current, readerAiActiveEditorCheckpointId, 'discarded'),
-    );
-    setReaderAiActiveEditorCheckpointId(null);
-  }, [readerAiActiveEditorCheckpointId]);
+  const activateReaderAiEditorRestorePoint = useCallback((checkpointId: string) => {
+    setReaderAiEditorCheckpoints((current) => activateReaderAiEditorCheckpoint(current, checkpointId));
+    setReaderAiActiveEditorCheckpointId(checkpointId);
+  }, []);
+
+  const clearReaderAiUndoState = useCallback(
+    (status: ReaderAiEditorCheckpoint['status'] = 'discarded') => {
+      if (!readerAiActiveEditorCheckpointId) return;
+      setReaderAiEditorCheckpoints((current) =>
+        updateReaderAiEditorCheckpointStatus(current, readerAiActiveEditorCheckpointId, status),
+      );
+      setReaderAiActiveEditorCheckpointId(null);
+    },
+    [readerAiActiveEditorCheckpointId],
+  );
 
   const markReaderAiActiveChangeSetApplying = useCallback(() => {
     updateReaderAiActiveChangeSet((changeSet) => ({
@@ -707,6 +717,9 @@ export function useReaderAiSession({
     (appliedPaths: string[], options?: PruneAppliedReaderAiPathsOptions) => {
       if (appliedPaths.length === 0) return;
       const appliedPathSet = new Set(appliedPaths);
+      const remainingStagedChanges = readerAiStagedChangesRef.current.filter(
+        (change) => !appliedPathSet.has(change.path),
+      );
       const appliedChangeIds = new Set(
         readerAiStagedChangesRef.current
           .filter((change) => change.id && appliedPathSet.has(change.path))
@@ -734,7 +747,7 @@ export function useReaderAiSession({
       }
       updateReaderAiActiveChangeSet((changeSet) => ({
         ...markReaderAiChangeSetFileStatuses(changeSet, { appliedPaths }),
-        status: 'partial',
+        status: remainingStagedChanges.length > 0 ? 'partial' : 'applied',
         editProposals: changeSet.editProposals.filter((proposal) => !appliedPathSet.has(proposal.change.path)),
         stagedChanges: changeSet.stagedChanges.filter((change) => !appliedPathSet.has(change.path)),
         stagedFileContents: Object.fromEntries(
@@ -1490,6 +1503,7 @@ export function useReaderAiSession({
 
   return {
     acceptReaderAiProposal,
+    activateReaderAiEditorRestorePoint,
     buildReaderAiRetryRequest,
     clearReaderAiQueuedCommands,
     clearReaderAi,
@@ -1510,6 +1524,7 @@ export function useReaderAiSession({
     readerAiConversationScope,
     readerAiChangeSets,
     readerAiDocumentEditedContent,
+    readerAiEditorCheckpoints,
     readerAiEditProposals,
     readerAiError,
     readerAiHasEligibleSelection,

@@ -13,6 +13,12 @@ export type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
 
 type ReaderAiPanelView = 'chat' | 'history';
 
+interface ReaderAiEditorCheckpointWidget {
+  status: 'active' | 'restored';
+  canRestore: boolean;
+  canReapply: boolean;
+}
+
 export interface ReaderAiMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -40,8 +46,10 @@ interface ReaderAiPanelProps {
   applyDisabledReasonLabel?: string | null;
   editorProposalMode?: boolean;
   canUndoEditorApply?: boolean;
+  editorCheckpoint?: ReaderAiEditorCheckpointWidget | null;
   onApplyWithoutSaving: () => void;
   onUndoEditorApply?: () => void;
+  onReapplyEditorApply?: () => void;
   onIgnoreAll?: () => void;
   onAcceptProposal?: (proposalId: string) => void;
   onRejectProposal?: (proposalId: string) => void;
@@ -159,8 +167,10 @@ export function ReaderAiPanel({
   applyDisabledReasonLabel = null,
   editorProposalMode = false,
   canUndoEditorApply = false,
+  editorCheckpoint = null,
   onApplyWithoutSaving,
   onUndoEditorApply,
+  onReapplyEditorApply,
   onIgnoreAll,
   onAcceptProposal,
   onRejectProposal,
@@ -894,6 +904,37 @@ export function ReaderAiPanel({
                   <div class="reader-ai-tool-status">{toolStatus}</div>
                 ) : null}
               </>
+            ) : null}
+            {editorCheckpoint ? (
+              <div class="reader-ai-checkpoint-card" role="status" aria-live="polite">
+                <div class="reader-ai-checkpoint-card-header">
+                  <span
+                    class={`reader-ai-checkpoint-status${
+                      editorCheckpoint.status === 'restored'
+                        ? ' reader-ai-checkpoint-status--restored'
+                        : ' reader-ai-checkpoint-status--active'
+                    }`}
+                  >
+                    {editorCheckpoint.status === 'restored' ? 'Edits reverted' : 'Edits applied'}
+                  </span>
+                  {editorCheckpoint.canRestore || editorCheckpoint.status === 'restored' ? (
+                    <button
+                      type="button"
+                      class="reader-ai-checkpoint-card-action"
+                      disabled={
+                        editorCheckpoint.status === 'restored'
+                          ? !editorCheckpoint.canReapply
+                          : !editorCheckpoint.canRestore
+                      }
+                      onClick={() =>
+                        editorCheckpoint.status === 'restored' ? onReapplyEditorApply?.() : onUndoEditorApply?.()
+                      }
+                    >
+                      {editorCheckpoint.status === 'restored' ? 'Reapply edits' : 'Undo edits'}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
             {stagedChanges.length > 0 ? (
               <StagedChangesSection
