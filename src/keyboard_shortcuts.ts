@@ -6,3 +6,8 @@ export function isEditableShortcutTarget(target: EventTarget | null): boolean {
 export function matchesControlShortcut(event: KeyboardEvent, key: string): boolean {
   return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === key;
 }
+
+export function matchesPrimaryShortcut(event: KeyboardEvent, key: string): boolean {
+  const usesSinglePrimaryModifier = (event.metaKey || event.ctrlKey) && !(event.metaKey && event.ctrlKey);
+  return usesSinglePrimaryModifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === key;
+}

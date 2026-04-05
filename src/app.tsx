@@ -106,7 +106,7 @@ import {
   fetchWithTimeout,
   maybeResizePastedImage,
 } from './image_processing';
-import { isEditableShortcutTarget, matchesControlShortcut } from './keyboard_shortcuts';
+import { isEditableShortcutTarget, matchesControlShortcut, matchesPrimaryShortcut } from './keyboard_shortcuts';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
 import {
   commonPrefixLength,
@@ -7686,6 +7686,19 @@ export function App() {
   const showHeaderActionsMenu =
     showHeaderShare || showHeaderSourceAction || showHeaderViewInGitHub || showHeaderGoToLine;
   const showDraftMenuActions = currentDocumentDraft !== null && (currentGistId !== null || currentRepoDocPath !== null);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (!showReaderAiPanel || !matchesPrimaryShortcut(event, 'k')) return;
+
+      event.preventDefault();
+      setReaderAiActivationRequestKey((current) => current + 1);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showReaderAiPanel]);
+
   useEffect(() => {
     const bindings = [
       { key: 'b', available: headerSidebarToggleAvailable, action: onToggleSidebar },

@@ -2,6 +2,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ArrowLeft, ArrowRight, CircleStop, MoreHorizontal, Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
+import { matchesPrimaryShortcut } from '../keyboard_shortcuts';
 import { parseMarkdownToHtml } from '../markdown';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from '../reader_ai';
 import type { ReaderAiRunRecord } from '../reader_ai_ledger';
@@ -634,12 +635,7 @@ export function ReaderAiPanel({
             input.style.height = `${input.scrollHeight}px`;
           }}
           onKeyDown={(event) => {
-            if (
-              (event.metaKey || event.ctrlKey) &&
-              !event.altKey &&
-              !event.shiftKey &&
-              event.key.toLowerCase() === 'k'
-            ) {
+            if (matchesPrimaryShortcut(event, 'k')) {
               event.preventDefault();
               const input = event.currentTarget;
               if (draft.length > 0) {
