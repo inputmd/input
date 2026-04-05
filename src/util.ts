@@ -80,12 +80,8 @@ export async function copyTextToClipboard(text: string): Promise<void> {
 export function buildToolCallJson(options: { id?: string; name: string; argumentsJson?: string }): string {
   return JSON.stringify(
     {
-      ...(options.id ? { id: options.id } : {}),
-      type: 'function',
-      function: {
-        name: options.name,
-        arguments: options.argumentsJson ?? '{}',
-      },
+      name: options.name,
+      arguments: options.argumentsJson ?? '{}',
     },
     null,
     2,
