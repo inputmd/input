@@ -449,6 +449,22 @@ export function Sidebar({
   const [createContextPath, setCreateContextPath] = useState<string | null>(null);
   const [createAtRoot, setCreateAtRoot] = useState(false);
   const hasHydratedFolderPathsRef = useRef(folderPaths.size > 0);
+  const emptyFilterSuggestion = useMemo(() => {
+    if (files.length !== 0 || creatingNew) return null;
+    if (fileFilter === 'markdown' && textFileCount > 0) {
+      return {
+        buttonLabel: 'Show text files',
+        nextFilter: 'text' as SidebarFileFilter,
+      };
+    }
+    if (fileFilter === 'text' && totalFileCount > 0) {
+      return {
+        buttonLabel: 'Show all files',
+        nextFilter: 'all' as SidebarFileFilter,
+      };
+    }
+    return null;
+  }, [creatingNew, fileFilter, files.length, textFileCount, totalFileCount]);
 
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
@@ -1360,7 +1376,23 @@ export function Sidebar({
         }}
       >
         {renderNodes(tree.children, 0)}
-        {files.length === 0 && !creatingNew && <p class="sidebar-empty-message">No files</p>}
+        {files.length === 0 && !creatingNew ? (
+          <div class="sidebar-empty-state">
+            <p class="sidebar-empty-message">No files</p>
+            {emptyFilterSuggestion ? (
+              <button
+                type="button"
+                class="sidebar-empty-action"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onFileFilterChange(emptyFilterSuggestion.nextFilter);
+                }}
+              >
+                {emptyFilterSuggestion.buttonLabel}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {!readOnly && creatingNew && createParentPath === '' && renderCreateRow(0)}
         {draggingExternalFile && <div class="sidebar-upload-drop-overlay">Drop to upload</div>}
       </div>
