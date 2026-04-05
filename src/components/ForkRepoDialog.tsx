@@ -6,10 +6,13 @@ import { GroupedRepoMenu, type GroupedRepoMenuGroup } from './GroupedRepoMenu';
 
 interface ForkRepoDialogProps {
   open: boolean;
-  selectedInstallationId: string;
+  targetKind: 'repo' | 'gist';
+  canTargetRepo: boolean;
+  selectedInstallationId: string | null;
   repoGroups: GroupedRepoMenuGroup[];
   selectedRepoFullName: string;
   submitting?: boolean;
+  onSelectTargetKind: (kind: 'repo' | 'gist') => void;
   onSelectRepo: (selection: { installationId: string; fullName: string }) => void;
   onRetryRepos?: (installationId: string) => void;
   onConfirm: () => void;
@@ -18,10 +21,13 @@ interface ForkRepoDialogProps {
 
 export function ForkRepoDialog({
   open,
+  targetKind,
+  canTargetRepo,
   selectedInstallationId,
   repoGroups,
   selectedRepoFullName,
   submitting = false,
+  onSelectTargetKind,
   onSelectRepo,
   onRetryRepos,
   onConfirm,
@@ -37,8 +43,14 @@ export function ForkRepoDialog({
     const selectedRepo = selectedGroup?.repos.find((repo) => repo.fullName === selectedRepoFullName);
     if (selectedRepo) return selectedRepo.fullName;
     if (repoGroups.some((group) => group.loading)) return 'Loading repos...';
+    if (repoGroups.length === 0) return 'No repos available';
     return 'Choose a target repo';
   }, [repoGroups, selectedInstallationId, selectedRepoFullName]);
+  const description =
+    targetKind === 'repo'
+      ? "Choose a repo to open a new file with this document's contents."
+      : "Create a new gist draft with this document's contents.";
+  const confirmDisabled = submitting || (targetKind === 'repo' && !selectedRepoFullName);
 
   return (
     <DialogPrimitive.Root
@@ -63,45 +75,73 @@ export function ForkRepoDialog({
           }}
         >
           <DialogPrimitive.Title class="dialog-title">Fork this document</DialogPrimitive.Title>
-          <DialogPrimitive.Description class="dialog-message">
-            Choose a repo to create a new file with this document&apos;s contents.
-          </DialogPrimitive.Description>
-          <Popover.Root open={repoMenuOpen} onOpenChange={setRepoMenuOpen}>
-            <Popover.Trigger asChild>
+          <DialogPrimitive.Description class="dialog-message">{description}</DialogPrimitive.Description>
+          <div class="fork-repo-targets" role="group" aria-label="Fork target">
+            {canTargetRepo ? (
               <button
                 type="button"
-                class="dialog-input dialog-menu-trigger"
-                disabled={repoSelectDisabled}
-                aria-label="Target repo"
+                class={`fork-repo-target-btn${targetKind === 'repo' ? ' fork-repo-target-btn--active' : ''}`}
+                disabled={submitting}
+                onClick={() => {
+                  setRepoMenuOpen(false);
+                  onSelectTargetKind('repo');
+                }}
               >
-                <span class="dialog-menu-trigger-label">{selectedRepoLabel}</span>
-                <ChevronDown size={14} aria-hidden="true" />
+                Repository
               </button>
-            </Popover.Trigger>
-            <Popover.Portal container={contentRef.current ?? undefined}>
-              <Popover.Content
-                class="repo-menu-content fork-repo-menu-content"
-                sideOffset={6}
-                align="start"
-                onOpenAutoFocus={(event: Event) => {
-                  event.preventDefault();
-                }}
-                onCloseAutoFocus={(event: Event) => {
-                  event.preventDefault();
-                }}
-              >
-                <GroupedRepoMenu
-                  repoGroups={repoGroups}
-                  selectedInstallationId={selectedInstallationId}
-                  selectedRepoFullName={selectedRepoFullName}
-                  submitting={submitting}
-                  onSelectRepo={onSelectRepo}
-                  onRetryRepos={onRetryRepos}
-                  onDismiss={() => setRepoMenuOpen(false)}
-                />
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
+            ) : null}
+            <button
+              type="button"
+              class={`fork-repo-target-btn${targetKind === 'gist' ? ' fork-repo-target-btn--active' : ''}`}
+              disabled={submitting}
+              onClick={() => {
+                setRepoMenuOpen(false);
+                onSelectTargetKind('gist');
+              }}
+            >
+              Gist
+            </button>
+          </div>
+          {targetKind === 'repo' ? (
+            <Popover.Root open={repoMenuOpen} onOpenChange={setRepoMenuOpen}>
+              <Popover.Trigger asChild>
+                <button
+                  type="button"
+                  class="dialog-input dialog-menu-trigger"
+                  disabled={repoSelectDisabled}
+                  aria-label="Target repo"
+                >
+                  <span class="dialog-menu-trigger-label">{selectedRepoLabel}</span>
+                  <ChevronDown size={14} aria-hidden="true" />
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal container={contentRef.current ?? undefined}>
+                <Popover.Content
+                  class="repo-menu-content fork-repo-menu-content"
+                  sideOffset={6}
+                  align="start"
+                  onOpenAutoFocus={(event: Event) => {
+                    event.preventDefault();
+                  }}
+                  onCloseAutoFocus={(event: Event) => {
+                    event.preventDefault();
+                  }}
+                >
+                  <GroupedRepoMenu
+                    repoGroups={repoGroups}
+                    selectedInstallationId={selectedInstallationId ?? ''}
+                    selectedRepoFullName={selectedRepoFullName}
+                    submitting={submitting}
+                    onSelectRepo={onSelectRepo}
+                    onRetryRepos={onRetryRepos}
+                    onDismiss={() => setRepoMenuOpen(false)}
+                  />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          ) : (
+            <p class="fork-repo-target-hint">A new private gist draft will open with the current file contents.</p>
+          )}
           <div class="dialog-actions">
             <button type="button" onClick={onClose} disabled={submitting}>
               Cancel
@@ -109,9 +149,9 @@ export function ForkRepoDialog({
             <button
               ref={confirmButtonRef}
               type="button"
-              class="dialog-action-success"
+              class="button-success"
               onClick={onConfirm}
-              disabled={!selectedRepoFullName || submitting}
+              disabled={confirmDisabled}
             >
               Fork
             </button>

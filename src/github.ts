@@ -125,10 +125,12 @@ export async function logout(): Promise<void> {
   if (!res.ok) throw await responseToApiError(res);
 }
 
-export async function listGists(page = 1, perPage = 30): Promise<GistSummary[]> {
+export async function listGists(page = 1, perPage = 30, options?: { forceRefresh?: boolean }): Promise<GistSummary[]> {
   const cacheKey = gistListCacheKey(page, perPage);
-  const cached = gistListCache.get(cacheKey);
-  if (cached) return cached;
+  if (!options?.forceRefresh) {
+    const cached = gistListCache.get(cacheKey);
+    if (cached) return cached;
+  }
 
   const res = await apiFetch(`/gists?per_page=${perPage}&page=${page}`);
   const data = (await res.json()) as GistSummary[];

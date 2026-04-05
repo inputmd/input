@@ -239,8 +239,9 @@ interface RecentRepoVisit {
 type SidePane = 'none' | 'preview' | 'reader-ai';
 
 interface ForkRepoDialogState {
+  targetKind: 'repo' | 'gist';
   installations: LinkedInstallation[];
-  selectedInstallationId: string;
+  selectedInstallationId: string | null;
   selectedRepoFullName: string;
   sourcePath: string;
   sourceContent: string;
@@ -588,7 +589,7 @@ interface PendingDraftRestoreState {
   saveAfterRestore?: boolean;
 }
 
-interface PendingForkRepoDraftState {
+interface PendingForkDraftState {
   title: string;
   content: string;
 }
@@ -635,12 +636,13 @@ function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | nu
   return { documentDraftKey, content, saveAfterRestore: saveAfterRestore === true };
 }
 
-function parsePendingForkRepoDraftState(state: unknown): PendingForkRepoDraftState | null {
+function parsePendingForkDraftState(state: unknown): PendingForkDraftState | null {
   if (!state || typeof state !== 'object') return null;
-  const forkRepoDraft = (state as { forkRepoDraft?: unknown }).forkRepoDraft;
-  if (!forkRepoDraft || typeof forkRepoDraft !== 'object') return null;
-  const title = (forkRepoDraft as { title?: unknown }).title;
-  const content = (forkRepoDraft as { content?: unknown }).content;
+  const forkDraft =
+    (state as { forkDraft?: unknown }).forkDraft ?? (state as { forkRepoDraft?: unknown }).forkRepoDraft;
+  if (!forkDraft || typeof forkDraft !== 'object') return null;
+  const title = (forkDraft as { title?: unknown }).title;
+  const content = (forkDraft as { content?: unknown }).content;
   if (typeof title !== 'string' || typeof content !== 'string') return null;
   return { title, content };
 }
@@ -3115,16 +3117,15 @@ export function App() {
           setEditTitle(UNSAVED_FILE_LABEL);
           setNextEditContent('', { origin: 'external' });
           setSidePane(defaultSidePane());
-          const pendingForkRepoDraft = parsePendingForkRepoDraftState(routeState);
+          const pendingForkDraft = parsePendingForkDraftState(routeState);
           const titleDraftKey = repoNewDraftKey(instId, repoName, path, 'title');
           const contentDraftKey = repoNewDraftKey(instId, repoName, path, 'content');
-          const shouldHydrateTitle = pendingForkRepoDraft === null && shouldHydrateLocalDraftForRoute(titleDraftKey);
-          const shouldHydrateContent =
-            pendingForkRepoDraft === null && shouldHydrateLocalDraftForRoute(contentDraftKey);
-          if (pendingForkRepoDraft) {
-            setEditTitle(pendingForkRepoDraft.title || UNSAVED_FILE_LABEL);
-            setNextEditContent(pendingForkRepoDraft.content, { origin: 'external' });
-            setHasUnsavedChanges(Boolean(pendingForkRepoDraft.content));
+          const shouldHydrateTitle = pendingForkDraft === null && shouldHydrateLocalDraftForRoute(titleDraftKey);
+          const shouldHydrateContent = pendingForkDraft === null && shouldHydrateLocalDraftForRoute(contentDraftKey);
+          if (pendingForkDraft) {
+            setEditTitle(pendingForkDraft.title || UNSAVED_FILE_LABEL);
+            setNextEditContent(pendingForkDraft.content, { origin: 'external' });
+            setHasUnsavedChanges(Boolean(pendingForkDraft.content));
           } else if (shouldHydrateTitle) {
             setEditTitle(localStorage.getItem(titleDraftKey) || UNSAVED_FILE_LABEL);
           }
@@ -3178,9 +3179,15 @@ export function App() {
           setRepoSidebarFiles([]);
           setCurrentDocumentSavedContent(null);
           setSidePane(defaultSidePane());
-          const shouldHydrateDraftTitle = shouldHydrateLocalDraftForRoute(DRAFT_TITLE_KEY);
-          const shouldHydrateDraftContent = shouldHydrateLocalDraftForRoute(DRAFT_CONTENT_KEY);
-          if (shouldHydrateDraftTitle) {
+          const pendingForkDraft = parsePendingForkDraftState(routeState);
+          const shouldHydrateDraftTitle = pendingForkDraft === null && shouldHydrateLocalDraftForRoute(DRAFT_TITLE_KEY);
+          const shouldHydrateDraftContent =
+            pendingForkDraft === null && shouldHydrateLocalDraftForRoute(DRAFT_CONTENT_KEY);
+          if (pendingForkDraft) {
+            setEditTitle(pendingForkDraft.title || UNSAVED_FILE_LABEL);
+            setNextEditContent(pendingForkDraft.content, { origin: 'external' });
+            setHasUnsavedChanges(Boolean(pendingForkDraft.content));
+          } else if (shouldHydrateDraftTitle) {
             setEditTitle(localStorage.getItem(DRAFT_TITLE_KEY) || UNSAVED_FILE_LABEL);
           }
           if (shouldHydrateDraftContent) {
@@ -6665,35 +6672,32 @@ export function App() {
   const onOpenForkRepoDialog = useCallback(async () => {
     if (!user || activeView !== 'content' || !currentRepoDocPath || currentDocumentContent === null) return;
     if (!isMarkdownFileName(currentRepoDocPath)) return;
-    if (linkedInstallations.length === 0) {
-      await showAlert('Connect a GitHub installation before forking this file into a repo.');
-      return;
-    }
 
     const targetInstallationId = resolveForkTargetInstallationId(
       linkedInstallations,
       activeInstalledRepoInstallationId ?? installationId,
     );
-    if (!targetInstallationId) {
-      await showAlert('Connect a GitHub installation before forking this file into a repo.');
-      return;
-    }
 
     setForkRepoDialog({
+      targetKind: targetInstallationId ? 'repo' : 'gist',
       installations: linkedInstallations,
       selectedInstallationId: targetInstallationId,
       selectedRepoFullName: '',
       sourcePath: currentRepoDocPath,
       sourceContent: currentDocumentContent,
     });
-    await Promise.all(
-      linkedInstallations.map((installation) =>
-        loadInstallationReposForId(installation.installationId, {
-          notifyOnError: false,
-        }),
-      ),
-    );
-    await syncForkRepoDialogInstallation(targetInstallationId);
+    if (linkedInstallations.length > 0) {
+      await Promise.all(
+        linkedInstallations.map((installation) =>
+          loadInstallationReposForId(installation.installationId, {
+            notifyOnError: false,
+          }),
+        ),
+      );
+    }
+    if (targetInstallationId) {
+      await syncForkRepoDialogInstallation(targetInstallationId);
+    }
   }, [
     activeInstalledRepoInstallationId,
     activeView,
@@ -6702,13 +6706,48 @@ export function App() {
     installationId,
     linkedInstallations,
     loadInstallationReposForId,
-    showAlert,
     syncForkRepoDialogInstallation,
     user,
   ]);
 
   const onConfirmForkRepo = useCallback(async () => {
     if (!forkRepoDialog) return;
+    if (forkRepoDialog.targetKind === 'gist') {
+      setForkRepoSubmitting(true);
+      try {
+        await listGists(1, 1, { forceRefresh: true });
+        setForkRepoDialog(null);
+        navigate(routePath.freshDraft(), {
+          state: {
+            forkDraft: {
+              title: fileNameFromPath(forkRepoDialog.sourcePath) || UNSAVED_FILE_LABEL,
+              content: forkRepoDialog.sourceContent,
+            },
+          },
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message === 'Unauthorized') {
+          const reconnect = await showConfirm('Reconnect GitHub with gist access to create a forked gist draft?', {
+            title: 'Reconnect GitHub',
+            confirmLabel: 'Reconnect',
+          });
+          if (reconnect) {
+            startGitHubSignIn(`${window.location.pathname}${window.location.search}`, { force: true });
+          }
+          return;
+        }
+        showRateLimitToastIfNeeded(err);
+        await showAlert(err instanceof Error ? err.message : 'Failed to open forked gist draft');
+      } finally {
+        setForkRepoSubmitting(false);
+      }
+      return;
+    }
+
+    if (!forkRepoDialog.selectedInstallationId) {
+      await showAlert('Choose a target repo.');
+      return;
+    }
     const targetRepos = installationReposById[forkRepoDialog.selectedInstallationId] ?? [];
     const targetRepo = targetRepos.find((repo) => repo.full_name === forkRepoDialog.selectedRepoFullName);
     if (!targetRepo) {
@@ -6735,7 +6774,7 @@ export function App() {
       setForkRepoDialog(null);
       navigate(routePath.repoNew(prepared.repoRef.owner, prepared.repoRef.repo, draftPath), {
         state: {
-          forkRepoDraft: {
+          forkDraft: {
             title: fileNameFromPath(forkRepoDialog.sourcePath) || UNSAVED_FILE_LABEL,
             content: forkRepoDialog.sourceContent,
           },
@@ -6760,7 +6799,9 @@ export function App() {
     navigate,
     primeInstalledRepoState,
     showAlert,
+    showConfirm,
     showRateLimitToastIfNeeded,
+    startGitHubSignIn,
   ]);
 
   const loadWorkspaceGists = useCallback(
@@ -8053,15 +8094,21 @@ export function App() {
       {forkRepoDialog ? (
         <ForkRepoDialog
           open
+          targetKind={forkRepoDialog.targetKind}
+          canTargetRepo={forkRepoDialog.installations.length > 0}
           selectedInstallationId={forkRepoDialog.selectedInstallationId}
           repoGroups={forkRepoDialogRepoGroups}
           selectedRepoFullName={forkRepoDialog.selectedRepoFullName}
           submitting={forkRepoSubmitting}
+          onSelectTargetKind={(targetKind) => {
+            setForkRepoDialog((current) => (current ? { ...current, targetKind } : current));
+          }}
           onSelectRepo={({ installationId: selectedInstallationId, fullName: selectedRepoFullName }) => {
             setForkRepoDialog((current) =>
               current
                 ? {
                     ...current,
+                    targetKind: 'repo',
                     selectedInstallationId,
                     selectedRepoFullName,
                   }
