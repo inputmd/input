@@ -804,6 +804,7 @@ export function App() {
   const [readerAiReviewTarget, setReaderAiReviewTarget] = useState<{ changeId: string; hunkId?: string } | null>(null);
   const [readerAiReviewRevealToken, setReaderAiReviewRevealToken] = useState(0);
   const [contentSourceViewVisible, setContentSourceViewVisible] = useState(false);
+  const [goToLineRequest, setGoToLineRequest] = useState<{ requestKey: number; lineNumber: number } | null>(null);
   const [inlinePromptStreaming, setInlinePromptStreaming] = useState(false);
   const [inlinePromptProtectedRange, setInlinePromptProtectedRange] = useState<EditorProtectedRange | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -6009,6 +6010,65 @@ export function App() {
     onToggleContentSourceView();
   }, [route.name, user, navigate, onToggleContentSourceView]);
 
+  const onHeaderGoToLine = useCallback(async () => {
+    const input = await showPrompt('Go to line:', '');
+    if (input === null) return;
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    if (!/^\d+$/.test(trimmed)) {
+      await showAlert('Enter a positive line number.');
+      return;
+    }
+    const lineNumber = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(lineNumber) || lineNumber < 1) {
+      await showAlert('Enter a positive line number.');
+      return;
+    }
+
+    const canOpenEditSurface =
+      activeView === 'content' &&
+      isEditableTextFilePath(currentFileName) &&
+      (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
+    const canOpenSourceSurface =
+      (activeView === 'content' &&
+        repoAccessMode === 'public' &&
+        currentDocumentSavedContent !== null &&
+        Boolean(currentFileName) &&
+        !contentLoadPending) ||
+      (route.name === 'new' && !user);
+
+    if (
+      activeView === 'content' &&
+      currentFileName &&
+      isMarkdownFileName(currentFileName) &&
+      !contentSourceViewVisible
+    ) {
+      if (canOpenEditSurface) onEdit();
+      else if (canOpenSourceSurface) onHeaderViewSource();
+      else {
+        await showAlert('Go to line is only available from source view for this markdown file.');
+        return;
+      }
+    }
+
+    setGoToLineRequest({ requestKey: Date.now(), lineNumber });
+  }, [
+    activeView,
+    contentLoadPending,
+    contentSourceViewVisible,
+    currentFileName,
+    currentDocumentSavedContent,
+    currentGistId,
+    currentRepoDocPath,
+    onEdit,
+    onHeaderViewSource,
+    repoAccessMode,
+    route.name,
+    showAlert,
+    showPrompt,
+    user,
+  ]);
+
   const handleDeleteFile = useCallback(
     async (filePath: string) => {
       if (
@@ -7119,6 +7179,7 @@ export function App() {
               onContentChange={() => {}}
               saving={false}
               canSave={false}
+              goToLineRequest={goToLineRequest}
               hasUserTypedUnsavedChanges={false}
               onSave={() => {}}
               readOnly
@@ -7159,6 +7220,7 @@ export function App() {
               scrollStorageKey={currentDocumentScrollKey}
               plainText={renderMode === 'ansi' && !contentImagePreview ? renderedText : null}
               plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
+              goToLineRequest={goToLineRequest}
               loading={contentLoadPending}
               imagePreview={contentImagePreview}
               alertMessage={contentAlertMessage}
@@ -7201,6 +7263,7 @@ export function App() {
             sidePaneWidth={sidePaneWidth}
             scrollStorageKey={currentDocumentScrollKey}
             loading={repoEditLoading}
+            goToLineRequest={goToLineRequest}
             onTogglePreview={onTogglePreview}
             onSidePaneResize={(width) => setSidePaneWidth(clampSidePaneWidth(width))}
             onContentChange={onEditContentChange}
@@ -7556,6 +7619,14 @@ export function App() {
   const showHomeHeaderSourceAction = route.name === 'new' && !user;
   const showHeaderSourceAction = showHeaderSourceToggle || showHomeHeaderSourceAction;
   const headerSourceActionLabel = contentSourceViewVisible ? 'View Rendered' : 'View Source';
+  const goToLineFileName = activeView === 'edit' ? editingFileName : currentFileName;
+  const showHeaderGoToLine =
+    Boolean(goToLineFileName && isSidebarTextFileName(goToLineFileName)) &&
+    (activeView === 'edit' ||
+      !isMarkdownFileName(goToLineFileName) ||
+      contentSourceViewVisible ||
+      showHeaderEdit ||
+      showHeaderSourceAction);
   const showHeaderLeftLoading = activeView === 'loading' && Boolean(user);
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
@@ -7571,7 +7642,8 @@ export function App() {
     (route.name === 'repoedit' || (route.name === 'repofile' && Boolean(user)));
   const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
   const showHeaderViewInGitHub = showHomeHeaderSourceAction || currentGistId !== null || currentRepoDocPath !== null;
-  const showHeaderActionsMenu = showHeaderShare || showHeaderSourceAction || showHeaderViewInGitHub;
+  const showHeaderActionsMenu =
+    showHeaderShare || showHeaderSourceAction || showHeaderViewInGitHub || showHeaderGoToLine;
   const showDraftMenuActions = currentDocumentDraft !== null && (currentGistId !== null || currentRepoDocPath !== null);
   useEffect(() => {
     const bindings = [
@@ -7741,6 +7813,7 @@ export function App() {
         showViewSource={showHeaderSourceAction}
         viewSourceLabel={headerSourceActionLabel}
         shareMetadata={shareMenuMetadata}
+        showGoToLine={showHeaderGoToLine}
         showDraftBadge={hasDivergedDocumentDraft}
         showDraftActions={showDraftMenuActions}
         showRestoreDraft={hasRestorableDocumentDraft}
@@ -7761,6 +7834,9 @@ export function App() {
           void onRestoreDraft();
         }}
         onViewSource={onHeaderViewSource}
+        onGoToLine={() => {
+          void onHeaderGoToLine();
+        }}
         onViewInGitHub={onHeaderViewInGitHub}
         showCompactCommits={repoAccessMode === 'installed' && currentRepoDocPath !== null && Boolean(selectedRepo)}
         onCompactCommits={openCompactCommitsDialog}

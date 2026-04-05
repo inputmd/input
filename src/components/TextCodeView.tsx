@@ -9,7 +9,7 @@ import {
   setSearchQuery,
 } from '@codemirror/search';
 import { Compartment, EditorState } from '@codemirror/state';
-import { EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
+import { drawSelection, EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { CodeMirrorSearchPanel } from './CodeMirrorSearchPanel';
@@ -21,9 +21,15 @@ interface TextCodeViewProps {
   content: string;
   fileName?: string | null;
   scrollStorageKey?: string | null;
+  goToLineRequest?: { requestKey: number; lineNumber: number } | null;
 }
 
-export function TextCodeView({ content, fileName = null, scrollStorageKey = null }: TextCodeViewProps) {
+export function TextCodeView({
+  content,
+  fileName = null,
+  scrollStorageKey = null,
+  goToLineRequest = null,
+}: TextCodeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -34,6 +40,7 @@ export function TextCodeView({ content, fileName = null, scrollStorageKey = null
   const currentScrollStorageKeyRef = useRef<string | null>(scrollStorageKey);
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
+  const lastHandledGoToLineRequestRef = useRef<number | null>(null);
   const detectedLanguage = detectedLanguageForFileName(fileName);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQueryState] = useState('');
@@ -86,6 +93,7 @@ export function TextCodeView({ content, fileName = null, scrollStorageKey = null
       doc: initialContentRef.current,
       extensions: [
         highlightSpecialChars(),
+        drawSelection(),
         syntaxHighlighting(appCodeMirrorHighlighter, { fallback: true }),
         EditorState.readOnly.of(true),
         EditorView.editable.of(false),
@@ -213,6 +221,20 @@ export function TextCodeView({ content, fileName = null, scrollStorageKey = null
       effects: languageCompartmentRef.current.reconfigure(detectedLanguage?.extensions ?? []),
     });
   }, [detectedLanguage]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !goToLineRequest) return;
+    if (lastHandledGoToLineRequestRef.current === goToLineRequest.requestKey) return;
+    lastHandledGoToLineRequestRef.current = goToLineRequest.requestKey;
+    const lineNumber = Math.max(1, Math.min(goToLineRequest.lineNumber, view.state.doc.lines));
+    const line = view.state.doc.line(lineNumber);
+    view.dispatch({
+      selection: { anchor: line.from, head: line.to },
+      effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: 40 }),
+    });
+    view.focus();
+  }, [goToLineRequest]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: helper is stable enough for this local sync effect
   useEffect(() => {

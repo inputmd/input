@@ -37,6 +37,7 @@ interface ContentViewProps {
   scrollStorageKey?: string | null;
   plainText?: string | null;
   plainTextFileName?: string | null;
+  goToLineRequest?: { requestKey: number; lineNumber: number } | null;
   loading?: boolean;
   imagePreview?: { src: string; alt: string } | null;
   alertMessage?: string | null;
@@ -89,6 +90,7 @@ export function ContentView({
   scrollStorageKey = null,
   plainText = null,
   plainTextFileName = null,
+  goToLineRequest = null,
   loading = false,
   imagePreview,
   alertMessage,
@@ -759,7 +761,12 @@ export function ContentView({
           />
         </>
       ) : plainText !== null ? (
-        <TextCodeView content={plainText} fileName={plainTextFileName} scrollStorageKey={scrollStorageKey} />
+        <TextCodeView
+          content={plainText}
+          fileName={plainTextFileName}
+          scrollStorageKey={scrollStorageKey}
+          goToLineRequest={goToLineRequest}
+        />
       ) : (
         <pre class="rendered-content" dangerouslySetInnerHTML={{ __html: html }} />
       )}

@@ -148,6 +148,7 @@ interface ToolbarProps {
   showViewSource: boolean;
   viewSourceLabel?: string;
   shareMetadata: string | null;
+  showGoToLine?: boolean;
   showDraftBadge?: boolean;
   showDraftActions?: boolean;
   showRestoreDraft?: boolean;
@@ -155,6 +156,7 @@ interface ToolbarProps {
   onShare: () => void;
   onCopyShareLink?: (link: RepoFileShareLink) => void;
   onViewSource: () => void;
+  onGoToLine?: () => void;
   onForkRepo?: () => void;
   onResetDraftChanges?: () => void;
   onRestoreDraft?: () => void;
@@ -239,6 +241,7 @@ export function Toolbar({
   showViewSource,
   viewSourceLabel = 'View Source',
   shareMetadata,
+  showGoToLine = false,
   showDraftBadge = false,
   showDraftActions = false,
   showRestoreDraft = false,
@@ -246,6 +249,7 @@ export function Toolbar({
   onShare,
   onCopyShareLink,
   onViewSource,
+  onGoToLine,
   onForkRepo,
   onResetDraftChanges,
   onRestoreDraft,
@@ -569,6 +573,18 @@ export function Toolbar({
               }}
             >
               Open in input.md <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
+            </DropdownMenu.Item>
+          ) : null}
+          {showGoToLine ? (
+            <DropdownMenu.Item
+              class="author-menu-item"
+              onSelect={(event: Event) => {
+                runAuthorMenuAction(event, () => {
+                  onGoToLine?.();
+                });
+              }}
+            >
+              Go to line...
             </DropdownMenu.Item>
           ) : null}
           {showCompactCommits ? (

@@ -260,6 +260,7 @@ export interface EditViewProps {
   protectedEditRange?: EditorProtectedRange | null;
   onProtectedEditRangeChange?: (range: EditorProtectedRange | null) => void;
   onProtectedEditRangeBlocked?: () => void;
+  goToLineRequest?: { requestKey: number; lineNumber: number } | null;
   saving: boolean;
   canSave: boolean;
   hasUserTypedUnsavedChanges?: boolean;
@@ -315,6 +316,7 @@ export function EditView({
   protectedEditRange = null,
   onProtectedEditRangeChange,
   onProtectedEditRangeBlocked,
+  goToLineRequest = null,
   saving,
   canSave,
   hasUserTypedUnsavedChanges = false,
@@ -325,6 +327,29 @@ export function EditView({
   lockLabel = 'Reader AI',
   imageUploadIssue,
 }: EditViewProps) {
+  const lineStartOffset = useCallback(
+    (lineNumber: number) => {
+      if (lineNumber <= 1) return 0;
+      let offset = 0;
+      let currentLine = 1;
+      while (offset < content.length && currentLine < lineNumber) {
+        const nextLineBreak = content.indexOf('\n', offset);
+        if (nextLineBreak < 0) return content.length;
+        offset = nextLineBreak + 1;
+        currentLine += 1;
+      }
+      return offset;
+    },
+    [content],
+  );
+  const lineEndOffset = useCallback(
+    (lineNumber: number) => {
+      const start = lineStartOffset(lineNumber);
+      const nextLineBreak = content.indexOf('\n', start);
+      return nextLineBreak < 0 ? content.length : nextLineBreak;
+    },
+    [content, lineStartOffset],
+  );
   const diffPreview: EditorDiffPreview | null = readerAiEditorOverlay?.diffPreview ?? null;
   const changeMarkers: EditorChangeMarker[] | null = readerAiEditorOverlay?.markers ?? null;
   const conflictWidgets: EditorConflictWidget[] | null = readerAiEditorOverlay
@@ -1625,6 +1650,33 @@ export function EditView({
     },
     [onEditorReady],
   );
+
+  const lastHandledGoToLineRequestRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!goToLineRequest) return;
+    if (editorControllerReadyVersion === 0 && editorControllerRef.current === null) return;
+    const controller = editorControllerRef.current;
+    if (!controller) return;
+    if (lastHandledGoToLineRequestRef.current === goToLineRequest.requestKey) return;
+    lastHandledGoToLineRequestRef.current = goToLineRequest.requestKey;
+    const offset = lineStartOffset(goToLineRequest.lineNumber);
+    if (
+      readOnly &&
+      controller.applyExternalChange({
+        from: offset,
+        to: offset,
+        insert: '',
+        selection: { anchor: offset, head: lineEndOffset(goToLineRequest.lineNumber) },
+        scrollIntoView: true,
+      })
+    ) {
+      controller.revealRange(offset);
+      return;
+    }
+    controller.scrollToPosition(offset, 0);
+  }, [editorControllerReadyVersion, goToLineRequest, lineEndOffset, lineStartOffset, readOnly]);
+
   const showModelStatusIndicator = locked;
   const handleDiffPreviewAction = useCallback(
     (event: EditorDiffPreviewActionEvent) => {
