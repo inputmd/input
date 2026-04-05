@@ -54,10 +54,12 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       if (!modelId) return false;
       const allowDocumentEdits = options.activeView === 'edit';
       const currentEditContent = options.getCurrentEditContent();
+      const hasPendingDocumentChanges = session.readerAiStagedChanges.length > 0;
       const documentSource = buildReaderAiDocumentSource({
         allowDocumentEdits,
         currentEditContent,
         documentEditedContent: session.readerAiDocumentEditedContent,
+        hasPendingDocumentChanges,
         readerAiSource: options.readerAiSource,
       });
       const selectionSource = allowDocumentEdits ? options.getSelectionSource(READER_AI_SELECTION_MAX_CHARS) : null;
@@ -91,6 +93,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       options.readerAiModels,
       options.readerAiSelectedModel,
       options.readerAiSource,
+      session.readerAiStagedChanges,
       options.selectedReaderAiModel,
       options.showWarningToast,
       session.readerAiDocumentEditedContent,

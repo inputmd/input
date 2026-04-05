@@ -11,9 +11,14 @@ export function buildReaderAiDocumentSource(options: {
   allowDocumentEdits: boolean;
   currentEditContent: string;
   documentEditedContent?: string | null;
+  hasPendingDocumentChanges?: boolean;
   readerAiSource: string;
 }): string {
-  if (options.allowDocumentEdits && typeof options.documentEditedContent === 'string') {
+  if (
+    options.allowDocumentEdits &&
+    options.hasPendingDocumentChanges === true &&
+    typeof options.documentEditedContent === 'string'
+  ) {
     return trimReaderAiSource(options.documentEditedContent);
   }
   return trimReaderAiSource(options.allowDocumentEdits ? options.currentEditContent : options.readerAiSource);

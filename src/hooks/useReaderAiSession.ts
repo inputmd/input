@@ -994,7 +994,10 @@ export function useReaderAiSession({
       showWarningToast,
     }: StartReaderAiStreamOptions) => {
       const assistantEdited = edited === true;
-      const hasPendingDocumentProposal = allowDocumentEdits && typeof readerAiDocumentEditedContent === 'string';
+      const hasPendingDocumentProposal =
+        allowDocumentEdits &&
+        readerAiStagedChangesRef.current.length > 0 &&
+        typeof readerAiDocumentEditedContent === 'string';
       const fallbackConversationScope = (() => {
         if (!allowDocumentEdits) return { kind: 'document' } as ReaderAiConversationScope;
         if (!selectionSource) return { kind: 'document' } as ReaderAiConversationScope;

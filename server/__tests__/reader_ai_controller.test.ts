@@ -21,10 +21,23 @@ test('buildReaderAiDocumentSource prefers staged proposal content in edit mode',
     allowDocumentEdits: true,
     currentEditContent: 'Editor buffer\n',
     documentEditedContent: 'Pending staged edit\n',
+    hasPendingDocumentChanges: true,
     readerAiSource: 'Rendered view content\n',
   });
 
   t.is(source, 'Pending staged edit\n');
+});
+
+test('buildReaderAiDocumentSource ignores stale staged proposal content when no pending changes remain', (t) => {
+  const source = buildReaderAiDocumentSource({
+    allowDocumentEdits: true,
+    currentEditContent: 'Current editor buffer\n',
+    documentEditedContent: 'Old Reader AI staged edit\n',
+    hasPendingDocumentChanges: false,
+    readerAiSource: 'Rendered view content\n',
+  });
+
+  t.is(source, 'Current editor buffer\n');
 });
 
 test('buildReaderAiDocumentSource uses the non-editor source outside edit mode', (t) => {
