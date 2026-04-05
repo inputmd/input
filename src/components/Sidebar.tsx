@@ -33,6 +33,7 @@ export type SidebarFileFilter = 'markdown' | 'text' | 'all';
 interface SidebarProps {
   workspaceKey: string;
   files: SidebarFile[];
+  hasOpenFile?: boolean;
   markdownFileCount: number;
   textFileCount: number;
   totalFileCount: number;
@@ -371,6 +372,7 @@ function IndentGuides({ depth }: { depth: number }) {
 export function Sidebar({
   workspaceKey,
   files,
+  hasOpenFile = false,
   markdownFileCount,
   textFileCount,
   totalFileCount,
@@ -846,6 +848,16 @@ export function Sidebar({
 
   const handleSidebarBackgroundClick = (event: MouseEvent) => {
     if (event.target !== event.currentTarget) return;
+    if (hasOpenFile) {
+      setCreateAtRoot(false);
+      const nextFocusedPath = activeFilePath ?? focusedPath ?? null;
+      if (nextFocusedPath) {
+        setFocusedPath(nextFocusedPath);
+        setCreateContextPath(nextFocusedPath);
+        rowRefs.current[nextFocusedPath]?.focus();
+      }
+      return;
+    }
     setCreateAtRoot(true);
     setFocusedPath(null);
     setCreateContextPath(null);

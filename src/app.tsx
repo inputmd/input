@@ -7857,6 +7857,7 @@ export function App() {
               key={sidebarWorkspaceKey}
               workspaceKey={sidebarWorkspaceKey}
               files={sidebarFiles}
+              hasOpenFile={currentRepoDocPath !== null || currentFileName !== null}
               markdownFileCount={sidebarFileCounts.markdown}
               textFileCount={sidebarFileCounts.text}
               totalFileCount={sidebarFileCounts.total}
