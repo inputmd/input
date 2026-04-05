@@ -5997,6 +5997,10 @@ export function App() {
     }
     navigate(routePath.repoNew(selectedRepoRef.owner, selectedRepoRef.repo, DEFAULT_NEW_FILENAME), {
       state: {
+        forkDraft: {
+          title: UNSAVED_FILE_LABEL,
+          content: dailyNoteContent,
+        },
         returnToPath,
       },
     });
