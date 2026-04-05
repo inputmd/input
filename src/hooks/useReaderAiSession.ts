@@ -836,58 +836,6 @@ export function useReaderAiSession({
     resetReaderAiStagedState({ clearError: true });
   }, [readerAiEditProposals, resetReaderAiStagedState]);
 
-  const acceptReaderAiProposal = useCallback((proposalId: string) => {
-    setReaderAiEditProposals((current) => {
-      const targetIndex = current.findIndex((proposal) => proposal.id === proposalId);
-      if (targetIndex < 0) return current;
-      const target = current[targetIndex];
-      const acceptedToolCallIds = new Set(
-        current
-          .filter((proposal, index) => proposal.change.path === target.change.path && index <= targetIndex)
-          .map((proposal) => proposal.toolCallId)
-          .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string'),
-      );
-      if (acceptedToolCallIds.size > 0) {
-        setReaderAiProposalStatusesByToolCallId((currentStatuses) => {
-          const nextStatuses = { ...currentStatuses };
-          for (const toolCallId of acceptedToolCallIds) nextStatuses[toolCallId] = 'accepted';
-          return nextStatuses;
-        });
-      }
-      return current.map((proposal, index) =>
-        proposal.change.path === target.change.path && index <= targetIndex
-          ? { ...proposal, status: 'accepted' as const }
-          : proposal,
-      );
-    });
-  }, []);
-
-  const rejectReaderAiProposal = useCallback((proposalId: string) => {
-    setReaderAiEditProposals((current) => {
-      const targetIndex = current.findIndex((proposal) => proposal.id === proposalId);
-      if (targetIndex < 0) return current;
-      const target = current[targetIndex];
-      const rejectedToolCallIds = new Set(
-        current
-          .filter((proposal, index) => proposal.change.path === target.change.path && index >= targetIndex)
-          .map((proposal) => proposal.toolCallId)
-          .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string'),
-      );
-      if (rejectedToolCallIds.size > 0) {
-        setReaderAiProposalStatusesByToolCallId((currentStatuses) => {
-          const nextStatuses = { ...currentStatuses };
-          for (const toolCallId of rejectedToolCallIds) nextStatuses[toolCallId] = 'rejected';
-          return nextStatuses;
-        });
-      }
-      return current.map((proposal, index) =>
-        proposal.change.path === target.change.path && index >= targetIndex
-          ? { ...proposal, status: 'rejected' as const }
-          : proposal,
-      );
-    });
-  }, []);
-
   const toggleReaderAiProposalHunkSelection = useCallback((proposalId: string, hunkId: string, selected: boolean) => {
     setReaderAiEditProposals((current) =>
       current.map((proposal) => {
@@ -1500,7 +1448,6 @@ export function useReaderAiSession({
   );
 
   return {
-    acceptReaderAiProposal,
     activateReaderAiEditorRestorePoint,
     buildReaderAiRetryRequest,
     clearReaderAiQueuedCommands,
@@ -1540,7 +1487,6 @@ export function useReaderAiSession({
     readerAiActiveEditorCheckpoint,
     rejectReaderAiChange,
     rejectReaderAiHunk,
-    rejectReaderAiProposal,
     removeReaderAiQueuedCommand,
     recordReaderAiAppliedChanges,
     readerAiStagedChanges,

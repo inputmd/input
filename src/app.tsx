@@ -1126,7 +1126,6 @@ export function App() {
     [currentRepoDocPath, currentGistId, currentFileName, repoAccessMode, selectedRepo, publicRepoRef, route],
   );
   const {
-    acceptReaderAiProposal,
     activateReaderAiEditorRestorePoint,
     clearReaderAiQueuedCommands,
     clearReaderAiUndoState,
@@ -1150,7 +1149,6 @@ export function App() {
     readerAiHasEligibleSelection,
     readerAiMessages,
     readerAiQueuedCommands,
-    readerAiProposalStatusesByToolCallId,
     readerAiActiveEditorCheckpoint,
     readerAiRuns,
     readerAiSelectedChangeIds,
@@ -1170,7 +1168,6 @@ export function App() {
     onReaderAiStop,
     rejectReaderAiChange,
     rejectReaderAiHunk,
-    rejectReaderAiProposal,
     removeReaderAiQueuedCommand,
     recordReaderAiAppliedChanges,
     resetReaderAiStagedState,
@@ -3997,10 +3994,6 @@ export function App() {
   );
 
   const onReaderAiIgnoreChanges = ignoreAllReaderAiChanges;
-
-  const onReaderAiAcceptProposal = acceptReaderAiProposal;
-
-  const onReaderAiRejectProposal = rejectReaderAiProposal;
 
   const onReaderAiToggleProposalHunkSelection = toggleReaderAiProposalHunkSelection;
 
@@ -8057,7 +8050,6 @@ export function App() {
             toolStatus={readerAiToolStatus}
             toolLog={readerAiToolLog}
             editProposals={readerAiEditProposals}
-            proposalStatusesByToolCallId={readerAiProposalStatusesByToolCallId}
             stagedChanges={effectiveReaderAiStagedChanges}
             stagedChangesStreaming={readerAiStagedChangesStreaming}
             applyingChanges={readerAiApplyingChanges}
@@ -8070,8 +8062,6 @@ export function App() {
             onUndoEditorApply={onReaderAiUndoApply}
             onReapplyEditorApply={onReaderAiReapplyApply}
             onIgnoreAll={onReaderAiIgnoreChanges}
-            onAcceptProposal={onReaderAiAcceptProposal}
-            onRejectProposal={onReaderAiRejectProposal}
             onToggleProposalHunkSelection={onReaderAiToggleProposalHunkSelection}
             onToggleChangeSelection={toggleReaderAiChangeSelection}
             onToggleHunkSelection={toggleReaderAiHunkSelection}

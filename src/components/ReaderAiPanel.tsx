@@ -40,7 +40,6 @@ interface ReaderAiPanelProps {
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
   editProposals: ReaderAiEditProposal[];
-  proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>;
   stagedChanges: ReaderAiStagedChange[];
   stagedChangesStreaming?: boolean;
   applyingChanges: boolean;
@@ -53,8 +52,6 @@ interface ReaderAiPanelProps {
   onUndoEditorApply?: () => void;
   onReapplyEditorApply?: () => void;
   onIgnoreAll?: () => void;
-  onAcceptProposal?: (proposalId: string) => void;
-  onRejectProposal?: (proposalId: string) => void;
   onToggleProposalHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
@@ -162,7 +159,6 @@ export function ReaderAiPanel({
   toolStatus,
   toolLog,
   editProposals,
-  proposalStatusesByToolCallId,
   stagedChanges,
   stagedChangesStreaming = false,
   applyingChanges,
@@ -175,8 +171,6 @@ export function ReaderAiPanel({
   onUndoEditorApply,
   onReapplyEditorApply,
   onIgnoreAll,
-  onAcceptProposal,
-  onRejectProposal,
   onToggleProposalHunkSelection,
   onToggleChangeSelection,
   onToggleHunkSelection,
@@ -880,9 +874,6 @@ export function ReaderAiPanel({
                         entries={toolLog}
                         live={sending}
                         proposals={editProposals}
-                        proposalStatusesByToolCallId={proposalStatusesByToolCallId}
-                        onAcceptProposal={onAcceptProposal}
-                        onRejectProposal={onRejectProposal}
                         onToggleProposalHunkSelection={onToggleProposalHunkSelection}
                       />
                     ) : null}
@@ -900,9 +891,6 @@ export function ReaderAiPanel({
                     entries={toolLog}
                     live={sending}
                     proposals={editProposals}
-                    proposalStatusesByToolCallId={proposalStatusesByToolCallId}
-                    onAcceptProposal={onAcceptProposal}
-                    onRejectProposal={onRejectProposal}
                     onToggleProposalHunkSelection={onToggleProposalHunkSelection}
                   />
                 ) : null}

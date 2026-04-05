@@ -3,6 +3,13 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ReaderAiRunRecord, ReaderAiRunStep } from '../reader_ai_ledger';
 import { buildToolCallJson, copyTextToClipboard } from '../util';
 
+const TOOL_LABELS: Record<string, string> = {
+  read_document: 'Read document',
+  search_document: 'Search document',
+  propose_edit_document: 'Propose document edit',
+  task: 'Subagent',
+};
+
 function formatReaderAiRunTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -58,6 +65,116 @@ function stepToolCallJson(step: ReaderAiRunStep): string | null {
     name: step.name,
     argumentsJson: step.args,
   });
+}
+
+function parseReaderAiStepArgs(step: ReaderAiRunStep): Record<string, unknown> | null {
+  if (!step.args) return null;
+  try {
+    const parsed = JSON.parse(step.args);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readIntegerArg(args: Record<string, unknown> | null, key: string): number | null {
+  if (!args) return null;
+  const value = args[key];
+  return typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : null;
+}
+
+function readStringArg(args: Record<string, unknown> | null, key: string): string | null {
+  if (!args) return null;
+  const value = args[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function compactWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function quoteSummaryText(value: string, maxLength = 60): string {
+  return `"${truncateText(compactWhitespace(value), maxLength)}"`;
+}
+
+function describeLineRange(verb: string, startLine: number | null, endLine: number | null): string {
+  if (startLine !== null && endLine !== null) {
+    return startLine === endLine ? `${verb} line ${startLine}` : `${verb} lines ${startLine}-${endLine}`;
+  }
+  if (startLine !== null) return `${verb} from line ${startLine}`;
+  if (endLine !== null) return `${verb} through line ${endLine}`;
+  return `${verb} the full document`;
+}
+
+function describeEditRange(verb: string, startLine: number | null, endLine: number | null): string {
+  if (startLine !== null && endLine !== null) {
+    return startLine === endLine
+      ? `${verb} an edit for line ${startLine}`
+      : `${verb} edits for lines ${startLine}-${endLine}`;
+  }
+  if (startLine !== null) return `${verb} edits from line ${startLine}`;
+  if (endLine !== null) return `${verb} edits through line ${endLine}`;
+  return `${verb} a document edit`;
+}
+
+function readerAiStepSummary(step: ReaderAiRunStep): string {
+  const args = parseReaderAiStepArgs(step);
+
+  if (step.name === 'read_document') {
+    return describeLineRange('Read', readIntegerArg(args, 'start_line'), readIntegerArg(args, 'end_line'));
+  }
+
+  if (step.name === 'search_document') {
+    const query = readStringArg(args, 'query');
+    const isRegex = args?.is_regex === true;
+    if (!query) return isRegex ? 'Ran a regex search' : 'Searched the document';
+    return isRegex ? `Ran regex search ${quoteSummaryText(query, 52)}` : `Searched for ${quoteSummaryText(query)}`;
+  }
+
+  if (step.name === 'propose_edit_document') {
+    const edits = Array.isArray(args?.edits) ? args.edits : null;
+    const dryRun = args?.dry_run === true;
+    const verb = dryRun ? 'Previewed' : 'Drafted';
+    if (edits && edits.length > 0) {
+      return `${verb} ${edits.length} document edit${edits.length === 1 ? '' : 's'}`;
+    }
+    const startLine = readIntegerArg(args, 'start_line');
+    const endLine = readIntegerArg(args, 'end_line');
+    if (startLine !== null || endLine !== null) return describeEditRange(verb, startLine, endLine);
+    if (typeof args?.old_text === 'string' && typeof args?.new_text === 'string') {
+      return `${verb} a text replacement`;
+    }
+    return `${verb} a document edit`;
+  }
+
+  if (step.name === 'task') {
+    const prompt = readStringArg(args, 'prompt');
+    if (!prompt) return 'Ran a subagent';
+    return `Ran a subagent for ${quoteSummaryText(prompt, 72)}`;
+  }
+
+  return TOOL_LABELS[step.name] ?? step.name;
+}
+
+function readerAiStepLabel(step: ReaderAiRunStep): string {
+  return TOOL_LABELS[step.name] ?? step.name;
+}
+
+function readerAiStepDetail(step: ReaderAiRunStep): { label: string; text: string; tone: 'default' | 'error' } | null {
+  const detail = step.detail?.trim();
+  const error = step.error?.trim();
+  if (step.status === 'failed') {
+    if (detail) return { label: 'Failed', text: detail, tone: 'error' };
+    if (error) return { label: 'Failed', text: error, tone: 'error' };
+    return null;
+  }
+  if (!detail) return null;
+  return { label: step.status === 'running' ? 'Working on' : 'Result', text: detail, tone: 'default' };
 }
 
 export function ReaderAiRunHistorySection({
@@ -137,9 +254,14 @@ export function ReaderAiRunHistorySection({
                         const retryLabel = readerAiRetryLabel(step);
                         const retryReasonLabel = readerAiRetryReasonLabel(step);
                         const toolCallJson = stepToolCallJson(step);
+                        const stepSummary = readerAiStepSummary(step);
+                        const stepLabel = readerAiStepLabel(step);
+                        const stepDetail = readerAiStepDetail(step);
                         const showInspector =
                           expanded &&
                           (Boolean(step.errorCode) ||
+                            step.name !== stepLabel ||
+                            Boolean(step.toolCallId) ||
                             Boolean(retryReasonLabel) ||
                             (step.retryable && step.retryState === 'ready' && Boolean(onRetryStep)));
 
@@ -157,7 +279,10 @@ export function ReaderAiRunHistorySection({
                               aria-expanded={expanded}
                             >
                               {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              <span class="reader-ai-run-step-name">{step.name}</span>
+                              <div class="reader-ai-run-step-heading">
+                                <span class="reader-ai-run-step-name">{stepSummary}</span>
+                                <span class="reader-ai-run-step-label">{stepLabel}</span>
+                              </div>
                               {toolCallJson ? (
                                 <button
                                   type="button"
@@ -176,8 +301,16 @@ export function ReaderAiRunHistorySection({
                                 {readerAiStepStatusLabel(step)}
                               </span>
                             </div>
-                            {step.detail ? <div class="reader-ai-run-step-detail">{step.detail}</div> : null}
-                            {step.error ? <div class="reader-ai-run-step-error">{step.error}</div> : null}
+                            {stepDetail ? (
+                              <div
+                                class={`reader-ai-run-step-detail-block${
+                                  stepDetail.tone === 'error' ? ' reader-ai-run-step-detail-block--error' : ''
+                                }`}
+                              >
+                                <span class="reader-ai-run-step-detail-label">{stepDetail.label}</span>
+                                <div class="reader-ai-run-step-detail">{stepDetail.text}</div>
+                              </div>
+                            ) : null}
                             {retryLabel ? <div class="reader-ai-run-step-retry">{retryLabel}</div> : null}
                             {showInspector ? (
                               <div class="reader-ai-run-step-inspector">
@@ -188,6 +321,14 @@ export function ReaderAiRunHistorySection({
                                     ) : null}
                                     {retryReasonLabel ? (
                                       <span class="reader-ai-run-step-chip">{retryReasonLabel}</span>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                                {step.name !== stepLabel || step.toolCallId ? (
+                                  <div class="reader-ai-run-step-inspector-meta">
+                                    <span class="reader-ai-run-step-chip">Tool: {step.name}</span>
+                                    {step.toolCallId ? (
+                                      <span class="reader-ai-run-step-chip">Call: {step.toolCallId}</span>
                                     ) : null}
                                   </div>
                                 ) : null}

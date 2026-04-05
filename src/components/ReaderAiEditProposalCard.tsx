@@ -22,13 +22,9 @@ function renderSelectionToggle(selected: boolean, label: string) {
 
 export function ReaderAiEditProposalCard({
   proposal,
-  onAccept,
-  onReject,
   onToggleHunkSelection,
 }: {
   proposal: ReaderAiEditProposal;
-  onAccept?: (proposalId: string) => void;
-  onReject?: (proposalId: string) => void;
   onToggleHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -53,25 +49,6 @@ export function ReaderAiEditProposalCard({
           </span>
           <span class="reader-ai-staged-change-path">{proposal.change.path}</span>
         </a>
-        <div class="reader-ai-edit-proposal-actions">
-          {rejected ? (
-            <button
-              type="button"
-              class="reader-ai-edit-proposal-action button-success"
-              onClick={() => onAccept?.(proposal.id)}
-            >
-              Undo reject
-            </button>
-          ) : (
-            <button
-              type="button"
-              class="reader-ai-edit-proposal-action button-danger"
-              onClick={() => onReject?.(proposal.id)}
-            >
-              Reject
-            </button>
-          )}
-        </div>
       </div>
       {expanded ? (
         <>

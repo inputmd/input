@@ -1329,19 +1329,34 @@
   background: transparent;
   padding: 0;
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
   color: inherit;
   cursor: pointer;
   text-align: left;
 }
 
-.reader-ai-run-step-name {
+.reader-ai-run-step-heading {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.reader-ai-run-step-name {
   color: var(--text);
   font-size: 11.5px;
   font-weight: 600;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.reader-ai-run-step-label {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  line-height: 1.3;
 }
 
 .reader-ai-run-step-status,
@@ -1349,6 +1364,10 @@
   flex: 0 0 auto;
   font-size: 10.5px;
   color: var(--text-secondary);
+}
+
+.reader-ai-run-step-status {
+  padding-top: 1px;
 }
 
 .reader-ai-run-step-status--failed {
@@ -1359,15 +1378,28 @@
   color: color-mix(in srgb, var(--success-color) 82%, var(--text));
 }
 
-.reader-ai-run-step-detail,
-.reader-ai-run-step-error {
+.reader-ai-run-step-detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reader-ai-run-step-detail-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+}
+
+.reader-ai-run-step-detail {
   font-size: 11px;
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.reader-ai-run-step-error {
+.reader-ai-run-step-detail-block--error .reader-ai-run-step-detail,
+.reader-ai-run-step-detail-block--error .reader-ai-run-step-detail-label {
   color: color-mix(in srgb, var(--danger-border) 82%, var(--text));
 }
 
