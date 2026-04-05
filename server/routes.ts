@@ -185,6 +185,11 @@ const HIDDEN_FREE_MODEL_PATTERNS = ['llama 3 3 70b instruct', 'gpt oss 120b', 'q
 
 const OPENROUTER_PAID_MODELS: ReaderAiModelEntry[] = [
   {
+    id: 'anthropic/claude-haiku-4.5',
+    name: 'Anthropic: Claude Haiku 4.5 (Paid)',
+    context_length: 200_000,
+  },
+  {
     id: 'anthropic/claude-opus-4.6',
     name: 'Anthropic: Claude Opus 4.6 (Paid)',
     context_length: 1_000_000,

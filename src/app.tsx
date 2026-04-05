@@ -465,7 +465,7 @@ function isPaidReaderAiModel(model: ReaderAiModel): boolean {
 
 function readerAiModelPenalty(model: ReaderAiModel): number {
   const normalized = `${model.id} ${model.name}`.toLowerCase();
-  return /\b(?:trinity|opus|sonnet)\b/u.test(normalized) ? 1 : 0;
+  return /\b(?:trinity|haiku|opus|sonnet)\b/u.test(normalized) ? 1 : 0;
 }
 
 function accessibleReaderAiModels(models: ReaderAiModel[], authenticated: boolean): ReaderAiModel[] {

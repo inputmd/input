@@ -392,6 +392,21 @@ test('subagent enables prompt caching for paid claude models', async (t) => {
   t.deepEqual(parsed.cache_control, { type: 'ephemeral' });
 });
 
+test('subagent enables prompt caching for paid claude haiku models', async (t) => {
+  let capturedBody = '';
+  const fetchFn = async (_url: string | URL | Request, init?: RequestInit) => {
+    capturedBody = typeof init?.body === 'string' ? init.body : '';
+    return textStreamResponse('ok');
+  };
+  await executeReaderAiSubagent({
+    ...defaultOpts,
+    model: 'anthropic/claude-haiku-4.5',
+    fetchFn,
+  });
+  const parsed = JSON.parse(capturedBody) as { cache_control?: { type?: string } };
+  t.deepEqual(parsed.cache_control, { type: 'ephemeral' });
+});
+
 test('subagent does not enable prompt caching for paid gemini models', async (t) => {
   let capturedBody = '';
   const fetchFn = async (_url: string | URL | Request, init?: RequestInit) => {
