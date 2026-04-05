@@ -3678,27 +3678,20 @@ export function App() {
     setSidePane((pane) => (pane === 'preview' ? 'none' : 'preview'));
   }, []);
 
+  const [readerAiActivationRequestKey, setReaderAiActivationRequestKey] = useState(0);
+
   const onToggleReaderAi = useCallback(() => {
-    setSidePane((pane) => (pane === 'reader-ai' ? 'none' : 'reader-ai'));
-  }, []);
+    if (readerAiVisible) {
+      setSidePane('none');
+      return;
+    }
+    setReaderAiActivationRequestKey((current) => current + 1);
+    setSidePane('reader-ai');
+  }, [readerAiVisible]);
 
   const onOpenReaderAi = useCallback(() => {
+    setReaderAiActivationRequestKey((current) => current + 1);
     setSidePane('reader-ai');
-  }, []);
-
-  const focusReaderAiComposerInput = useCallback(() => {
-    const focusWithRetry = (attempt: number) => {
-      requestAnimationFrame(() => {
-        const input = document.querySelector<HTMLTextAreaElement>('.reader-ai-panel .reader-ai-input');
-        if (input && !input.disabled) {
-          input.focus();
-          return;
-        }
-        if (attempt >= 8) return;
-        window.setTimeout(() => focusWithRetry(attempt + 1), 25);
-      });
-    };
-    focusWithRetry(0);
   }, []);
 
   const loadReaderAiModels = useCallback(async () => {
@@ -3768,11 +3761,10 @@ export function App() {
       if (!readerAiEnabled) return;
       event.preventDefault();
       onOpenReaderAi();
-      focusReaderAiComposerInput();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [focusReaderAiComposerInput, onOpenReaderAi, readerAiEnabled]);
+  }, [onOpenReaderAi, readerAiEnabled]);
 
   const isGistContext = currentGistId !== null && gistFiles !== null;
 
@@ -7567,10 +7559,6 @@ export function App() {
   const showReaderAiToggle = readerAiEnabled;
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const mountReaderAiPanel = showReaderAiToggle;
-  useEffect(() => {
-    if (!showReaderAiPanel) return;
-    focusReaderAiComposerInput();
-  }, [focusReaderAiComposerInput, showReaderAiPanel]);
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
   const headerSidebarToggleAvailable = activeView === 'content' || activeView === 'edit';
   const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;
@@ -7926,6 +7914,8 @@ export function App() {
         {mountReaderAiPanel ? (
           <ReaderAiPanel
             className={showReaderAiPanel ? undefined : 'reader-ai-panel--hidden'}
+            visible={showReaderAiPanel}
+            activationRequestKey={readerAiActivationRequestKey}
             modelsLoading={readerAiModelsLoading}
             modelsError={readerAiModelsError}
             selectedModel={readerAiSelectedModel}

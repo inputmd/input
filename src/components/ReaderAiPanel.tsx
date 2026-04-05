@@ -27,6 +27,8 @@ export interface ReaderAiMessage {
 
 interface ReaderAiPanelProps {
   className?: string;
+  visible?: boolean;
+  activationRequestKey?: number;
   modelsLoading: boolean;
   modelsError: string | null;
   selectedModel: string;
@@ -147,6 +149,8 @@ function ReaderAiAssistantMessage({
 
 export function ReaderAiPanel({
   className,
+  visible = true,
+  activationRequestKey = 0,
   modelsLoading,
   modelsError,
   selectedModel,
@@ -216,6 +220,7 @@ export function ReaderAiPanel({
   const pendingFocusAfterClearRef = useRef(false);
   const pendingSelectDraftRef = useRef(false);
   const pinnedToBottomRef = useRef(true);
+  const lastHandledActivationRequestRef = useRef(0);
   const messageCount = messages.length;
   const canSend = draft.trim().length > 0 && !sending && Boolean(selectedModel);
   const hasMessages = messageCount > 0;
@@ -502,6 +507,13 @@ export function ReaderAiPanel({
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (!visible || activationRequestKey === lastHandledActivationRequestRef.current) return;
+    lastHandledActivationRequestRef.current = activationRequestKey;
+    setPanelView('chat');
+    focusComposerInput();
+  }, [activationRequestKey, focusComposerInput, visible]);
 
   const resetToMessage = useCallback(
     async (index: number) => {
