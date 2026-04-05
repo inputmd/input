@@ -294,10 +294,7 @@ test('propose_edit_document defaults new_text to empty string for batch snippet 
     stagedRevision: 0,
   };
   executeReaderAiReadDocument(state.lines, {}, state);
-  const raw = executeReaderAiEditDocumentTool(
-    '{"edits":[{"old_text":"bbb"},{"old_text":"ddd"}]}',
-    state,
-  );
+  const raw = executeReaderAiEditDocumentTool('{"edits":[{"old_text":"bbb"},{"old_text":"ddd"}]}', state);
   const parsed = JSON.parse(raw) as { ok: boolean; edits_applied?: number };
   t.true(parsed.ok);
   t.is(parsed.edits_applied, 2);

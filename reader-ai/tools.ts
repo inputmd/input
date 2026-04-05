@@ -912,21 +912,29 @@ function applySnippetEdit(source: string, op: EditDocumentOp): { updated: string
       next_action: 'Change new_text or stop if no edit is needed.',
     });
   }
-  const first = source.indexOf(oldText);
+  let resolvedOldText = oldText;
+  let first = source.indexOf(resolvedOldText);
   if (first === -1) {
-    return makeEditDocumentFailure(
-      {
-        code: 'not_found',
-        message: 'old_text not found in document',
-        next_action: 'Call read_document for the exact affected span and copy old_text directly from that result.',
-      },
-      {
-        edit_mode: 'snippet',
-        case_insensitive_match_exists: source.toLowerCase().includes(oldText.toLowerCase()),
-      },
-    );
+    // Try fuzzy matching against the full source to auto-correct minor typos.
+    const fuzzy = findBestFuzzyMatch(source, resolvedOldText);
+    if (fuzzy) {
+      resolvedOldText = fuzzy.matchedText;
+      first = fuzzy.index;
+    } else {
+      return makeEditDocumentFailure(
+        {
+          code: 'not_found',
+          message: 'old_text not found in document',
+          next_action: 'Call read_document for the exact affected span and copy old_text directly from that result.',
+        },
+        {
+          edit_mode: 'snippet',
+          case_insensitive_match_exists: source.toLowerCase().includes(oldText.toLowerCase()),
+        },
+      );
+    }
   }
-  const second = source.indexOf(oldText, first + oldText.length);
+  const second = source.indexOf(resolvedOldText, first + resolvedOldText.length);
   if (second !== -1) {
     return makeEditDocumentFailure(
       {
@@ -934,11 +942,11 @@ function applySnippetEdit(source: string, op: EditDocumentOp): { updated: string
         message: 'old_text matches multiple locations; provide more context',
         next_action: 'Call read_document for a narrower span and include more surrounding text in old_text.',
       },
-      { edit_mode: 'snippet', matches: findAmbiguousMatches(source, oldText) },
+      { edit_mode: 'snippet', matches: findAmbiguousMatches(source, resolvedOldText) },
     );
   }
   return {
-    updated: source.slice(0, first) + newText + source.slice(first + oldText.length),
+    updated: source.slice(0, first) + newText + source.slice(first + resolvedOldText.length),
   };
 }
 
@@ -969,21 +977,27 @@ function applyRangeEdit(source: string, op: EditDocumentOp): { updated: string }
   }
   const currentText = lines.slice(startLine - 1, endLine).join('\n');
   if (expectedOldText !== null && currentText !== expectedOldText) {
-    return makeEditDocumentFailure(
-      {
-        code: 'not_found',
-        message:
-          'expected_old_text did not match the current line range; the document changed after those lines were read',
-        next_action: 'Call read_document again for that exact span and retry with the new expected_old_text.',
-      },
-      {
-        edit_mode: 'line_range',
-        start_line: startLine,
-        end_line: endLine,
-        expected_old_text: expectedOldText,
-        current_text: currentText,
-      },
-    );
+    // If the expected_old_text is a near-match to the actual line range text,
+    // accept it (the model's intent is clear even if the text has minor typos).
+    const fuzzy = findBestFuzzyMatch(currentText, expectedOldText);
+    if (!fuzzy || fuzzy.similarity < NEAR_MATCH_MIN_SIMILARITY) {
+      return makeEditDocumentFailure(
+        {
+          code: 'not_found',
+          message:
+            'expected_old_text did not match the current line range; the document changed after those lines were read',
+          next_action: 'Call read_document again for that exact span and retry with the new expected_old_text.',
+        },
+        {
+          edit_mode: 'line_range',
+          start_line: startLine,
+          end_line: endLine,
+          expected_old_text: expectedOldText,
+          current_text: currentText,
+        },
+      );
+    }
+    // Near-match accepted — proceed with the edit using the actual line range.
   }
   const replacementLines = newText.split('\n');
   const nextLines = [...lines.slice(0, startLine - 1), ...replacementLines, ...lines.slice(endLine)];
@@ -1089,61 +1103,229 @@ function validateEditShape(op: EditDocumentOp): EditDocumentFailure | null {
   return null;
 }
 
-function requireFreshReadForEdit(state: DocumentEditState, op: EditDocumentOp): EditDocumentFailure | null {
+// ── Fuzzy matching for near-miss edit text ──
+
+/** Minimum similarity ratio (0–1) to consider a fuzzy match actionable. */
+const NEAR_MATCH_MIN_SIMILARITY = 0.85;
+/** Maximum needle length for fuzzy matching (avoid O(n*m) on huge spans). */
+const NEAR_MATCH_MAX_LENGTH = 4000;
+
+/**
+ * Computes the Levenshtein edit distance between two strings.
+ * Uses the classic two-row DP approach: O(min(a,b)) space, O(a*b) time.
+ */
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  // Keep the shorter string in `b` for the inner loop (less memory).
+  if (a.length < b.length) [a, b] = [b, a];
+  let prev = new Array(b.length + 1);
+  let curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
+}
+
+/**
+ * Simple string hash (djb2). Fast, not cryptographic — only used for pre-filtering.
+ */
+function lineHash(line: string): number {
+  let hash = 5381;
+  for (let i = 0; i < line.length; i++) {
+    hash = ((hash << 5) + hash + line.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
+/**
+ * Compute what fraction of needle line-hashes appear in the candidate line-hash set.
+ * Returns 0–1. Cheap O(n) check to skip obviously dissimilar windows before Levenshtein.
+ */
+function lineHashOverlap(needleHashes: number[], candidateHashSet: Set<number>): number {
+  if (needleHashes.length === 0) return 0;
+  let hits = 0;
+  for (const h of needleHashes) {
+    if (candidateHashSet.has(h)) hits++;
+  }
+  return hits / needleHashes.length;
+}
+
+/** Minimum line-hash overlap ratio to run full Levenshtein on a candidate window. */
+const LINE_HASH_OVERLAP_THRESHOLD = 0.5;
+
+/**
+ * Find the best fuzzy match for `needle` inside `haystack`.
+ * Slides a window of sizes [needle.length - tolerance .. needle.length + tolerance]
+ * and returns the window with the highest similarity, or null if nothing exceeds the threshold.
+ *
+ * Uses a two-phase approach:
+ *  1. **Line-hash pre-filter**: hash each line, then for each sliding window check what
+ *     fraction of needle line-hashes appear in the window. Windows below the overlap
+ *     threshold are skipped entirely.
+ *  2. **Levenshtein**: only computed for windows that pass the pre-filter.
+ */
+function findBestFuzzyMatch(
+  haystack: string,
+  needle: string,
+): { matchedText: string; similarity: number; index: number } | null {
+  if (needle.length === 0 || needle.length > NEAR_MATCH_MAX_LENGTH) return null;
+  if (haystack.includes(needle)) return { matchedText: needle, similarity: 1, index: haystack.indexOf(needle) };
+
+  const haystackLines = haystack.split('\n');
+  const needleLines = needle.split('\n');
+  const needleLineCount = needleLines.length;
+
+  // Pre-compute hashes for all lines.
+  const haystackHashes = haystackLines.map(lineHash);
+  const needleHashes = needleLines.map(lineHash);
+
+  let best: { matchedText: string; similarity: number; index: number } | null = null;
+
+  for (let windowSize = Math.max(1, needleLineCount - 2); windowSize <= needleLineCount + 2; windowSize++) {
+    // Build initial window hash set for this window size.
+    const windowHashSet = new Set<number>();
+    // Also track counts so we can do incremental add/remove as the window slides.
+    const windowHashCounts = new Map<number, number>();
+
+    const addHash = (h: number) => {
+      windowHashSet.add(h);
+      windowHashCounts.set(h, (windowHashCounts.get(h) ?? 0) + 1);
+    };
+    const removeHash = (h: number) => {
+      const count = windowHashCounts.get(h) ?? 0;
+      if (count <= 1) {
+        windowHashSet.delete(h);
+        windowHashCounts.delete(h);
+      } else {
+        windowHashCounts.set(h, count - 1);
+      }
+    };
+
+    // Seed the first window.
+    for (let i = 0; i < windowSize && i < haystackLines.length; i++) {
+      addHash(haystackHashes[i]);
+    }
+
+    for (let startLine = 0; startLine + windowSize <= haystackLines.length; startLine++) {
+      // Slide: add the new trailing line, remove the old leading line (except for the first window).
+      if (startLine > 0) {
+        addHash(haystackHashes[startLine + windowSize - 1]);
+        removeHash(haystackHashes[startLine - 1]);
+      }
+
+      // Phase 1: line-hash overlap pre-filter.
+      const overlap = lineHashOverlap(needleHashes, windowHashSet);
+      if (overlap < LINE_HASH_OVERLAP_THRESHOLD) continue;
+
+      // Length-ratio pre-check (cheap, before Levenshtein).
+      const candidate = haystackLines.slice(startLine, startLine + windowSize).join('\n');
+      const lengthRatio = Math.min(candidate.length, needle.length) / Math.max(candidate.length, needle.length);
+      if (lengthRatio < NEAR_MATCH_MIN_SIMILARITY) continue;
+
+      // Phase 2: full Levenshtein.
+      const dist = levenshteinDistance(candidate, needle);
+      const maxLen = Math.max(candidate.length, needle.length);
+      const similarity = maxLen === 0 ? 1 : 1 - dist / maxLen;
+      if (similarity >= NEAR_MATCH_MIN_SIMILARITY && (!best || similarity > best.similarity)) {
+        const index = haystack.indexOf(candidate);
+        best = { matchedText: candidate, similarity, index };
+      }
+    }
+  }
+
+  return best;
+}
+
+
+interface ReadCheckResult {
+  failure: EditDocumentFailure | null;
+  /** When non-null, the op was auto-corrected via fuzzy match. */
+  correctedOp: EditDocumentOp | null;
+}
+
+function requireFreshReadForEdit(state: DocumentEditState, op: EditDocumentOp): ReadCheckResult {
   const snapshot = state.lastReadSnapshot;
   if (!snapshot) {
-    return makeEditDocumentFailure({
-      code: 'missing_read',
-      message: 'call read_document for the exact affected span before proposing an edit',
-      next_action: 'Call read_document for the exact paragraph or block you want to edit, then retry the edit once.',
-    });
+    return {
+      failure: makeEditDocumentFailure({
+        code: 'missing_read',
+        message: 'call read_document for the exact affected span before proposing an edit',
+        next_action: 'Call read_document for the exact paragraph or block you want to edit, then retry the edit once.',
+      }),
+      correctedOp: null,
+    };
   }
   if (snapshot.sourceAtRead !== state.source) {
-    return makeEditDocumentFailure({
-      code: 'missing_read',
-      message: 'call read_document again before editing because the staged document changed after the last read',
-      next_action:
-        'Re-read the affected span from the current staged document, then retry with text copied from that read.',
-    });
+    return {
+      failure: makeEditDocumentFailure({
+        code: 'missing_read',
+        message: 'call read_document again before editing because the staged document changed after the last read',
+        next_action:
+          'Re-read the affected span from the current staged document, then retry with text copied from that read.',
+      }),
+      correctedOp: null,
+    };
   }
   const mode = classifyEditMode(op);
   if (mode === 'snippet') {
     const oldText = op.old_text as string;
     if (!snapshot.visibleText.includes(oldText)) {
-      return makeEditDocumentFailure(
+      const fuzzy = findBestFuzzyMatch(snapshot.visibleText, oldText);
+      if (fuzzy) {
+        // Auto-correct: swap in the actual document text so the edit can proceed.
+        return { failure: null, correctedOp: { ...op, old_text: fuzzy.matchedText } };
+      }
+      return {
+        failure: makeEditDocumentFailure(
+          {
+            code: 'missing_read',
+            message: 'old_text must be copied from the latest read_document result for the exact affected span',
+            next_action: 'Call read_document for a narrower span and copy old_text exactly from that latest result.',
+          },
+          {
+            edit_mode: 'snippet',
+            last_read_start_line: snapshot.startLine,
+            last_read_end_line: snapshot.endLine,
+            truncated: snapshot.truncated,
+          },
+        ),
+        correctedOp: null,
+      };
+    }
+    return { failure: null, correctedOp: null };
+  }
+  const expectedOldText = op.expected_old_text as string;
+  if (!snapshot.visibleText.includes(expectedOldText)) {
+    const fuzzy = findBestFuzzyMatch(snapshot.visibleText, expectedOldText);
+    if (fuzzy) {
+      return { failure: null, correctedOp: { ...op, expected_old_text: fuzzy.matchedText } };
+    }
+    return {
+      failure: makeEditDocumentFailure(
         {
           code: 'missing_read',
-          message: 'old_text must be copied from the latest read_document result for the exact affected span',
-          next_action: 'Call read_document for a narrower span and copy old_text exactly from that latest result.',
+          message: 'line-range edits must use expected_old_text copied from the latest read_document result',
+          next_action:
+            'Call read_document for the exact line range and copy expected_old_text directly from that latest result.',
         },
         {
-          edit_mode: 'snippet',
+          edit_mode: 'line_range',
           last_read_start_line: snapshot.startLine,
           last_read_end_line: snapshot.endLine,
           truncated: snapshot.truncated,
         },
-      );
-    }
-    return null;
+      ),
+      correctedOp: null,
+    };
   }
-  const expectedOldText = op.expected_old_text as string;
-  if (!snapshot.visibleText.includes(expectedOldText)) {
-    return makeEditDocumentFailure(
-      {
-        code: 'missing_read',
-        message: 'line-range edits must use expected_old_text copied from the latest read_document result',
-        next_action:
-          'Call read_document for the exact line range and copy expected_old_text directly from that latest result.',
-      },
-      {
-        edit_mode: 'line_range',
-        last_read_start_line: snapshot.startLine,
-        last_read_end_line: snapshot.endLine,
-        truncated: snapshot.truncated,
-      },
-    );
-  }
-  return null;
+  return { failure: null, correctedOp: null };
 }
 
 export function executeReaderAiEditDocumentTool(argsJson: string, state: DocumentEditState): string {
@@ -1268,15 +1450,18 @@ export function executeReaderAiEditDocumentTool(argsJson: string, state: Documen
   // against the *original* document's line numbers, not the mutating working copy.
   let lineOffset = 0;
   for (let i = 0; i < ops.length; i++) {
-    const readFailure = requireFreshReadForEdit(state, ops[i]);
-    if (readFailure) {
+    const readCheck = requireFreshReadForEdit(state, ops[i]);
+    if (readCheck.failure) {
       return JSON.stringify(
         makeStatefulEditDocumentFailure(
           state,
-          { ...readFailure.error, message: `edit ${i + 1} failed: ${readFailure.error.message}` },
-          { ...(readFailure.error.details ?? {}), edit_index: i },
+          { ...readCheck.failure.error, message: `edit ${i + 1} failed: ${readCheck.failure.error.message}` },
+          { ...(readCheck.failure.error.details ?? {}), edit_index: i },
         ),
       );
+    }
+    if (readCheck.correctedOp) {
+      ops[i] = readCheck.correctedOp;
     }
     // For batched line-range edits, adjust line numbers by the cumulative offset
     // from prior edits so the caller can always specify original-document coordinates.
