@@ -7,6 +7,7 @@ interface ToastContextValue {
   showToast: (message: string) => void;
   showSuccessToast: (message: string) => void;
   showFailureToast: (message: string) => void;
+  showWarningToast: (message: string) => void;
   showLoadingToast: (message: string) => number;
   dismissToast: (id: number) => void;
 }
@@ -22,7 +23,7 @@ export function useToast(): ToastContextValue {
 interface ToastEntry {
   id: number;
   message: string;
-  variant: 'default' | 'success' | 'failure' | 'loading';
+  variant: 'default' | 'success' | 'failure' | 'warning' | 'loading';
   duration?: number;
   createdAt: number;
 }
@@ -46,7 +47,7 @@ function ToastHost({
       {toasts.map((t) => (
         <ToastPrimitive.Root
           key={t.id}
-          class={`toast-root${t.variant === 'success' ? ' toast-root--success' : ''}${t.variant === 'failure' ? ' toast-root--failure' : ''}${t.variant === 'loading' ? ' toast-root--loading' : ''}`}
+          class={`toast-root${t.variant === 'success' ? ' toast-root--success' : ''}${t.variant === 'failure' ? ' toast-root--failure' : ''}${t.variant === 'warning' ? ' toast-root--warning' : ''}${t.variant === 'loading' ? ' toast-root--loading' : ''}`}
           duration={t.duration}
           onClick={() => {
             removeToast(t.id);
@@ -124,6 +125,13 @@ export function ToastProvider({ children }: { children: ComponentChildren }) {
     [enqueueToast],
   );
 
+  const showWarningToast = useCallback(
+    (message: string) => {
+      void enqueueToast(message, 'warning');
+    },
+    [enqueueToast],
+  );
+
   const showLoadingToast = useCallback(
     (message: string) => {
       const id = enqueueToast(message, 'loading', 60_000);
@@ -147,8 +155,8 @@ export function ToastProvider({ children }: { children: ComponentChildren }) {
   );
 
   const contextValue = useMemo(
-    () => ({ showToast, showSuccessToast, showFailureToast, showLoadingToast, dismissToast }),
-    [dismissToast, showFailureToast, showLoadingToast, showSuccessToast, showToast],
+    () => ({ showToast, showSuccessToast, showFailureToast, showWarningToast, showLoadingToast, dismissToast }),
+    [dismissToast, showFailureToast, showLoadingToast, showSuccessToast, showToast, showWarningToast],
   );
 
   return (

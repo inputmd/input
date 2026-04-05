@@ -692,7 +692,7 @@ export function App() {
   const { route, routeState, navigate, setNavigationPrompt } = useRoute();
   const documentStack = useDocumentStack();
   const { showAlert, showConfirm, showDiffChoice, showPrompt } = useDialogs();
-  const { showSuccessToast, showFailureToast, showLoadingToast, dismissToast } = useToast();
+  const { showSuccessToast, showFailureToast, showWarningToast, showLoadingToast, dismissToast } = useToast();
 
   // --- Shared state ---
   const [user, setUser] = useState<GitHubUser | null>(null);
@@ -1193,7 +1193,7 @@ export function App() {
     readerAiSource,
     resetInlinePromptState,
     selectedReaderAiModel,
-    showFailureToast,
+    showWarningToast,
   });
   const readerAiSaveLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);
   const readerAiNavigationLocked = activeView === 'edit' && (readerAiApplyingChanges || inlinePromptStreaming);

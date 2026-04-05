@@ -80,7 +80,7 @@ interface StartReaderAiStreamOptions {
   retryStepId?: string;
   selectedModel: ReaderAiModel | null;
   selectionSource: string | null;
-  showFailureToast: (message: string) => void;
+  showWarningToast: (message: string) => void;
 }
 
 interface PruneAppliedReaderAiPathsOptions {
@@ -1043,7 +1043,7 @@ export function useReaderAiSession({
       retryStepId,
       selectedModel,
       selectionSource,
-      showFailureToast,
+      showWarningToast,
     }: StartReaderAiStreamOptions) => {
       const assistantEdited = edited === true;
       const nextConversationScope =
@@ -1060,7 +1060,7 @@ export function useReaderAiSession({
         })();
       const source = nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
       if (!source.trim()) {
-        showFailureToast('Reader AI needs document content before it can answer.');
+        showWarningToast('Reader AI needs document content before it can answer.');
         return false;
       }
       if (parentRunId && retryStepId) {

@@ -26,7 +26,7 @@ interface UseReaderAiControllerOptions {
   readerAiSource: string;
   resetInlinePromptState: () => void;
   selectedReaderAiModel: ReaderAiModel | null;
-  showFailureToast: (message: string) => void;
+  showWarningToast: (message: string) => void;
 }
 
 export { buildReaderAiHistoryDocumentKey, type ReaderAiConversationScope, type ReaderAiEditorCheckpoint };
@@ -77,7 +77,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
         retryStepId: streamOptions?.retryStepId ?? undefined,
         selectedModel,
         selectionSource,
-        showFailureToast: options.showFailureToast,
+        showWarningToast: options.showWarningToast,
       });
     },
     [
@@ -91,7 +91,7 @@ export function useReaderAiController(options: UseReaderAiControllerOptions) {
       options.readerAiSelectedModel,
       options.readerAiSource,
       options.selectedReaderAiModel,
-      options.showFailureToast,
+      options.showWarningToast,
       session,
     ],
   );

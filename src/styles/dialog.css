@@ -440,6 +440,12 @@
   color: var(--error-color);
 }
 
+.toast-root--warning {
+  border-color: color-mix(in srgb, var(--warning-color) 45%, var(--border));
+  background: color-mix(in srgb, var(--warning-color) 12%, var(--toolbar-bg));
+  color: color-mix(in srgb, var(--text) 76%, var(--warning-color));
+}
+
 .toast-root--loading {
   border-color: var(--focus-border);
 }
