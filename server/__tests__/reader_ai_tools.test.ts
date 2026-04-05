@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'ava';
+import { formatSseEvent } from '../../shared/sse.ts';
 import { initDictionaryFromBuffer } from '../../shared/stream_boundary_dictionary.ts';
 import { stripCriticMarkupComments } from '../../src/criticmarkup.ts';
 import {
@@ -75,11 +76,11 @@ function makeParagraph(index: number): string {
 }
 
 function sseChunk(data: unknown): Uint8Array {
-  return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
+  return new TextEncoder().encode(formatSseEvent(data));
 }
 
 function sseDone(): Uint8Array {
-  return new TextEncoder().encode('data: [DONE]\n\n');
+  return new TextEncoder().encode(formatSseEvent('[DONE]'));
 }
 
 function makeStream(chunks: Uint8Array[]): ReadableStream<Uint8Array> {

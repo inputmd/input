@@ -2,6 +2,7 @@ import './env';
 import { type ChildProcess, spawn } from 'node:child_process';
 import http from 'node:http';
 import { pathToFileURL, URL } from 'node:url';
+import { formatSseEvent } from '../shared/sse.ts';
 import {
   buildCodexBridgeDeveloperInstructions,
   buildCodexBridgeInput,
@@ -69,10 +70,7 @@ function writeSseHeaders(res: http.ServerResponse): void {
 }
 
 function writeSse(res: http.ServerResponse, data: unknown, event?: string): void {
-  if (event) res.write(`event: ${event}\n`);
-  const payload = typeof data === 'string' ? data : JSON.stringify(data);
-  for (const line of payload.split('\n')) res.write(`data: ${line}\n`);
-  res.write('\n');
+  res.write(formatSseEvent(data, event));
 }
 
 function writeDelta(res: http.ServerResponse, delta: string): void {

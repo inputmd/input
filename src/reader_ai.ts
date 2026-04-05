@@ -1,3 +1,4 @@
+import { readSseStream } from '../shared/sse';
 import {
   appendStreamText,
   initDictionary,
@@ -467,230 +468,209 @@ export async function askReaderAiStream(
   const body = res.body;
   if (!body) throw new Error('Reader AI stream is unavailable');
 
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
   let streamedText = '';
   const repairStreamBoundaries = shouldRepairStreamBoundaries(model);
   let pendingVisibleDelta = '';
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    buffer = buffer.replace(/\r\n/g, '\n');
-
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary >= 0) {
-      const event = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-
-      const lines = event.split('\n');
-      const eventTypeLine = lines.find((line) => line.startsWith('event:'));
-      const eventType = eventTypeLine ? parseSseFieldValue(eventTypeLine, 'event:').trim() : '';
-      const dataLines = lines
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => parseSseFieldValue(line, 'data:'));
-      const data = dataLines.join('\n');
-      if (!data || data === '[DONE]') {
-        // skip
-      } else if (eventType === 'summary' && options.onSummary) {
+  for await (const event of readSseStream(body)) {
+    const eventType = event.event.trim();
+    const data = event.data;
+    if (!data || data === '[DONE]') {
+      // skip
+    } else if (eventType === 'summary' && options.onSummary) {
+      try {
+        const parsed = JSON.parse(data) as { summary?: string };
+        if (typeof parsed.summary === 'string' && parsed.summary) options.onSummary(parsed.summary);
+      } catch {
+        // Ignore malformed summary event.
+      }
+    } else if (eventType === 'tool_call') {
+      if (options.onToolCall) {
         try {
-          const parsed = JSON.parse(data) as { summary?: string };
-          if (typeof parsed.summary === 'string' && parsed.summary) options.onSummary(parsed.summary);
+          const parsed = JSON.parse(data) as {
+            id?: string;
+            name?: string;
+            arguments?: Record<string, unknown> | string;
+          };
+          if (typeof parsed.name === 'string')
+            options.onToolCall({ name: parsed.name, id: parsed.id, arguments: parsed.arguments });
         } catch {
-          // Ignore malformed summary event.
-        }
-      } else if (eventType === 'tool_call') {
-        if (options.onToolCall) {
-          try {
-            const parsed = JSON.parse(data) as {
-              id?: string;
-              name?: string;
-              arguments?: Record<string, unknown> | string;
-            };
-            if (typeof parsed.name === 'string')
-              options.onToolCall({ name: parsed.name, id: parsed.id, arguments: parsed.arguments });
-          } catch {
-            // Ignore malformed tool_call event.
-          }
-        }
-      } else if (eventType === 'tool_result') {
-        if (options.onToolResult) {
-          try {
-            const parsed = JSON.parse(data) as {
-              id?: string;
-              name?: string;
-              preview?: string;
-              error?: string;
-              error_code?: ReaderAiStepErrorCode;
-            };
-            if (typeof parsed.name === 'string')
-              options.onToolResult({
-                name: parsed.name,
-                id: parsed.id,
-                preview: parsed.preview,
-                error: parsed.error,
-                errorCode: parsed.error_code,
-              });
-          } catch {
-            // Ignore malformed tool_result event.
-          }
-        }
-      } else if (eventType === 'edit_proposal') {
-        if (options.onEditProposal) {
-          try {
-            const parsed = JSON.parse(data) as {
-              proposal_id?: string;
-              tool_call_id?: string;
-              change?: unknown;
-              revision?: number;
-            };
-            const change = normalizeReaderAiStagedChange(parsed.change, parsed.revision);
-            if (typeof parsed.proposal_id === 'string' && change) {
-              options.onEditProposal({
-                id: parsed.proposal_id,
-                toolCallId: typeof parsed.tool_call_id === 'string' ? parsed.tool_call_id : undefined,
-                change,
-                status: 'accepted',
-                selectedHunkIds: Array.isArray(change.hunks) ? change.hunks.map((hunk) => hunk.id) : undefined,
-              });
-            }
-          } catch {
-            // Ignore malformed edit_proposal event.
-          }
-        }
-      } else if (eventType === 'task_progress') {
-        if (options.onTaskProgress) {
-          try {
-            const parsed = JSON.parse(data) as {
-              id?: string;
-              name?: string;
-              phase?: ReaderAiTaskProgressEvent['phase'];
-              iteration?: number;
-              detail?: string;
-              error_code?: ReaderAiStepErrorCode;
-            };
-            if (
-              parsed.phase === 'started' ||
-              parsed.phase === 'iteration_start' ||
-              parsed.phase === 'tool_call' ||
-              parsed.phase === 'tool_result' ||
-              parsed.phase === 'completed' ||
-              parsed.phase === 'error'
-            ) {
-              options.onTaskProgress({
-                id: parsed.id,
-                name: parsed.name,
-                phase: parsed.phase,
-                iteration: typeof parsed.iteration === 'number' ? parsed.iteration : undefined,
-                detail: typeof parsed.detail === 'string' ? parsed.detail : undefined,
-                errorCode: parsed.error_code,
-              });
-            }
-          } catch {
-            // Ignore malformed task_progress event.
-          }
-        }
-      } else if (eventType === 'staged_changes') {
-        if (options.onStagedChanges) {
-          try {
-            const parsed = JSON.parse(data) as {
-              changes?: ReaderAiStagedChange[];
-              suggested_commit_message?: string;
-              document_content?: string;
-              file_contents?: Record<string, unknown>;
-              revision?: number;
-            };
-            if (Array.isArray(parsed.changes)) {
-              const fileContents =
-                parsed.file_contents && typeof parsed.file_contents === 'object'
-                  ? Object.fromEntries(
-                      Object.entries(parsed.file_contents).filter(
-                        (entry): entry is [string, string] =>
-                          typeof entry[0] === 'string' && typeof entry[1] === 'string',
-                      ),
-                    )
-                  : undefined;
-              const changes = parsed.changes
-                .map((change) => normalizeReaderAiStagedChange(change, parsed.revision))
-                .filter((change): change is ReaderAiStagedChange => change !== null);
-              options.onStagedChanges(
-                changes,
-                parsed.suggested_commit_message,
-                typeof parsed.document_content === 'string' ? parsed.document_content : undefined,
-                fileContents,
-              );
-            }
-          } catch {
-            // Ignore malformed staged_changes event.
-          }
-        }
-      } else if (eventType === 'turn_start') {
-        if (options.onTurnStart) {
-          try {
-            const parsed = JSON.parse(data) as { iteration?: number };
-            if (typeof parsed.iteration === 'number') options.onTurnStart(parsed.iteration);
-          } catch {
-            // Ignore malformed turn_start event.
-          }
-        }
-      } else if (eventType === 'turn_end') {
-        if (options.onTurnEnd) {
-          try {
-            const parsed = JSON.parse(data) as { iteration?: number; reason?: string };
-            if (typeof parsed.iteration === 'number') options.onTurnEnd(parsed.iteration, parsed.reason ?? 'unknown');
-          } catch {
-            // Ignore malformed turn_end event.
-          }
-        }
-      } else if (eventType === 'error') {
-        let streamErrorMessage = 'Reader AI stream failed';
-        try {
-          const parsed = JSON.parse(data) as { message?: string };
-          if (typeof parsed.message === 'string' && parsed.message.trim()) {
-            streamErrorMessage = parsed.message;
-          }
-        } catch {
-          // Ignore malformed error event payloads.
-        }
-        options.onStreamError?.(streamErrorMessage);
-        throw new Error(streamErrorMessage);
-      } else {
-        try {
-          const parsed = JSON.parse(data) as unknown;
-          const delta = extractStreamDelta(parsed);
-          if (typeof delta === 'string') {
-            const repairBoundary = shouldRepairConversationalBoundary(options.mode, editModeCurrentDocOnly);
-            if (repairBoundary) {
-              if (!pendingVisibleDelta) {
-                pendingVisibleDelta = delta;
-              } else {
-                const emittedDelta = shouldInsertStreamBoundarySpace(pendingVisibleDelta, delta)
-                  ? `${pendingVisibleDelta} `
-                  : pendingVisibleDelta;
-                streamedText += emittedDelta;
-                if (emittedDelta) options.onDelta(emittedDelta);
-                pendingVisibleDelta = delta;
-              }
-            } else {
-              const nextText =
-                editModeCurrentDocOnly === true
-                  ? streamedText + delta
-                  : repairStreamBoundaries
-                    ? appendStreamText(streamedText, delta)
-                    : streamedText + delta;
-              const emittedDelta = nextText.slice(streamedText.length);
-              streamedText = nextText;
-              if (emittedDelta) options.onDelta(emittedDelta);
-            }
-          }
-        } catch {
-          // Ignore malformed stream chunks and continue.
+          // Ignore malformed tool_call event.
         }
       }
-
-      boundary = buffer.indexOf('\n\n');
+    } else if (eventType === 'tool_result') {
+      if (options.onToolResult) {
+        try {
+          const parsed = JSON.parse(data) as {
+            id?: string;
+            name?: string;
+            preview?: string;
+            error?: string;
+            error_code?: ReaderAiStepErrorCode;
+          };
+          if (typeof parsed.name === 'string')
+            options.onToolResult({
+              name: parsed.name,
+              id: parsed.id,
+              preview: parsed.preview,
+              error: parsed.error,
+              errorCode: parsed.error_code,
+            });
+        } catch {
+          // Ignore malformed tool_result event.
+        }
+      }
+    } else if (eventType === 'edit_proposal') {
+      if (options.onEditProposal) {
+        try {
+          const parsed = JSON.parse(data) as {
+            proposal_id?: string;
+            tool_call_id?: string;
+            change?: unknown;
+            revision?: number;
+          };
+          const change = normalizeReaderAiStagedChange(parsed.change, parsed.revision);
+          if (typeof parsed.proposal_id === 'string' && change) {
+            options.onEditProposal({
+              id: parsed.proposal_id,
+              toolCallId: typeof parsed.tool_call_id === 'string' ? parsed.tool_call_id : undefined,
+              change,
+              status: 'accepted',
+              selectedHunkIds: Array.isArray(change.hunks) ? change.hunks.map((hunk) => hunk.id) : undefined,
+            });
+          }
+        } catch {
+          // Ignore malformed edit_proposal event.
+        }
+      }
+    } else if (eventType === 'task_progress') {
+      if (options.onTaskProgress) {
+        try {
+          const parsed = JSON.parse(data) as {
+            id?: string;
+            name?: string;
+            phase?: ReaderAiTaskProgressEvent['phase'];
+            iteration?: number;
+            detail?: string;
+            error_code?: ReaderAiStepErrorCode;
+          };
+          if (
+            parsed.phase === 'started' ||
+            parsed.phase === 'iteration_start' ||
+            parsed.phase === 'tool_call' ||
+            parsed.phase === 'tool_result' ||
+            parsed.phase === 'completed' ||
+            parsed.phase === 'error'
+          ) {
+            options.onTaskProgress({
+              id: parsed.id,
+              name: parsed.name,
+              phase: parsed.phase,
+              iteration: typeof parsed.iteration === 'number' ? parsed.iteration : undefined,
+              detail: typeof parsed.detail === 'string' ? parsed.detail : undefined,
+              errorCode: parsed.error_code,
+            });
+          }
+        } catch {
+          // Ignore malformed task_progress event.
+        }
+      }
+    } else if (eventType === 'staged_changes') {
+      if (options.onStagedChanges) {
+        try {
+          const parsed = JSON.parse(data) as {
+            changes?: ReaderAiStagedChange[];
+            suggested_commit_message?: string;
+            document_content?: string;
+            file_contents?: Record<string, unknown>;
+            revision?: number;
+          };
+          if (Array.isArray(parsed.changes)) {
+            const fileContents =
+              parsed.file_contents && typeof parsed.file_contents === 'object'
+                ? Object.fromEntries(
+                    Object.entries(parsed.file_contents).filter(
+                      (entry): entry is [string, string] =>
+                        typeof entry[0] === 'string' && typeof entry[1] === 'string',
+                    ),
+                  )
+                : undefined;
+            const changes = parsed.changes
+              .map((change) => normalizeReaderAiStagedChange(change, parsed.revision))
+              .filter((change): change is ReaderAiStagedChange => change !== null);
+            options.onStagedChanges(
+              changes,
+              parsed.suggested_commit_message,
+              typeof parsed.document_content === 'string' ? parsed.document_content : undefined,
+              fileContents,
+            );
+          }
+        } catch {
+          // Ignore malformed staged_changes event.
+        }
+      }
+    } else if (eventType === 'turn_start') {
+      if (options.onTurnStart) {
+        try {
+          const parsed = JSON.parse(data) as { iteration?: number };
+          if (typeof parsed.iteration === 'number') options.onTurnStart(parsed.iteration);
+        } catch {
+          // Ignore malformed turn_start event.
+        }
+      }
+    } else if (eventType === 'turn_end') {
+      if (options.onTurnEnd) {
+        try {
+          const parsed = JSON.parse(data) as { iteration?: number; reason?: string };
+          if (typeof parsed.iteration === 'number') options.onTurnEnd(parsed.iteration, parsed.reason ?? 'unknown');
+        } catch {
+          // Ignore malformed turn_end event.
+        }
+      }
+    } else if (eventType === 'error') {
+      let streamErrorMessage = 'Reader AI stream failed';
+      try {
+        const parsed = JSON.parse(data) as { message?: string };
+        if (typeof parsed.message === 'string' && parsed.message.trim()) {
+          streamErrorMessage = parsed.message;
+        }
+      } catch {
+        // Ignore malformed error event payloads.
+      }
+      options.onStreamError?.(streamErrorMessage);
+      throw new Error(streamErrorMessage);
+    } else {
+      try {
+        const parsed = JSON.parse(data) as unknown;
+        const delta = extractStreamDelta(parsed);
+        if (typeof delta === 'string') {
+          const repairBoundary = shouldRepairConversationalBoundary(options.mode, editModeCurrentDocOnly);
+          if (repairBoundary) {
+            if (!pendingVisibleDelta) {
+              pendingVisibleDelta = delta;
+            } else {
+              const emittedDelta = shouldInsertStreamBoundarySpace(pendingVisibleDelta, delta)
+                ? `${pendingVisibleDelta} `
+                : pendingVisibleDelta;
+              streamedText += emittedDelta;
+              if (emittedDelta) options.onDelta(emittedDelta);
+              pendingVisibleDelta = delta;
+            }
+          } else {
+            const nextText =
+              editModeCurrentDocOnly === true
+                ? streamedText + delta
+                : repairStreamBoundaries
+                  ? appendStreamText(streamedText, delta)
+                  : streamedText + delta;
+            const emittedDelta = nextText.slice(streamedText.length);
+            streamedText = nextText;
+            if (emittedDelta) options.onDelta(emittedDelta);
+          }
+        }
+      } catch {
+        // Ignore malformed stream chunks and continue.
+      }
     }
   }
 
@@ -698,11 +678,4 @@ export async function askReaderAiStream(
     streamedText += pendingVisibleDelta;
     options.onDelta(pendingVisibleDelta);
   }
-}
-
-function parseSseFieldValue(line: string, prefix: 'event:' | 'data:'): string {
-  let value = line.slice(prefix.length);
-  // Per SSE parsing rules, remove at most one leading space after ":".
-  if (value.startsWith(' ')) value = value.slice(1);
-  return value;
 }

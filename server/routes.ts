@@ -3,6 +3,7 @@ import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
+import { formatSseComment, formatSseEvent } from '../shared/sse.ts';
 import { canGitHubUserEditMarkdownDocument, validateEditorsPreserved } from '../src/document_permissions.ts';
 import type { ReaderAiStepErrorCode } from '../src/reader_ai_errors.ts';
 import { resolveCommitCompactionSelection } from './commit_compaction.ts';
@@ -2859,7 +2860,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   const writeSseEvent = (event: string, data: unknown) => {
     if (ctx.res.writableEnded) return;
-    ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    ctx.res.write(formatSseEvent(data, event));
   };
 
   let lastStagedChangesSignature: string | null = null;
@@ -2951,7 +2952,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     ctx.res.setHeader('Cache-Control', 'no-cache');
     ctx.res.setHeader('Connection', 'keep-alive');
     if (newSummary) {
-      ctx.res.write(`event: summary\ndata: ${JSON.stringify({ summary: newSummary })}\n\n`);
+      ctx.res.write(formatSseEvent({ summary: newSummary }, 'summary'));
     }
     if (summarizationFailed) {
       writeSseEvent('error', { message: 'Earlier conversation context could not be summarized and may be lost.' });
@@ -2960,7 +2961,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     let needsDrain = false;
     const writeSseDelta = (delta: string) => {
       if (ctx.res.writableEnded) return;
-      const ok = ctx.res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: delta } }] })}\n\n`);
+      const ok = ctx.res.write(formatSseEvent({ choices: [{ index: 0, delta: { content: delta } }] }));
       if (!ok) needsDrain = true;
     };
     const awaitDrainIfNeeded = (): Promise<void> => {
@@ -2979,7 +2980,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     // SSE keepalive: send a comment every 15s to prevent intermediary proxy idle-timeout kills
     keepaliveInterval = setInterval(() => {
       if (ctx.res.writableEnded) return;
-      ctx.res.write(': keepalive\n\n');
+      ctx.res.write(formatSseComment('keepalive'));
     }, 15_000);
 
     // Agentic tool-call loop
@@ -3225,7 +3226,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       if (!ctx.res.writableEnded) {
         writeSseEvent('error', { message: 'Request timed out' });
         emitStagedChangesSnapshot();
-        ctx.res.write('data: [DONE]\n\n');
+        ctx.res.write(formatSseEvent('[DONE]'));
         ctx.res.end();
       }
       return;
@@ -3236,7 +3237,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         const message = err instanceof Error ? err.message : 'An unexpected error occurred';
         writeSseEvent('error', { message });
         emitStagedChangesSnapshot();
-        ctx.res.write('data: [DONE]\n\n');
+        ctx.res.write(formatSseEvent('[DONE]'));
         ctx.res.end();
       }
       return;
@@ -3251,7 +3252,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
   emitStagedChangesSnapshot();
 
   if (!ctx.res.writableEnded) {
-    ctx.res.write('data: [DONE]\n\n');
+    ctx.res.write(formatSseEvent('[DONE]'));
     ctx.res.end();
   }
 }

@@ -959,7 +959,8 @@ function applyRangeEdit(source: string, op: EditDocumentOp): { updated: string }
     return makeEditDocumentFailure({
       code: 'missing_required',
       message: 'line range edit requires start_line and end_line',
-      next_action: 'Provide start_line, end_line, and expected_old_text from a fresh read_document call. Omit new_text to delete the selected lines.',
+      next_action:
+        'Provide start_line, end_line, and expected_old_text from a fresh read_document call. Omit new_text to delete the selected lines.',
     });
   }
   const lines = source.split('\n');
@@ -1077,11 +1078,7 @@ function validateEditShape(op: EditDocumentOp): EditDocumentFailure | null {
     }
     return null;
   }
-  if (
-    !Number.isFinite(op.start_line) ||
-    !Number.isFinite(op.end_line) ||
-    typeof op.expected_old_text !== 'string'
-  ) {
+  if (!Number.isFinite(op.start_line) || !Number.isFinite(op.end_line) || typeof op.expected_old_text !== 'string') {
     return makeEditDocumentFailure(
       {
         code: typeof op.expected_old_text === 'string' ? 'missing_required' : 'invalid_args',
@@ -1242,7 +1239,6 @@ function findBestFuzzyMatch(
 
   return best;
 }
-
 
 interface ReadCheckResult {
   failure: EditDocumentFailure | null;

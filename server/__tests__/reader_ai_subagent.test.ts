@@ -1,4 +1,5 @@
 import test from 'ava';
+import { formatSseEvent } from '../../shared/sse.ts';
 import {
   executeReaderAiSubagent,
   READER_AI_TASK_MAX_OUTPUT_CHARS,
@@ -8,11 +9,11 @@ import {
 // ── Helpers ──
 
 function sseChunk(data: unknown): string {
-  return `data: ${JSON.stringify(data)}\n\n`;
+  return formatSseEvent(data);
 }
 
 function sseDone(): string {
-  return 'data: [DONE]\n\n';
+  return formatSseEvent('[DONE]');
 }
 
 /** Build a ReadableStream<Uint8Array> from SSE text. */

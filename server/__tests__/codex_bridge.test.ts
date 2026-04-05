@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test, { type ExecutionContext } from 'ava';
 import { WebSocketServer } from 'ws';
+import { createSseParser } from '../../shared/sse.ts';
 
 let localhostBindingAvailable = true;
 
@@ -97,23 +98,15 @@ function startBridgeProcess(codexUrl: string, port: number, envOverrides: Record
 
 async function readSse(res: Response): Promise<Array<{ event: string; data: string }>> {
   const text = await res.text();
-  return text
-    .split('\n\n')
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-    .map((chunk) => {
-      const lines = chunk.split('\n');
-      const event =
-        lines
-          .find((line) => line.startsWith('event:'))
-          ?.slice('event:'.length)
-          .trim() ?? '';
-      const data = lines
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice('data:'.length).trimStart())
-        .join('\n');
-      return { event, data };
-    });
+  const events: Array<{ event: string; data: string }> = [];
+  const parser = createSseParser({
+    onEvent: (event) => {
+      events.push({ event: event.event.trim(), data: event.data });
+    },
+  });
+  parser.feed(text);
+  parser.end();
+  return events;
 }
 
 function startFakeCodexServer(
