@@ -37,7 +37,8 @@ export function buildReaderAiSystemPrompt(
     '- search_document: Search for text in the document (case-insensitive). Returns matching lines with context.',
     ...(allowDocumentEdits
       ? [
-          '- propose_edit_document: Propose an edit to the current document. Use this whenever you want to change the document so the user can explicitly approve or reject the proposal.',
+          '- propose_replace_region: Propose a rewrite of one contiguous region previously read with read_document.',
+          '- propose_replace_matches: Propose a mechanical repeated replacement inside one span previously read with read_document.',
         ]
       : []),
     '- task: Spawn an independent subagent with its own system prompt and fresh context. The subagent can read and search the document but cannot spawn further subagents. Avoid this by default. Use it only when the user explicitly asks for a subagent-style workflow, a skill/instruction explicitly requires one, or a distinct specialized role is clearly necessary. Multiple task calls in the same response run concurrently. Each subagent returns its complete output as the tool result.',
@@ -48,13 +49,13 @@ export function buildReaderAiSystemPrompt(
     '- If the document content already visible contains the answer, respond directly without tools.',
     ...(allowDocumentEdits
       ? [
-          '- To suggest or make any document change, call propose_edit_document instead of describing the edit in text.',
-          '- Before any propose_edit_document call, first call read_document for the exact affected span. The read result tells you whether you are looking at the original or staged document and whether a proposal is already pending. Use the latest read_document result as the only source for old_text or expected_old_text; do not copy edit text from memory, search_document, or earlier narration.',
-          '- For paragraph or sentence edits, prefer exact-text replacement with old_text copied directly from the latest read_document result. Use start_line/end_line only after re-reading the relevant lines and only for a single contiguous block you have just verified.',
-          '- For paragraph or block removals, first call read_document for the exact affected span, then make exactly one propose_edit_document call that replaces the full span atomically, then stop. Splitting an intended edit into multiple delete/fix proposals WILL NOT WORK because of line number drift.',
-          '- After each propose_edit_document call, treat the tool result and its document_state summary as the source of truth. Do not describe edit outcomes from memory. If there is any doubt, re-read the document before proposing another edit.',
+          '- To suggest or make any document change, call either propose_replace_region or propose_replace_matches instead of describing the edit in text.',
+          '- Before any edit proposal, first call read_document for the exact affected span and copy the returned read_id into the edit tool call.',
+          '- Use propose_replace_region for one contiguous sentence, paragraph, or block rewrite. old_text must be copied exactly from the read span referenced by read_id.',
+          '- Use propose_replace_matches for repeated lexical replacement such as deleting a word or replacing a phrase across a read span. expected_match_count is required every time.',
+          '- If the user asks to replace or delete the same word or phrase multiple times, prefer propose_replace_matches over propose_replace_region.',
+          '- After each edit tool call, treat the tool result and its document_state summary as the source of truth. Do not describe edit outcomes from memory. If there is any doubt, re-read the document before proposing another edit.',
           '- If a proposal is wrong, do not patch the previous proposal incrementally. Recompute the next proposal from the user intent and the current staged document state.',
-          '- If you must use a line-range edit, include expected_old_text from the fresh read and set dry_run explicitly to true or false so the intent is unambiguous.',
         ]
       : [
           '- This chat is read-only while the user is viewing the document. Do not call edit tools or present edits as pending actions.',

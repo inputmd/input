@@ -1081,7 +1081,8 @@ export function useReaderAiSession({
               const labels: Record<string, string> = {
                 read_document: 'Reading document…',
                 search_document: 'Searching document…',
-                propose_edit_document: 'Proposing document edit…',
+                propose_replace_region: 'Proposing region replacement…',
+                propose_replace_matches: 'Proposing match replacement…',
                 task: 'Running subagent…',
               };
               setReaderAiToolStatus(labels[event.name] ?? `Running ${event.name}…`);

@@ -28,13 +28,14 @@ export interface ReaderAiDocumentConfig {
 export interface ReaderAiSessionConfig {
   provider: ReaderAiProviderConfig;
   document: ReaderAiDocumentConfig;
-  /** Enable the propose_edit_document tool. Default: true. */
+  /** Enable the document edit proposal tools. Default: true. */
   allowEdits?: boolean;
   /** Enable the task (subagent) tool. Default: true. */
   allowSubagents?: boolean;
   /**
-   * Restrict to edit-only mode: only read_document, search_document, and propose_edit_document
-   * are available (no task/subagent). Used for inline editing flows. Default: false.
+   * Restrict to edit-only mode: only read_document, search_document, propose_replace_region,
+   * and propose_replace_matches are available (no task/subagent). Used for inline editing
+   * flows. Default: false.
    */
   editModeCurrentDocOnly?: boolean;
   /** Total timeout for a chat turn in ms. Default: 360_000. */
@@ -164,8 +165,11 @@ export interface ReaderAiStagedChangeSnapshot {
 }
 
 export interface DocumentReadSnapshot {
+  readId: string;
   startLine: number;
   endLine: number;
+  startOffset: number;
+  endOffset: number;
   visibleText: string;
   sourceAtRead: string;
   truncated: boolean;
@@ -179,7 +183,8 @@ export interface DocumentEditState {
   stagedContent: string | null;
   stagedDiff: string | null;
   stagedRevision: number;
-  lastReadSnapshot?: DocumentReadSnapshot | null;
+  readSnapshots?: Map<string, DocumentReadSnapshot>;
+  nextReadId?: number;
 }
 
 export interface StagedHunkLine {

@@ -48,7 +48,8 @@ import {
   buildReaderAiSystemPrompt,
   compactToolResults,
   estimateMessagesTokens,
-  executeReaderAiEditDocumentTool,
+  executeReaderAiReplaceMatchesTool,
+  executeReaderAiReplaceRegionTool,
   executeReaderAiSubagent,
   executeReaderAiSyncToolWithState,
   type OpenRouterMessage,
@@ -2793,7 +2794,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
     stagedContent: null as string | null,
     stagedDiff: null as string | null,
     stagedRevision: 0,
-    lastReadSnapshot: null,
+    readSnapshots: new Map(),
+    nextReadId: 1,
   };
   const modelEntry = allowedModels.find((m) => m.id === model);
   const contextTokens = modelEntry?.context_length || 0;
@@ -2818,7 +2820,12 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
       : editModeCurrentDocOnly
         ? READER_AI_TOOLS.filter((tool) => {
             const name = tool.function.name;
-            return name === 'read_document' || name === 'search_document' || name === 'propose_edit_document';
+            return (
+              name === 'read_document' ||
+              name === 'search_document' ||
+              name === 'propose_replace_region' ||
+              name === 'propose_replace_matches'
+            );
           })
         : READER_AI_TOOLS;
   }
@@ -2860,7 +2867,9 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
   const executeSyncToolCall = (tc: ReaderAiToolCall, argsJsonOverride?: string): string => {
     const toolArgsJson = argsJsonOverride ?? tc.arguments;
-    if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(toolArgsJson, documentEditState);
+    if (tc.name === 'propose_replace_region') return executeReaderAiReplaceRegionTool(toolArgsJson, documentEditState);
+    if (tc.name === 'propose_replace_matches')
+      return executeReaderAiReplaceMatchesTool(toolArgsJson, documentEditState);
     return executeReaderAiSyncToolWithState(tc.name, toolArgsJson, { lines: aiLines, state: documentEditState });
   };
 
@@ -2904,7 +2913,8 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         }
       : null;
   const getChangeForToolCall = (toolName: string) => {
-    if (toolName === 'propose_edit_document') return getCurrentDocumentStagedChange();
+    if (toolName === 'propose_replace_region' || toolName === 'propose_replace_matches')
+      return getCurrentDocumentStagedChange();
     return null;
   };
   const emitEditProposal = (toolCallId: string, toolName: string) => {
@@ -3113,7 +3123,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
           ...(toolFailed ? { error_code: classifyReaderAiToolErrorCode(toolResult) } : {}),
           ...(repaired ? { repaired: true } : {}),
         });
-        if (tc.name === 'propose_edit_document') {
+        if (tc.name === 'propose_replace_region' || tc.name === 'propose_replace_matches') {
           stagedChangesRevision += 1;
           emitEditProposal(tc.id, tc.name);
           emitStagedChangesSnapshot();

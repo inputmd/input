@@ -18,7 +18,8 @@ export interface ReaderAiToolLogEntry {
 export const TOOL_LABELS: Record<string, string> = {
   read_document: 'Read document',
   search_document: 'Search document',
-  propose_edit_document: 'Propose document edit',
+  propose_replace_region: 'Propose region replacement',
+  propose_replace_matches: 'Propose match replacement',
   task: 'Subagent',
 };
 
@@ -113,18 +114,28 @@ export function ToolLogSection({
   };
 
   const entryPrimaryText = (entry: ReaderAiToolLogEntry): string => {
-    if (entry.type === 'result' && entry.name === 'propose_edit_document' && entry.detail) return entry.detail;
+    if (
+      entry.type === 'result' &&
+      (entry.name === 'propose_replace_region' || entry.name === 'propose_replace_matches') &&
+      entry.detail
+    ) {
+      return entry.detail;
+    }
     return TOOL_LABELS[entry.name] ?? entry.name;
   };
 
   const entrySecondaryText = (entry: ReaderAiToolLogEntry, maxLength: number): string | null => {
-    if (entry.type === 'result' && entry.name === 'propose_edit_document') return null;
+    if (
+      entry.type === 'result' &&
+      (entry.name === 'propose_replace_region' || entry.name === 'propose_replace_matches')
+    )
+      return null;
     if (!entry.detail) return null;
     return entry.detail.length > maxLength ? `${entry.detail.slice(0, maxLength)}…` : entry.detail;
   };
 
   const showProposalStatusNote = (entry: ReaderAiToolLogEntry): boolean =>
-    entry.type === 'call' && entry.name === 'propose_edit_document';
+    entry.type === 'call' && (entry.name === 'propose_replace_region' || entry.name === 'propose_replace_matches');
 
   const handleCopyToolCall = (entry: ReaderAiToolLogEntry) => {
     if (entry.type !== 'call') return;

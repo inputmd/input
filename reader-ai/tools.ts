@@ -172,7 +172,7 @@ export const READER_AI_TOOLS = [
     function: {
       name: 'read_document',
       description:
-        'Read the document content. Returns line-numbered text. Without arguments returns the full document; use start_line/end_line for specific sections. For short documents the full text is already in the system prompt — only call this tool if you need content beyond what is already visible. When document edit state exists, the result also states whether you are reading the original or staged document, the current staged revision, total lines, and whether a proposal is pending. Before a paragraph or block edit, read the exact affected span immediately before proposing the edit. When using old_text/new_text, copy old_text from the latest read_document result rather than from memory or search results.',
+        'Read the document content. Returns line-numbered text. Without arguments returns the full document; use start_line/end_line for specific sections. When document edit state exists, the result also includes a read_id plus whether you are reading the original or staged document, the current staged revision, total lines, and whether a proposal is pending. Before any edit proposal, call read_document for the exact affected span and then use the returned read_id in the edit tool call.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -217,58 +217,78 @@ export const READER_AI_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'propose_edit_document',
+      name: 'propose_replace_region',
       description:
-        'Propose an edit to the current document. Supports two primary modes: exact-text replacement with old_text/new_text (preferred when the target text is stable and you can provide a unique match copied from a fresh read_document call) and guarded line-range replacement with start_line/end_line/new_text plus required expected_old_text (preferred when you know exact positions from a fresh read_document call). new_text is optional: omit it to delete the matched content (equivalent to setting it to an empty string). Whitespace and blank lines are literal: they are preserved or removed only if they are included in old_text/new_text or in the selected line range. Batched edits via edits[] are atomic; if any edit fails, nothing is applied and the tool returns structured JSON like { ok: false, tool: "propose_edit_document", error: { code, message, details, next_action }, document_state }. For paragraph or block edits, prefer a single atomic exact-text replacement after reading the target span. Line-range edits require expected_old_text and an explicit dry_run value so the intent is unambiguous. Proposed changes are shown to the user for approval or rejection. Returns structured JSON including diff, document_state, and actionable errors.',
+        'Propose a replacement for one contiguous region previously read with read_document. Use this for sentence, paragraph, or block rewrites where you want to replace one exact span with another exact span. The read_id must come from a fresh read_document result covering the target text. old_text must match exactly once within that read span. new_text is optional: omit it to delete the matched region. Returns structured JSON including diff, document_state, and actionable errors.',
       parameters: {
         type: 'object' as const,
         properties: {
+          read_id: {
+            type: 'string' as const,
+            description:
+              'Required read_document identifier for the exact span you want to edit. Copy it from the latest read_document result.',
+          },
           old_text: {
             type: 'string' as const,
             description:
-              'The exact text to find and replace. It must match exactly and be unique in the document. Copy this from the latest read_document result, and prefer including the full paragraph or enough surrounding text to guarantee a unique match.',
+              'Exact text to replace inside the region referenced by read_id. It must match exactly once within that read span.',
           },
           new_text: {
             type: 'string' as const,
-            description:
-              'Replacement text. Omit to delete the matched content (defaults to empty string). Whitespace and newlines are literal.',
-          },
-          start_line: {
-            type: 'number' as const,
-            description:
-              'First line to replace (1-based, inclusive). Use with end_line and new_text when you know the exact positions from a fresh read_document call.',
-          },
-          end_line: {
-            type: 'number' as const,
-            description:
-              'Last line to replace (1-based, inclusive). Use with start_line and new_text when you know the exact positions from a fresh read_document call.',
-          },
-          expected_old_text: {
-            type: 'string' as const,
-            description:
-              'Exact text currently expected between start_line and end_line, copied from a fresh read_document call. For line-range edits this is required. If the current lines differ, the edit fails instead of applying to stale line numbers.',
+            description: 'Replacement text. Omit to delete the matched region. Whitespace and newlines are literal.',
           },
           dry_run: {
             type: 'boolean' as const,
-            description:
-              'If true, preview the diff without applying changes to staged document content. For line-range edits, you must set this explicitly to true or false.',
-          },
-          edits: {
-            type: 'array' as const,
-            description:
-              'Optional atomic batch of edits. Each item supports either old_text/new_text or start_line/end_line/new_text with required expected_old_text for line-range edits. If any edit fails, none are applied and the tool returns { ok: false, tool: "propose_edit_document", error: { code, message, details, next_action }, document_state }.',
-            items: {
-              type: 'object' as const,
-              properties: {
-                old_text: { type: 'string' as const },
-                new_text: { type: 'string' as const },
-                start_line: { type: 'number' as const },
-                end_line: { type: 'number' as const },
-                expected_old_text: { type: 'string' as const },
-              },
-            },
+            description: 'If true, preview the diff without applying changes to staged document content.',
           },
         },
+        required: ['read_id', 'old_text'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'propose_replace_matches',
+      description:
+        'Propose a mechanical find-and-replace within one span previously read with read_document. Use this for repeated word or phrase replacement, including deletion by omitting replace_text. The read_id must come from a fresh read_document result covering the target span. expected_match_count is required and the tool fails if the actual match count differs. Returns structured JSON including diff, document_state, and actionable errors.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          read_id: {
+            type: 'string' as const,
+            description:
+              'Required read_document identifier for the span where matches should be replaced. Copy it from the latest read_document result.',
+          },
+          match_text: {
+            type: 'string' as const,
+            description: 'Text to match inside the read span.',
+          },
+          replace_text: {
+            type: 'string' as const,
+            description: 'Replacement text. Omit to delete each matched occurrence.',
+          },
+          match_mode: {
+            type: 'string' as const,
+            description:
+              'Matching mode. Use "whole_word" for token-level replacement or "exact" for plain substring replacement.',
+            enum: ['exact', 'whole_word'],
+          },
+          case_sensitive: {
+            type: 'boolean' as const,
+            description: 'Whether matching should be case-sensitive. Default: false.',
+          },
+          expected_match_count: {
+            type: 'number' as const,
+            description:
+              'Required expected number of matches inside the read span. The tool fails if the actual count differs.',
+          },
+          dry_run: {
+            type: 'boolean' as const,
+            description: 'If true, preview the diff without applying changes to staged document content.',
+          },
+        },
+        required: ['read_id', 'match_text', 'match_mode', 'expected_match_count'],
       },
     },
   },
@@ -300,12 +320,16 @@ export const READER_AI_TOOLS = [
 
 /** Subagent tools — subset available to task subagents (no nested task spawning, no editing). */
 export const READER_AI_SUBAGENT_TOOLS = READER_AI_TOOLS.filter(
-  (t) => t.function.name !== 'task' && t.function.name !== 'propose_edit_document',
+  (t) =>
+    t.function.name !== 'task' &&
+    t.function.name !== 'propose_replace_region' &&
+    t.function.name !== 'propose_replace_matches',
 );
 
 // ── Tool execution ──
 
 function buildReadDocumentSnapshot(
+  readId: string,
   source: string,
   lines: string[],
   start: number,
@@ -314,13 +338,24 @@ function buildReadDocumentSnapshot(
 ): DocumentReadSnapshot {
   const visibleLineCount = Math.max(0, numbered.length);
   const endLine = visibleLineCount > 0 ? start + visibleLineCount - 1 : start;
+  const visibleText = lines.slice(start - 1, start - 1 + visibleLineCount).join('\n');
+  let startOffset = 0;
+  for (let i = 0; i < start - 1; i++) startOffset += lines[i].length + 1;
   return {
+    readId,
     startLine: start,
     endLine,
-    visibleText: lines.slice(start - 1, start - 1 + visibleLineCount).join('\n'),
+    startOffset,
+    endOffset: startOffset + visibleText.length,
+    visibleText,
     sourceAtRead: source,
     truncated,
   };
+}
+
+function ensureReadSnapshotState(state: DocumentEditState): void {
+  if (!state.readSnapshots) state.readSnapshots = new Map();
+  if (!Number.isFinite(state.nextReadId) || (state.nextReadId ?? 0) < 1) state.nextReadId = 1;
 }
 
 export function executeReaderAiReadDocument(
@@ -335,10 +370,17 @@ export function executeReaderAiReadDocument(
   if (start > end) return `(invalid range: start_line ${start} > end_line ${end})`;
   const selected = lines.slice(start - 1, end);
   const numbered = selected.map((line, i) => `${start + i}: ${line}`);
+  let readId = '';
+  if (state) {
+    ensureReadSnapshotState(state);
+    const nextReadId = state.nextReadId ?? 1;
+    readId = `read_${nextReadId}`;
+    state.nextReadId = nextReadId + 1;
+  }
   const stateHeader = state
     ? (() => {
         const summary = summarizeDocumentState(state);
-        return `(${summary.current_document} document; staged revision ${summary.staged_revision}; ${summary.total_lines} total lines; proposal state: ${summary.proposal_state})\n`;
+        return `(${summary.current_document} document; read_id ${readId}; staged revision ${summary.staged_revision}; ${summary.total_lines} total lines; proposal state: ${summary.proposal_state})\n`;
       })()
     : '';
   const result = numbered.join('\n');
@@ -354,18 +396,21 @@ export function executeReaderAiReadDocument(
       result.slice(0, READER_AI_TOOL_RESULT_MAX_CHARS) +
       `\n\n... (truncated; showing lines ${start}-${lastFittingLine} of ${total}; use start_line/end_line to read specific ranges)`;
     if (state) {
-      state.lastReadSnapshot = buildReadDocumentSnapshot(
+      const snapshot = buildReadDocumentSnapshot(
+        readId,
         state.source,
         lines,
         start,
         numbered.slice(0, lastFittingLine - start + 1),
         true,
       );
+      state.readSnapshots!.set(snapshot.readId, snapshot);
     }
     return stateHeader + truncatedResult;
   }
   if (state) {
-    state.lastReadSnapshot = buildReadDocumentSnapshot(state.source, lines, start, numbered, false);
+    const snapshot = buildReadDocumentSnapshot(readId, state.source, lines, start, numbered, false);
+    state.readSnapshots!.set(snapshot.readId, snapshot);
   }
   return stateHeader + result;
 }
@@ -778,44 +823,45 @@ export function createStructuredStagedChange(
 
 // ── Document editing ──
 
-interface EditDocumentOp {
+type DocumentProposalToolName = 'propose_replace_region' | 'propose_replace_matches';
+type ProposalFailureCode =
+  | 'invalid_json'
+  | 'invalid_args'
+  | 'missing_required'
+  | 'stale_read'
+  | 'not_found'
+  | 'match_not_found'
+  | 'match_count_mismatch'
+  | 'ambiguous_match'
+  | 'no_change';
+
+interface ReplaceRegionArgs {
+  read_id?: string;
   old_text?: string;
   new_text?: string;
-  start_line?: number;
-  end_line?: number;
-  expected_old_text?: string;
+  dry_run?: boolean;
 }
 
-interface EditDocumentFailure {
+interface ReplaceMatchesArgs {
+  read_id?: string;
+  match_text?: string;
+  replace_text?: string;
+  match_mode?: string;
+  case_sensitive?: boolean;
+  expected_match_count?: number;
+  dry_run?: boolean;
+}
+
+interface DocumentProposalFailure {
   ok: false;
-  tool: 'propose_edit_document';
+  tool: DocumentProposalToolName;
   error: {
-    code:
-      | 'invalid_json'
-      | 'invalid_args'
-      | 'missing_required'
-      | 'missing_read'
-      | 'invalid_range'
-      | 'not_found'
-      | 'ambiguous_match'
-      | 'no_change';
+    code: ProposalFailureCode;
     message: string;
     next_action?: string;
     details?: Record<string, unknown>;
   };
   document_state?: DocumentStateSummary;
-}
-
-interface EditDocumentSuccess {
-  ok: true;
-  tool: 'propose_edit_document';
-  dry_run: boolean;
-  applied: boolean;
-  path: string;
-  mode: 'snippet' | 'line_range' | 'batch';
-  edits_applied: number;
-  diff: string;
-  document_state: DocumentStateSummary;
 }
 
 interface DocumentStateSummary {
@@ -825,19 +871,23 @@ interface DocumentStateSummary {
   total_lines: number;
 }
 
-function isEditDocumentFailure(
-  result: EditDocumentFailure | { updated: string } | { updated: string; mode: 'snippet' | 'line_range' },
-): result is EditDocumentFailure {
+function isDocumentProposalFailure(
+  result:
+    | DocumentProposalFailure
+    | { updated: string }
+    | { updated: string; matchesReplaced: number; matchedLines: number[] },
+): result is DocumentProposalFailure {
   return 'ok' in result && result.ok === false;
 }
 
-function makeEditDocumentFailure(
-  error: EditDocumentFailure['error'],
+function makeDocumentProposalFailure(
+  tool: DocumentProposalToolName,
+  error: DocumentProposalFailure['error'],
   details?: Record<string, unknown>,
-): EditDocumentFailure {
+): DocumentProposalFailure {
   return {
     ok: false,
-    tool: 'propose_edit_document',
+    tool,
     error: { ...error, ...(details ? { details } : {}) },
   };
 }
@@ -852,13 +902,14 @@ function summarizeDocumentState(state: DocumentEditState): DocumentStateSummary 
   };
 }
 
-function makeStatefulEditDocumentFailure(
+function makeStatefulDocumentProposalFailure(
+  tool: DocumentProposalToolName,
   state: DocumentEditState,
-  error: EditDocumentFailure['error'],
+  error: DocumentProposalFailure['error'],
   details?: Record<string, unknown>,
-): EditDocumentFailure {
+): DocumentProposalFailure {
   return {
-    ...makeEditDocumentFailure(error, details),
+    ...makeDocumentProposalFailure(tool, error, details),
     document_state: summarizeDocumentState(state),
   };
 }
@@ -883,624 +934,206 @@ function findAmbiguousMatches(
   source: string,
   needle: string,
   limit = 5,
+  lineBase = 1,
 ): Array<{ start_line: number; snippet: string }> {
   const matches: Array<{ start_line: number; snippet: string }> = [];
   let from = 0;
   while (matches.length < limit) {
     const idx = source.indexOf(needle, from);
     if (idx === -1) break;
-    matches.push({ start_line: countLineForIndex(source, idx), snippet: snippetAround(source, idx, needle.length) });
+    matches.push({
+      start_line: lineBase + countLineForIndex(source, idx) - 1,
+      snippet: snippetAround(source, idx, needle.length),
+    });
     from = idx + Math.max(1, needle.length);
   }
   return matches;
 }
 
-function applySnippetEdit(source: string, op: EditDocumentOp): { updated: string } | EditDocumentFailure {
-  const oldText = typeof op.old_text === 'string' ? op.old_text : null;
-  const newText = typeof op.new_text === 'string' ? op.new_text : '';
-  if (oldText === null) {
-    return makeEditDocumentFailure({
+function getRequiredReadSnapshot(
+  state: DocumentEditState,
+  readId: string | undefined,
+  tool: DocumentProposalToolName,
+): DocumentReadSnapshot | DocumentProposalFailure {
+  ensureReadSnapshotState(state);
+  if (!readId) {
+    return makeStatefulDocumentProposalFailure(tool, state, {
       code: 'missing_required',
-      message: 'snippet edit requires old_text',
-      next_action: 'Provide old_text for the snippet edit. Omit new_text to delete the matched content.',
+      message: 'read_id is required',
+      next_action: 'Call read_document for the exact target span, then copy the returned read_id into this edit.',
     });
   }
+  const snapshot = state.readSnapshots!.get(readId);
+  if (!snapshot) {
+    return makeStatefulDocumentProposalFailure(tool, state, {
+      code: 'stale_read',
+      message: 'read_id is unknown or expired',
+      next_action: 'Call read_document again for the exact target span and retry with the new read_id.',
+    });
+  }
+  if (snapshot.sourceAtRead !== state.source) {
+    return makeStatefulDocumentProposalFailure(tool, state, {
+      code: 'stale_read',
+      message: 'read_id is stale because the staged document changed after the read',
+      next_action: 'Re-read the affected span from the current staged document, then retry with the new read_id.',
+    });
+  }
+  return snapshot;
+}
+
+function applyReplaceRegion(
+  source: string,
+  snapshot: DocumentReadSnapshot,
+  oldText: string,
+  newText: string,
+): { updated: string } | DocumentProposalFailure {
   if (oldText === newText) {
-    return makeEditDocumentFailure({
+    return makeDocumentProposalFailure('propose_replace_region', {
       code: 'no_change',
       message: 'old_text and new_text are identical',
       next_action: 'Change new_text or stop if no edit is needed.',
     });
   }
-  let resolvedOldText = oldText;
-  let first = source.indexOf(resolvedOldText);
+  const first = snapshot.visibleText.indexOf(oldText);
   if (first === -1) {
-    // Try fuzzy matching against the full source to auto-correct minor typos.
-    const fuzzy = findBestFuzzyMatch(source, resolvedOldText);
-    if (fuzzy) {
-      resolvedOldText = fuzzy.matchedText;
-      first = fuzzy.index;
-    } else {
-      return makeEditDocumentFailure(
-        {
-          code: 'not_found',
-          message: 'old_text not found in document',
-          next_action: 'Call read_document for the exact affected span and copy old_text directly from that result.',
-        },
-        {
-          edit_mode: 'snippet',
-          case_insensitive_match_exists: source.toLowerCase().includes(oldText.toLowerCase()),
-        },
-      );
-    }
-  }
-  const second = source.indexOf(resolvedOldText, first + resolvedOldText.length);
-  if (second !== -1) {
-    return makeEditDocumentFailure(
+    return makeDocumentProposalFailure(
+      'propose_replace_region',
       {
-        code: 'ambiguous_match',
-        message: 'old_text matches multiple locations; provide more context',
-        next_action: 'Call read_document for a narrower span and include more surrounding text in old_text.',
+        code: 'not_found',
+        message: 'old_text was not found inside the region referenced by read_id',
+        next_action:
+          'Call read_document again for the exact affected span and copy old_text directly from that result.',
       },
-      { edit_mode: 'snippet', matches: findAmbiguousMatches(source, resolvedOldText) },
+      {
+        read_id: snapshot.readId,
+        start_line: snapshot.startLine,
+        end_line: snapshot.endLine,
+        truncated: snapshot.truncated,
+      },
     );
   }
+  const second = snapshot.visibleText.indexOf(oldText, first + oldText.length);
+  if (second !== -1) {
+    return makeDocumentProposalFailure(
+      'propose_replace_region',
+      {
+        code: 'ambiguous_match',
+        message: 'old_text matches multiple locations inside the region referenced by read_id',
+        next_action: 'Call read_document for a narrower span and retry with a more specific old_text.',
+      },
+      { matches: findAmbiguousMatches(snapshot.visibleText, oldText, 5, snapshot.startLine) },
+    );
+  }
+  const globalStart = snapshot.startOffset + first;
   return {
-    updated: source.slice(0, first) + newText + source.slice(first + resolvedOldText.length),
+    updated: source.slice(0, globalStart) + newText + source.slice(globalStart + oldText.length),
   };
 }
 
-function applyRangeEdit(source: string, op: EditDocumentOp): { updated: string } | EditDocumentFailure {
-  const startLine = Number.isFinite(op.start_line) ? Math.floor(op.start_line as number) : NaN;
-  const endLine = Number.isFinite(op.end_line) ? Math.floor(op.end_line as number) : NaN;
-  const newText = typeof op.new_text === 'string' ? op.new_text : '';
-  const expectedOldText = typeof op.expected_old_text === 'string' ? op.expected_old_text : null;
-  if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) {
-    return makeEditDocumentFailure({
-      code: 'missing_required',
-      message: 'line range edit requires start_line and end_line',
-      next_action:
-        'Provide start_line, end_line, and expected_old_text from a fresh read_document call. Omit new_text to delete the selected lines.',
-    });
-  }
-  const lines = source.split('\n');
-  const total = lines.length;
-  if (startLine < 1 || endLine < 1 || startLine > total || endLine > total || startLine > endLine) {
-    return makeEditDocumentFailure(
-      {
-        code: 'invalid_range',
-        message: 'invalid line range',
-        next_action:
-          'Call read_document to confirm the current line numbers, then try again with a valid contiguous range.',
-      },
-      { edit_mode: 'line_range', start_line: startLine, end_line: endLine, total_lines: total },
-    );
-  }
-  const currentText = lines.slice(startLine - 1, endLine).join('\n');
-  if (expectedOldText !== null && currentText !== expectedOldText) {
-    // If the expected_old_text is a near-match to the actual line range text,
-    // accept it (the model's intent is clear even if the text has minor typos).
-    const fuzzy = findBestFuzzyMatch(currentText, expectedOldText);
-    if (!fuzzy || fuzzy.similarity < NEAR_MATCH_MIN_SIMILARITY) {
-      return makeEditDocumentFailure(
-        {
-          code: 'not_found',
-          message:
-            'expected_old_text did not match the current line range; the document changed after those lines were read',
-          next_action: 'Call read_document again for that exact span and retry with the new expected_old_text.',
-        },
-        {
-          edit_mode: 'line_range',
-          start_line: startLine,
-          end_line: endLine,
-          expected_old_text: expectedOldText,
-          current_text: currentText,
-        },
-      );
-    }
-    // Near-match accepted — proceed with the edit using the actual line range.
-  }
-  const replacementLines = newText.split('\n');
-  const nextLines = [...lines.slice(0, startLine - 1), ...replacementLines, ...lines.slice(endLine)];
-  const updated = nextLines.join('\n');
-  if (updated === source) {
-    return makeEditDocumentFailure({
-      code: 'no_change',
-      message: 'line range replacement produced no changes',
-      next_action: 'Verify the selected range and replacement text, or stop if the document is already correct.',
-    });
-  }
-  return { updated };
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function classifyEditMode(op: EditDocumentOp): 'snippet' | 'line_range' | null {
-  const hasSnippet = typeof op.old_text === 'string';
-  const hasRange = Number.isFinite(op.start_line) || Number.isFinite(op.end_line);
-  if (hasSnippet && hasRange) return null;
-  if (hasSnippet) return 'snippet';
-  if (hasRange) return 'line_range';
+function buildReplaceMatchesPattern(matchText: string, matchMode: string, caseSensitive: boolean): RegExp | null {
+  const flags = `${caseSensitive ? 'g' : 'gi'}u`;
+  if (matchMode === 'exact') return new RegExp(escapeRegExp(matchText), flags);
+  if (matchMode === 'whole_word') {
+    return new RegExp(`(?<![\\p{L}\\p{N}_-])${escapeRegExp(matchText)}(?![\\p{L}\\p{N}_-])`, flags);
+  }
   return null;
 }
 
-function applySingleDocumentEdit(
+function applyReplaceMatches(
   source: string,
-  op: EditDocumentOp,
-): { updated: string; mode: 'snippet' | 'line_range' } | EditDocumentFailure {
-  const mode = classifyEditMode(op);
-  if (!mode) {
-    return makeEditDocumentFailure({
+  snapshot: DocumentReadSnapshot,
+  matchText: string,
+  replaceText: string,
+  matchMode: string,
+  caseSensitive: boolean,
+  expectedMatchCount: number,
+): { updated: string; matchesReplaced: number; matchedLines: number[] } | DocumentProposalFailure {
+  const pattern = buildReplaceMatchesPattern(matchText, matchMode, caseSensitive);
+  if (!pattern) {
+    return makeDocumentProposalFailure('propose_replace_matches', {
       code: 'invalid_args',
-      message: 'edit must specify either old_text/new_text or start_line/end_line/new_text',
-      next_action:
-        'Pick one edit mode only. For snippet edits provide old_text/new_text; for line-range edits provide start_line/end_line/new_text/expected_old_text.',
+      message: 'match_mode must be "exact" or "whole_word"',
+      next_action: 'Set match_mode to "exact" or "whole_word" and retry.',
     });
   }
-  if (mode === 'snippet') {
-    const result = applySnippetEdit(source, op);
-    return isEditDocumentFailure(result) ? result : { updated: result.updated, mode };
-  }
-  const result = applyRangeEdit(source, op);
-  return isEditDocumentFailure(result) ? result : { updated: result.updated, mode };
-}
 
-function validateEditShape(op: EditDocumentOp): EditDocumentFailure | null {
-  const mode = classifyEditMode(op);
-  if (!mode) {
-    const hasSnippetFields = typeof op.old_text === 'string' || typeof op.new_text === 'string';
-    const missingFields = hasSnippetFields
-      ? (['old_text', 'new_text'] as const).filter((field) => !Object.hasOwn(op, field))
-      : (['start_line', 'end_line', 'new_text', 'expected_old_text'] as const).filter(
-          (field) => !Object.hasOwn(op, field),
-        );
-    return makeEditDocumentFailure(
+  const matches = [...snapshot.visibleText.matchAll(pattern)].map((match) => ({
+    index: match.index ?? -1,
+    text: match[0],
+  }));
+  const validMatches = matches.filter((match) => match.index >= 0 && match.text.length > 0);
+  if (validMatches.length === 0) {
+    return makeDocumentProposalFailure(
+      'propose_replace_matches',
       {
-        code: 'invalid_args',
-        message: 'edit must specify either old_text/new_text or start_line/end_line/new_text',
-        next_action:
-          'Pick one edit mode only. For snippet edits provide old_text/new_text; for line-range edits provide start_line/end_line/new_text/expected_old_text.',
-      },
-      { missing_fields: missingFields },
-    );
-  }
-  if (mode === 'snippet') {
-    if (typeof op.old_text !== 'string') {
-      return makeEditDocumentFailure(
-        {
-          code: 'missing_required',
-          message: 'snippet edit requires old_text',
-          next_action: 'Provide old_text for the snippet edit. Omit new_text to delete the matched content.',
-        },
-        {
-          edit_mode: 'snippet',
-          missing_fields: ['old_text'] as const,
-        },
-      );
-    }
-    return null;
-  }
-  if (!Number.isFinite(op.start_line) || !Number.isFinite(op.end_line) || typeof op.expected_old_text !== 'string') {
-    return makeEditDocumentFailure(
-      {
-        code: typeof op.expected_old_text === 'string' ? 'missing_required' : 'invalid_args',
-        message:
-          typeof op.expected_old_text === 'string'
-            ? 'line range edit requires start_line and end_line'
-            : 'line range edit requires start_line, end_line, and expected_old_text',
-        next_action:
-          'Call read_document for the exact span, then provide start_line, end_line, and expected_old_text together. Omit new_text to delete the selected lines.',
+        code: 'match_not_found',
+        message: 'match_text was not found inside the region referenced by read_id',
+        next_action: 'Call read_document again for the intended span and verify match_text and match_mode.',
       },
       {
-        edit_mode: 'line_range',
-        missing_fields: (['start_line', 'end_line', 'expected_old_text'] as const).filter(
-          (field) => !Object.hasOwn(op, field),
-        ),
+        read_id: snapshot.readId,
+        start_line: snapshot.startLine,
+        end_line: snapshot.endLine,
       },
     );
   }
-  return null;
+
+  const matchedLines = [
+    ...new Set(validMatches.map((match) => countLineForIndex(source, snapshot.startOffset + match.index))),
+  ];
+  if (validMatches.length !== expectedMatchCount) {
+    return makeDocumentProposalFailure(
+      'propose_replace_matches',
+      {
+        code: 'match_count_mismatch',
+        message: `expected ${expectedMatchCount} match${expectedMatchCount === 1 ? '' : 'es'} but found ${validMatches.length}`,
+        next_action: 'Re-read the target span and retry with the correct expected_match_count.',
+      },
+      {
+        expected_match_count: expectedMatchCount,
+        actual_match_count: validMatches.length,
+        matched_lines: matchedLines,
+      },
+    );
+  }
+
+  let updatedVisibleText = '';
+  let cursor = 0;
+  for (const match of validMatches) {
+    updatedVisibleText += snapshot.visibleText.slice(cursor, match.index) + replaceText;
+    cursor = match.index + match.text.length;
+  }
+  updatedVisibleText += snapshot.visibleText.slice(cursor);
+
+  return {
+    updated: source.slice(0, snapshot.startOffset) + updatedVisibleText + source.slice(snapshot.endOffset),
+    matchesReplaced: validMatches.length,
+    matchedLines,
+  };
 }
 
-// ── Fuzzy matching for near-miss edit text ──
-
-/** Minimum similarity ratio (0–1) to consider a fuzzy match actionable. */
-const NEAR_MATCH_MIN_SIMILARITY = 0.85;
-/** Maximum needle length for fuzzy matching (avoid O(n*m) on huge spans). */
-const NEAR_MATCH_MAX_LENGTH = 4000;
-
-/**
- * Computes the Levenshtein edit distance between two strings.
- * Uses the classic two-row DP approach: O(min(a,b)) space, O(a*b) time.
- */
-function levenshteinDistance(a: string, b: string): number {
-  if (a === b) return 0;
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-  // Keep the shorter string in `b` for the inner loop (less memory).
-  if (a.length < b.length) [a, b] = [b, a];
-  let prev = new Array(b.length + 1);
-  let curr = new Array(b.length + 1);
-  for (let j = 0; j <= b.length; j++) prev[j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
-    }
-    [prev, curr] = [curr, prev];
-  }
-  return prev[b.length];
-}
-
-/**
- * Simple string hash (djb2). Fast, not cryptographic — only used for pre-filtering.
- */
-function lineHash(line: string): number {
-  let hash = 5381;
-  for (let i = 0; i < line.length; i++) {
-    hash = ((hash << 5) + hash + line.charCodeAt(i)) | 0;
-  }
-  return hash;
-}
-
-/**
- * Compute what fraction of needle line-hashes appear in the candidate line-hash set.
- * Returns 0–1. Cheap O(n) check to skip obviously dissimilar windows before Levenshtein.
- */
-function lineHashOverlap(needleHashes: number[], candidateHashSet: Set<number>): number {
-  if (needleHashes.length === 0) return 0;
-  let hits = 0;
-  for (const h of needleHashes) {
-    if (candidateHashSet.has(h)) hits++;
-  }
-  return hits / needleHashes.length;
-}
-
-/** Minimum line-hash overlap ratio to run full Levenshtein on a candidate window. */
-const LINE_HASH_OVERLAP_THRESHOLD = 0.5;
-
-/**
- * Find the best fuzzy match for `needle` inside `haystack`.
- * Slides a window of sizes [needle.length - tolerance .. needle.length + tolerance]
- * and returns the window with the highest similarity, or null if nothing exceeds the threshold.
- *
- * Uses a two-phase approach:
- *  1. **Line-hash pre-filter**: hash each line, then for each sliding window check what
- *     fraction of needle line-hashes appear in the window. Windows below the overlap
- *     threshold are skipped entirely.
- *  2. **Levenshtein**: only computed for windows that pass the pre-filter.
- */
-function findBestFuzzyMatch(
-  haystack: string,
-  needle: string,
-): { matchedText: string; similarity: number; index: number } | null {
-  if (needle.length === 0 || needle.length > NEAR_MATCH_MAX_LENGTH) return null;
-  if (haystack.includes(needle)) return { matchedText: needle, similarity: 1, index: haystack.indexOf(needle) };
-
-  const haystackLines = haystack.split('\n');
-  const needleLines = needle.split('\n');
-  const needleLineCount = needleLines.length;
-
-  // Pre-compute hashes for all lines.
-  const haystackHashes = haystackLines.map(lineHash);
-  const needleHashes = needleLines.map(lineHash);
-
-  let best: { matchedText: string; similarity: number; index: number } | null = null;
-
-  for (let windowSize = Math.max(1, needleLineCount - 2); windowSize <= needleLineCount + 2; windowSize++) {
-    // Build initial window hash set for this window size.
-    const windowHashSet = new Set<number>();
-    // Also track counts so we can do incremental add/remove as the window slides.
-    const windowHashCounts = new Map<number, number>();
-
-    const addHash = (h: number) => {
-      windowHashSet.add(h);
-      windowHashCounts.set(h, (windowHashCounts.get(h) ?? 0) + 1);
-    };
-    const removeHash = (h: number) => {
-      const count = windowHashCounts.get(h) ?? 0;
-      if (count <= 1) {
-        windowHashSet.delete(h);
-        windowHashCounts.delete(h);
-      } else {
-        windowHashCounts.set(h, count - 1);
-      }
-    };
-
-    // Seed the first window.
-    for (let i = 0; i < windowSize && i < haystackLines.length; i++) {
-      addHash(haystackHashes[i]);
-    }
-
-    for (let startLine = 0; startLine + windowSize <= haystackLines.length; startLine++) {
-      // Slide: add the new trailing line, remove the old leading line (except for the first window).
-      if (startLine > 0) {
-        addHash(haystackHashes[startLine + windowSize - 1]);
-        removeHash(haystackHashes[startLine - 1]);
-      }
-
-      // Phase 1: line-hash overlap pre-filter.
-      const overlap = lineHashOverlap(needleHashes, windowHashSet);
-      if (overlap < LINE_HASH_OVERLAP_THRESHOLD) continue;
-
-      // Length-ratio pre-check (cheap, before Levenshtein).
-      const candidate = haystackLines.slice(startLine, startLine + windowSize).join('\n');
-      const lengthRatio = Math.min(candidate.length, needle.length) / Math.max(candidate.length, needle.length);
-      if (lengthRatio < NEAR_MATCH_MIN_SIMILARITY) continue;
-
-      // Phase 2: full Levenshtein.
-      const dist = levenshteinDistance(candidate, needle);
-      const maxLen = Math.max(candidate.length, needle.length);
-      const similarity = maxLen === 0 ? 1 : 1 - dist / maxLen;
-      if (similarity >= NEAR_MATCH_MIN_SIMILARITY && (!best || similarity > best.similarity)) {
-        const index = haystack.indexOf(candidate);
-        best = { matchedText: candidate, similarity, index };
-      }
-    }
-  }
-
-  return best;
-}
-
-interface ReadCheckResult {
-  failure: EditDocumentFailure | null;
-  /** When non-null, the op was auto-corrected via fuzzy match. */
-  correctedOp: EditDocumentOp | null;
-}
-
-function requireFreshReadForEdit(state: DocumentEditState, op: EditDocumentOp): ReadCheckResult {
-  const snapshot = state.lastReadSnapshot;
-  if (!snapshot) {
-    return {
-      failure: makeEditDocumentFailure({
-        code: 'missing_read',
-        message: 'call read_document for the exact affected span before proposing an edit',
-        next_action: 'Call read_document for the exact paragraph or block you want to edit, then retry the edit once.',
-      }),
-      correctedOp: null,
-    };
-  }
-  if (snapshot.sourceAtRead !== state.source) {
-    return {
-      failure: makeEditDocumentFailure({
-        code: 'missing_read',
-        message: 'call read_document again before editing because the staged document changed after the last read',
-        next_action:
-          'Re-read the affected span from the current staged document, then retry with text copied from that read.',
-      }),
-      correctedOp: null,
-    };
-  }
-  const mode = classifyEditMode(op);
-  if (mode === 'snippet') {
-    const oldText = op.old_text as string;
-    if (!snapshot.visibleText.includes(oldText)) {
-      const fuzzy = findBestFuzzyMatch(snapshot.visibleText, oldText);
-      if (fuzzy) {
-        // Auto-correct: swap in the actual document text so the edit can proceed.
-        return { failure: null, correctedOp: { ...op, old_text: fuzzy.matchedText } };
-      }
-      return {
-        failure: makeEditDocumentFailure(
-          {
-            code: 'missing_read',
-            message: 'old_text must be copied from the latest read_document result for the exact affected span',
-            next_action: 'Call read_document for a narrower span and copy old_text exactly from that latest result.',
-          },
-          {
-            edit_mode: 'snippet',
-            last_read_start_line: snapshot.startLine,
-            last_read_end_line: snapshot.endLine,
-            truncated: snapshot.truncated,
-          },
-        ),
-        correctedOp: null,
-      };
-    }
-    return { failure: null, correctedOp: null };
-  }
-  const expectedOldText = op.expected_old_text as string;
-  if (!snapshot.visibleText.includes(expectedOldText)) {
-    const fuzzy = findBestFuzzyMatch(snapshot.visibleText, expectedOldText);
-    if (fuzzy) {
-      return { failure: null, correctedOp: { ...op, expected_old_text: fuzzy.matchedText } };
-    }
-    return {
-      failure: makeEditDocumentFailure(
-        {
-          code: 'missing_read',
-          message: 'line-range edits must use expected_old_text copied from the latest read_document result',
-          next_action:
-            'Call read_document for the exact line range and copy expected_old_text directly from that latest result.',
-        },
-        {
-          edit_mode: 'line_range',
-          last_read_start_line: snapshot.startLine,
-          last_read_end_line: snapshot.endLine,
-          truncated: snapshot.truncated,
-        },
-      ),
-      correctedOp: null,
-    };
-  }
-  return { failure: null, correctedOp: null };
-}
-
-export function executeReaderAiEditDocumentTool(argsJson: string, state: DocumentEditState): string {
-  const parsed = parseReaderAiToolArguments(argsJson);
-  const args = parsed.parsedArgs;
-  if (!args) {
+function finalizeDocumentProposal(
+  state: DocumentEditState,
+  tool: 'propose_replace_region' | 'propose_replace_matches',
+  working: string,
+  dryRun: boolean,
+  extra: Record<string, unknown> = {},
+): string {
+  if (working === state.source) {
     return JSON.stringify(
-      makeStatefulEditDocumentFailure(state, {
-        code: 'invalid_json',
-        message: parsed.error ?? 'invalid JSON arguments',
-        next_action: 'Send a valid JSON object with the required fields for one edit mode.',
+      makeStatefulDocumentProposalFailure(tool, state, {
+        code: 'no_change',
+        message: 'no changes were produced',
+        next_action: 'Verify the target text and replacement, or stop if the document is already correct.',
       }),
     );
   }
 
   const path = state.currentDocPath || 'current-document.md';
-
-  if (Object.hasOwn(args, 'edits') && !Array.isArray(args.edits)) {
-    return JSON.stringify(
-      makeStatefulEditDocumentFailure(state, {
-        code: 'invalid_args',
-        message: 'edits must be an array of edit objects',
-        next_action: 'Wrap each edit object inside edits[] or send a single top-level edit object instead.',
-      }),
-    );
-  }
-
-  if (
-    Array.isArray(args.edits) &&
-    (Object.hasOwn(args, 'old_text') ||
-      Object.hasOwn(args, 'new_text') ||
-      Object.hasOwn(args, 'start_line') ||
-      Object.hasOwn(args, 'end_line'))
-  ) {
-    return JSON.stringify(
-      makeStatefulEditDocumentFailure(state, {
-        code: 'invalid_args',
-        message: 'provide either edits[] or a single top-level edit, not both',
-        next_action: 'Choose one form only: either edits[] for a batch or top-level fields for a single edit.',
-      }),
-    );
-  }
-
-  const batchRaw = Array.isArray(args.edits) ? args.edits : null;
-  if (batchRaw?.some((entry) => !entry || typeof entry !== 'object' || Array.isArray(entry))) {
-    return JSON.stringify(
-      makeStatefulEditDocumentFailure(state, {
-        code: 'invalid_args',
-        message: 'each edits[] item must be an object',
-        next_action: 'Replace any non-object edits[] entries with valid edit objects.',
-      }),
-    );
-  }
-  const batch = batchRaw
-    ? batchRaw
-        .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
-        .map((entry) => ({
-          old_text: typeof entry.old_text === 'string' ? entry.old_text : undefined,
-          new_text: typeof entry.new_text === 'string' ? entry.new_text : undefined,
-          start_line: Number.isFinite(entry.start_line) ? Number(entry.start_line) : undefined,
-          end_line: Number.isFinite(entry.end_line) ? Number(entry.end_line) : undefined,
-          expected_old_text: typeof entry.expected_old_text === 'string' ? entry.expected_old_text : undefined,
-        }))
-    : null;
-
-  const ops: EditDocumentOp[] =
-    batch && batch.length > 0
-      ? batch
-      : [
-          {
-            old_text: typeof args.old_text === 'string' ? args.old_text : undefined,
-            new_text: typeof args.new_text === 'string' ? args.new_text : undefined,
-            start_line: Number.isFinite(args.start_line) ? Number(args.start_line) : undefined,
-            end_line: Number.isFinite(args.end_line) ? Number(args.end_line) : undefined,
-            expected_old_text: typeof args.expected_old_text === 'string' ? args.expected_old_text : undefined,
-          },
-        ];
-
-  if (ops.length === 0) {
-    return JSON.stringify(
-      makeStatefulEditDocumentFailure(state, {
-        code: 'missing_required',
-        message: 'no edits provided',
-        next_action: 'Provide one edit object or a non-empty edits[] array.',
-      }),
-    );
-  }
-
-  for (let i = 0; i < ops.length; i++) {
-    const shapeFailure = validateEditShape(ops[i]);
-    if (shapeFailure) {
-      return JSON.stringify(
-        makeStatefulEditDocumentFailure(
-          state,
-          { ...shapeFailure.error, message: `edit ${i + 1} failed: ${shapeFailure.error.message}` },
-          { ...(shapeFailure.error.details ?? {}), edit_index: i },
-        ),
-      );
-    }
-  }
-
-  const hasLineRangeEdit = ops.some((op) => classifyEditMode(op) === 'line_range');
-  const dryRunSpecified = Object.hasOwn(args, 'dry_run');
-  if (hasLineRangeEdit && !dryRunSpecified) {
-    return JSON.stringify(
-      makeStatefulEditDocumentFailure(
-        state,
-        {
-          code: 'invalid_args',
-          message: 'line-range edits require an explicit dry_run value',
-          next_action: 'Set dry_run to true for a preview or false to stage the line-range edit.',
-        },
-        { edit_mode: 'line_range', missing_fields: ['dry_run'] },
-      ),
-    );
-  }
-  const dryRun = dryRunSpecified ? args.dry_run === true : false;
-
-  let working = state.source;
-  let lastMode: 'snippet' | 'line_range' | 'batch' = 'batch';
-  // Track cumulative line offset so batch line-range edits are interpreted
-  // against the *original* document's line numbers, not the mutating working copy.
-  let lineOffset = 0;
-  for (let i = 0; i < ops.length; i++) {
-    const readCheck = requireFreshReadForEdit(state, ops[i]);
-    if (readCheck.failure) {
-      return JSON.stringify(
-        makeStatefulEditDocumentFailure(
-          state,
-          { ...readCheck.failure.error, message: `edit ${i + 1} failed: ${readCheck.failure.error.message}` },
-          { ...(readCheck.failure.error.details ?? {}), edit_index: i },
-        ),
-      );
-    }
-    if (readCheck.correctedOp) {
-      ops[i] = readCheck.correctedOp;
-    }
-    // For batched line-range edits, adjust line numbers by the cumulative offset
-    // from prior edits so the caller can always specify original-document coordinates.
-    let op = ops[i];
-    const mode = classifyEditMode(op);
-    if (mode === 'line_range' && lineOffset !== 0 && ops.length > 1) {
-      op = {
-        ...op,
-        start_line: (op.start_line as number) + lineOffset,
-        end_line: (op.end_line as number) + lineOffset,
-      };
-    }
-    const beforeLineCount = working.split('\n').length;
-    const result = applySingleDocumentEdit(working, op);
-    if (isEditDocumentFailure(result)) {
-      return JSON.stringify(
-        makeStatefulEditDocumentFailure(
-          state,
-          {
-            ...result.error,
-            message: `edit ${i + 1} failed: ${result.error.message}`,
-          },
-          { ...(result.error.details ?? {}), edit_index: i },
-        ),
-      );
-    }
-    working = result.updated;
-    const afterLineCount = working.split('\n').length;
-    lineOffset += afterLineCount - beforeLineCount;
-    if (ops.length === 1) lastMode = result.mode;
-  }
-
-  if (working === state.source) {
-    return JSON.stringify(
-      makeStatefulEditDocumentFailure(state, {
-        code: 'no_change',
-        message: 'no changes were produced',
-        next_action:
-          'Verify the edit target and replacement text, or stop if the document is already in the desired state.',
-      }),
-    );
-  }
-
   const stagedOriginalContent = state.stagedOriginalContent ?? state.source;
   const diff = generateUnifiedDiff(path, stagedOriginalContent, working);
   if (!dryRun) {
@@ -1510,21 +1143,136 @@ export function executeReaderAiEditDocumentTool(argsJson: string, state: Documen
     state.stagedContent = working;
     state.stagedDiff = diff;
     state.stagedRevision += 1;
-    state.lastReadSnapshot = null;
+    state.readSnapshots = new Map();
   }
 
-  const success: EditDocumentSuccess = {
+  return JSON.stringify({
     ok: true,
-    tool: 'propose_edit_document',
+    tool,
     dry_run: dryRun,
     applied: !dryRun,
     path,
-    mode: ops.length > 1 ? 'batch' : lastMode,
-    edits_applied: ops.length,
     diff,
+    ...extra,
     document_state: summarizeDocumentState(state),
+  });
+}
+
+export function executeReaderAiReplaceRegionTool(argsJson: string, state: DocumentEditState): string {
+  const parsed = parseReaderAiToolArguments(argsJson);
+  const args = parsed.parsedArgs;
+  if (!args) {
+    return JSON.stringify(
+      makeStatefulDocumentProposalFailure('propose_replace_region', state, {
+        code: 'invalid_json',
+        message: parsed.error ?? 'invalid JSON arguments',
+        next_action: 'Send a valid JSON object with read_id, old_text, and optional new_text/dry_run.',
+      }),
+    );
+  }
+  const payload: ReplaceRegionArgs = {
+    read_id: typeof args.read_id === 'string' ? args.read_id : undefined,
+    old_text: typeof args.old_text === 'string' ? args.old_text : undefined,
+    new_text: typeof args.new_text === 'string' ? args.new_text : undefined,
+    dry_run: args.dry_run === true,
   };
-  return JSON.stringify(success);
+  if (!payload.old_text) {
+    return JSON.stringify(
+      makeStatefulDocumentProposalFailure('propose_replace_region', state, {
+        code: 'missing_required',
+        message: 'old_text is required',
+        next_action: 'Copy old_text exactly from the read_document result identified by read_id.',
+      }),
+    );
+  }
+  const snapshot = getRequiredReadSnapshot(state, payload.read_id, 'propose_replace_region');
+  if ('ok' in snapshot) return JSON.stringify(snapshot);
+
+  const result = applyReplaceRegion(state.source, snapshot, payload.old_text, payload.new_text ?? '');
+  if (isDocumentProposalFailure(result)) {
+    return JSON.stringify(
+      makeStatefulDocumentProposalFailure('propose_replace_region', state, result.error, result.error.details),
+    );
+  }
+  return finalizeDocumentProposal(state, 'propose_replace_region', result.updated, payload.dry_run === true);
+}
+
+export function executeReaderAiReplaceMatchesTool(argsJson: string, state: DocumentEditState): string {
+  const parsed = parseReaderAiToolArguments(argsJson);
+  const args = parsed.parsedArgs;
+  if (!args) {
+    return JSON.stringify(
+      makeStatefulDocumentProposalFailure('propose_replace_matches', state, {
+        code: 'invalid_json',
+        message: parsed.error ?? 'invalid JSON arguments',
+        next_action:
+          'Send a valid JSON object with read_id, match_text, match_mode, expected_match_count, and optional replace_text/dry_run.',
+      }),
+    );
+  }
+
+  const payload: ReplaceMatchesArgs = {
+    read_id: typeof args.read_id === 'string' ? args.read_id : undefined,
+    match_text: typeof args.match_text === 'string' ? args.match_text : undefined,
+    replace_text: typeof args.replace_text === 'string' ? args.replace_text : undefined,
+    match_mode: typeof args.match_mode === 'string' ? args.match_mode : undefined,
+    case_sensitive: args.case_sensitive === true,
+    expected_match_count: Number.isFinite(args.expected_match_count) ? Number(args.expected_match_count) : undefined,
+    dry_run: args.dry_run === true,
+  };
+
+  if (!payload.match_text) {
+    return JSON.stringify(
+      makeStatefulDocumentProposalFailure('propose_replace_matches', state, {
+        code: 'missing_required',
+        message: 'match_text is required',
+        next_action: 'Provide the exact word or phrase to replace inside the span identified by read_id.',
+      }),
+    );
+  }
+  if (!payload.match_mode) {
+    return JSON.stringify(
+      makeStatefulDocumentProposalFailure('propose_replace_matches', state, {
+        code: 'missing_required',
+        message: 'match_mode is required',
+        next_action: 'Set match_mode to "exact" or "whole_word".',
+      }),
+    );
+  }
+  const expectedMatchCount = payload.expected_match_count;
+  if (!Number.isInteger(expectedMatchCount) || (expectedMatchCount ?? 0) < 1) {
+    return JSON.stringify(
+      makeStatefulDocumentProposalFailure('propose_replace_matches', state, {
+        code: 'missing_required',
+        message: 'expected_match_count must be a positive integer',
+        next_action: 'Count the expected matches in the read span and provide that value explicitly.',
+      }),
+    );
+  }
+  const expectedMatchCountValue = expectedMatchCount as number;
+
+  const snapshot = getRequiredReadSnapshot(state, payload.read_id, 'propose_replace_matches');
+  if ('ok' in snapshot) return JSON.stringify(snapshot);
+
+  const result = applyReplaceMatches(
+    state.source,
+    snapshot,
+    payload.match_text,
+    payload.replace_text ?? '',
+    payload.match_mode,
+    payload.case_sensitive === true,
+    expectedMatchCountValue,
+  );
+  if (isDocumentProposalFailure(result)) {
+    return JSON.stringify(
+      makeStatefulDocumentProposalFailure('propose_replace_matches', state, result.error, result.error.details),
+    );
+  }
+
+  return finalizeDocumentProposal(state, 'propose_replace_matches', result.updated, payload.dry_run === true, {
+    matches_replaced: result.matchesReplaced,
+    matched_lines: result.matchedLines,
+  });
 }
 
 // Re-export types used by consumers

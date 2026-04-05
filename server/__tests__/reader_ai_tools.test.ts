@@ -11,8 +11,9 @@ import {
   compactToolResults,
   estimateMessagesTokens,
   estimateTokens,
-  executeReaderAiEditDocumentTool,
   executeReaderAiReadDocument,
+  executeReaderAiReplaceMatchesTool,
+  executeReaderAiReplaceRegionTool,
   executeReaderAiSearchDocument,
   executeReaderAiSyncTool,
   executeReaderAiSyncToolWithState,
@@ -73,6 +74,26 @@ function buildSingleLineParagraphDocument(paragraphs: string[]): string {
 
 function makeParagraph(index: number): string {
   return `Paragraph ${index} first sentence.\nParagraph ${index} second sentence.`;
+}
+
+function createDocumentEditState(source: string) {
+  return {
+    source,
+    lines: source.split('\n'),
+    currentDocPath: 'doc.md',
+    stagedOriginalContent: null as string | null,
+    stagedContent: null as string | null,
+    stagedDiff: null as string | null,
+    stagedRevision: 0,
+    readSnapshots: new Map(),
+    nextReadId: 1,
+  };
+}
+
+function extractReadId(result: string): string {
+  const match = result.match(/\bread_id (read_\d+)\b/);
+  if (!match) throw new Error(`read_id missing from read_document result: ${result}`);
+  return match[1];
 }
 
 function sseChunk(data: unknown): Uint8Array {
@@ -174,285 +195,62 @@ test('stripCriticMarkupComments removes CriticMarkup comments while keeping othe
   t.is(result, 'A  {++keep++} {~~old~>new~~} B');
 });
 
-// ── executeReaderAiEditDocumentTool ──
+// ── document edit proposal tools ──
 
-test('propose_edit_document supports line-range replacement', (t) => {
-  const state = {
-    source: 'a\nb\nc\nd',
-    lines: ['a', 'b', 'c', 'd'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 3 }, state);
-  const raw = executeReaderAiEditDocumentTool(
-    '{"start_line":2,"end_line":3,"expected_old_text":"b\\nc","new_text":"X\\nY","dry_run":false}',
+test('propose_replace_region replaces one contiguous region via read_id', (t) => {
+  const state = createDocumentEditState('alpha\nbeta\ngamma');
+  const readResult = executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 2 }, state);
+  const readId = extractReadId(readResult);
+  const raw = executeReaderAiReplaceRegionTool(
+    JSON.stringify({ read_id: readId, old_text: 'beta', new_text: 'BETA', dry_run: false }),
     state,
   );
   const parsed = JSON.parse(raw) as {
     ok: boolean;
-    mode?: string;
-    document_state?: {
-      current_document?: string;
-      proposal_state?: string;
-      staged_revision?: number;
-      total_lines?: number;
-    };
+    tool?: string;
+    diff?: string;
+    document_state?: { current_document?: string; proposal_state?: string; staged_revision?: number };
   };
   t.true(parsed.ok);
-  t.is(parsed.mode, 'line_range');
+  t.is(parsed.tool, 'propose_replace_region');
   t.is(parsed.document_state?.current_document, 'staged');
   t.is(parsed.document_state?.proposal_state, 'pending');
   t.is(parsed.document_state?.staged_revision, 1);
-  t.is(parsed.document_state?.total_lines, 4);
-  t.is(state.source, 'a\nX\nY\nd');
-  t.truthy(state.stagedContent);
-  t.is(state.stagedOriginalContent, 'a\nb\nc\nd');
+  t.is(state.source, 'alpha\nBETA\ngamma');
+  t.is(parsed.diff, generateUnifiedDiff('doc.md', 'alpha\nbeta\ngamma', 'alpha\nBETA\ngamma'));
 });
 
-test('propose_edit_document requires explicit dry_run for line-range replacement', (t) => {
-  const state = {
-    source: 'a\nb\nc\nd',
-    lines: ['a', 'b', 'c', 'd'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 3 }, state);
-  const raw = executeReaderAiEditDocumentTool(
-    '{"start_line":2,"end_line":3,"expected_old_text":"b\\nc","new_text":"X\\nY"}',
+test('propose_replace_region supports dry_run previews', (t) => {
+  const state = createDocumentEditState('left right');
+  const readId = extractReadId(executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 1 }, state));
+  const raw = executeReaderAiReplaceRegionTool(
+    JSON.stringify({ read_id: readId, old_text: 'left', new_text: 'LEFT', dry_run: true }),
     state,
   );
-  const parsed = JSON.parse(raw) as {
-    ok: boolean;
-    error?: { code?: string; message?: string; next_action?: string; details?: { missing_fields?: string[] } };
-    document_state?: { current_document?: string; proposal_state?: string };
-  };
-  t.false(parsed.ok);
-  t.is(parsed.error?.code, 'invalid_args');
-  t.true(parsed.error?.message?.includes('explicit dry_run value') ?? false);
-  t.true(parsed.error?.next_action?.includes('Set dry_run to true') ?? false);
-  t.deepEqual(parsed.error?.details?.missing_fields, ['dry_run']);
-  t.is(parsed.document_state?.current_document, 'original');
-  t.is(parsed.document_state?.proposal_state, 'none');
-  t.is(state.source, 'a\nb\nc\nd');
-  t.is(state.stagedOriginalContent, null);
-  t.is(state.stagedContent, null);
-});
-
-test('propose_edit_document supports atomic batched edits', (t) => {
-  const state = {
-    source: 'one\ntwo\nthree',
-    lines: ['one', 'two', 'three'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 2 }, state);
-  const raw = executeReaderAiEditDocumentTool(
-    '{"edits":[{"old_text":"one","new_text":"ONE"},{"start_line":2,"end_line":2,"expected_old_text":"two","new_text":"TWO"}],"dry_run":false}',
-    state,
-  );
-  const parsed = JSON.parse(raw) as { ok: boolean; mode?: string; edits_applied?: number };
-  t.true(parsed.ok);
-  t.is(parsed.mode, 'batch');
-  t.is(parsed.edits_applied, 2);
-  t.is(state.source, 'ONE\nTWO\nthree');
-});
-
-test('propose_edit_document defaults new_text to empty string for snippet deletion', (t) => {
-  const state = {
-    source: 'keep\ndelete me\nkeep too',
-    lines: ['keep', 'delete me', 'keep too'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, {}, state);
-  const raw = executeReaderAiEditDocumentTool('{"old_text":"\\ndelete me"}', state);
-  const parsed = JSON.parse(raw) as { ok: boolean; mode?: string };
-  t.true(parsed.ok);
-  t.is(parsed.mode, 'snippet');
-  t.is(state.source, 'keep\nkeep too');
-});
-
-test('propose_edit_document defaults new_text to empty string for batch snippet deletion', (t) => {
-  const state = {
-    source: 'aaa\nbbb\nccc\nddd\neee',
-    lines: ['aaa', 'bbb', 'ccc', 'ddd', 'eee'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, {}, state);
-  const raw = executeReaderAiEditDocumentTool('{"edits":[{"old_text":"bbb"},{"old_text":"ddd"}]}', state);
-  const parsed = JSON.parse(raw) as { ok: boolean; edits_applied?: number };
-  t.true(parsed.ok);
-  t.is(parsed.edits_applied, 2);
-  t.is(state.source, 'aaa\n\nccc\n\neee');
-});
-
-test('propose_edit_document batch line-range edits use original line numbers', (t) => {
-  const state = {
-    source: 'line1\nline2\nline3\nline4\nline5',
-    lines: ['line1', 'line2', 'line3', 'line4', 'line5'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, {}, state);
-  // Delete lines 2 and 4 using original-document line numbers.
-  // Without offset adjustment, the second edit would hit line 4 in the
-  // mutated document (originally line 5) instead of original line 4.
-  const raw = executeReaderAiEditDocumentTool(
-    '{"edits":[{"start_line":2,"end_line":2,"expected_old_text":"line2","dry_run":false},{"start_line":4,"end_line":4,"expected_old_text":"line4","dry_run":false}],"dry_run":false}',
-    state,
-  );
-  const parsed = JSON.parse(raw) as { ok: boolean; edits_applied?: number };
-  t.true(parsed.ok);
-  t.is(parsed.edits_applied, 2);
-  t.is(state.source, 'line1\n\nline3\n\nline5');
-});
-
-test('propose_edit_document batch failures are atomic', (t) => {
-  const state = {
-    source: 'alpha\nbeta',
-    lines: ['alpha', 'beta'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 2 }, state);
-  const raw = executeReaderAiEditDocumentTool(
-    '{"edits":[{"old_text":"alpha","new_text":"ALPHA"},{"old_text":"missing","new_text":"x"}]}',
-    state,
-  );
-  const parsed = JSON.parse(raw) as {
-    ok: boolean;
-    error?: { code?: string; next_action?: string };
-    document_state?: { proposal_state?: string };
-  };
-  t.false(parsed.ok);
-  t.is(parsed.error?.code, 'missing_read');
-  t.true(parsed.error?.next_action?.includes('Call read_document') ?? false);
-  t.is(parsed.document_state?.proposal_state, 'none');
-  t.is(state.source, 'alpha\nbeta');
-  t.is(state.stagedContent, null);
-});
-
-test('propose_edit_document guarded line-range edits fail on stale text', (t) => {
-  const state = {
-    source: 'alpha\nbeta\ngamma',
-    lines: ['alpha', 'beta', 'gamma'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 2 }, state);
-  const raw = executeReaderAiEditDocumentTool(
-    '{"start_line":2,"end_line":2,"new_text":"BETA","expected_old_text":"stale beta","dry_run":false}',
-    state,
-  );
-  const parsed = JSON.parse(raw) as {
-    ok: boolean;
-    error?: {
-      code?: string;
-      message?: string;
-      next_action?: string;
-      details?: { current_text?: string; expected_old_text?: string; edit_mode?: string };
-    };
-  };
-  t.false(parsed.ok);
-  t.is(parsed.error?.code, 'missing_read');
-  t.true(parsed.error?.message?.includes('expected_old_text copied from the latest read_document result') ?? false);
-  t.true(parsed.error?.next_action?.includes('Call read_document for the exact line range') ?? false);
-  t.is(parsed.error?.details?.edit_mode, 'line_range');
-  t.is(state.source, 'alpha\nbeta\ngamma');
-  t.is(state.stagedContent, null);
-});
-
-test('propose_edit_document dry_run previews without applying', (t) => {
-  const state = {
-    source: 'left right',
-    lines: ['left right'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 1 }, state);
-  const raw = executeReaderAiEditDocumentTool('{"old_text":"left","new_text":"LEFT","dry_run":true}', state);
   const parsed = JSON.parse(raw) as { ok: boolean; dry_run?: boolean; applied?: boolean };
   t.true(parsed.ok);
   t.true(parsed.dry_run);
   t.false(parsed.applied);
   t.is(state.source, 'left right');
-  t.is(state.stagedOriginalContent, null);
   t.is(state.stagedContent, null);
 });
 
-test('propose_edit_document returns structured invalid_json error', (t) => {
-  const state = {
-    source: 'x',
-    lines: ['x'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  const raw = executeReaderAiEditDocumentTool('{bad', state);
-  const parsed = JSON.parse(raw) as { ok: boolean; error?: { code?: string } };
-  t.false(parsed.ok);
-  t.is(parsed.error?.code, 'invalid_json');
-});
-
-test('propose_edit_document requires a fresh read before editing', (t) => {
-  const state = {
-    source: 'left right',
-    lines: ['left right'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  const raw = executeReaderAiEditDocumentTool('{"old_text":"left","new_text":"LEFT","dry_run":false}', state);
+test('propose_replace_region requires read_id', (t) => {
+  const state = createDocumentEditState('left right');
+  const raw = executeReaderAiReplaceRegionTool('{"old_text":"left","new_text":"LEFT"}', state);
   const parsed = JSON.parse(raw) as { ok: boolean; error?: { code?: string; message?: string } };
   t.false(parsed.ok);
-  t.is(parsed.error?.code, 'missing_read');
-  t.true(parsed.error?.message?.includes('call read_document') ?? false);
+  t.is(parsed.error?.code, 'missing_required');
+  t.true(parsed.error?.message?.includes('read_id') ?? false);
 });
 
-test('propose_edit_document returns ambiguity hints', (t) => {
-  const state = {
-    source: 'repeat\nx\nrepeat\ny\nrepeat',
-    lines: ['repeat', 'x', 'repeat', 'y', 'repeat'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
-  executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 5 }, state);
-  const raw = executeReaderAiEditDocumentTool('{"old_text":"repeat","new_text":"R"}', state);
+test('propose_replace_region returns ambiguity hints within the read span', (t) => {
+  const state = createDocumentEditState('repeat\nx\nrepeat\ny\nrepeat');
+  const readId = extractReadId(executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 5 }, state));
+  const raw = executeReaderAiReplaceRegionTool(
+    JSON.stringify({ read_id: readId, old_text: 'repeat', new_text: 'R' }),
+    state,
+  );
   const parsed = JSON.parse(raw) as {
     ok: boolean;
     error?: { code?: string; details?: { matches?: Array<{ start_line: number; snippet: string }> } };
@@ -463,33 +261,131 @@ test('propose_edit_document returns ambiguity hints', (t) => {
   t.true((parsed.error?.details?.matches?.[0]?.start_line ?? 0) >= 1);
 });
 
-test('propose_edit_document preserves the true original and cumulative diff across successive proposals', (t) => {
-  const state = {
-    source: 'alpha\nbeta\ngamma',
-    lines: ['alpha', 'beta', 'gamma'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: null as string | null,
-    stagedDiff: null as string | null,
-    stagedRevision: 0,
-  };
+test('propose_replace_region rejects stale read_id after a staged edit', (t) => {
+  const state = createDocumentEditState('alpha\nbeta\ngamma');
+  const firstReadId = extractReadId(executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 2 }, state));
+  const firstRaw = executeReaderAiReplaceRegionTool(
+    JSON.stringify({ read_id: firstReadId, old_text: 'beta', new_text: 'BETA' }),
+    state,
+  );
+  t.true((JSON.parse(firstRaw) as { ok: boolean }).ok);
 
-  executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 2 }, state);
-  const firstRaw = executeReaderAiEditDocumentTool('{"old_text":"beta","new_text":"BETA"}', state);
+  const staleRaw = executeReaderAiReplaceRegionTool(
+    JSON.stringify({ read_id: firstReadId, old_text: 'beta', new_text: 'BETA AGAIN' }),
+    state,
+  );
+  const staleParsed = JSON.parse(staleRaw) as { ok: boolean; error?: { code?: string } };
+  t.false(staleParsed.ok);
+  t.is(staleParsed.error?.code, 'stale_read');
+});
+
+test('propose_replace_region preserves the true original and cumulative diff across successive proposals', (t) => {
+  const state = createDocumentEditState('alpha\nbeta\ngamma');
+
+  const firstReadId = extractReadId(executeReaderAiReadDocument(state.lines, { start_line: 2, end_line: 2 }, state));
+  const firstRaw = executeReaderAiReplaceRegionTool(
+    JSON.stringify({ read_id: firstReadId, old_text: 'beta', new_text: 'BETA' }),
+    state,
+  );
   const firstParsed = JSON.parse(firstRaw) as { ok: boolean; diff?: string };
   t.true(firstParsed.ok);
   t.is(state.stagedOriginalContent, 'alpha\nbeta\ngamma');
   t.is(state.stagedContent, 'alpha\nBETA\ngamma');
   t.is(firstParsed.diff, generateUnifiedDiff('doc.md', 'alpha\nbeta\ngamma', 'alpha\nBETA\ngamma'));
 
-  executeReaderAiReadDocument(state.lines, { start_line: 3, end_line: 3 }, state);
-  const secondRaw = executeReaderAiEditDocumentTool('{"old_text":"gamma","new_text":"GAMMA"}', state);
+  const secondReadId = extractReadId(executeReaderAiReadDocument(state.lines, { start_line: 3, end_line: 3 }, state));
+  const secondRaw = executeReaderAiReplaceRegionTool(
+    JSON.stringify({ read_id: secondReadId, old_text: 'gamma', new_text: 'GAMMA' }),
+    state,
+  );
   const secondParsed = JSON.parse(secondRaw) as { ok: boolean; diff?: string };
   t.true(secondParsed.ok);
   t.is(state.stagedOriginalContent, 'alpha\nbeta\ngamma');
   t.is(state.stagedContent, 'alpha\nBETA\nGAMMA');
   t.is(state.stagedDiff, generateUnifiedDiff('doc.md', 'alpha\nbeta\ngamma', 'alpha\nBETA\nGAMMA'));
   t.is(secondParsed.diff, generateUnifiedDiff('doc.md', 'alpha\nbeta\ngamma', 'alpha\nBETA\nGAMMA'));
+});
+
+test('propose_replace_matches deletes whole-word matches with required expected_match_count', (t) => {
+  const source =
+    'Today, there is a growing body of research that tracks the adoption of AI. This research often uses an economic lens.\n' +
+    'Given this framing of the research area, here are some initial explorations.';
+  const state = createDocumentEditState(source);
+  const readId = extractReadId(executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 2 }, state));
+  const raw = executeReaderAiReplaceMatchesTool(
+    JSON.stringify({
+      read_id: readId,
+      match_text: 'research',
+      replace_text: '',
+      match_mode: 'whole_word',
+      expected_match_count: 3,
+      dry_run: false,
+    }),
+    state,
+  );
+  const parsed = JSON.parse(raw) as {
+    ok: boolean;
+    tool?: string;
+    matches_replaced?: number;
+    matched_lines?: number[];
+  };
+  t.true(parsed.ok);
+  t.is(parsed.tool, 'propose_replace_matches');
+  t.is(parsed.matches_replaced, 3);
+  t.deepEqual(parsed.matched_lines, [1, 2]);
+  t.true(state.source.includes('body of  that'));
+  t.true(state.source.includes('This  often'));
+  t.true(state.source.includes('framing of the  area'));
+});
+
+test('propose_replace_matches fails when expected_match_count mismatches actual matches', (t) => {
+  const state = createDocumentEditState('research\nresearch\nresearch');
+  const readId = extractReadId(executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 3 }, state));
+  const raw = executeReaderAiReplaceMatchesTool(
+    JSON.stringify({
+      read_id: readId,
+      match_text: 'research',
+      replace_text: '',
+      match_mode: 'whole_word',
+      expected_match_count: 2,
+    }),
+    state,
+  );
+  const parsed = JSON.parse(raw) as {
+    ok: boolean;
+    error?: { code?: string; details?: { actual_match_count?: number; expected_match_count?: number } };
+  };
+  t.false(parsed.ok);
+  t.is(parsed.error?.code, 'match_count_mismatch');
+  t.is(parsed.error?.details?.expected_match_count, 2);
+  t.is(parsed.error?.details?.actual_match_count, 3);
+});
+
+test('propose_replace_matches whole_word mode skips substring matches', (t) => {
+  const state = createDocumentEditState('research research-based research');
+  const readId = extractReadId(executeReaderAiReadDocument(state.lines, { start_line: 1, end_line: 1 }, state));
+  const raw = executeReaderAiReplaceMatchesTool(
+    JSON.stringify({
+      read_id: readId,
+      match_text: 'research',
+      replace_text: 'study',
+      match_mode: 'whole_word',
+      expected_match_count: 2,
+    }),
+    state,
+  );
+  const parsed = JSON.parse(raw) as { ok: boolean; matches_replaced?: number };
+  t.true(parsed.ok);
+  t.is(parsed.matches_replaced, 2);
+  t.is(state.source, 'study research-based study');
+});
+
+test('propose_replace_matches returns structured invalid_json error', (t) => {
+  const state = createDocumentEditState('x');
+  const raw = executeReaderAiReplaceMatchesTool('{bad', state);
+  const parsed = JSON.parse(raw) as { ok: boolean; error?: { code?: string } };
+  t.false(parsed.ok);
+  t.is(parsed.error?.code, 'invalid_json');
 });
 
 // ── executeReaderAiSearchDocument ──
@@ -586,20 +482,16 @@ test('sync tool handles empty args string', (t) => {
 });
 
 test('sync tool uses staged document state when provided', (t) => {
-  const state = {
-    source: 'alpha\nbeta',
-    lines: ['alpha', 'beta'],
-    currentDocPath: 'doc.md',
-    stagedOriginalContent: null as string | null,
-    stagedContent: 'alpha\nbeta' as string | null,
-    stagedDiff: '--- a/doc.md\n+++ b/doc.md' as string | null,
-    stagedRevision: 1,
-  };
+  const state = createDocumentEditState('alpha\nbeta');
+  state.stagedContent = 'alpha\nbeta';
+  state.stagedDiff = '--- a/doc.md\n+++ b/doc.md';
+  state.stagedRevision = 1;
   const result = executeReaderAiSyncToolWithState('read_document', '{"start_line":2,"end_line":2}', {
     lines: ['stale one', 'stale two'],
     state,
   });
-  t.is(result, '(staged document; staged revision 1; 2 total lines; proposal state: pending)\n2: beta');
+  t.true(result.startsWith('(staged document; read_id read_'));
+  t.true(result.includes('; staged revision 1; 2 total lines; proposal state: pending)\n2: beta'));
 });
 
 // ── READER_AI_TOOLS / READER_AI_SUBAGENT_TOOLS ──
@@ -609,49 +501,39 @@ test('READER_AI_TOOLS contains task tool', (t) => {
   t.true(names.includes('task'));
   t.true(names.includes('read_document'));
   t.true(names.includes('search_document'));
-  t.true(names.includes('propose_edit_document'));
+  t.true(names.includes('propose_replace_region'));
+  t.true(names.includes('propose_replace_matches'));
 });
 
-test('edit-related tool descriptions steer toward atomic block edits', (t) => {
+test('edit-related tool descriptions reflect read_id-based region and match replacement', (t) => {
   const readTool = READER_AI_TOOLS.find((tool) => tool.function.name === 'read_document');
-  const editTool = READER_AI_TOOLS.find((tool) => tool.function.name === 'propose_edit_document');
-  const oldText = editTool?.function.parameters.properties.old_text as { description?: string } | undefined;
-  const newText = editTool?.function.parameters.properties.new_text as { description?: string } | undefined;
-  const startLine = editTool?.function.parameters.properties.start_line as { description?: string } | undefined;
-  const edits = editTool?.function.parameters.properties.edits as { description?: string } | undefined;
+  const regionTool = READER_AI_TOOLS.find((tool) => tool.function.name === 'propose_replace_region');
+  const matchesTool = READER_AI_TOOLS.find((tool) => tool.function.name === 'propose_replace_matches');
+  const regionReadId = regionTool?.function.parameters.properties.read_id as { description?: string } | undefined;
+  const oldText = regionTool?.function.parameters.properties.old_text as { description?: string } | undefined;
+  const matchMode = matchesTool?.function.parameters.properties.match_mode as { description?: string } | undefined;
+  const expectedMatchCount = matchesTool?.function.parameters.properties.expected_match_count as
+    | { description?: string }
+    | undefined;
 
   t.truthy(readTool);
-  t.truthy(editTool);
-  t.true(readTool?.function.description.includes('read the exact affected span immediately before proposing the edit'));
-  t.true(readTool?.function.description.includes('copy old_text from the latest read_document result'));
+  t.truthy(regionTool);
+  t.truthy(matchesTool);
+  t.true(readTool?.function.description.includes('includes a read_id') ?? false);
+  t.true(readTool?.function.description.includes('then use the returned read_id in the edit tool call') ?? false);
   t.true(readTool?.function.description.includes('whether you are reading the original or staged document'));
-  t.true(editTool?.function.description.includes('single atomic exact-text replacement after reading the target span'));
-  t.true(editTool?.function.description.includes('preferred when the target text is stable'));
-  t.true(editTool?.function.description.includes('omit it to delete the matched content'));
-  t.true(editTool?.function.description.includes('Whitespace and blank lines are literal'));
   t.true(
-    editTool?.function.description.includes('Line-range edits require expected_old_text and an explicit dry_run value'),
+    regionTool?.function.description.includes('one contiguous region previously read with read_document') ?? false,
   );
+  t.true(regionTool?.function.description.includes('old_text must match exactly once within that read span') ?? false);
   t.true(
-    editTool?.function.description.includes(
-      '{ ok: false, tool: "propose_edit_document", error: { code, message, details, next_action }, document_state }',
-    ),
+    matchesTool?.function.description.includes('mechanical find-and-replace within one span previously read') ?? false,
   );
-  t.true(oldText?.description?.includes('full paragraph or enough surrounding text') ?? false);
-  t.true(oldText?.description?.includes('latest read_document result') ?? false);
-  t.true(newText?.description?.includes('Omit to delete the matched content') ?? false);
-  t.true(newText?.description?.includes('Whitespace and newlines are literal') ?? false);
-  t.true(startLine?.description?.includes('exact positions from a fresh read_document call') ?? false);
-  t.true(
-    edits?.description?.includes(
-      '{ ok: false, tool: "propose_edit_document", error: { code, message, details, next_action }, document_state }',
-    ) ?? false,
-  );
-  t.true(
-    (
-      editTool?.function.parameters.properties.expected_old_text as { description?: string } | undefined
-    )?.description?.includes('For line-range edits this is required') ?? false,
-  );
+  t.true(matchesTool?.function.description.includes('expected_match_count is required') ?? false);
+  t.true(regionReadId?.description?.includes('read_document identifier') ?? false);
+  t.true(oldText?.description?.includes('match exactly once within that read span') ?? false);
+  t.true(matchMode?.description?.includes('"whole_word"') ?? false);
+  t.true(expectedMatchCount?.description?.includes('actual count differs') ?? false);
 });
 
 test('READER_AI_SUBAGENT_TOOLS excludes task tool', (t) => {
@@ -659,7 +541,8 @@ test('READER_AI_SUBAGENT_TOOLS excludes task tool', (t) => {
   t.false(names.includes('task'));
   t.true(names.includes('read_document'));
   t.true(names.includes('search_document'));
-  t.false(names.includes('propose_edit_document'));
+  t.false(names.includes('propose_replace_region'));
+  t.false(names.includes('propose_replace_matches'));
 });
 
 // ── buildReaderAiSystemPrompt ──
@@ -690,33 +573,30 @@ test('system prompt mentions task tool', (t) => {
   t.true(prompt.includes('subagent'));
 });
 
-test('system prompt mentions propose_edit_document tool', (t) => {
+test('system prompt mentions the document proposal tools', (t) => {
   const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000);
-  t.true(prompt.includes('propose_edit_document'));
+  t.true(prompt.includes('propose_replace_region'));
+  t.true(prompt.includes('propose_replace_matches'));
 });
 
-test('system prompt omits propose_edit_document when document edits are disabled', (t) => {
+test('system prompt omits document proposal tools when document edits are disabled', (t) => {
   const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000, 'doc.md', false);
-  t.false(prompt.includes('propose_edit_document'));
+  t.false(prompt.includes('propose_replace_region'));
+  t.false(prompt.includes('propose_replace_matches'));
   t.true(prompt.includes('read-only while the user is viewing the document'));
 });
 
 test('system prompt discourages task by default and requires proposal tools for edits', (t) => {
   const prompt = buildReaderAiSystemPrompt('hello', ['hello'], 10_000);
   t.true(prompt.includes('Do not use the task tool unless the user explicitly asks for it'));
-  t.true(prompt.includes('whether you are looking at the original or staged document'));
-  t.true(prompt.includes('call propose_edit_document instead of describing the edit in text'));
-  t.true(prompt.includes('Use the latest read_document result as the only source for old_text or expected_old_text'));
-  t.true(
-    prompt.includes('prefer exact-text replacement with old_text copied directly from the latest read_document result'),
-  );
-  t.true(prompt.includes('first call read_document for the exact affected span'));
-  t.true(prompt.includes('make exactly one propose_edit_document call'));
-  t.true(prompt.includes('Splitting an intended edit into multiple delete/fix proposals WILL NOT WORK'));
+  t.true(prompt.includes('call either propose_replace_region or propose_replace_matches'));
+  t.true(prompt.includes('copy the returned read_id into the edit tool call'));
+  t.true(prompt.includes('Use propose_replace_region for one contiguous sentence, paragraph, or block rewrite'));
+  t.true(prompt.includes('Use propose_replace_matches for repeated lexical replacement'));
+  t.true(prompt.includes('expected_match_count is required every time'));
   t.true(prompt.includes('document_state summary as the source of truth'));
   t.true(prompt.includes('Do not describe edit outcomes from memory'));
   t.true(prompt.includes('do not patch the previous proposal incrementally'));
-  t.true(prompt.includes('set dry_run explicitly to true or false'));
 });
 
 test('system prompt includes document info', (t) => {

@@ -6,7 +6,8 @@ import { buildToolCallJson, copyTextToClipboard } from '../util';
 const TOOL_LABELS: Record<string, string> = {
   read_document: 'Read document',
   search_document: 'Search document',
-  propose_edit_document: 'Propose document edit',
+  propose_replace_region: 'Propose region replacement',
+  propose_replace_matches: 'Propose match replacement',
   task: 'Subagent',
 };
 
@@ -111,17 +112,6 @@ function describeLineRange(verb: string, startLine: number | null, endLine: numb
   return `${verb} the full document`;
 }
 
-function describeEditRange(verb: string, startLine: number | null, endLine: number | null): string {
-  if (startLine !== null && endLine !== null) {
-    return startLine === endLine
-      ? `${verb} an edit for line ${startLine}`
-      : `${verb} edits for lines ${startLine}-${endLine}`;
-  }
-  if (startLine !== null) return `${verb} edits from line ${startLine}`;
-  if (endLine !== null) return `${verb} edits through line ${endLine}`;
-  return `${verb} a document edit`;
-}
-
 function readerAiStepSummary(step: ReaderAiRunStep): string {
   const args = parseReaderAiStepArgs(step);
 
@@ -136,20 +126,18 @@ function readerAiStepSummary(step: ReaderAiRunStep): string {
     return isRegex ? `Ran regex search ${quoteSummaryText(query, 52)}` : `Searched for ${quoteSummaryText(query)}`;
   }
 
-  if (step.name === 'propose_edit_document') {
-    const edits = Array.isArray(args?.edits) ? args.edits : null;
+  if (step.name === 'propose_replace_region') {
     const dryRun = args?.dry_run === true;
-    const verb = dryRun ? 'Previewed' : 'Drafted';
-    if (edits && edits.length > 0) {
-      return `${verb} ${edits.length} document edit${edits.length === 1 ? '' : 's'}`;
+    return `${dryRun ? 'Previewed' : 'Drafted'} a region replacement`;
+  }
+
+  if (step.name === 'propose_replace_matches') {
+    const dryRun = args?.dry_run === true;
+    const expectedCount = readIntegerArg(args, 'expected_match_count');
+    if (expectedCount !== null) {
+      return `${dryRun ? 'Previewed' : 'Drafted'} ${expectedCount} match replacement${expectedCount === 1 ? '' : 's'}`;
     }
-    const startLine = readIntegerArg(args, 'start_line');
-    const endLine = readIntegerArg(args, 'end_line');
-    if (startLine !== null || endLine !== null) return describeEditRange(verb, startLine, endLine);
-    if (typeof args?.old_text === 'string' && typeof args?.new_text === 'string') {
-      return `${verb} a text replacement`;
-    }
-    return `${verb} a document edit`;
+    return `${dryRun ? 'Previewed' : 'Drafted'} a match replacement`;
   }
 
   if (step.name === 'task') {

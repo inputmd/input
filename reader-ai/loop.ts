@@ -11,7 +11,8 @@ import { READER_AI_CONTEXT_WINDOW_MESSAGES, READER_AI_MAX_SUMMARY_CHARS, summari
 import {
   compactToolResults,
   estimateMessagesTokens,
-  executeReaderAiEditDocumentTool,
+  executeReaderAiReplaceMatchesTool,
+  executeReaderAiReplaceRegionTool,
   executeReaderAiSyncToolWithState,
   parseToolArgumentsWithRepair,
   parseUnifiedDiffHunks,
@@ -176,7 +177,8 @@ export async function* runReaderAiLoop(
     stagedContent: null,
     stagedDiff: null,
     stagedRevision: 0,
-    lastReadSnapshot: null,
+    readSnapshots: new Map(),
+    nextReadId: 1,
   };
 
   // -- Build system prompt and tool set --
@@ -203,7 +205,12 @@ export async function* runReaderAiLoop(
       // Edit-only mode: read + search + edit (no subagents)
       tools = READER_AI_TOOLS.filter((tool) => {
         const name = tool.function.name;
-        return name === 'read_document' || name === 'search_document' || name === 'propose_edit_document';
+        return (
+          name === 'read_document' ||
+          name === 'search_document' ||
+          name === 'propose_replace_region' ||
+          name === 'propose_replace_matches'
+        );
       });
     } else {
       // Full mode: filter based on individual flags
@@ -243,7 +250,9 @@ export async function* runReaderAiLoop(
 
   const executeSyncToolCall = (tc: ToolCall, argsJsonOverride?: string): string => {
     const toolArgsJson = argsJsonOverride ?? tc.arguments;
-    if (tc.name === 'propose_edit_document') return executeReaderAiEditDocumentTool(toolArgsJson, documentEditState);
+    if (tc.name === 'propose_replace_region') return executeReaderAiReplaceRegionTool(toolArgsJson, documentEditState);
+    if (tc.name === 'propose_replace_matches')
+      return executeReaderAiReplaceMatchesTool(toolArgsJson, documentEditState);
     return executeReaderAiSyncToolWithState(tc.name, toolArgsJson, { lines: aiLines, state: documentEditState });
   };
 
@@ -509,7 +518,7 @@ export async function* runReaderAiLoop(
           ...(repaired ? { repaired: true } : {}),
         };
 
-        if (tc.name === 'propose_edit_document') {
+        if (tc.name === 'propose_replace_region' || tc.name === 'propose_replace_matches') {
           stagedChangesRevision += 1;
           yield* emitEditProposal(tc.id);
           yield* emitStagedChangesSnapshot();
