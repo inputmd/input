@@ -320,13 +320,15 @@ export function StagedChangesSection({
                             </button>
                           ) : null}
                         </div>
-                        <UnifiedDiffView diff={buildUnifiedDiffFromHunk(hunk)} />
+                        <UnifiedDiffView diff={buildUnifiedDiffFromHunk(hunk)} clipContextLines hideHunkHeaders />
                       </div>
                     );
                   })}
                 </div>
               ) : null}
-              {!change.hunks || change.hunks.length === 0 || streaming ? <UnifiedDiffView diff={change.diff} /> : null}
+              {!change.hunks || change.hunks.length === 0 || streaming ? (
+                <UnifiedDiffView diff={change.diff} clipContextLines />
+              ) : null}
             </>
           ) : null}
         </div>

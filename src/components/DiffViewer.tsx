@@ -1,13 +1,16 @@
 import type { ComponentChildren } from 'preact';
-import { findUnifiedDiffReplacementPair, getUnifiedDiffLineParts } from './diff_viewer_utils.ts';
+import {
+  findUnifiedDiffReplacementPair,
+  getUnifiedDiffLineParts,
+  LONG_DIFF_LINE_CLIP_THRESHOLD,
+  LONG_DIFF_LINE_CONTEXT_CHARS,
+  prepareUnifiedDiffLines,
+} from './diff_viewer_utils.ts';
 
 export interface DiffChangeEntry {
   path: string;
   diff: string;
 }
-
-const LONG_DIFF_LINE_CLIP_THRESHOLD = 220;
-const LONG_DIFF_LINE_CONTEXT_CHARS = 48;
 
 function commonPrefixLength(a: string, b: string): number {
   const limit = Math.min(a.length, b.length);
@@ -84,8 +87,16 @@ function renderUnifiedDiffLine(
   );
 }
 
-export function UnifiedDiffView({ diff }: { diff: string }) {
-  const lines = diff.split('\n');
+export function UnifiedDiffView({
+  diff,
+  clipContextLines = false,
+  hideHunkHeaders = false,
+}: {
+  diff: string;
+  clipContextLines?: boolean;
+  hideHunkHeaders?: boolean;
+}) {
+  const lines = prepareUnifiedDiffLines(diff, { clipContextLines, hideHunkHeaders });
   const renderedLines: ComponentChildren[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];

@@ -3,6 +3,9 @@ import {
   buildUnifiedDiffFromHunk,
   findUnifiedDiffReplacementPair,
   getUnifiedDiffLineParts,
+  limitUnifiedDiffContextLines,
+  prepareUnifiedDiffLines,
+  stripUnifiedDiffHunkHeaders,
 } from '../../src/components/diff_viewer_utils.ts';
 
 test('findUnifiedDiffReplacementPair matches adjacent delete/add replacements', (t) => {
@@ -57,4 +60,74 @@ test('buildUnifiedDiffFromHunk serializes a review hunk without file headers', (
     }),
     '@@ -2,2 +2,3 @@\n before\n-old value\n+new value\n+extra value',
   );
+});
+
+test('limitUnifiedDiffContextLines truncates a long closest leading context line and drops farther leading context', (t) => {
+  const longLeading = `before ${'x'.repeat(140)}`;
+  const diffLines = ['@@ -1,4 +1,4 @@', ' older context', ` ${longLeading}`, '-before', '+after', ' tail'].join('\n');
+
+  t.deepEqual(limitUnifiedDiffContextLines(diffLines.split('\n')), [
+    '@@ -1,4 +1,4 @@',
+    ` …${longLeading.slice(-100)}`,
+    '-before',
+    '+after',
+    ' tail',
+  ]);
+});
+
+test('limitUnifiedDiffContextLines truncates trailing context from the end and keeps the nearest budgeted lines', (t) => {
+  const nearTrailing = `after ${'y'.repeat(60)}`;
+  const farTrailing = `later ${'z'.repeat(80)}`;
+  const diffLines = ['@@ -1,5 +1,5 @@', ' top', '-before', '+after', ` ${nearTrailing}`, ` ${farTrailing}`].join('\n');
+
+  t.deepEqual(limitUnifiedDiffContextLines(diffLines.split('\n')), [
+    '@@ -1,5 +1,5 @@',
+    ' top',
+    '-before',
+    '+after',
+    ` ${nearTrailing}`,
+    ` ${farTrailing.slice(0, 34)}…`,
+  ]);
+});
+
+test('limitUnifiedDiffContextLines trims blank leading context from the far side before a change', (t) => {
+  const diffLines = ['@@ -1,4 +1,4 @@', ' ', ' keep me', '-before', '+after'].join('\n');
+
+  t.deepEqual(limitUnifiedDiffContextLines(diffLines.split('\n')), [
+    '@@ -1,4 +1,4 @@',
+    ' keep me',
+    '-before',
+    '+after',
+  ]);
+});
+
+test('limitUnifiedDiffContextLines trims blank trailing context from the far side after a change', (t) => {
+  const diffLines = ['@@ -1,4 +1,4 @@', '-before', '+after', ' keep me', ' '].join('\n');
+
+  t.deepEqual(limitUnifiedDiffContextLines(diffLines.split('\n')), [
+    '@@ -1,4 +1,4 @@',
+    '-before',
+    '+after',
+    ' keep me',
+  ]);
+});
+
+test('stripUnifiedDiffHunkHeaders removes hunk headers while keeping diff body lines', (t) => {
+  t.deepEqual(stripUnifiedDiffHunkHeaders(['@@ -2,2 +2,3 @@', ' before', '-old value', '+new value']), [
+    ' before',
+    '-old value',
+    '+new value',
+  ]);
+});
+
+test('prepareUnifiedDiffLines clips context before hiding hunk headers', (t) => {
+  const longLeading = `before ${'x'.repeat(140)}`;
+  const diff = ['@@ -1,4 +1,4 @@', ' older context', ` ${longLeading}`, '-before', '+after', ' tail'].join('\n');
+
+  t.deepEqual(prepareUnifiedDiffLines(diff, { clipContextLines: true, hideHunkHeaders: true }), [
+    ` …${longLeading.slice(-100)}`,
+    '-before',
+    '+after',
+    ' tail',
+  ]);
 });
