@@ -19,6 +19,7 @@ export {
 } from '../reader-ai/subagent.ts';
 export type {
   DocumentEditState as ReaderAiDocumentEditState,
+  ReaderAiToolResultSummary,
   StagedChange,
   StagedHunk,
   StagedHunkLine,
@@ -46,6 +47,7 @@ export {
   READER_AI_TOOL_RESULT_MAX_CHARS,
   READER_AI_TOOLS,
   repairToolArgumentsJson,
+  summarizeReaderAiToolResult,
 } from '../reader-ai/tools.ts';
 export type {
   OpenRouterMessage,

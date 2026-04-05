@@ -76,6 +76,119 @@ export function compactToolResults(messages: OpenRouterMessage[], preserveRecent
   return reclaimed;
 }
 
+export type ReaderAiToolResultSummary = {
+  preview: string;
+  error?: string;
+  errorCode?: 'invalid_arguments' | 'conflict' | 'not_found' | 'unknown_tool' | 'unknown';
+};
+
+function truncateToolResultPreview(value: string, maxLength = 200): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+function classifyStructuredToolErrorCode(code: unknown, message: string): ReaderAiToolResultSummary['errorCode'] {
+  const normalizedCode = typeof code === 'string' ? code.toLowerCase() : '';
+  if (normalizedCode === 'invalid_json' || normalizedCode === 'invalid_args' || normalizedCode === 'missing_required') {
+    return 'invalid_arguments';
+  }
+  if (
+    normalizedCode === 'stale_read' ||
+    normalizedCode === 'ambiguous_match' ||
+    normalizedCode === 'match_count_mismatch'
+  ) {
+    return 'conflict';
+  }
+  if (normalizedCode === 'not_found' || normalizedCode === 'match_not_found') return 'not_found';
+  if (normalizedCode === 'unknown_tool') return 'unknown_tool';
+
+  const normalizedMessage = message.toLowerCase();
+  if (
+    normalizedMessage.includes('invalid') ||
+    normalizedMessage.includes('argument') ||
+    normalizedMessage.includes('parameter') ||
+    normalizedMessage.includes('json')
+  ) {
+    return 'invalid_arguments';
+  }
+  if (
+    normalizedMessage.includes('stale') ||
+    normalizedMessage.includes('ambiguous') ||
+    normalizedMessage.includes('mismatch')
+  ) {
+    return 'conflict';
+  }
+  if (normalizedMessage.includes('not found')) return 'not_found';
+  if (normalizedMessage.includes('unknown tool')) return 'unknown_tool';
+  return 'unknown';
+}
+
+function summarizeStructuredToolSuccess(toolName: string, parsed: Record<string, unknown>): string | null {
+  const path = typeof parsed.path === 'string' ? parsed.path : null;
+  const dryRun = parsed.dry_run === true;
+
+  if (toolName === 'propose_replace_region') {
+    return path
+      ? `${dryRun ? 'Previewed' : 'Drafted'} changes for ${path}`
+      : `${dryRun ? 'Previewed' : 'Drafted'} a region replacement`;
+  }
+
+  if (toolName === 'propose_replace_matches') {
+    const matchesReplaced =
+      typeof parsed.matches_replaced === 'number' && Number.isFinite(parsed.matches_replaced)
+        ? Math.floor(parsed.matches_replaced)
+        : null;
+    if (path && matchesReplaced !== null) {
+      return `${dryRun ? 'Previewed' : 'Drafted'} ${matchesReplaced} replacement${
+        matchesReplaced === 1 ? '' : 's'
+      } in ${path}`;
+    }
+    return path
+      ? `${dryRun ? 'Previewed' : 'Drafted'} changes for ${path}`
+      : `${dryRun ? 'Previewed' : 'Drafted'} a match replacement`;
+  }
+
+  return null;
+}
+
+export function summarizeReaderAiToolResult(toolName: string, toolResult: string): ReaderAiToolResultSummary {
+  const preview = truncateToolResultPreview(toolResult);
+  const legacyToolFailed =
+    /^\((invalid JSON|unknown tool|file not found|old_text not found|path is required|content is required|new_text is required|old_text is required)/.test(
+      toolResult,
+    );
+  if (legacyToolFailed) {
+    return {
+      preview,
+      error: toolResult,
+      errorCode: classifyStructuredToolErrorCode(undefined, toolResult),
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(toolResult) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { preview };
+    const structured = parsed as Record<string, unknown>;
+    if (structured.ok === false) {
+      const errorObject =
+        structured.error && typeof structured.error === 'object' && !Array.isArray(structured.error)
+          ? (structured.error as Record<string, unknown>)
+          : null;
+      const errorMessage = typeof errorObject?.message === 'string' ? errorObject.message : 'Tool call failed';
+      return {
+        preview: errorMessage,
+        error: errorMessage,
+        errorCode: classifyStructuredToolErrorCode(errorObject?.code, errorMessage),
+      };
+    }
+    const structuredPreview = summarizeStructuredToolSuccess(toolName, structured);
+    if (structuredPreview) return { preview: structuredPreview };
+  } catch {
+    // Plain-text tool results do not need structured parsing.
+  }
+
+  return { preview };
+}
+
 // ── Tool argument parsing and repair ──
 
 export interface ToolArgumentsParseResult {

@@ -63,6 +63,7 @@ import {
   type ReaderAiToolCall,
   readUpstreamError,
   readUpstreamRateLimitMessage,
+  summarizeReaderAiToolResult,
 } from './reader_ai_tools.ts';
 import { createOrReuseRepoFileShareLink, listRepoFileShareLinkResponses } from './repo_file_share_links.ts';
 import {
@@ -233,27 +234,6 @@ function normalizeReaderAiModelText(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
-}
-
-function classifyReaderAiToolErrorCode(error: string): ReaderAiStepErrorCode {
-  const normalized = error.toLowerCase();
-  if (
-    normalized.includes('invalid json') ||
-    normalized.includes('could not be parsed as json') ||
-    normalized.includes('path is required') ||
-    normalized.includes('content is required') ||
-    normalized.includes('new_text is required') ||
-    normalized.includes('old_text is required')
-  ) {
-    return 'invalid_arguments';
-  }
-  if (normalized.includes('old_text not found')) return 'conflict';
-  if (normalized.includes('file not found')) return 'not_found';
-  if (normalized.includes('unknown tool')) return 'unknown_tool';
-  if (normalized.includes('rate limit')) return 'rate_limited';
-  if (normalized.includes('timeout') || normalized.includes('timed out')) return 'timeout';
-  if (normalized.includes('network') || normalized.includes('fetch')) return 'network';
-  return 'unknown';
 }
 
 function classifyReaderAiTaskErrorCode(error: unknown): ReaderAiStepErrorCode {
@@ -3110,17 +3090,13 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
         const toolResult = executeSyncToolCall(tc, repaired && parsedArgs ? JSON.stringify(parsedArgs) : undefined);
 
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
-        const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
-        const toolFailed =
-          /^\((invalid JSON|unknown tool|file not found|old_text not found|path is required|content is required|new_text is required|old_text is required)/.test(
-            toolResult,
-          );
+        const summarizedResult = summarizeReaderAiToolResult(tc.name, toolResult);
         writeSseEvent('tool_result', {
           id: tc.id,
           name: tc.name,
-          preview: resultPreview,
-          ...(toolFailed ? { error: toolResult } : {}),
-          ...(toolFailed ? { error_code: classifyReaderAiToolErrorCode(toolResult) } : {}),
+          preview: summarizedResult.preview,
+          ...(summarizedResult.error ? { error: summarizedResult.error } : {}),
+          ...(summarizedResult.errorCode ? { error_code: summarizedResult.errorCode } : {}),
           ...(repaired ? { repaired: true } : {}),
         });
         if (tc.name === 'propose_replace_region' || tc.name === 'propose_replace_matches') {

@@ -1067,13 +1067,6 @@
   gap: 2px;
 }
 
-.reader-ai-tool-log-entry-block {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
 .reader-ai-tool-log-groups {
   display: flex;
   flex-direction: column;
@@ -1159,37 +1152,12 @@
 }
 
 .reader-ai-tool-log-name {
-  font-weight: 500;
-  color: var(--text);
+  color: var(--text-secondary);
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.reader-ai-tool-copy-btn {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  position: relative;
-  top: 1px;
-}
-
-.reader-ai-tool-copy-btn:hover:not(:disabled),
-.reader-ai-tool-copy-btn:focus-visible {
-  color: var(--text);
-  background: var(--btn-hover);
-  outline: none;
 }
 
 .reader-ai-tool-log-status-note {
@@ -1198,27 +1166,17 @@
   flex: 0 0 auto;
 }
 
-.reader-ai-tool-log-status-note--accepted {
-  color: color-mix(in srgb, var(--success-color) 82%, var(--text));
-}
-
-.reader-ai-tool-log-status-note--rejected {
-  color: color-mix(in srgb, var(--danger-border) 82%, var(--text));
-}
-
-.reader-ai-tool-log-status-note--ignored {
+.reader-ai-tool-log-status-note--success {
   color: var(--text-secondary);
 }
 
-.reader-ai-tool-log-detail {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0.75;
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
+.reader-ai-tool-log-status-note--warning {
+  color: var(--text-secondary);
+}
+
+.reader-ai-tool-log-entry > .reader-ai-tool-log-status-note:last-child {
+  margin-left: auto;
+  text-align: right;
 }
 
 .reader-ai-run-history {
@@ -1443,80 +1401,6 @@
 
 .reader-ai-run-step-action:hover {
   background: var(--btn-hover);
-}
-
-.reader-ai-edit-proposal {
-  margin: 2px 0 6px;
-  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--btn-bg) 44%, transparent);
-  overflow: hidden;
-}
-
-.reader-ai-edit-proposal--rejected {
-  opacity: 0.72;
-}
-
-.reader-ai-edit-proposal-header-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.reader-ai-edit-proposal-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  padding: 6px 8px;
-  cursor: pointer;
-  text-align: left;
-  min-width: 0;
-  text-decoration: none;
-}
-
-.reader-ai-edit-proposal-header:hover {
-  background: var(--btn-hover);
-}
-
-.reader-ai-edit-proposal-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px 0 0;
-}
-
-.reader-ai-edit-proposal-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  padding: 2px 7px;
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.reader-ai-edit-proposal-action:hover {
-  color: var(--text);
-  background: var(--btn-hover);
-}
-
-.reader-ai-edit-proposal-action:focus,
-.reader-ai-edit-proposal-action:focus-visible {
-  outline: 1px solid var(--field-focus-border);
-  outline-offset: 0;
-  border-color: color-mix(in srgb, var(--field-focus-border) 55%, var(--border));
 }
 
 /* ── Staged changes ── */

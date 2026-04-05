@@ -18,6 +18,7 @@ import {
   parseUnifiedDiffHunks,
   READER_AI_MAX_CONCURRENT_TASKS,
   READER_AI_TOOLS,
+  summarizeReaderAiToolResult,
 } from './tools.ts';
 import type {
   DocumentEditState,
@@ -504,17 +505,13 @@ export async function* runReaderAiLoop(
         const toolResult = executeSyncToolCall(tc, repaired && parsedArgs ? JSON.stringify(parsedArgs) : undefined);
         openRouterMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolResult });
 
-        const resultPreview = toolResult.length > 200 ? `${toolResult.slice(0, 200)}...` : toolResult;
-        const toolFailed =
-          /^\((invalid JSON|unknown tool|file not found|old_text not found|path is required|content is required|new_text is required|old_text is required)/.test(
-            toolResult,
-          );
+        const summarizedResult = summarizeReaderAiToolResult(tc.name, toolResult);
         yield {
           type: 'tool_result',
           id: tc.id,
           name: tc.name,
-          preview: resultPreview,
-          ...(toolFailed ? { error: toolResult } : {}),
+          preview: summarizedResult.preview,
+          ...(summarizedResult.error ? { error: summarizedResult.error } : {}),
           ...(repaired ? { repaired: true } : {}),
         };
 

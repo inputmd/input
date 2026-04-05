@@ -24,7 +24,8 @@ export interface ReaderAiHistoryEntry {
     toolArguments?: string;
     taskId?: string;
     taskStatus?: 'running' | 'completed' | 'error';
-    tone?: 'default' | 'success' | 'error';
+    tone?: 'default' | 'success' | 'warning' | 'error';
+    callStatus?: 'succeeded' | 'rejected';
   }>;
   editProposals?: ReaderAiEditProposal[];
   proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>;
@@ -215,10 +216,6 @@ function normalizePersistedEditProposals(value: unknown): ReaderAiEditProposal[]
           : undefined;
       const statusRaw = (entry as { status?: unknown }).status;
       const status = statusRaw === 'accepted' || statusRaw === 'rejected' ? statusRaw : undefined;
-      const selectedHunkIdsRaw = (entry as { selectedHunkIds?: unknown }).selectedHunkIds;
-      const selectedHunkIds = Array.isArray(selectedHunkIdsRaw)
-        ? selectedHunkIdsRaw.filter((value): value is string => typeof value === 'string')
-        : undefined;
       const normalizedChange = normalizePersistedStagedChanges([(entry as { change?: unknown }).change]).changes[0];
       if (!id || !normalizedChange) return null;
       return {
@@ -226,7 +223,6 @@ function normalizePersistedEditProposals(value: unknown): ReaderAiEditProposal[]
         ...(toolCallId ? { toolCallId } : {}),
         change: normalizedChange,
         ...(status ? { status } : {}),
-        ...(selectedHunkIds ? { selectedHunkIds } : {}),
       };
     })
     .filter((proposal): proposal is ReaderAiEditProposal => proposal !== null);
@@ -336,6 +332,7 @@ function normalizePersistedToolLog(value: unknown): NonNullable<ReaderAiHistoryE
       }
       const taskStatus = (toolEntry as { taskStatus?: unknown }).taskStatus;
       const tone = (toolEntry as { tone?: unknown }).tone;
+      const callStatus = (toolEntry as { callStatus?: unknown }).callStatus;
       return {
         type,
         name,
@@ -354,7 +351,8 @@ function normalizePersistedToolLog(value: unknown): NonNullable<ReaderAiHistoryE
             : undefined,
         taskStatus:
           taskStatus === 'running' || taskStatus === 'completed' || taskStatus === 'error' ? taskStatus : undefined,
-        tone: tone === 'default' || tone === 'success' || tone === 'error' ? tone : undefined,
+        tone: tone === 'default' || tone === 'success' || tone === 'warning' || tone === 'error' ? tone : undefined,
+        callStatus: callStatus === 'succeeded' || callStatus === 'rejected' ? callStatus : undefined,
       };
     })
     .filter((toolEntry): toolEntry is NonNullable<ReaderAiHistoryEntry['toolLog']>[number] => toolEntry !== null);

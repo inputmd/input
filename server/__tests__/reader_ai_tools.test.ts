@@ -28,6 +28,7 @@ import {
   READER_AI_TOOLS,
   readUpstreamError,
   repairToolArgumentsJson,
+  summarizeReaderAiToolResult,
 } from '../reader_ai_tools.ts';
 
 function loadBloomFilterOrThrow(): Uint8Array {
@@ -235,6 +236,25 @@ test('propose_replace_region supports dry_run previews', (t) => {
   t.is(state.stagedContent, null);
 });
 
+test('summarizeReaderAiToolResult formats structured proposal success results', (t) => {
+  const summary = summarizeReaderAiToolResult(
+    'propose_replace_matches',
+    JSON.stringify({
+      ok: true,
+      tool: 'propose_replace_matches',
+      dry_run: false,
+      applied: true,
+      path: 'si-reflective.md',
+      matches_replaced: 3,
+      diff: '--- a/si-reflective.md\n+++ b/si-reflective.md',
+    }),
+  );
+
+  t.deepEqual(summary, {
+    preview: 'Drafted 3 replacements in si-reflective.md',
+  });
+});
+
 test('propose_replace_region requires read_id', (t) => {
   const state = createDocumentEditState('left right');
   const raw = executeReaderAiReplaceRegionTool('{"old_text":"left","new_text":"LEFT"}', state);
@@ -242,6 +262,26 @@ test('propose_replace_region requires read_id', (t) => {
   t.false(parsed.ok);
   t.is(parsed.error?.code, 'missing_required');
   t.true(parsed.error?.message?.includes('read_id') ?? false);
+});
+
+test('summarizeReaderAiToolResult formats structured proposal failures as errors', (t) => {
+  const summary = summarizeReaderAiToolResult(
+    'propose_replace_region',
+    JSON.stringify({
+      ok: false,
+      tool: 'propose_replace_region',
+      error: {
+        code: 'not_found',
+        message: 'old_text was not found inside the region referenced by read_id',
+      },
+    }),
+  );
+
+  t.deepEqual(summary, {
+    preview: 'old_text was not found inside the region referenced by read_id',
+    error: 'old_text was not found inside the region referenced by read_id',
+    errorCode: 'not_found',
+  });
 });
 
 test('propose_replace_region returns ambiguity hints within the read span', (t) => {

@@ -836,18 +836,6 @@ export function useReaderAiSession({
     resetReaderAiStagedState({ clearError: true });
   }, [readerAiEditProposals, resetReaderAiStagedState]);
 
-  const toggleReaderAiProposalHunkSelection = useCallback((proposalId: string, hunkId: string, selected: boolean) => {
-    setReaderAiEditProposals((current) =>
-      current.map((proposal) => {
-        if (proposal.id !== proposalId) return proposal;
-        const selectedIds = new Set(proposal.selectedHunkIds ?? proposal.change.hunks?.map((hunk) => hunk.id) ?? []);
-        if (selected) selectedIds.add(hunkId);
-        else selectedIds.delete(hunkId);
-        return { ...proposal, selectedHunkIds: Array.from(selectedIds) };
-      }),
-    );
-  }, []);
-
   const toggleReaderAiChangeSelection = useCallback((changeId: string, selected: boolean) => {
     setReaderAiSelectedChangeIds((current) => {
       const next = new Set(current);
@@ -1132,15 +1120,24 @@ export function useReaderAiSession({
             onToolResult: (event) => {
               logReceiveStart('tool_result');
               setReaderAiToolStatus(null);
+              const resultDetail = event.error
+                ? event.preview && event.preview !== event.error
+                  ? `${event.error} — ${event.preview}`
+                  : event.error
+                : event.preview;
+              const callStatus: ReaderAiToolLogEntry['callStatus'] = event.error ? 'rejected' : 'succeeded';
               setReaderAiToolLog((log) => [
-                ...log,
+                ...log.map((entry) =>
+                  entry.type === 'call' && entry.id === event.id ? { ...entry, callStatus } : entry,
+                ),
                 {
                   type: 'result',
                   id: event.id,
                   name: event.name,
-                  detail: event.error ? `${event.error}${event.preview ? ` — ${event.preview}` : ''}` : event.preview,
+                  detail: resultDetail,
                   taskId: event.name === 'task' ? event.id : undefined,
                   taskStatus: event.error ? 'error' : event.name === 'task' ? 'completed' : undefined,
+                  tone: event.error ? 'warning' : 'success',
                 },
               ]);
               updateReaderAiRun(currentRun.id, (run) => ({
@@ -1155,9 +1152,7 @@ export function useReaderAiSession({
                           errorCode: event.errorCode,
                         }),
                         status: event.error ? 'failed' : 'completed',
-                        detail: event.error
-                          ? `${event.error}${event.preview ? ` — ${event.preview}` : ''}`
-                          : event.preview,
+                        detail: resultDetail,
                         error: event.error,
                         errorCode: event.errorCode,
                         finishedAt: new Date().toISOString(),
@@ -1199,7 +1194,6 @@ export function useReaderAiSession({
                   ? {
                       ...proposal,
                       status: finalStatus,
-                      selectedHunkIds: existing.selectedHunkIds ?? proposal.selectedHunkIds,
                     }
                   : proposal;
                 return [...current.filter((entry) => entry.id !== proposal.id), nextProposal];
@@ -1520,6 +1514,5 @@ export function useReaderAiSession({
     stopReaderAi,
     toggleReaderAiChangeSelection,
     toggleReaderAiHunkSelection,
-    toggleReaderAiProposalHunkSelection,
   };
 }

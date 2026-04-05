@@ -53,10 +53,7 @@ export function buildReaderAiSelectedChange(
 
 export function buildEffectiveReaderAiProposalChange(proposal: ReaderAiEditProposal): ReaderAiStagedChange | null {
   if (proposal.status === 'rejected') return null;
-  return buildReaderAiSelectedChange(
-    proposal.change,
-    Array.isArray(proposal.selectedHunkIds) ? new Set(proposal.selectedHunkIds) : undefined,
-  );
+  return proposal.change;
 }
 
 export function selectEffectiveReaderAiStagedChanges(options: {

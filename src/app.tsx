@@ -1161,6 +1161,7 @@ export function App() {
     readerAiHasEligibleSelection,
     readerAiMessages,
     readerAiQueuedCommands,
+    readerAiProposalStatusesByToolCallId,
     readerAiActiveEditorCheckpoint,
     readerAiRuns,
     readerAiSelectedChangeIds,
@@ -1190,7 +1191,6 @@ export function App() {
     createReaderAiEditorRestorePoint,
     toggleReaderAiChangeSelection,
     toggleReaderAiHunkSelection,
-    toggleReaderAiProposalHunkSelection,
   } = useReaderAiController({
     activeView,
     currentEditingDocPath,
@@ -4006,8 +4006,6 @@ export function App() {
   );
 
   const onReaderAiIgnoreChanges = ignoreAllReaderAiChanges;
-
-  const onReaderAiToggleProposalHunkSelection = toggleReaderAiProposalHunkSelection;
 
   const readerAiVisibleEditorCheckpoint = useMemo(() => {
     if (activeView !== 'edit') return null;
@@ -8255,6 +8253,7 @@ export function App() {
             sending={readerAiSending}
             toolStatus={readerAiToolStatus}
             toolLog={readerAiToolLog}
+            proposalStatusesByToolCallId={readerAiProposalStatusesByToolCallId}
             editProposals={readerAiEditProposals}
             stagedChanges={effectiveReaderAiStagedChanges}
             stagedChangesStreaming={readerAiStagedChangesStreaming}
@@ -8268,7 +8267,6 @@ export function App() {
             onUndoEditorApply={onReaderAiUndoApply}
             onReapplyEditorApply={onReaderAiReapplyApply}
             onIgnoreAll={onReaderAiIgnoreChanges}
-            onToggleProposalHunkSelection={onReaderAiToggleProposalHunkSelection}
             onToggleChangeSelection={toggleReaderAiChangeSelection}
             onToggleHunkSelection={toggleReaderAiHunkSelection}
             selectedChangeIds={readerAiSelectedChangeIds}

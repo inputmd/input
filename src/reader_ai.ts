@@ -59,7 +59,6 @@ export interface ReaderAiEditProposal {
   toolCallId?: string;
   change: ReaderAiStagedChange;
   status?: 'accepted' | 'rejected';
-  selectedHunkIds?: string[];
 }
 
 export interface ReaderAiToolCallEvent {
@@ -536,7 +535,6 @@ export async function askReaderAiStream(
               toolCallId: typeof parsed.tool_call_id === 'string' ? parsed.tool_call_id : undefined,
               change,
               status: 'accepted',
-              selectedHunkIds: Array.isArray(change.hunks) ? change.hunks.map((hunk) => hunk.id) : undefined,
             });
           }
         } catch {

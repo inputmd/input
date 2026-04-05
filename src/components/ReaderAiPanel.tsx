@@ -6,6 +6,7 @@ import { matchesPrimaryShortcut } from '../keyboard_shortcuts';
 import { parseMarkdownToHtml } from '../markdown';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from '../reader_ai';
 import type { ReaderAiRunRecord } from '../reader_ai_ledger';
+import type { ReaderAiProposalToolCallStatus } from '../reader_ai_state';
 import { copyTextToClipboard } from '../util';
 import { ReaderAiRunHistorySection } from './ReaderAiRunHistory';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
@@ -40,6 +41,7 @@ interface ReaderAiPanelProps {
   sending: boolean;
   toolStatus: string | null;
   toolLog: ReaderAiToolLogEntry[];
+  proposalStatusesByToolCallId: Record<string, ReaderAiProposalToolCallStatus>;
   editProposals: ReaderAiEditProposal[];
   stagedChanges: ReaderAiStagedChange[];
   stagedChangesStreaming?: boolean;
@@ -53,7 +55,6 @@ interface ReaderAiPanelProps {
   onUndoEditorApply?: () => void;
   onReapplyEditorApply?: () => void;
   onIgnoreAll?: () => void;
-  onToggleProposalHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
   selectedChangeIds?: Set<string>;
@@ -191,6 +192,7 @@ export function ReaderAiPanel({
   sending,
   toolStatus,
   toolLog,
+  proposalStatusesByToolCallId,
   editProposals,
   stagedChanges,
   stagedChangesStreaming = false,
@@ -204,7 +206,6 @@ export function ReaderAiPanel({
   onUndoEditorApply,
   onReapplyEditorApply,
   onIgnoreAll,
-  onToggleProposalHunkSelection,
   onToggleChangeSelection,
   onToggleHunkSelection,
   selectedChangeIds,
@@ -992,8 +993,7 @@ export function ReaderAiPanel({
                       <ToolLogSection
                         entries={toolLog}
                         live={sending}
-                        proposals={editProposals}
-                        onToggleProposalHunkSelection={onToggleProposalHunkSelection}
+                        proposalStatusesByToolCallId={proposalStatusesByToolCallId}
                       />
                     ) : null}
                     {sending && toolStatus && toolLog.length === 0 ? (
@@ -1009,8 +1009,7 @@ export function ReaderAiPanel({
                   <ToolLogSection
                     entries={toolLog}
                     live={sending}
-                    proposals={editProposals}
-                    onToggleProposalHunkSelection={onToggleProposalHunkSelection}
+                    proposalStatusesByToolCallId={proposalStatusesByToolCallId}
                   />
                 ) : null}
                 {sending && toolStatus && toolLog.length === 0 ? (

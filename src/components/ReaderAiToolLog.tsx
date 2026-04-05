@@ -1,8 +1,5 @@
-import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'preact/hooks';
-import type { ReaderAiEditProposal } from '../reader_ai';
-import { buildToolCallJson, copyTextToClipboard } from '../util';
-import { ReaderAiEditProposalCard } from './ReaderAiEditProposalCard';
 
 export interface ReaderAiToolLogEntry {
   type: 'call' | 'result' | 'progress';
@@ -12,7 +9,8 @@ export interface ReaderAiToolLogEntry {
   toolArguments?: string;
   taskId?: string;
   taskStatus?: 'running' | 'completed' | 'error';
-  tone?: 'default' | 'success' | 'error';
+  tone?: 'default' | 'success' | 'warning' | 'error';
+  callStatus?: 'succeeded' | 'rejected';
 }
 
 export const TOOL_LABELS: Record<string, string> = {
@@ -36,13 +34,11 @@ function taskStatusLabel(status: ReaderAiToolLogEntry['taskStatus']): string {
 export function ToolLogSection({
   entries,
   live,
-  proposals,
-  onToggleProposalHunkSelection,
+  proposalStatusesByToolCallId,
 }: {
   entries: ReaderAiToolLogEntry[];
   live?: boolean;
-  proposals?: ReaderAiEditProposal[];
-  onToggleProposalHunkSelection?: (proposalId: string, hunkId: string, selected: boolean) => void;
+  proposalStatusesByToolCallId?: Record<string, 'accepted' | 'rejected' | 'ignored'>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(() => new Set());
@@ -60,17 +56,7 @@ export function ToolLogSection({
     : `${activityCount} tool call${activityCount === 1 ? '' : 's'}`;
 
   // Auto-expand while live
-  const isExpanded = live || expanded || (proposals?.length ?? 0) > 0;
-  const proposalsByToolCallId = useMemo(() => {
-    const grouped = new Map<string, ReaderAiEditProposal[]>();
-    for (const proposal of proposals ?? []) {
-      if (!proposal.toolCallId) continue;
-      const current = grouped.get(proposal.toolCallId) ?? [];
-      current.push(proposal);
-      grouped.set(proposal.toolCallId, current);
-    }
-    return grouped;
-  }, [proposals]);
+  const isExpanded = live || expanded;
 
   const grouped = useMemo(() => {
     const taskCards: Array<{
@@ -113,38 +99,28 @@ export function ToolLogSection({
     });
   };
 
-  const entryPrimaryText = (entry: ReaderAiToolLogEntry): string => {
-    if (
-      entry.type === 'result' &&
-      (entry.name === 'propose_replace_region' || entry.name === 'propose_replace_matches') &&
-      entry.detail
-    ) {
-      return entry.detail;
-    }
-    return TOOL_LABELS[entry.name] ?? entry.name;
-  };
-
-  const entrySecondaryText = (entry: ReaderAiToolLogEntry, maxLength: number): string | null => {
-    if (
-      entry.type === 'result' &&
-      (entry.name === 'propose_replace_region' || entry.name === 'propose_replace_matches')
-    )
-      return null;
-    if (!entry.detail) return null;
-    return entry.detail.length > maxLength ? `${entry.detail.slice(0, maxLength)}…` : entry.detail;
-  };
-
   const showProposalStatusNote = (entry: ReaderAiToolLogEntry): boolean =>
     entry.type === 'call' && (entry.name === 'propose_replace_region' || entry.name === 'propose_replace_matches');
 
-  const handleCopyToolCall = (entry: ReaderAiToolLogEntry) => {
-    if (entry.type !== 'call') return;
-    void copyTextToClipboard(
-      buildToolCallJson({
-        id: entry.id,
-        name: entry.name,
-        argumentsJson: entry.toolArguments,
-      }),
+  const entryCallStatus = (
+    entry: ReaderAiToolLogEntry,
+  ): { label: 'Success' | 'Error' | 'Rejected'; tone: 'success' | 'warning' } | null => {
+    if (entry.type !== 'call') return null;
+    const proposalStatus = entry.id ? proposalStatusesByToolCallId?.[entry.id] : undefined;
+    if (proposalStatus === 'accepted') return { label: 'Success', tone: 'success' };
+    if (proposalStatus === 'rejected') return { label: 'Rejected', tone: 'warning' };
+    if (entry.callStatus === 'succeeded') return { label: 'Success', tone: 'success' };
+    if (entry.callStatus === 'rejected') return { label: 'Error', tone: 'warning' };
+    return null;
+  };
+
+  const renderEntryCallStatus = (entry: ReaderAiToolLogEntry) => {
+    const status = entryCallStatus(entry);
+    if (!status) return null;
+    return (
+      <span class={`reader-ai-tool-log-status-note reader-ai-tool-log-status-note--${status.tone}`}>
+        {status.label}
+      </span>
     );
   };
 
@@ -164,45 +140,21 @@ export function ToolLogSection({
       </a>
       {isExpanded ? (
         <div class="reader-ai-tool-log-entries">
-          {grouped.generalEntries.map((entry, i) => {
-            return (
-              <div key={`general:${i}`} class="reader-ai-tool-log-entry-block">
+          {grouped.generalEntries
+            .filter((entry) => entry.type !== 'result')
+            .map((entry, i) => {
+              return (
                 <div
+                  key={`general:${i}`}
                   class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
                     entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
                   }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
                 >
-                  <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
-                  {entry.type === 'call' ? (
-                    <button
-                      type="button"
-                      class="reader-ai-tool-copy-btn"
-                      aria-label={`Copy ${entry.name} tool call JSON`}
-                      title="Copy tool call JSON"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleCopyToolCall(entry);
-                      }}
-                    >
-                      <Copy size={12} aria-hidden="true" />
-                    </button>
-                  ) : null}
-                  {entrySecondaryText(entry, 90) ? (
-                    <span class="reader-ai-tool-log-detail">{entrySecondaryText(entry, 90)}</span>
-                  ) : null}
+                  <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
+                  {renderEntryCallStatus(entry)}
                 </div>
-                {entry.type === 'result' && entry.id
-                  ? (proposalsByToolCallId.get(entry.id) ?? []).map((proposal) => (
-                      <ReaderAiEditProposalCard
-                        key={proposal.id}
-                        proposal={proposal}
-                        onToggleHunkSelection={onToggleProposalHunkSelection}
-                      />
-                    ))
-                  : null}
-              </div>
-            );
-          })}
+              );
+            })}
           {grouped.taskCards.map((card) => {
             const taskExpanded = live || expandedTaskIds.has(card.taskId);
             return (
@@ -216,45 +168,21 @@ export function ToolLogSection({
                 </button>
                 {taskExpanded ? (
                   <div class="reader-ai-tool-task-entries">
-                    {card.entries.map((entry, entryIndex) => {
-                      return (
-                        <div key={`${card.taskId}:${entryIndex}`} class="reader-ai-tool-log-entry-block">
+                    {card.entries
+                      .filter((entry) => entry.type !== 'result')
+                      .map((entry, entryIndex) => {
+                        return (
                           <div
+                            key={`${card.taskId}:${entryIndex}`}
                             class={`reader-ai-tool-log-entry reader-ai-tool-log-entry--${entry.type}${
                               entry.tone ? ` reader-ai-tool-log-entry--tone-${entry.tone}` : ''
                             }${showProposalStatusNote(entry) ? ' reader-ai-tool-log-entry--proposal-call' : ''}`}
                           >
-                            <span class="reader-ai-tool-log-name">{entryPrimaryText(entry)}</span>
-                            {entry.type === 'call' ? (
-                              <button
-                                type="button"
-                                class="reader-ai-tool-copy-btn"
-                                aria-label={`Copy ${entry.name} tool call JSON`}
-                                title="Copy tool call JSON"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleCopyToolCall(entry);
-                                }}
-                              >
-                                <Copy size={12} aria-hidden="true" />
-                              </button>
-                            ) : null}
-                            {entrySecondaryText(entry, 120) ? (
-                              <span class="reader-ai-tool-log-detail">{entrySecondaryText(entry, 120)}</span>
-                            ) : null}
+                            <span class="reader-ai-tool-log-name">{TOOL_LABELS[entry.name] ?? entry.name}</span>
+                            {renderEntryCallStatus(entry)}
                           </div>
-                          {entry.type === 'result' && entry.id
-                            ? (proposalsByToolCallId.get(entry.id) ?? []).map((proposal) => (
-                                <ReaderAiEditProposalCard
-                                  key={proposal.id}
-                                  proposal={proposal}
-                                  onToggleHunkSelection={onToggleProposalHunkSelection}
-                                />
-                              ))
-                            : null}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                   </div>
                 ) : null}
               </div>
