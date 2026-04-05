@@ -179,6 +179,7 @@ interface ReaderAiModelEntry {
  * Maintained server-side so updates don't require client deploys.
  */
 const FEATURED_MODEL_PATTERNS = ['nemotron 3 nano', 'nemotron 3 super', 'trinity mini'];
+const HIDDEN_FREE_MODEL_PATTERNS = ['llama 3 3 70b instruct', 'gpt oss 120b', 'qwen3 next 80b a3b instruct'];
 
 const OPENROUTER_PAID_MODELS: ReaderAiModelEntry[] = [
   {
@@ -217,6 +218,13 @@ interface ReaderAiChatBody {
 interface ReaderAiChatMessage {
   role: 'user' | 'assistant';
   content: string;
+}
+
+function normalizeReaderAiModelText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function classifyReaderAiToolErrorCode(error: string): ReaderAiStepErrorCode {
@@ -758,19 +766,15 @@ async function fetchReaderAiModelsUncached(
       if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) continue;
       const rawCtx = typeof entry.context_length === 'number' ? entry.context_length : 0;
       const context_length = Number.isFinite(rawCtx) && rawCtx > 0 ? rawCtx : 0;
-      const normalizedId = id
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ' ')
-        .trim();
-      const normalizedName = name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ' ')
-        .trim();
+      const normalizedId = normalizeReaderAiModelText(id);
+      const normalizedName = normalizeReaderAiModelText(name);
+      const hidden = HIDDEN_FREE_MODEL_PATTERNS.some((pattern) => {
+        const normalizedPattern = normalizeReaderAiModelText(pattern);
+        return normalizedId.includes(normalizedPattern) || normalizedName.includes(normalizedPattern);
+      });
+      if (hidden) continue;
       const featured = FEATURED_MODEL_PATTERNS.some((pattern) => {
-        const p = pattern
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, ' ')
-          .trim();
+        const p = normalizeReaderAiModelText(pattern);
         return normalizedId.includes(p) || normalizedName.includes(p);
       });
       modelsById.set(id, { id, name, context_length, ...(featured ? { featured: true } : {}) });
