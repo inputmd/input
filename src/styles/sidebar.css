@@ -201,6 +201,58 @@
   position: relative;
 }
 
+.sidebar-floating-action {
+  padding: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--toolbar-bg) 72%, transparent), var(--toolbar-bg) 44%),
+    var(--toolbar-bg);
+}
+
+.sidebar-daily-note-btn {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 26%, var(--toolbar-bg));
+  color: var(--text);
+  font-size: var(--sidebar-font-size);
+  font-family: var(--font-ui);
+  font-weight: 400;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.sidebar-daily-note-btn:hover {
+  background: var(--btn-hover);
+}
+
+.sidebar-daily-note-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.sidebar-daily-note-btn:disabled:hover {
+  background: color-mix(in srgb, var(--bg) 26%, var(--toolbar-bg));
+}
+
+.sidebar-daily-note-btn:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 1px;
+}
+
+.sidebar-daily-note-btn-icon {
+  flex: none;
+}
+
 .sidebar-files-disabled {
   display: flex;
   align-items: center;

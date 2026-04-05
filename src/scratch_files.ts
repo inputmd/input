@@ -3,12 +3,21 @@ import {
   safeDecodeURIComponent,
   sanitizeScratchFileNameInput,
   sanitizeTitleToFileName,
-} from './path_utils';
-import type { Route } from './routing';
+} from './path_utils.ts';
+import type { Route } from './routing.ts';
 
 export const DEFAULT_SCRATCH_FILENAME = 'untitled.md';
 const DEFAULT_UNSAVED_FILE_LABEL = 'Unsaved file';
 const GIST_NEW_FILE_DRAFT_KEY_PREFIX = 'gist_new_file_draft_v1';
+const DAILY_NOTE_FILENAME_YEAR_MIN = 1900;
+const DAILY_NOTE_FILENAME_YEAR_MAX = 2100;
+
+type DailyNoteHeadingLookup = {
+  locale: string;
+  fileNameByHeading: Map<string, string>;
+};
+
+const dailyNoteHeadingLookupCache = new Map<string, DailyNoteHeadingLookup>();
 
 export interface PendingNewGistFileState {
   title?: string;
@@ -45,6 +54,70 @@ function gistNewFileDraftKey(
   field: 'active' | 'title' | 'content' | 'filename' | 'parentPath',
 ): string {
   return `${GIST_NEW_FILE_DRAFT_KEY_PREFIX}:${gistId}:${field}`;
+}
+
+function createDailyNoteHeadingFormatter(locales?: Intl.LocalesArgument): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat(locales, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+function normalizeDailyNoteHeading(text: string, locale: string): string {
+  return text.normalize('NFKC').replace(/\s+/gu, ' ').trim().toLocaleLowerCase(locale);
+}
+
+function buildDailyNoteLookupCacheKey(formatter: Intl.DateTimeFormat): string {
+  const { locale, calendar, numberingSystem } = formatter.resolvedOptions();
+  return `${locale}|${calendar}|${numberingSystem}`;
+}
+
+function getDailyNoteHeadingLookup(locales?: Intl.LocalesArgument): DailyNoteHeadingLookup {
+  const formatter = createDailyNoteHeadingFormatter(locales);
+  const cacheKey = buildDailyNoteLookupCacheKey(formatter);
+  const cached = dailyNoteHeadingLookupCache.get(cacheKey);
+  if (cached) return cached;
+
+  const locale = formatter.resolvedOptions().locale;
+  const fileNameByHeading = new Map<string, string>();
+  for (let year = DAILY_NOTE_FILENAME_YEAR_MIN; year <= DAILY_NOTE_FILENAME_YEAR_MAX; year += 1) {
+    const date = new Date(year, 0, 1);
+    while (date.getFullYear() === year) {
+      const heading = normalizeDailyNoteHeading(formatter.format(date), locale);
+      if (!fileNameByHeading.has(heading)) {
+        fileNameByHeading.set(heading, formatDailyNoteFileName(date));
+      }
+      date.setDate(date.getDate() + 1);
+    }
+  }
+
+  const lookup = { locale, fileNameByHeading };
+  dailyNoteHeadingLookupCache.set(cacheKey, lookup);
+  return lookup;
+}
+
+export function formatDailyNoteFileName(date: Date): string {
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}.md`;
+}
+
+export function formatDailyNoteHeading(date: Date, locales?: Intl.LocalesArgument): string {
+  return `## ${createDailyNoteHeadingFormatter(locales).format(date)}`;
+}
+
+export function extractLevelTwoMarkdownHeading(content: string): string | null {
+  const match = /^[ \t]{0,3}##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/m.exec(content);
+  return match?.[1]?.trim() || null;
+}
+
+export function inferScratchFileNameFromContent(content: string, locales?: Intl.LocalesArgument): string | null {
+  const heading = extractLevelTwoMarkdownHeading(content);
+  if (!heading) return null;
+  const lookup = getDailyNoteHeadingLookup(locales);
+  return lookup.fileNameByHeading.get(normalizeDailyNoteHeading(heading, lookup.locale)) ?? null;
 }
 
 export function resolveRepoNewDraftPath(route: Route): string | null {

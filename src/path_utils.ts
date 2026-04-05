@@ -1,4 +1,4 @@
-import { isMarkdownFileName } from './util';
+import { isMarkdownFileName } from './util.ts';
 
 export function commonPrefixLength(a: string, b: string): number {
   const limit = Math.min(a.length, b.length);

@@ -161,6 +161,9 @@ import {
   buildScratchFilePath,
   clearPersistedNewGistFileDraft,
   DEFAULT_SCRATCH_FILENAME,
+  formatDailyNoteFileName,
+  formatDailyNoteHeading,
+  inferScratchFileNameFromContent,
   mergeScratchRouteState,
   resolveActiveScratchFile,
   resolveNewGistFileDraft,
@@ -653,6 +656,14 @@ function parseScratchReturnPathState(state: unknown): string | null {
   return typeof returnToPath === 'string' && returnToPath.length > 0 ? returnToPath : null;
 }
 
+function getBrowserLocales(): string[] | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+  if (Array.isArray(navigator.languages) && navigator.languages.length > 0) {
+    return [...navigator.languages];
+  }
+  return navigator.language ? [navigator.language] : undefined;
+}
+
 function withScratchSidebarFile(files: SidebarFile[], scratchPath: string | null): SidebarFile[] {
   if (!scratchPath) return files;
   const nextFiles = files.filter((file) => file.path !== scratchPath);
@@ -1054,6 +1065,7 @@ export function App() {
   const currentDocumentLabel =
     currentFileName ?? currentRepoDocPath ?? (isScratchDocument ? UNSAVED_FILE_LABEL : 'this document');
   const browserWindowTitle = currentRepoDocPath ?? currentFileName ?? 'Input';
+  const browserLocales = useMemo(() => getBrowserLocales(), []);
   const readerAiContentFileEligible = isSidebarTextFileName(currentFileName);
   const readerAiEditEligible =
     routeView === 'edit' && (isMarkdownFileName(currentFileName ?? editTitle) || isScratchDocument);
@@ -4905,12 +4917,13 @@ export function App() {
       }
       const title = (options?.title ?? editTitle).trim() || DEFAULT_NEW_FILENAME;
       const content = options?.content ?? editContentRef.current;
+      const inferredScratchFilename = inferScratchFileNameFromContent(content, browserLocales);
       let scratchFilename: string | null = null;
 
       if (editingBackend === 'repo' && currentRepoDocPath === null) {
         const folderPath = activeScratchFile?.backend === 'repo' ? activeScratchFile.parentPath : '';
         scratchFilename = await requestScratchFileName(
-          DEFAULT_SCRATCH_FILENAME,
+          inferredScratchFilename || DEFAULT_SCRATCH_FILENAME,
           new Set(repoSidebarFiles.map((file) => file.path)),
           folderPath,
         );
@@ -4919,7 +4932,7 @@ export function App() {
         const gistScratchDraft = activeScratchFile?.backend === 'gist' ? activeScratchFile.draft : null;
         if (currentGistId) {
           scratchFilename = await requestScratchFileName(
-            gistScratchDraft?.filename || DEFAULT_SCRATCH_FILENAME,
+            inferredScratchFilename || gistScratchDraft?.filename || DEFAULT_SCRATCH_FILENAME,
             new Set(Object.keys(gistFiles ?? {})),
             gistScratchDraft?.parentPath || '',
           );
@@ -4931,7 +4944,7 @@ export function App() {
             parentPath: gistScratchDraft?.parentPath || '',
           });
         } else {
-          scratchFilename = await requestScratchFileName(DEFAULT_SCRATCH_FILENAME);
+          scratchFilename = await requestScratchFileName(inferredScratchFilename || DEFAULT_SCRATCH_FILENAME);
           if (!scratchFilename) return null;
         }
       }
@@ -5258,6 +5271,7 @@ export function App() {
       setSaving,
       sharedRepoInstallationId,
       activeInstalledRepoInstallationId,
+      browserLocales,
       selectedRepo,
     ],
   );
@@ -5823,6 +5837,198 @@ export function App() {
       focusEditorSoon,
     ],
   );
+
+  const isSidebarReadOnly =
+    repoAccessMode === 'public' ||
+    repoAccessMode === 'shared' ||
+    (currentGistId !== null && !user) ||
+    route.name === 'sharefile';
+  const dailyNoteDisabled = currentGistId !== null && gistFiles === null;
+
+  const handleOpenDailyNote = useCallback(async () => {
+    const now = new Date();
+    const dailyNotePath = formatDailyNoteFileName(now);
+    const dailyNoteContent = `${formatDailyNoteHeading(now, browserLocales)}\n\n`;
+    const openRepoDailyScratch = (repoName: string, instId: string) => {
+      localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'title'), UNSAVED_FILE_LABEL);
+      localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'content'), dailyNoteContent);
+      setDraftMode(false);
+      setRepoAccessMode('installed');
+      setPublicRepoRef(null);
+      setEditingBackend('repo');
+      setCurrentRepoDocPath(null);
+      setCurrentRepoDocSha(null);
+      setCurrentGistId(null);
+      setCurrentFileName(null);
+      setCurrentDocumentSavedContent(null);
+      setEditTitle(UNSAVED_FILE_LABEL);
+      setNextEditContent(dailyNoteContent, { origin: 'external' });
+      setHasUnsavedChanges(true);
+      focusEditorSoon();
+    };
+    const openGistDailyScratch = (gistId: string) => {
+      writePersistedNewGistFileDraft(gistId, {
+        title: UNSAVED_FILE_LABEL,
+        content: dailyNoteContent,
+        filename: DEFAULT_SCRATCH_FILENAME,
+        parentPath: '',
+      });
+      setDraftMode(false);
+      setRepoAccessMode(null);
+      setPublicRepoRef(null);
+      setEditingBackend('gist');
+      setCurrentGistId(gistId);
+      setCurrentRepoDocPath(null);
+      setCurrentRepoDocSha(null);
+      setCurrentFileName(null);
+      setCurrentDocumentSavedContent('');
+      setEditTitle(UNSAVED_FILE_LABEL);
+      setNextEditContent(dailyNoteContent, { origin: 'external' });
+      setHasUnsavedChanges(true);
+      focusEditorSoon();
+    };
+    const existingDailyNote =
+      currentGistId !== null
+        ? Boolean(gistFiles?.[dailyNotePath])
+        : repoSidebarFiles.some((file) => file.path === dailyNotePath);
+
+    if (currentRepoDocPath === dailyNotePath || currentFileName === dailyNotePath) {
+      if (activeView === 'edit') focusEditorSoon();
+      return;
+    }
+
+    if (existingDailyNote) {
+      await handleSelectFile(dailyNotePath);
+      return;
+    }
+
+    const currentScratchFileName = inferScratchFileNameFromContent(editContentRef.current, browserLocales);
+    if (
+      activeView === 'edit' &&
+      isScratchDocument &&
+      activeScratchFile?.parentPath === '' &&
+      currentScratchFileName === dailyNotePath
+    ) {
+      focusEditorSoon();
+      return;
+    }
+
+    if (isSidebarReadOnly) {
+      showFailureToast(`"${dailyNotePath}" doesn't exist and this workspace is read-only.`);
+      return;
+    }
+
+    if (activeView === 'edit' && readerAiNavigationLocked) {
+      showFailureToast('Reader AI is working. Wait for it to finish before creating a file.');
+      return;
+    }
+    if (activeView === 'edit' && pendingImageUploads.size > 0) {
+      showFailureToast('Wait for image uploads to finish before creating a file.');
+      return;
+    }
+    if (activeView === 'edit' && hasEffectiveUnsavedChanges) {
+      const saveFirst = await showConfirm('You have unsaved changes. Save before creating another file?');
+      if (saveFirst) {
+        const saved = await commitAndStayInEdit();
+        if (!saved) return;
+      } else {
+        const discard = await showConfirm('Discard unsaved changes and continue creating another file?');
+        if (!discard) return;
+        discardCurrentDocumentChanges();
+      }
+    }
+
+    if (route.name === 'reponew' && resolveRepoNewDraftPath(route) === DEFAULT_NEW_FILENAME) {
+      const owner = safeDecodeURIComponent(route.params.owner);
+      const repo = safeDecodeURIComponent(route.params.repo);
+      if (
+        selectedRepoRef &&
+        selectedRepoRef.owner === owner &&
+        selectedRepoRef.repo === repo &&
+        (activeInstalledRepoInstallationId ?? getInstallationId()) &&
+        (selectedRepo ?? getSelectedRepo()?.full_name)
+      ) {
+        const repoName = selectedRepo ?? getSelectedRepo()?.full_name;
+        const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+        if (repoName && instId) {
+          openRepoDailyScratch(repoName, instId);
+          return;
+        }
+      }
+    }
+
+    if (route.name === 'edit' && !route.params.filename) {
+      const gistId = currentGistId ?? route.params.id;
+      openGistDailyScratch(gistId);
+      return;
+    }
+
+    const returnToPath = window.location.pathname.replace(/^\/+/, '') || routePath.home();
+    if (currentGistId) {
+      writePersistedNewGistFileDraft(currentGistId, {
+        title: UNSAVED_FILE_LABEL,
+        content: dailyNoteContent,
+        filename: DEFAULT_SCRATCH_FILENAME,
+        parentPath: '',
+      });
+      navigate(routePath.gistEdit(currentGistId), {
+        state: {
+          newGistFile: {
+            title: UNSAVED_FILE_LABEL,
+            filename: DEFAULT_SCRATCH_FILENAME,
+            parentPath: '',
+          },
+          returnToPath,
+        },
+      });
+      return;
+    }
+
+    if (!selectedRepoRef) {
+      navigate(routePath.workspaces());
+      return;
+    }
+
+    const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+    const repoName = selectedRepo ?? getSelectedRepo()?.full_name;
+    if (instId && repoName) {
+      localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'title'), UNSAVED_FILE_LABEL);
+      localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'content'), dailyNoteContent);
+    }
+    navigate(routePath.repoNew(selectedRepoRef.owner, selectedRepoRef.repo, DEFAULT_NEW_FILENAME), {
+      state: {
+        returnToPath,
+      },
+    });
+  }, [
+    activeInstalledRepoInstallationId,
+    activeScratchFile,
+    activeView,
+    browserLocales,
+    commitAndStayInEdit,
+    currentFileName,
+    currentGistId,
+    currentRepoDocPath,
+    discardCurrentDocumentChanges,
+    focusEditorSoon,
+    gistFiles,
+    handleSelectFile,
+    hasEffectiveUnsavedChanges,
+    isScratchDocument,
+    isSidebarReadOnly,
+    navigate,
+    pendingImageUploads,
+    readerAiNavigationLocked,
+    repoSidebarFiles,
+    route,
+    selectedRepo,
+    selectedRepoRef,
+    setCurrentDocumentSavedContent,
+    setHasUnsavedChanges,
+    setNextEditContent,
+    showConfirm,
+    showFailureToast,
+  ]);
 
   const handleCreateDirectory = useCallback(
     async (directoryPath: string) => {
@@ -7436,7 +7642,6 @@ export function App() {
   // while fetching file contents, which would otherwise unmount the sidebar briefly.
   const sidebarEligible = routeView === 'content' || routeView === 'edit';
   const sidebarDisabled = routeView === 'edit' && draftMode;
-  const isAnonymousGistWorkspace = currentGistId !== null && !user;
   const defaultShowSidebar =
     isDesktopWidth &&
     !sidebarDisabled &&
@@ -7988,12 +8193,9 @@ export function App() {
                 currentRouteRepoRef !== null
               }
               disabled={sidebarDisabled}
-              readOnly={
-                repoAccessMode === 'public' ||
-                repoAccessMode === 'shared' ||
-                isAnonymousGistWorkspace ||
-                route.name === 'sharefile'
-              }
+              readOnly={isSidebarReadOnly}
+              dailyNoteDisabled={dailyNoteDisabled}
+              onOpenDailyNote={handleOpenDailyNote}
               onCreateFile={handleCreateFile}
               onConfirmImplicitMarkdownExtension={handleConfirmImplicitMarkdownExtension}
               onCreateScratchFile={handleCreateScratchFile}

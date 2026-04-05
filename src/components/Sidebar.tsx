@@ -1,6 +1,7 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
+  CalendarDays,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -41,11 +42,13 @@ interface SidebarProps {
   onFileFilterChange: (value: SidebarFileFilter) => void;
   disabled?: boolean;
   readOnly?: boolean;
+  dailyNoteDisabled?: boolean;
   onSelectFile: (path: string) => void;
   onClearSelection?: () => void;
   onViewOnGitHub: (path: string) => void;
   onViewFolderOnGitHub: (path: string) => void;
   canViewOnGitHub: boolean;
+  onOpenDailyNote: () => void | Promise<void>;
   onCreateFile: (path: string) => void | Promise<void>;
   onConfirmImplicitMarkdownExtension?: (fileName: string) => boolean | Promise<boolean>;
   onCreateScratchFile: (parentPath: string) => void | Promise<void>;
@@ -380,11 +383,13 @@ export function Sidebar({
   onFileFilterChange,
   disabled = false,
   readOnly = false,
+  dailyNoteDisabled = false,
   onSelectFile,
   onClearSelection,
   onViewOnGitHub,
   onViewFolderOnGitHub,
   canViewOnGitHub,
+  onOpenDailyNote,
   onCreateFile,
   onConfirmImplicitMarkdownExtension,
   onCreateScratchFile,
@@ -1395,6 +1400,17 @@ export function Sidebar({
         ) : null}
         {!readOnly && creatingNew && createParentPath === '' && renderCreateRow(0)}
         {draggingExternalFile && <div class="sidebar-upload-drop-overlay">Drop to upload</div>}
+      </div>
+      <div class="sidebar-floating-action">
+        <button
+          type="button"
+          class="sidebar-daily-note-btn"
+          disabled={dailyNoteDisabled}
+          onClick={() => void onOpenDailyNote()}
+        >
+          <CalendarDays size={14} className="sidebar-daily-note-btn-icon" aria-hidden="true" />
+          <span>Open daily note</span>
+        </button>
       </div>
     </aside>
   );
