@@ -755,6 +755,44 @@ test('stream parser accumulates text content', async (t) => {
   t.is(result.toolCalls.length, 0);
 });
 
+test('stream parser normalizes narrow no-break spaces in assistant text', async (t) => {
+  const stream = makeStream([
+    sseChunk({ choices: [{ delta: { content: 'Hello\u202fworld' } }] }),
+    sseChunk({ choices: [{ finish_reason: 'stop' }] }),
+    sseDone(),
+  ]);
+
+  const deltas: string[] = [];
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+
+  t.is(result.content, 'Hello world');
+  t.deepEqual(deltas, ['Hello world']);
+});
+
+test('stream parser leaves tool call arguments unchanged while normalizing assistant text', async (t) => {
+  const stream = makeStream([
+    sseChunk({
+      choices: [
+        {
+          delta: {
+            content: 'Visible\u202ftext',
+            tool_calls: [{ index: 0, id: 'call_1', function: { name: 'edit', arguments: '{"text":"A\u202fB"}' } }],
+          },
+        },
+      ],
+    }),
+    sseChunk({ choices: [{ finish_reason: 'tool_calls' }] }),
+    sseDone(),
+  ]);
+
+  const deltas: string[] = [];
+  const result = await parseReaderAiUpstreamStream(stream, (delta) => deltas.push(delta));
+
+  t.deepEqual(deltas, ['Visible text']);
+  t.is(result.content, 'Visible text');
+  t.is(result.toolCalls[0]?.arguments, '{"text":"A\u202fB"}');
+});
+
 test('stream parser accumulates tool calls', async (t) => {
   const stream = makeStream([
     sseChunk({

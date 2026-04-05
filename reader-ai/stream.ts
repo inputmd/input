@@ -2,6 +2,7 @@
 
 export { parseSseFieldValue } from '../shared/sse.ts';
 
+import { normalizeLlmOutputText } from '../shared/llm_text_normalization.ts';
 import { readSseStream } from '../shared/sse.ts';
 import { appendStreamText, shouldInsertStreamBoundarySpace } from '../shared/stream_boundary_dictionary.ts';
 import type { StreamParseOptions, StreamParseResult, ToolCall } from './types.ts';
@@ -76,7 +77,7 @@ export async function parseUpstreamStream(
       if (!choice) continue;
       if (choice.finish_reason) finishReason = choice.finish_reason;
       const delta = choice.delta;
-      const textDelta = extractOpenRouterContentText(delta?.content);
+      const textDelta = normalizeLlmOutputText(extractOpenRouterContentText(delta?.content));
       if (textDelta) {
         if (!repairBoundaries) {
           content += textDelta;

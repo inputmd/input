@@ -1,5 +1,6 @@
 // ── Conversation Summarization ──
 
+import { normalizeLlmOutputText } from '../shared/llm_text_normalization.ts';
 import type { ReaderAiMessage, ReaderAiProviderConfig } from './types.ts';
 import { callUpstreamNonStreaming } from './upstream.ts';
 
@@ -49,6 +50,6 @@ export async function summarizeConversation(
   const payload = (await upstream.json().catch(() => null)) as {
     choices?: Array<{ message?: { content?: string } }>;
   } | null;
-  const summary = payload?.choices?.[0]?.message?.content?.trim();
+  const summary = normalizeLlmOutputText(payload?.choices?.[0]?.message?.content?.trim() ?? '');
   return summary ? summary.slice(0, READER_AI_MAX_SUMMARY_CHARS) : existingSummary;
 }

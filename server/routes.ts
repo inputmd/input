@@ -3,6 +3,7 @@ import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
+import { normalizeLlmOutputText } from '../shared/llm_text_normalization.ts';
 import { formatSseComment, formatSseEvent } from '../shared/sse.ts';
 import { canGitHubUserEditMarkdownDocument, validateEditorsPreserved } from '../src/document_permissions.ts';
 import type { ReaderAiStepErrorCode } from '../src/reader_ai_errors.ts';
@@ -717,7 +718,7 @@ async function summarizeReaderAiConversation(
   const payload = (await upstream.json().catch(() => null)) as {
     choices?: Array<{ message?: { content?: string } }>;
   } | null;
-  const summary = payload?.choices?.[0]?.message?.content?.trim();
+  const summary = normalizeLlmOutputText(payload?.choices?.[0]?.message?.content?.trim() ?? '');
   return summary ? summary.slice(0, READER_AI_MAX_SUMMARY_CHARS) : existingSummary;
 }
 

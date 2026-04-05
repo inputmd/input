@@ -2,6 +2,7 @@ import './env';
 import { type ChildProcess, spawn } from 'node:child_process';
 import http from 'node:http';
 import { pathToFileURL, URL } from 'node:url';
+import { normalizeLlmOutputText } from '../shared/llm_text_normalization.ts';
 import { formatSseEvent } from '../shared/sse.ts';
 import {
   buildCodexBridgeDeveloperInstructions,
@@ -74,11 +75,12 @@ function writeSse(res: http.ServerResponse, data: unknown, event?: string): void
 }
 
 function writeDelta(res: http.ServerResponse, delta: string): void {
+  const normalizedDelta = normalizeLlmOutputText(delta);
   writeSse(res, {
     choices: [
       {
         delta: {
-          content: delta,
+          content: normalizedDelta,
         },
       },
     ],
