@@ -93,67 +93,25 @@
 }
 
 .editor-reader-ai-floating-actions {
-  width: min(420px, calc(100vw - 24px));
+  width: fit-content;
   max-width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  display: inline-flex;
+  padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 7px;
   background: color-mix(in srgb, var(--bg) 16%, var(--toolbar-bg));
   box-shadow: 0 10px 24px color-mix(in srgb, var(--bg) 72%, transparent);
   pointer-events: auto;
 }
 
-.editor-reader-ai-floating-actions-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.editor-reader-ai-floating-actions-title {
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.editor-reader-ai-floating-actions-message {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
 .editor-reader-ai-floating-actions-buttons {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .editor-reader-ai-floating-actions-buttons button {
-  min-height: 30px;
-}
-
-.editor-reader-ai-floating-actions-secondary {
-  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-  border-radius: 999px;
-  background: var(--btn-bg);
-  color: var(--text);
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.editor-reader-ai-floating-actions-secondary:hover {
-  background: var(--btn-hover);
-}
-
-.editor-reader-ai-floating-actions-secondary:disabled,
-.editor-reader-ai-floating-actions-apply:disabled {
-  cursor: default;
-  opacity: 0.6;
+  min-height: 24px;
 }
 
 .editor-preview-alert {
@@ -328,8 +286,7 @@
   }
 
   .editor-reader-ai-floating-actions {
-    width: min(360px, calc(100vw - 16px));
-    padding: 10px;
+    max-width: calc(100vw - 16px);
   }
 
   .editor-reader-ai-floating-actions-buttons {

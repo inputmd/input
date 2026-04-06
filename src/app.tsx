@@ -155,6 +155,7 @@ import {
   invalidateReaderAiHostCaches,
 } from './reader_ai_host_adapter';
 import { buildReaderAiSelectedChange } from './reader_ai_selectors';
+import type { ReaderAiTranscriptItem } from './reader_ai_transcript';
 import { matchRoute, type Route, routePath } from './routing';
 import {
   buildRepoNewDraftPath,
@@ -1185,6 +1186,7 @@ export function App() {
     removeReaderAiQueuedCommand,
     recordReaderAiAppliedChanges,
     resetReaderAiStagedState,
+    restoreReaderAiTranscriptChangeSet,
     resolveReaderAiStagedHunk,
     setReaderAiApplyingChanges,
     setReaderAiError,
@@ -4007,6 +4009,24 @@ export function App() {
   );
 
   const onReaderAiIgnoreChanges = ignoreAllReaderAiChanges;
+
+  const onReaderAiRestoreTranscriptChangeSet = useCallback(
+    async (item: Extract<ReaderAiTranscriptItem, { kind: 'change_set_decision' }>) => {
+      if (readerAiApplyingChanges) return;
+      if (
+        effectiveReaderAiStagedChanges.length > 0 &&
+        !(await showConfirm('Replace the current staged Reader AI changes with this saved proposal set?', {
+          title: 'Restore discarded changes?',
+          confirmLabel: 'Restore',
+          defaultFocus: 'cancel',
+        }))
+      ) {
+        return;
+      }
+      restoreReaderAiTranscriptChangeSet(item);
+    },
+    [effectiveReaderAiStagedChanges.length, readerAiApplyingChanges, restoreReaderAiTranscriptChangeSet, showConfirm],
+  );
 
   const readerAiVisibleEditorCheckpoint = useMemo(() => {
     if (activeView !== 'edit') return null;
@@ -7549,8 +7569,6 @@ export function App() {
             readerAiFloatingActions={
               showReaderAiFloatingActions
                 ? {
-                    statusLabel: readerAiEditorOverlay?.statusLabel ?? 'Reader AI changes',
-                    statusMessage: readerAiEditorOverlay?.statusMessage ?? null,
                     applying: readerAiApplyingChanges,
                     canApply: canApplyWithoutSaving,
                     applyLabel: readerAiFloatingApplyLabel,
@@ -8056,7 +8074,6 @@ export function App() {
   const isEditorProposalWorkflow = activeView === 'edit';
   const showReaderAiFloatingActions =
     activeView === 'edit' &&
-    !showReaderAiPanel &&
     !readerAiStagedChangesStreaming &&
     hasActionableReaderAiEditorOverlay(readerAiEditorOverlay);
   const readerAiFloatingApplyLabel = useMemo(() => {
@@ -8292,6 +8309,7 @@ export function App() {
             onApplyWithoutSaving={() => void onReaderAiApplyChanges('without-saving')}
             onUndoEditorApply={onReaderAiUndoApply}
             onReapplyEditorApply={onReaderAiReapplyApply}
+            onRestoreTranscriptChangeSet={(item) => void onReaderAiRestoreTranscriptChangeSet(item)}
             onIgnoreAll={onReaderAiIgnoreChanges}
             onToggleChangeSelection={toggleReaderAiChangeSelection}
             onToggleHunkSelection={toggleReaderAiHunkSelection}

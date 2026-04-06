@@ -195,6 +195,41 @@ export function useReaderAiSession({
     [],
   );
 
+  const appendReaderAiChangeSetDecision = useCallback(
+    (options: {
+      action: Extract<ReaderAiTranscriptItem, { kind: 'change_set_decision' }>['action'];
+      changes: ReaderAiStagedChange[];
+      runId?: string;
+      iteration?: number;
+      selectedChangeIds?: string[];
+      selectedHunkIdsByChangeId?: Record<string, string[]>;
+      stagedFileContents?: Record<string, string>;
+      documentEditedContent?: string | null;
+    }) => {
+      appendReaderAiTranscriptItem({
+        id: createReaderAiTranscriptId('change-set'),
+        kind: 'change_set_decision',
+        action: options.action,
+        changes: options.changes,
+        ...(options.runId ? { runId: options.runId } : {}),
+        ...(typeof options.iteration === 'number' ? { iteration: options.iteration } : {}),
+        ...(options.selectedChangeIds && options.selectedChangeIds.length > 0
+          ? { selectedChangeIds: options.selectedChangeIds }
+          : {}),
+        ...(options.selectedHunkIdsByChangeId && Object.keys(options.selectedHunkIdsByChangeId).length > 0
+          ? { selectedHunkIdsByChangeId: options.selectedHunkIdsByChangeId }
+          : {}),
+        ...(options.stagedFileContents && Object.keys(options.stagedFileContents).length > 0
+          ? { stagedFileContents: options.stagedFileContents }
+          : {}),
+        ...(typeof options.documentEditedContent === 'string' || options.documentEditedContent === null
+          ? { documentEditedContent: options.documentEditedContent }
+          : {}),
+      });
+    },
+    [appendReaderAiTranscriptItem],
+  );
+
   const updateReaderAiRun = useCallback((runId: string, updater: (run: ReaderAiRunRecord) => ReaderAiRunRecord) => {
     setReaderAiRuns((current) =>
       current.map((run) => {
@@ -905,6 +940,21 @@ export function useReaderAiSession({
   );
 
   const ignoreAllReaderAiChanges = useCallback(() => {
+    if (readerAiStagedChangesRef.current.length > 0) {
+      appendReaderAiChangeSetDecision({
+        action: 'discarded',
+        changes: readerAiStagedChangesRef.current,
+        selectedChangeIds: Array.from(readerAiSelectedChangeIdsRef.current),
+        selectedHunkIdsByChangeId: Object.fromEntries(
+          Object.entries(readerAiSelectedHunkIdsByChangeIdRef.current).map(([changeId, hunkIds]) => [
+            changeId,
+            Array.from(hunkIds),
+          ]),
+        ),
+        stagedFileContents: readerAiStagedFileContentsRef.current,
+        documentEditedContent: readerAiDocumentEditedContentRef.current,
+      });
+    }
     const toolCallIds = new Set(
       readerAiEditProposals
         .map((proposal) => proposal.toolCallId)
@@ -918,7 +968,50 @@ export function useReaderAiSession({
       });
     }
     resetReaderAiStagedState({ clearError: true });
-  }, [readerAiEditProposals, resetReaderAiStagedState]);
+  }, [appendReaderAiChangeSetDecision, readerAiEditProposals, resetReaderAiStagedState]);
+
+  const restoreReaderAiTranscriptChangeSet = useCallback(
+    (item: Extract<ReaderAiTranscriptItem, { kind: 'change_set_decision' }>) => {
+      const selectedChangeIds = new Set(item.selectedChangeIds ?? []);
+      const selectedHunkIdsByChangeId: ReaderAiSelectedHunkIdsByChangeId = Object.fromEntries(
+        Object.entries(item.selectedHunkIdsByChangeId ?? {}).map(([changeId, hunkIds]) => [changeId, new Set(hunkIds)]),
+      );
+      const stagedFileContents =
+        item.stagedFileContents && Object.keys(item.stagedFileContents).length > 0
+          ? item.stagedFileContents
+          : Object.fromEntries(
+              item.changes
+                .filter((change) => change.type !== 'delete' && typeof change.modifiedContent === 'string')
+                .map((change) => [change.path, change.modifiedContent as string]),
+            );
+      const nextChangeSet = createReaderAiChangeSetRecord({
+        runId: createReaderAiLedgerId('run'),
+        stagedChanges: item.changes,
+        stagedFileContents,
+        documentEditedContent:
+          typeof item.documentEditedContent === 'string' || item.documentEditedContent === null
+            ? item.documentEditedContent
+            : null,
+        files: buildReaderAiChangeSetFileRecords({
+          stagedChanges: item.changes,
+          stagedFileContents,
+        }),
+      });
+      setReaderAiEditProposals([]);
+      setReaderAiProposalStatusesByToolCallId({});
+      setReaderAiStagedChanges(item.changes);
+      setReaderAiSelectedChangeIds(selectedChangeIds);
+      setReaderAiSelectedHunkIdsByChangeId(selectedHunkIdsByChangeId);
+      setReaderAiStagedChangesInvalid(false);
+      setReaderAiStagedFileContents(stagedFileContents);
+      setReaderAiDocumentEditedContent(nextChangeSet.documentEditedContent);
+      setReaderAiError(null);
+      setReaderAiActiveChangeSetId(nextChangeSet.id);
+      setReaderAiChangeSets((current) => [...current, nextChangeSet]);
+      markReaderAiPriorChangeSetsSuperseded(nextChangeSet.id);
+    },
+    [markReaderAiPriorChangeSetsSuperseded],
+  );
 
   const toggleReaderAiChangeSelection = useCallback((changeId: string, selected: boolean) => {
     setReaderAiSelectedChangeIds((current) => {
@@ -1724,6 +1817,7 @@ export function useReaderAiSession({
     readerAiStagedChanges,
     resetReaderAiProposalsForRetry,
     rewindReaderAiConversation,
+    restoreReaderAiTranscriptChangeSet,
     resetReaderAiStagedState,
     resolveReaderAiStagedHunk,
     setReaderAiAppliedChanges,

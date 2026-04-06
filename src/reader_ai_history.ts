@@ -225,6 +225,72 @@ function normalizePersistedTranscript(value: unknown): NonNullable<ReaderAiHisto
         };
       }
 
+      if (kind === 'change_set_decision') {
+        const action = (entry as { action?: unknown }).action;
+        if (action !== 'applied' && action !== 'discarded' && action !== 'restored_to_staging') return null;
+        const normalizedChanges = normalizePersistedStagedChanges((entry as { changes?: unknown }).changes).changes;
+        const rawSelectedChangeIds = (entry as { selectedChangeIds?: unknown }).selectedChangeIds;
+        const rawSelectedHunkIdsByChangeId = (entry as { selectedHunkIdsByChangeId?: unknown })
+          .selectedHunkIdsByChangeId;
+        const rawStagedFileContents = (entry as { stagedFileContents?: unknown }).stagedFileContents;
+        const selectedChangeIds = Array.isArray(rawSelectedChangeIds)
+          ? rawSelectedChangeIds.filter((value): value is string => typeof value === 'string')
+          : [];
+        const selectedHunkIdsByChangeId =
+          rawSelectedHunkIdsByChangeId && typeof rawSelectedHunkIdsByChangeId === 'object'
+            ? Object.fromEntries(
+                Object.entries(rawSelectedHunkIdsByChangeId).flatMap(([changeId, value]) =>
+                  Array.isArray(value)
+                    ? [[changeId, value.filter((hunkId): hunkId is string => typeof hunkId === 'string')]]
+                    : [],
+                ),
+              )
+            : {};
+        const stagedFileContents =
+          rawStagedFileContents && typeof rawStagedFileContents === 'object'
+            ? Object.fromEntries(
+                Object.entries(rawStagedFileContents).flatMap(([path, content]) =>
+                  typeof content === 'string' ? [[path, content]] : [],
+                ),
+              )
+            : {};
+        return {
+          id,
+          kind,
+          action,
+          changes: normalizedChanges,
+          ...(typeof (entry as { runId?: unknown }).runId === 'string'
+            ? { runId: (entry as { runId: string }).runId }
+            : {}),
+          ...(typeof (entry as { iteration?: unknown }).iteration === 'number'
+            ? { iteration: (entry as { iteration: number }).iteration }
+            : {}),
+          ...(selectedChangeIds.length > 0 ? { selectedChangeIds } : {}),
+          ...(Object.keys(selectedHunkIdsByChangeId).length > 0 ? { selectedHunkIdsByChangeId } : {}),
+          ...(Object.keys(stagedFileContents).length > 0 ? { stagedFileContents } : {}),
+          ...((entry as { documentEditedContent?: unknown }).documentEditedContent === null
+            ? { documentEditedContent: null }
+            : typeof (entry as { documentEditedContent?: unknown }).documentEditedContent === 'string'
+              ? { documentEditedContent: (entry as { documentEditedContent: string }).documentEditedContent }
+              : {}),
+        };
+      }
+
+      if (kind === 'editor_checkpoint_event') {
+        const path = typeof (entry as { path?: unknown }).path === 'string' ? (entry as { path: string }).path : '';
+        const action = (entry as { action?: unknown }).action;
+        if (!path || (action !== 'applied' && action !== 'restored' && action !== 'reapplied')) return null;
+        return {
+          id,
+          kind,
+          path,
+          action,
+          ...(typeof (entry as { checkpointId?: unknown }).checkpointId === 'string'
+            ? { checkpointId: (entry as { checkpointId: string }).checkpointId }
+            : {}),
+        };
+      }
+
       if (kind === 'error') {
         const message =
           typeof (entry as { message?: unknown }).message === 'string' ? (entry as { message: string }).message : '';

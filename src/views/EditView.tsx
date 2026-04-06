@@ -225,8 +225,6 @@ export interface EditViewProps {
   contentSelection?: { anchor: number; head: number } | null;
   readerAiEditorOverlay?: ReaderAiEditorOverlay | null;
   readerAiFloatingActions?: {
-    statusLabel: string;
-    statusMessage?: string | null;
     applying: boolean;
     canApply: boolean;
     applyLabel: string;
@@ -1759,16 +1757,10 @@ export function EditView({
                 aria-label="Reader AI staged changes"
                 aria-live="polite"
               >
-                <div class="editor-reader-ai-floating-actions-copy">
-                  <div class="editor-reader-ai-floating-actions-title">Reader AI changes</div>
-                  <div class="editor-reader-ai-floating-actions-message">
-                    {readerAiFloatingActions.statusMessage ?? readerAiFloatingActions.statusLabel}
-                  </div>
-                </div>
                 <div class="editor-reader-ai-floating-actions-buttons">
                   <button
                     type="button"
-                    class="editor-reader-ai-floating-actions-secondary"
+                    class="reader-ai-staged-changes-secondary"
                     onClick={readerAiFloatingActions.onDiscard}
                     disabled={readerAiFloatingActions.applying}
                   >
@@ -1776,7 +1768,7 @@ export function EditView({
                   </button>
                   <button
                     type="button"
-                    class="editor-reader-ai-floating-actions-apply button-success-solid"
+                    class="reader-ai-staged-changes-apply button-success-solid"
                     onClick={readerAiFloatingActions.onApply}
                     disabled={readerAiFloatingActions.applying || !readerAiFloatingActions.canApply}
                   >

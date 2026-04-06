@@ -67,6 +67,25 @@ export type ReaderAiTranscriptItem =
     }
   | {
       id: string;
+      kind: 'change_set_decision';
+      runId?: string;
+      iteration?: number;
+      action: 'applied' | 'discarded' | 'restored_to_staging';
+      changes: ReaderAiStagedChange[];
+      selectedChangeIds?: string[];
+      selectedHunkIdsByChangeId?: Record<string, string[]>;
+      stagedFileContents?: Record<string, string>;
+      documentEditedContent?: string | null;
+    }
+  | {
+      id: string;
+      kind: 'editor_checkpoint_event';
+      path: string;
+      checkpointId?: string;
+      action: 'applied' | 'restored' | 'reapplied';
+    }
+  | {
+      id: string;
       kind: 'error';
       runId?: string;
       iteration?: number;

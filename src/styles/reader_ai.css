@@ -757,6 +757,54 @@
   cursor: default;
 }
 
+.reader-ai-transcript-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--btn-bg) 42%, transparent);
+}
+
+.reader-ai-transcript-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reader-ai-transcript-card-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reader-ai-transcript-card-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--field-focus-border) 12%, transparent);
+  color: color-mix(in srgb, var(--field-focus-border) 56%, var(--text));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.reader-ai-transcript-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.reader-ai-transcript-card-action {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
 .reader-ai-suggest-project-mode {
   font-size: 13px;
   line-height: 1.35;

@@ -1,5 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ArrowLeft, ArrowRight, CircleStop, MoreHorizontal, Pencil, X } from 'lucide-react';
+import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import { matchesPrimaryShortcut } from '../keyboard_shortcuts';
@@ -56,6 +57,7 @@ interface ReaderAiPanelProps {
   onApplyWithoutSaving: () => void;
   onUndoEditorApply?: () => void;
   onReapplyEditorApply?: () => void;
+  onRestoreTranscriptChangeSet?: (item: Extract<ReaderAiTranscriptItem, { kind: 'change_set_decision' }>) => void;
   onIgnoreAll?: () => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
@@ -207,7 +209,37 @@ type ReaderAiTranscriptBlock =
             activity: ReaderAiInlineActivity;
           }
       >;
+    }
+  | {
+      id: string;
+      kind: 'change_set';
+      item: Extract<ReaderAiTranscriptItem, { kind: 'change_set_decision' }>;
     };
+
+function ReaderAiTranscriptCard({
+  badge,
+  title,
+  action,
+  children,
+}: {
+  badge: string;
+  title: string;
+  action?: ComponentChildren;
+  children?: ComponentChildren;
+}) {
+  return (
+    <div class="reader-ai-transcript-card">
+      <div class="reader-ai-transcript-card-header">
+        <div class="reader-ai-transcript-card-copy">
+          <span class="reader-ai-transcript-card-badge">{badge}</span>
+          <span class="reader-ai-transcript-card-title">{title}</span>
+        </div>
+        {action ? <div class="reader-ai-transcript-card-action">{action}</div> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 function appendReaderAiAssistantContent(current: string, next: string): string {
   if (!current.trim()) return next;
@@ -245,7 +277,14 @@ function buildReaderAiInlineActivity(
       detail: item.detail ?? 'Subagent update',
     };
   }
-  if (item.kind === 'edit_proposal' || item.kind === 'staged_changes_snapshot') return null;
+  if (
+    item.kind === 'edit_proposal' ||
+    item.kind === 'staged_changes_snapshot' ||
+    item.kind === 'change_set_decision' ||
+    item.kind === 'editor_checkpoint_event'
+  ) {
+    return null;
+  }
   return {
     id: item.id,
     kind: 'error',
@@ -373,6 +412,7 @@ export function ReaderAiPanel({
   onApplyWithoutSaving,
   onUndoEditorApply,
   onReapplyEditorApply,
+  onRestoreTranscriptChangeSet,
   onIgnoreAll,
   onToggleChangeSelection,
   onToggleHunkSelection,
@@ -914,11 +954,22 @@ export function ReaderAiPanel({
         continue;
       }
 
+      if (item.kind === 'change_set_decision') {
+        if (item.action !== 'discarded') continue;
+        currentAssistantBlock = null;
+        blocks.push({
+          id: item.id,
+          kind: 'change_set',
+          item,
+        });
+        continue;
+      }
+
       if (!currentAssistantBlock) {
         currentAssistantBlock = {
           id: `assistant-inline:${item.id}`,
           kind: 'assistant',
-          ...(item.runId ? { runId: item.runId } : {}),
+          ...('runId' in item && typeof item.runId === 'string' ? { runId: item.runId } : {}),
           status: 'completed',
           entries: [],
         };
@@ -1118,6 +1169,37 @@ export function ReaderAiPanel({
               </div>
             ) : null}
           </div>
+        </div>
+      );
+    }
+
+    if (block.kind === 'change_set') {
+      const canRestore = typeof onRestoreTranscriptChangeSet === 'function';
+      return (
+        <div key={block.id} ref={itemRef}>
+          <ReaderAiTranscriptCard
+            badge="Discarded"
+            title={`Discarded changes (${block.item.changes.length} file${block.item.changes.length === 1 ? '' : 's'})`}
+            action={
+              canRestore ? (
+                <button
+                  type="button"
+                  class="reader-ai-checkpoint-card-action"
+                  onClick={() => onRestoreTranscriptChangeSet?.(block.item)}
+                >
+                  Restore to staging
+                </button>
+              ) : undefined
+            }
+          >
+            <StagedChangesSection
+              changes={block.item.changes}
+              applying={false}
+              title="Discarded changes"
+              reviewControls={false}
+              showFooter={false}
+            />
+          </ReaderAiTranscriptCard>
         </div>
       );
     }

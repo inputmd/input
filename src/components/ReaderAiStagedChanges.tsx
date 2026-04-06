@@ -66,6 +66,7 @@ export function StagedChangesSection({
   onRejectHunk,
   onApplyWithoutSaving,
   onUndoEditorApply,
+  showFooter = true,
 }: {
   changes: ReaderAiStagedChange[];
   applying: boolean;
@@ -90,6 +91,7 @@ export function StagedChangesSection({
   onRejectHunk?: (changeId: string, hunkId: string) => void;
   onApplyWithoutSaving?: () => void;
   onUndoEditorApply?: () => void;
+  showFooter?: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const lastHandledRevealTokenRef = useRef(0);
@@ -333,7 +335,7 @@ export function StagedChangesSection({
           ) : null}
         </div>
       ))}
-      {streaming ? (
+      {!showFooter ? null : streaming ? (
         <div class="reader-ai-staged-changes-footer reader-ai-staged-changes-footer--readonly">Still working...</div>
       ) : (
         <div class="reader-ai-staged-changes-footer">
