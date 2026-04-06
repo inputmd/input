@@ -128,6 +128,27 @@ test('buildDiffPreviewBlocksFromContent returns one replacement block', (t) => {
   ]);
 });
 
+test('buildDiffPreviewBlocksFromHunks narrows long single-line replacements to the changed substring', (t) => {
+  const original =
+    'This paragraph keeps enough surrounding context on one line to make beta become uppercase inside the preview.';
+  const modified =
+    'This paragraph keeps enough surrounding context on one line to make BETA become uppercase inside the preview.';
+
+  const diff = generateUnifiedDiff('doc.md', original, modified);
+  const hunks = parseUnifiedDiffHunks(diff);
+  const blocks = buildDiffPreviewBlocksFromHunks(original, modified, hunks);
+
+  t.deepEqual(blocks, [
+    {
+      from: original.indexOf('beta'),
+      to: original.indexOf('beta') + 'beta'.length,
+      deletedText: 'beta',
+      insertedText: 'BETA',
+      label: hunks[0]?.header,
+    },
+  ]);
+});
+
 test('hasVisibleBlockDiffPreview returns true only when a non-inline block preview is present', (t) => {
   t.false(
     hasVisibleBlockDiffPreview({
@@ -338,9 +359,11 @@ test('editorDiffPreviewExtension renders mid-line previews inline without duplic
     const inlineWidget = view.dom.querySelector('.cm-editor-diff-preview-widget--inline');
     t.truthy(inlineWidget);
     t.falsy(view.dom.querySelector('.cm-editor-diff-preview-widget--block'));
+    t.is(inlineWidget?.querySelectorAll('.cm-editor-diff-preview-inline-part--deleted').length, 1);
     t.is(inlineWidget?.querySelectorAll('.cm-editor-diff-preview-inline-part--inserted').length, 1);
-    t.is(inlineWidget?.textContent ?? '', 'BETA');
-    t.regex(view.dom.textContent ?? '', /betaBETA gamma/);
+    t.is(inlineWidget?.textContent ?? '', 'betaBETA');
+    t.is(view.dom.textContent?.includes('betabetaBETA') ?? false, false);
+    t.regex(view.dom.textContent ?? '', /alpha betaBETA gamma/);
     view.destroy();
   } finally {
     restore();
@@ -476,7 +499,9 @@ test('editorDiffPreviewExtension renders inline delete widgets with actions', (t
 
     const inlineWidget = view.dom.querySelector('.cm-editor-diff-preview-widget--inline');
     t.truthy(inlineWidget);
-    t.is(inlineWidget?.textContent?.includes('Deleted'), true);
+    t.is(inlineWidget?.textContent, 'betaReject');
+    t.is(view.dom.textContent?.includes('betabetaReject') ?? false, false);
+    t.regex(view.dom.textContent ?? '', /alpha betaReject gamma/);
     const button = inlineWidget?.querySelector<HTMLButtonElement>('.cm-editor-diff-preview-action');
     t.truthy(button);
     button?.click();

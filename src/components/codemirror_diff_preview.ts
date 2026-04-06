@@ -131,13 +131,14 @@ export function buildDiffPreviewBlocksFromHunks(
     const insertedText = modifiedContent.slice(insertFrom, insertTo);
 
     if (!deletedText && !insertedText) continue;
-    blocks.push({
+    const block: EditorDiffPreviewBlock = {
       from,
       to,
       insertedText,
       label: hunk.header,
       deletedText,
-    });
+    };
+    blocks.push(narrowLongSingleLineHunkBlock(block, from) ?? block);
   }
 
   return blocks;
@@ -157,6 +158,34 @@ function commonSuffixLength(left: string, right: string, prefixLength = 0): numb
     index += 1;
   }
   return index;
+}
+
+function narrowLongSingleLineHunkBlock(
+  block: EditorDiffPreviewBlock,
+  lineStart: number,
+): EditorDiffPreviewBlock | null {
+  const deletedLine = trimSingleTrailingNewline(block.deletedText ?? '');
+  const insertedLine = trimSingleTrailingNewline(block.insertedText ?? '');
+  if (!deletedLine || !insertedLine) return null;
+  if (deletedLine.includes('\n') || insertedLine.includes('\n')) return null;
+  if (Math.max(deletedLine.length, insertedLine.length) <= INLINE_DIFF_PREVIEW_MAX_CHARS) return null;
+
+  const prefixLength = commonPrefixLength(deletedLine, insertedLine);
+  const suffixLength = commonSuffixLength(deletedLine, insertedLine, prefixLength);
+  const deletedEnd = deletedLine.length - suffixLength;
+  const insertedEnd = insertedLine.length - suffixLength;
+  const narrowedDeleted = deletedLine.slice(prefixLength, deletedEnd);
+  const narrowedInserted = insertedLine.slice(prefixLength, insertedEnd);
+  if (!narrowedDeleted && !narrowedInserted) return null;
+  if (Math.max(narrowedDeleted.length, narrowedInserted.length) > INLINE_DIFF_PREVIEW_MAX_CHARS) return null;
+
+  return {
+    ...block,
+    from: lineStart + prefixLength,
+    to: lineStart + deletedEnd,
+    deletedText: narrowedDeleted,
+    insertedText: narrowedInserted,
+  };
 }
 
 export function buildDiffPreviewBlocksFromContent(
@@ -285,12 +314,12 @@ class DiffPreviewWidget extends WidgetType {
   }
 
   private appendInlineDiffContent(wrapper: HTMLElement): void {
-    if (this.kind === 'delete') {
-      const badge = document.createElement('span');
-      badge.className = 'cm-editor-diff-preview-inline-chip cm-editor-diff-preview-inline-chip--delete';
-      badge.textContent = 'Deleted';
-      wrapper.append(badge);
-      return;
+    const deleted = trimSingleTrailingNewline(this.block.deletedText ?? '');
+    if (deleted) {
+      const span = document.createElement('span');
+      span.className = 'cm-editor-diff-preview-inline-part cm-editor-diff-preview-inline-part--deleted';
+      span.textContent = deleted;
+      wrapper.append(span);
     }
 
     const inserted = trimSingleTrailingNewline(this.block.insertedText ?? '');
@@ -320,7 +349,7 @@ class DiffPreviewWidget extends WidgetType {
         this.createActionButton({
           actionId: 'accept',
           label: currentActionId === 'accept' ? 'Accepted' : 'Accept',
-          tone: 'primary',
+          tone: currentActionId === 'accept' ? 'primary' : 'neutral',
           stateKind: 'accept',
           prominent: currentActionId === 'accept',
           compact: currentActionId !== 'accept',
@@ -329,7 +358,7 @@ class DiffPreviewWidget extends WidgetType {
         this.createActionButton({
           actionId: 'reject',
           label: currentActionId === 'reject' ? 'Rejected' : 'Reject',
-          tone: 'danger',
+          tone: currentActionId === 'reject' ? 'danger' : 'neutral',
           stateKind: 'reject',
           prominent: currentActionId === 'reject',
           compact: currentActionId !== 'reject',
@@ -498,49 +527,38 @@ function buildEditorDiffPreviewDecorations(
       });
     }
 
-    if (inlinePreview && to > from) {
-      entries.push({
-        from,
-        to,
-        value: Decoration.mark({
-          class:
-            kind === 'delete'
-              ? 'cm-editor-diff-preview-range cm-editor-diff-preview-range--delete'
-              : 'cm-editor-diff-preview-range cm-editor-diff-preview-range--replace',
-        }),
-        order: order++,
-      });
-    }
-
     if (insertedText.length > 0) {
       const value = inlinePreview
-        ? Decoration.widget({
-            widget: new DiffPreviewWidget(rawBlock, 'inline', preview.source, preview.badge, onAction),
-            side: 1,
-          })
+        ? to > from
+          ? Decoration.replace({
+              widget: new DiffPreviewWidget(rawBlock, 'inline', preview.source, preview.badge, onAction),
+            })
+          : Decoration.widget({
+              widget: new DiffPreviewWidget(rawBlock, 'inline', preview.source, preview.badge, onAction),
+              side: 1,
+            })
         : Decoration.replace({
             widget: new DiffPreviewWidget(rawBlock, 'block', preview.source, preview.badge, onAction),
             block: true,
           });
       entries.push({
-        from: inlinePreview ? to : from,
-        to: inlinePreview ? to : to,
+        from: inlinePreview && to === from ? to : from,
+        to: inlinePreview && to === from ? to : to,
         value,
         order: order++,
       });
     } else if (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0) {
       const value = inlinePreview
-        ? Decoration.widget({
+        ? Decoration.replace({
             widget: new DiffPreviewWidget(rawBlock, 'inline', preview.source, preview.badge, onAction),
-            side: 1,
           })
         : Decoration.replace({
             widget: new DiffPreviewWidget(rawBlock, 'block', preview.source, preview.badge, onAction),
             block: true,
           });
       entries.push({
-        from: inlinePreview ? to : from,
-        to: inlinePreview ? to : to,
+        from,
+        to,
         value,
         order: order++,
       });
@@ -569,16 +587,15 @@ function buildEditorDiffPreviewAtomicRanges(
     const to = Math.max(from, Math.min(docLength, Math.floor(rawBlock.to)));
     const insertedText = rawBlock.insertedText ?? '';
     const kind = normalizeKind(rawBlock);
+    const inlinePreview = shouldRenderInlinePreview(rawBlock);
 
-    if (
-      !shouldRenderInlinePreview(rawBlock) &&
-      (insertedText.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0))
-    ) {
+    if (insertedText.length > 0 || (kind === 'delete' && (rawBlock.deletedText ?? '').length > 0)) {
+      if (inlinePreview && to === from) continue;
       entries.push({
         from,
         to,
         value: Decoration.replace({
-          block: true,
+          ...(inlinePreview ? {} : { block: true }),
         }),
         order: order++,
       });

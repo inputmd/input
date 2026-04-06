@@ -521,20 +521,6 @@
   background: color-mix(in srgb, var(--danger-border) 8%, transparent);
 }
 
-.cm-editor .cm-editor-diff-preview-range {
-  border-bottom: 1px solid transparent;
-}
-
-.cm-editor .cm-editor-diff-preview-range--replace {
-  background: color-mix(in srgb, var(--focus-border) 16%, transparent);
-  border-bottom-color: color-mix(in srgb, var(--focus-border) 48%, transparent);
-}
-
-.cm-editor .cm-editor-diff-preview-range--delete {
-  background: color-mix(in srgb, var(--danger-border) 14%, transparent);
-  border-bottom-color: color-mix(in srgb, var(--danger-border) 50%, transparent);
-}
-
 .cm-editor .cm-editor-diff-preview-widget {
   display: block;
   margin: 4px 0 10px;
@@ -617,16 +603,11 @@
   font-weight: 600;
 }
 
-.cm-editor .cm-editor-diff-preview-inline-chip {
-  display: inline-block;
-  padding: 0 0.18rem;
-  border-radius: 3px;
-  font-size: 11px;
-  line-height: 1.3;
-}
-
-.cm-editor .cm-editor-diff-preview-inline-chip--delete {
+.cm-editor .cm-editor-diff-preview-inline-part--deleted {
   color: color-mix(in srgb, var(--danger-border) 82%, var(--text));
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  margin-right: 0.25rem;
 }
 
 .cm-editor .cm-editor-diff-preview-actions {
@@ -695,6 +676,10 @@
 
 .cm-editor .cm-editor-diff-preview-state-split .cm-editor-diff-preview-action--prominent {
   cursor: default;
+}
+
+.cm-editor .cm-editor-diff-preview-state-split .cm-editor-diff-preview-action--compact {
+  border-color: color-mix(in srgb, var(--text-secondary) 58%, transparent);
 }
 
 .cm-editor .cm-editor-diff-preview-action--primary {
