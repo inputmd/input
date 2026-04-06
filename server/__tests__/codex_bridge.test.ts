@@ -9,6 +9,16 @@ import { WebSocketServer } from 'ws';
 import { createSseParser } from '../../shared/sse.ts';
 
 let localhostBindingAvailable = true;
+type FakeCodexResponse = { deltas: string[]; requestApprovalWithStringId?: boolean };
+type FakeCodexResponder = (
+  inputText: string,
+  params?: { threadStart?: Record<string, unknown>; turnStart?: Record<string, unknown> },
+) => FakeCodexResponse;
+
+let sharedFakeServer: http.Server | null = null;
+let sharedBridgeProcess: ChildProcess | null = null;
+let sharedBridgePort: number | null = null;
+let currentFakeResponder: FakeCodexResponder = () => ({ deltas: ['ok'] });
 
 async function listen(server: http.Server): Promise<number> {
   await new Promise<void>((resolve, reject) => {
@@ -66,6 +76,26 @@ test.before(async () => {
     }
     throw error;
   }
+
+  const fake = startFakeCodexServer((inputText, params) => currentFakeResponder(inputText, params));
+  sharedFakeServer = fake.server;
+  sharedBridgePort = await reservePort();
+  sharedBridgeProcess = startBridgeProcess(await fake.urlPromise, sharedBridgePort);
+  await waitForBridge(sharedBridgePort);
+});
+
+test.afterEach.always(() => {
+  currentFakeResponder = () => ({ deltas: ['ok'] });
+});
+
+test.after.always(async () => {
+  sharedBridgeProcess?.kill('SIGTERM');
+  sharedBridgeProcess = null;
+  if (sharedFakeServer) {
+    await closeServer(sharedFakeServer);
+    sharedFakeServer = null;
+  }
+  sharedBridgePort = null;
 });
 
 async function waitForBridge(port: number): Promise<void> {
@@ -109,12 +139,7 @@ async function readSse(res: Response): Promise<Array<{ event: string; data: stri
   return events;
 }
 
-function startFakeCodexServer(
-  responder: (
-    inputText: string,
-    params?: { threadStart?: Record<string, unknown>; turnStart?: Record<string, unknown> },
-  ) => { deltas: string[]; requestApprovalWithStringId?: boolean },
-): {
+function startFakeCodexServer(responder: FakeCodexResponder): {
   server: http.Server;
   urlPromise: Promise<string>;
 } {
@@ -253,17 +278,15 @@ process.on('SIGINT', shutdown);
   return dir;
 }
 
-test.serial('bridge lists local Codex models', async (t) => {
-  if (skipIfLocalhostBindingUnavailable(t)) return;
-  const fake = startFakeCodexServer(() => ({ deltas: ['ok'] }));
-  const bridgePort = await reservePort();
-  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
-  await waitForBridge(bridgePort);
+function requireSharedBridgePort(t: ExecutionContext): number {
+  if (skipIfLocalhostBindingUnavailable(t)) return -1;
+  if (sharedBridgePort === null) throw new Error('Shared Codex bridge did not start');
+  return sharedBridgePort;
+}
 
-  t.teardown(async () => {
-    bridge.kill('SIGTERM');
-    await closeServer(fake.server);
-  });
+test.serial('bridge lists local Codex models', async (t) => {
+  const bridgePort = requireSharedBridgePort(t);
+  if (bridgePort < 0) return;
 
   const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/models`);
   const data = (await res.json()) as { models: Array<{ id: string; name: string; provider?: string }> };
@@ -308,16 +331,9 @@ test.serial('bridge can start codex app-server itself', async (t) => {
 });
 
 test.serial('bridge streams inline editor output', async (t) => {
-  if (skipIfLocalhostBindingUnavailable(t)) return;
-  const fake = startFakeCodexServer(() => ({ deltas: ['rewritten ', 'text'] }));
-  const bridgePort = await reservePort();
-  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
-  await waitForBridge(bridgePort);
-
-  t.teardown(async () => {
-    bridge.kill('SIGTERM');
-    await closeServer(fake.server);
-  });
+  const bridgePort = requireSharedBridgePort(t);
+  if (bridgePort < 0) return;
+  currentFakeResponder = () => ({ deltas: ['rewritten ', 'text'] });
 
   const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
     method: 'POST',
@@ -342,16 +358,9 @@ test.serial('bridge streams inline editor output', async (t) => {
 });
 
 test.serial('bridge answers string-id server requests from Codex app-server', async (t) => {
-  if (skipIfLocalhostBindingUnavailable(t)) return;
-  const fake = startFakeCodexServer(() => ({ deltas: ['ok'], requestApprovalWithStringId: true }));
-  const bridgePort = await reservePort();
-  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
-  await waitForBridge(bridgePort);
-
-  t.teardown(async () => {
-    bridge.kill('SIGTERM');
-    await closeServer(fake.server);
-  });
+  const bridgePort = requireSharedBridgePort(t);
+  if (bridgePort < 0) return;
+  currentFakeResponder = () => ({ deltas: ['ok'], requestApprovalWithStringId: true });
 
   const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
     method: 'POST',
@@ -372,20 +381,13 @@ test.serial('bridge answers string-id server requests from Codex app-server', as
 });
 
 test.serial('bridge emits staged changes for structured Codex output', async (t) => {
-  if (skipIfLocalhostBindingUnavailable(t)) return;
-  const fake = startFakeCodexServer(() => ({
+  const bridgePort = requireSharedBridgePort(t);
+  if (bridgePort < 0) return;
+  currentFakeResponder = () => ({
     deltas: [
       'Applied the update.\n',
       '<input-staged-changes>{"assistant_message":"Applied the update.","suggested_commit_message":"fix: rewrite document","changes":[{"path":"doc.md","type":"edit","content":"new body"}]}</input-staged-changes>',
     ],
-  }));
-  const bridgePort = await reservePort();
-  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
-  await waitForBridge(bridgePort);
-
-  t.teardown(async () => {
-    bridge.kill('SIGTERM');
-    await closeServer(fake.server);
   });
 
   const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
@@ -420,20 +422,13 @@ test.serial('bridge emits staged changes for structured Codex output', async (t)
 });
 
 test.serial('bridge suppresses staged changes when document edits are disabled', async (t) => {
-  if (skipIfLocalhostBindingUnavailable(t)) return;
-  const fake = startFakeCodexServer(() => ({
+  const bridgePort = requireSharedBridgePort(t);
+  if (bridgePort < 0) return;
+  currentFakeResponder = () => ({
     deltas: [
       'Applied the update.\n',
       '<input-staged-changes>{"assistant_message":"Applied the update.","suggested_commit_message":"fix: rewrite document","changes":[{"path":"doc.md","type":"edit","content":"new body"}]}</input-staged-changes>',
     ],
-  }));
-  const bridgePort = await reservePort();
-  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
-  await waitForBridge(bridgePort);
-
-  t.teardown(async () => {
-    bridge.kill('SIGTERM');
-    await closeServer(fake.server);
   });
 
   const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
@@ -457,17 +452,10 @@ test.serial('bridge suppresses staged changes when document edits are disabled',
 });
 
 test.serial('bridge streams reader output before completion when no staged block is present', async (t) => {
-  if (skipIfLocalhostBindingUnavailable(t)) return;
-  const fake = startFakeCodexServer(() => ({
+  const bridgePort = requireSharedBridgePort(t);
+  if (bridgePort < 0) return;
+  currentFakeResponder = () => ({
     deltas: ['first chunk ', 'second chunk'],
-  }));
-  const bridgePort = await reservePort();
-  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
-  await waitForBridge(bridgePort);
-
-  t.teardown(async () => {
-    bridge.kill('SIGTERM');
-    await closeServer(fake.server);
   });
 
   const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
@@ -492,22 +480,15 @@ test.serial('bridge streams reader output before completion when no staged block
 });
 
 test.serial('bridge enables live web search for prompt-list mode', async (t) => {
-  if (skipIfLocalhostBindingUnavailable(t)) return;
+  const bridgePort = requireSharedBridgePort(t);
+  if (bridgePort < 0) return;
   let seenThreadStart: Record<string, unknown> | undefined;
   let seenTurnStart: Record<string, unknown> | undefined;
-  const fake = startFakeCodexServer((_inputText, params) => {
+  currentFakeResponder = (_inputText, params) => {
     seenThreadStart = params?.threadStart;
     seenTurnStart = params?.turnStart;
     return { deltas: ['looked it up'] };
-  });
-  const bridgePort = await reservePort();
-  const bridge = startBridgeProcess(await fake.urlPromise, bridgePort);
-  await waitForBridge(bridgePort);
-
-  t.teardown(async () => {
-    bridge.kill('SIGTERM');
-    await closeServer(fake.server);
-  });
+  };
 
   const res = await fetch(`http://127.0.0.1:${bridgePort}/api/ai/chat`, {
     method: 'POST',
