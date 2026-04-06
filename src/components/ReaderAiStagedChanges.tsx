@@ -7,6 +7,17 @@ import { buildUnifiedDiffFromHunk } from './diff_viewer_utils.ts';
 
 const DEFAULT_EXPANDED_CHANGE_LINE_LIMIT = 80;
 
+function formatChangeCountLabel(baseLabel: string, changeCount: number): string {
+  return changeCount === 1 ? baseLabel : `${baseLabel} (${changeCount} files)`;
+}
+
+function buildReaderAiHunkLineLabel(hunk: ReaderAiStagedHunk): number {
+  const firstChangeIndex = hunk.lines.findIndex((line) => line.type !== 'context');
+  if (firstChangeIndex < 0) return Math.max(1, hunk.newStart);
+  const modifiedLinesBeforeChange = hunk.lines.slice(0, firstChangeIndex).filter((line) => line.type !== 'del').length;
+  return Math.max(1, hunk.newStart + modifiedLinesBeforeChange);
+}
+
 function shouldExpandChangeByDefault(change: ReaderAiStagedChange): boolean {
   const diffLines = change.diff.split('\n');
   if (change.type !== 'edit') return diffLines.length <= DEFAULT_EXPANDED_CHANGE_LINE_LIMIT;
@@ -28,9 +39,7 @@ function SideBySideDiffModal({ changes, onClose }: { changes: ReaderAiStagedChan
       <div class="reader-ai-diff-popout-backdrop" onClick={onClose} />
       <div class="reader-ai-diff-popout">
         <div class="reader-ai-diff-popout-header">
-          <div class="reader-ai-diff-popout-title">
-            Staged changes ({changes.length} file{changes.length === 1 ? '' : 's'})
-          </div>
+          <div class="reader-ai-diff-popout-title">{formatChangeCountLabel('Staged changes', changes.length)}</div>
           <button type="button" class="reader-ai-diff-popout-close" onClick={onClose}>
             Close
           </button>
@@ -58,7 +67,6 @@ export function StagedChangesSection({
   activeReviewTarget,
   activeReviewTargetRevealToken = 0,
   onIgnoreAll,
-  onRevealChange,
   onRevealHunk,
   onToggleChangeSelection,
   onToggleHunkSelection,
@@ -83,7 +91,6 @@ export function StagedChangesSection({
   activeReviewTarget?: { changeId: string; hunkId?: string } | null;
   activeReviewTargetRevealToken?: number;
   onIgnoreAll?: () => void;
-  onRevealChange?: (changeId: string) => void;
   onRevealHunk?: (changeId: string, hunkId: string) => void;
   onToggleChangeSelection?: (changeId: string, selected: boolean) => void;
   onToggleHunkSelection?: (changeId: string, hunkId: string, selected: boolean) => void;
@@ -101,7 +108,7 @@ export function StagedChangesSection({
   const [popoutOpen, setPopoutOpen] = useState(false);
   const canApply = canApplyWithoutSaving === true;
   const canDiscard = typeof onIgnoreAll === 'function';
-  const applyLabelBase = editorProposalMode ? 'Apply changes' : 'Apply without saving';
+  const applyLabelBase = editorProposalMode ? 'Accept all' : 'Apply without saving';
   const applyLabel =
     !canApply && applyDisabledReasonLabel ? `${applyLabelBase} (${applyDisabledReasonLabel})` : applyLabelBase;
 
@@ -175,9 +182,10 @@ export function StagedChangesSection({
     selected ? <CheckSquare2 size={13} aria-label={label} /> : <Square size={13} aria-label={label} />;
 
   const hunkSummary = (hunk: ReaderAiStagedHunk) => {
+    const lineNumber = buildReaderAiHunkLineLabel(hunk);
     const additions = hunk.lines.filter((line) => line.type === 'add').length;
     const deletions = hunk.lines.filter((line) => line.type === 'del').length;
-    return `${additions} add${additions === 1 ? '' : 's'} / ${deletions} del${deletions === 1 ? '' : 's'}`;
+    return `Line ${lineNumber}: ${additions} add${additions === 1 ? '' : 's'} / ${deletions} del${deletions === 1 ? '' : 's'}`;
   };
 
   return (
@@ -185,8 +193,7 @@ export function StagedChangesSection({
       <div class="reader-ai-staged-changes-header">
         <div class="reader-ai-staged-changes-header-copy">
           <span>
-            {title ?? (streaming ? 'Proposed changes' : 'Staged changes')} ({changes.length} file
-            {changes.length === 1 ? '' : 's'})
+            {formatChangeCountLabel(title ?? (streaming ? 'Proposed changes' : 'Staged changes'), changes.length)}
           </span>
           {streaming ? (
             <span class="reader-ai-staged-changes-live-pill">
@@ -227,16 +234,6 @@ export function StagedChangesSection({
               </span>
               <span class="reader-ai-staged-change-path">{change.path}</span>
             </button>
-            {change.id && currentEditorPath === change.path ? (
-              <button
-                type="button"
-                class="reader-ai-staged-reveal-btn"
-                onClick={() => onRevealChange?.(change.id!)}
-                title="Reveal this change in the editor"
-              >
-                <LocateFixed size={13} aria-hidden="true" />
-              </button>
-            ) : null}
             {!streaming && reviewControls && change.id ? (
               <div class="reader-ai-staged-change-controls">
                 <button
@@ -298,7 +295,6 @@ export function StagedChangesSection({
                             </button>
                           ) : null}
                           <div class="reader-ai-staged-hunk-copy">
-                            <div class="reader-ai-staged-hunk-header">{hunk.header}</div>
                             <div class="reader-ai-staged-hunk-summary">{hunkSummary(hunk)}</div>
                           </div>
                           {change.id && currentEditorPath === change.path ? (
@@ -357,7 +353,7 @@ export function StagedChangesSection({
                 onClick={() => onIgnoreAll?.()}
                 disabled={applying}
               >
-                Discard all changes
+                Discard all
               </button>
             ) : null}
             <button

@@ -781,18 +781,6 @@
   flex-wrap: wrap;
 }
 
-.reader-ai-transcript-card-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--field-focus-border) 12%, transparent);
-  color: color-mix(in srgb, var(--field-focus-border) 56%, var(--text));
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.1;
-}
-
 .reader-ai-transcript-card-title {
   font-size: 12px;
   font-weight: 600;
@@ -1874,38 +1862,6 @@
   opacity: 0.72;
 }
 
-.reader-ai-staged-hunk-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 11px;
-  padding: 6px 8px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.reader-ai-staged-hunk-row .reader-ai-staged-hunk-header {
-  width: auto;
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: 0;
-  font-family: var(--font-mono, monospace);
-  color: var(--text);
-}
-
-.reader-ai-staged-hunk-header:hover {
-  background: color-mix(in srgb, var(--btn-hover) 78%, transparent);
-}
-
-.reader-ai-staged-hunk-row .reader-ai-staged-hunk-header:hover {
-  background: transparent;
-}
-
 .reader-ai-staged-hunk > .reader-ai-diff {
   border-top-color: color-mix(in srgb, var(--border) 55%, transparent);
   background: color-mix(in srgb, var(--bg) 78%, var(--toolbar-bg) 22%);
@@ -1918,21 +1874,13 @@
   flex: 0 0 auto;
 }
 
-.reader-ai-staged-hunk-header-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono, monospace);
-  flex: 1 1 auto;
-}
-
 .reader-ai-staged-hunk-summary {
-  margin-left: auto;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
-  text-align: right;
   flex: 0 0 auto;
+  position: relative;
+  top: 1px;
 }
 
 .reader-ai-staged-selection-summary {
@@ -1985,24 +1933,26 @@
 }
 
 .reader-ai-diff-line--hunk {
-  color: color-mix(in srgb, var(--accent-text) 85%, var(--text));
+  color: color-mix(in srgb, var(--accent-text) 85%, var(--text-secondary));
 }
 
 .reader-ai-diff-line--add {
   color: #2aa198;
-  background: color-mix(in srgb, #2aa198 8%, transparent);
+  background: color-mix(in srgb, #2aa198 5%, transparent);
 }
 
 .reader-ai-diff-line--del {
-  color: color-mix(in srgb, var(--danger-border) 78%, var(--text));
-  background: color-mix(in srgb, var(--danger-border) 8%, transparent);
+  color: color-mix(in srgb, var(--danger-border) 78%, var(--text-secondary));
+  background: color-mix(in srgb, var(--danger-border) 5%, transparent);
 }
 
 .reader-ai-diff-inline-change--add {
+  color: color-mix(in srgb, #2aa198 72%, var(--text));
   background: color-mix(in srgb, #2aa198 26%, transparent);
 }
 
 .reader-ai-diff-inline-change--del {
+  color: color-mix(in srgb, var(--danger-border) 72%, var(--text));
   background: color-mix(in srgb, var(--danger-border) 14%, transparent);
 }
 
@@ -2154,8 +2104,8 @@
 }
 
 [data-theme="light"] .reader-ai-diff-line--del {
-  color: color-mix(in srgb, var(--danger-border) 78%, var(--text));
-  background: color-mix(in srgb, var(--danger-border) 8%, transparent);
+  color: color-mix(in srgb, var(--danger-border) 78%, var(--text-secondary));
+  background: color-mix(in srgb, var(--danger-border) 5%, transparent);
 }
 
 [data-theme="light"] .reader-ai-diff-inline-change--add {
@@ -2169,6 +2119,14 @@
 @media (max-width: 1023px) {
   .app-body--with-reader-ai main {
     margin-right: 0;
+  }
+
+  .reader-ai-model-menu {
+    z-index: 28;
+  }
+
+  .reader-ai-backdrop {
+    z-index: 29;
   }
 
   .reader-ai-panel {

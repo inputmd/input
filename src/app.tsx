@@ -1255,14 +1255,21 @@ export function App() {
     (target: { changeId: string; hunkId?: string }) => {
       if (activeView !== 'edit' || !readerAiEditorOverlay) return false;
       const controller = editViewControllerRef.current;
-      if (!controller) return false;
       const hunk = target.hunkId
         ? (readerAiEditorOverlay.hunks.find(
             (entry) => entry.changeId === target.changeId && entry.hunkId === target.hunkId,
           ) ?? null)
         : (readerAiEditorOverlay.hunks.find((entry) => entry.changeId === target.changeId) ?? null);
-      const position = hunk?.from ?? 0;
-      controller.revealRange(position, hunk?.to ?? position);
+      if (target.hunkId && hunk?.lineStart) {
+        setGoToLineRequest((current) => ({
+          requestKey: Math.max(Date.now(), (current?.requestKey ?? 0) + 1),
+          lineNumber: hunk.lineStart,
+        }));
+      } else {
+        if (!controller) return false;
+        const position = hunk?.from ?? 0;
+        controller.revealRange(position, hunk?.to ?? position);
+      }
       setReaderAiReviewTarget({ ...target });
       return true;
     },
@@ -1273,12 +1280,6 @@ export function App() {
     setReaderAiReviewRevealToken((current) => current + 1);
     setSidePane('reader-ai');
   }, []);
-  const onReaderAiRevealChangeInEditor = useCallback(
-    (changeId: string) => {
-      void revealReaderAiEditorTarget({ changeId });
-    },
-    [revealReaderAiEditorTarget],
-  );
   const onReaderAiRevealHunkInEditor = useCallback(
     (changeId: string, hunkId: string) => {
       void revealReaderAiEditorTarget({ changeId, hunkId });
@@ -5437,7 +5438,7 @@ export function App() {
         primaryActionLabel: 'Restore and commit',
         primaryActionInSecondaryMenu: true,
         cancelLabel: 'Cancel',
-        tertiaryActionLabel: 'Discard changes',
+        tertiaryActionLabel: 'Discard all',
         tertiaryActionIntent: 'danger',
         secondaryActionIntent: 'default',
         primaryActionIntent: 'success',
@@ -7571,6 +7572,7 @@ export function App() {
                 ? {
                     applying: readerAiApplyingChanges,
                     canApply: canApplyWithoutSaving,
+                    changeCount: readerAiFloatingChangeCount,
                     applyLabel: readerAiFloatingApplyLabel,
                     onApply: () => void onReaderAiApplyChanges('without-saving'),
                     onDiscard: onReaderAiIgnoreChanges,
@@ -8077,11 +8079,15 @@ export function App() {
     !readerAiStagedChangesStreaming &&
     hasActionableReaderAiEditorOverlay(readerAiEditorOverlay);
   const readerAiFloatingApplyLabel = useMemo(() => {
-    const baseLabel = 'Apply changes';
+    const baseLabel = 'Accept all';
     return !canApplyWithoutSaving && applyDisabledReasonLabel
       ? `${baseLabel} (${applyDisabledReasonLabel})`
       : baseLabel;
   }, [applyDisabledReasonLabel, canApplyWithoutSaving]);
+  const readerAiFloatingChangeCount = useMemo(() => {
+    if (!readerAiEditorOverlay?.primaryChangeId) return 0;
+    return readerAiEditorOverlay.hunks.length > 0 ? readerAiEditorOverlay.hunks.length : 1;
+  }, [readerAiEditorOverlay]);
   return (
     <>
       <Toolbar
@@ -8320,7 +8326,6 @@ export function App() {
             currentEditorPath={currentEditingDocPath}
             activeReviewTarget={readerAiReviewTarget}
             activeReviewTargetRevealToken={readerAiReviewRevealToken}
-            onRevealChange={onReaderAiRevealChangeInEditor}
             onRevealHunk={onReaderAiRevealHunkInEditor}
             error={readerAiError}
             onEnqueueCommand={enqueueReaderAiQueuedCommand}

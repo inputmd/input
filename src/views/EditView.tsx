@@ -227,6 +227,7 @@ export interface EditViewProps {
   readerAiFloatingActions?: {
     applying: boolean;
     canApply: boolean;
+    changeCount: number;
     applyLabel: string;
     onApply: () => void;
     onDiscard: () => void;
@@ -1294,6 +1295,11 @@ export function EditView({
     markdown && previewVisible && canRenderPreview
       ? { gridTemplateColumns: `minmax(0, 1fr) 7px ${sidePaneWidth}px` }
       : undefined;
+  const editViewStyle =
+    markdown && previewVisible && canRenderPreview
+      ? ({ '--editor-top-right-overlay-sidepane-offset': `${sidePaneWidth}px` } as JSX.CSSProperties)
+      : undefined;
+  const mobilePreviewOpen = markdown && previewVisible && !canRenderPreview && !loading;
 
   const showPreviewForAnchor = useCallback(
     (anchor: HTMLAnchorElement) => {
@@ -1682,8 +1688,25 @@ export function EditView({
       controller.revealRange(offset);
       return;
     }
+    if (previewScrollLocked) {
+      claimScrollOwnership('editor');
+    }
+    const targetScrollTop = controller.getScrollTopForPosition(offset, 0);
+    if (targetScrollTop != null) {
+      setEditorScrollTop(targetScrollTop);
+      return;
+    }
     controller.scrollToPosition(offset, 0);
-  }, [editorControllerReadyVersion, goToLineRequest, lineEndOffset, lineStartOffset, readOnly]);
+  }, [
+    claimScrollOwnership,
+    editorControllerReadyVersion,
+    goToLineRequest,
+    lineEndOffset,
+    lineStartOffset,
+    previewScrollLocked,
+    readOnly,
+    setEditorScrollTop,
+  ]);
 
   const showModelStatusIndicator = locked;
   const handleDiffPreviewAction = useCallback(
@@ -1716,7 +1739,12 @@ export function EditView({
   );
 
   return (
-    <div class="edit-view" data-has-user-typed-unsaved-changes={hasUserTypedUnsavedChanges ? 'true' : 'false'}>
+    <div
+      class="edit-view"
+      style={editViewStyle}
+      data-has-user-typed-unsaved-changes={hasUserTypedUnsavedChanges ? 'true' : 'false'}
+      data-mobile-preview-open={mobilePreviewOpen ? 'true' : undefined}
+    >
       {imageUploadIssue ? (
         <div class="editor-inline-alert" role="status" aria-live="polite">
           <span>{imageUploadIssue.message}</span>
@@ -1745,22 +1773,45 @@ export function EditView({
                 aria-label="Reader AI staged changes"
                 aria-live="polite"
               >
+                <span class="editor-reader-ai-floating-actions-summary">
+                  {readerAiFloatingActions.changeCount} change{readerAiFloatingActions.changeCount === 1 ? '' : 's'}
+                </span>
                 <div class="editor-reader-ai-floating-actions-buttons">
                   <button
                     type="button"
                     class="reader-ai-staged-changes-secondary"
                     onClick={readerAiFloatingActions.onDiscard}
                     disabled={readerAiFloatingActions.applying}
+                    aria-label="Discard all"
                   >
-                    Discard all changes
+                    <span class="editor-reader-ai-floating-actions-button-label editor-reader-ai-floating-actions-button-label--full">
+                      Discard all
+                    </span>
+                    <span class="editor-reader-ai-floating-actions-button-label editor-reader-ai-floating-actions-button-label--compact">
+                      Discard
+                    </span>
                   </button>
                   <button
                     type="button"
                     class="reader-ai-staged-changes-apply button-success-solid"
                     onClick={readerAiFloatingActions.onApply}
                     disabled={readerAiFloatingActions.applying || !readerAiFloatingActions.canApply}
+                    aria-label={
+                      readerAiFloatingActions.applying ? 'Applying changes' : readerAiFloatingActions.applyLabel
+                    }
                   >
-                    {readerAiFloatingActions.applying ? 'Applying…' : readerAiFloatingActions.applyLabel}
+                    {readerAiFloatingActions.applying ? (
+                      'Applying…'
+                    ) : (
+                      <>
+                        <span class="editor-reader-ai-floating-actions-button-label editor-reader-ai-floating-actions-button-label--full">
+                          {readerAiFloatingActions.applyLabel}
+                        </span>
+                        <span class="editor-reader-ai-floating-actions-button-label editor-reader-ai-floating-actions-button-label--compact">
+                          Accept
+                        </span>
+                      </>
+                    )}
                   </button>
                 </div>
               </section>

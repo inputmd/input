@@ -247,7 +247,7 @@ function buildReaderAiEditorDiffPreview(
 function buildReaderAiHunkLineRange(hunk: ReaderAiStagedHunk): { lineStart: number; lineEnd: number } {
   const firstChangeIndex = hunk.lines.findIndex((line) => line.type !== 'context');
   if (firstChangeIndex < 0) {
-    const lineStart = Math.max(1, hunk.newStart);
+    const lineStart = Math.max(1, hunk.oldStart || hunk.newStart);
     return { lineStart, lineEnd: lineStart };
   }
   let lastChangeIndex = firstChangeIndex;
@@ -257,12 +257,12 @@ function buildReaderAiHunkLineRange(hunk: ReaderAiStagedHunk): { lineStart: numb
       break;
     }
   }
-  const modifiedLinesBeforeChange = hunk.lines.slice(0, firstChangeIndex).filter((line) => line.type !== 'del').length;
-  const insertedModifiedLineCount = hunk.lines
+  const originalLinesBeforeChange = hunk.lines.slice(0, firstChangeIndex).filter((line) => line.type !== 'add').length;
+  const replacedOriginalLineCount = hunk.lines
     .slice(firstChangeIndex, lastChangeIndex + 1)
-    .filter((line) => line.type !== 'del').length;
-  const lineStart = Math.max(1, hunk.newStart + modifiedLinesBeforeChange);
-  const lineEnd = Math.max(lineStart, lineStart + Math.max(0, insertedModifiedLineCount - 1));
+    .filter((line) => line.type !== 'add').length;
+  const lineStart = Math.max(1, hunk.oldStart + originalLinesBeforeChange);
+  const lineEnd = Math.max(lineStart, lineStart + Math.max(0, replacedOriginalLineCount - 1));
   return { lineStart, lineEnd };
 }
 

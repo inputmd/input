@@ -878,6 +878,15 @@
   border-radius: 50%;
 }
 
+@media (max-width: 1023px) {
+  .toolbar-collaborator-tooltip,
+  .repo-menu-content,
+  .author-menu-content,
+  .user-menu-content {
+    z-index: 28;
+  }
+}
+
 @media (max-width: 768px) {
   .toolbar {
     padding: 8px 9px;

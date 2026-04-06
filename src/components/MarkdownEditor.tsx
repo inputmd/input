@@ -426,10 +426,14 @@ export function MarkdownEditor({
       const block = view.lineBlockAt(clampedPosition);
       return Math.max(0, block.top - view.scrollDOM.clientHeight * clampedRatio);
     }
+    const block = view.lineBlockAt(clampedPosition);
     const coords = view.coordsAtPos(clampedPosition);
-    if (!coords) return null;
     const toolbarHeight = getFixedToolbarHeight();
     const viewportHeight = getWindowContentViewportHeight();
+    if (!coords) {
+      const editorDocumentTop = view.scrollDOM.getBoundingClientRect().top + window.scrollY;
+      return Math.max(0, editorDocumentTop + block.top - toolbarHeight - viewportHeight * clampedRatio);
+    }
     return Math.max(0, coords.top + window.scrollY - toolbarHeight - viewportHeight * clampedRatio);
   };
 

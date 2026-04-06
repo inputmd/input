@@ -68,7 +68,6 @@ interface ReaderAiPanelProps {
   currentEditorPath?: string | null;
   activeReviewTarget?: { changeId: string; hunkId?: string } | null;
   activeReviewTargetRevealToken?: number;
-  onRevealChange?: (changeId: string) => void;
   onRevealHunk?: (changeId: string, hunkId: string) => void;
   error: string | null;
   onEnqueueCommand: (command: string) => boolean;
@@ -217,12 +216,10 @@ type ReaderAiTranscriptBlock =
     };
 
 function ReaderAiTranscriptCard({
-  badge,
   title,
   action,
   children,
 }: {
-  badge: string;
   title: string;
   action?: ComponentChildren;
   children?: ComponentChildren;
@@ -231,7 +228,6 @@ function ReaderAiTranscriptCard({
     <div class="reader-ai-transcript-card">
       <div class="reader-ai-transcript-card-header">
         <div class="reader-ai-transcript-card-copy">
-          <span class="reader-ai-transcript-card-badge">{badge}</span>
           <span class="reader-ai-transcript-card-title">{title}</span>
         </div>
         {action ? <div class="reader-ai-transcript-card-action">{action}</div> : null}
@@ -423,7 +419,6 @@ export function ReaderAiPanel({
   currentEditorPath = null,
   activeReviewTarget = null,
   activeReviewTargetRevealToken = 0,
-  onRevealChange,
   onRevealHunk,
   error,
   onEnqueueCommand,
@@ -1178,7 +1173,6 @@ export function ReaderAiPanel({
       return (
         <div key={block.id} ref={itemRef}>
           <ReaderAiTranscriptCard
-            badge="Discarded"
             title={`Discarded changes (${block.item.changes.length} file${block.item.changes.length === 1 ? '' : 's'})`}
             action={
               canRestore ? (
@@ -1428,7 +1422,6 @@ export function ReaderAiPanel({
                 onApplyWithoutSaving={onApplyWithoutSaving}
                 onUndoEditorApply={onUndoEditorApply}
                 onIgnoreAll={onIgnoreAll}
-                onRevealChange={onRevealChange}
                 onRevealHunk={onRevealHunk}
                 onToggleChangeSelection={onToggleChangeSelection}
                 onToggleHunkSelection={onToggleHunkSelection}

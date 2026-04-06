@@ -1,6 +1,15 @@
 .edit-view {
   --editor-top-right-overlay-top: calc(var(--toolbar-height) + 12px);
+  --editor-top-right-overlay-edge-gap: 12px;
   --editor-top-right-overlay-gap: 8px;
+  --editor-top-right-overlay-left: var(--editor-top-right-overlay-edge-gap);
+  --editor-top-right-overlay-sidepane-offset: 0px;
+  --editor-top-right-overlay-reader-ai-offset: 0px;
+  --editor-top-right-overlay-right: calc(
+    var(--editor-top-right-overlay-sidepane-offset) +
+    var(--editor-top-right-overlay-reader-ai-offset) +
+    var(--editor-top-right-overlay-edge-gap)
+  );
   --editor-top-right-indicator-height: 32px;
   --editor-bottom-right-overlay-bottom: 12px;
   --editor-bottom-right-overlay-gap: 8px;
@@ -12,6 +21,14 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.app-body--with-sidebar .edit-view {
+  --editor-top-right-overlay-left: calc(var(--sidebar-width, 220px) + var(--editor-top-right-overlay-edge-gap));
+}
+
+.app-body--with-reader-ai .edit-view {
+  --editor-top-right-overlay-reader-ai-offset: var(--reader-ai-width, 360px);
 }
 
 .editor-inline-alert {
@@ -68,7 +85,8 @@
 .editor-top-right-overlays {
   position: fixed;
   top: var(--editor-top-right-overlay-top);
-  right: 12px;
+  left: var(--editor-top-right-overlay-left);
+  right: var(--editor-top-right-overlay-right);
   z-index: 16;
   display: flex;
   flex-direction: column;
@@ -96,12 +114,22 @@
   width: fit-content;
   max-width: 100%;
   display: inline-flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: color-mix(in srgb, var(--bg) 16%, var(--toolbar-bg));
   box-shadow: 0 10px 24px color-mix(in srgb, var(--bg) 72%, transparent);
   pointer-events: auto;
+}
+
+.editor-reader-ai-floating-actions-summary {
+  padding-left: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .editor-reader-ai-floating-actions-buttons {
@@ -112,6 +140,10 @@
 
 .editor-reader-ai-floating-actions-buttons button {
   min-height: 24px;
+}
+
+.editor-reader-ai-floating-actions-button-label--compact {
+  display: none;
 }
 
 .editor-preview-alert {
@@ -280,9 +312,52 @@
   margin: calc(var(--editor-padding-y) - 2px) auto 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1023px) {
+  .app-body--with-reader-ai .edit-view {
+    --editor-top-right-overlay-reader-ai-offset: min(92vw, 420px);
+  }
+
+  .editor-reader-ai-floating-actions {
+    max-width: min(320px, calc(100vw - 16px));
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .editor-reader-ai-floating-actions-summary {
+    flex: 1 0 100%;
+    padding-left: 0;
+    white-space: normal;
+  }
+
+  .editor-reader-ai-floating-actions-buttons {
+    flex: 1 0 100%;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .editor-reader-ai-floating-actions-button-label--full {
+    display: none;
+  }
+
+  .editor-reader-ai-floating-actions-button-label--compact {
+    display: inline;
+  }
+
   .editor-top-right-overlays {
-    right: 8px;
+    z-index: 31;
+  }
+}
+
+@media (max-width: 768px) {
+  .edit-view {
+    --editor-top-right-overlay-edge-gap: 8px;
+  }
+
+  .edit-view[data-mobile-preview-open="true"] {
+    --editor-top-right-overlay-sidepane-offset: min(85vw, 480px);
   }
 
   .editor-reader-ai-floating-actions {

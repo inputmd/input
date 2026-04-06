@@ -3,6 +3,7 @@ import type { ReaderAiStagedChange } from '../../src/reader_ai.ts';
 import type { ReaderAiEditorCheckpoint } from '../../src/reader_ai_editor_checkpoints.ts';
 import { buildReaderAiEditorOverlay, hasActionableReaderAiEditorOverlay } from '../../src/reader_ai_editor_state.ts';
 import type { ReaderAiChangeSetRecord, ReaderAiRunRecord } from '../../src/reader_ai_ledger.ts';
+import { generateUnifiedDiff, parseUnifiedDiffHunks } from '../reader_ai_tools.ts';
 
 function createRun(): ReaderAiRunRecord {
   return {
@@ -261,6 +262,50 @@ test('buildReaderAiEditorOverlay maps hunk review status into diff preview actio
   t.is(overlay?.diffPreview?.blocks[0]?.changeId, 'change:1');
   t.is(overlay?.diffPreview?.blocks[0]?.hunkId, 'hunk:1');
   t.is(overlay?.markers?.[0]?.status, 'accepted');
+});
+
+test('buildReaderAiEditorOverlay uses original-document line numbers for later hunks after insertions', (t) => {
+  const originalLines = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const modifiedLines = ['a', 'b', 'insert 1', 'c', 'd', 'e', 'insert 2', 'f', 'g', 'h'];
+  const original = `${originalLines.join('\n')}\n`;
+  const modified = `${modifiedLines.join('\n')}\n`;
+  const diff = generateUnifiedDiff('doc.md', originalLines.join('\n'), modifiedLines.join('\n'));
+  const hunks = parseUnifiedDiffHunks(diff);
+  const stagedChange: ReaderAiStagedChange = {
+    id: 'change:insertions',
+    path: 'doc.md',
+    type: 'edit',
+    diff,
+    revision: 3,
+    originalContent: original,
+    modifiedContent: modified,
+    hunks,
+  };
+
+  const overlay = buildReaderAiEditorOverlay({
+    active: true,
+    path: 'doc.md',
+    revision: 3,
+    currentDocumentSavedContent: original,
+    currentDocumentContent: original,
+    hasUnsavedChanges: false,
+    effectiveStagedChanges: [stagedChange],
+    selectedChangeIds: new Set(['change:insertions']),
+    selectedHunkIdsByChangeId: { 'change:insertions': new Set(hunks.map((hunk) => hunk.id)) },
+    activeChangeSet: null,
+    activeEditorCheckpoint: null,
+    changeSets: [],
+    runs: [],
+  });
+
+  t.deepEqual(
+    overlay?.hunks.map((hunk) => hunk.lineStart),
+    [3, 6],
+  );
+  t.deepEqual(
+    overlay?.markers?.map((marker) => marker.lineNumber),
+    [3, 6],
+  );
 });
 
 test('buildReaderAiEditorOverlay ignores superseded change sets when no active proposal remains', (t) => {

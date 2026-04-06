@@ -1,10 +1,12 @@
 import type { ComponentChildren } from 'preact';
 import {
+  clipInlineDiffSegmentsForDisplay,
   findUnifiedDiffReplacementPair,
   getUnifiedDiffLineParts,
-  LONG_DIFF_LINE_CLIP_THRESHOLD,
-  LONG_DIFF_LINE_CONTEXT_CHARS,
+  type InlineDiffSegment,
+  type InlineDisplaySegment,
   prepareUnifiedDiffLines,
+  selectInlineDiffSegments,
 } from './diff_viewer_utils.ts';
 
 export interface DiffChangeEntry {
@@ -12,52 +14,46 @@ export interface DiffChangeEntry {
   diff: string;
 }
 
-function commonPrefixLength(a: string, b: string): number {
-  const limit = Math.min(a.length, b.length);
-  let i = 0;
-  while (i < limit && a[i] === b[i]) i++;
-  return i;
-}
+function renderInlineDiffSegments(
+  segments: InlineDiffSegment[],
+  changedClass: string,
+  options?: { clipLongLine?: boolean },
+): ComponentChildren {
+  const visibleSegments: InlineDisplaySegment[] =
+    options?.clipLongLine === true
+      ? clipInlineDiffSegmentsForDisplay(segments)
+      : segments.map((segment) => ({ ...segment }));
 
-function commonSuffixLength(a: string, b: string, prefix: number): number {
-  const max = Math.min(a.length, b.length) - prefix;
-  let i = 0;
-  while (i < max && a[a.length - 1 - i] === b[b.length - 1 - i]) i++;
-  return i;
+  return (
+    <>
+      {visibleSegments.map((segment, index) =>
+        segment.ellipsis ? (
+          <span key={index} class="reader-ai-diff-inline-ellipsis">
+            {segment.value}
+          </span>
+        ) : segment.changed ? (
+          <span key={index} class={changedClass}>
+            {segment.value}
+          </span>
+        ) : (
+          segment.value
+        ),
+      )}
+    </>
+  );
 }
 
 function renderDiffContent(line: string, changedClass: string, pairLine?: string): ComponentChildren {
   const { content } = getUnifiedDiffLineParts(line);
   if (!pairLine) return content;
-  const pairContent = pairLine.slice(1);
-  const prefix = commonPrefixLength(content, pairContent);
-  const suffix = commonSuffixLength(content, pairContent, prefix);
-  const changedEnd = content.length - suffix;
-  const unchangedPrefix = content.slice(0, prefix);
-  const changed = content.slice(prefix, changedEnd);
-  const unchangedSuffix = content.slice(changedEnd);
-  const shouldClip = content.length > LONG_DIFF_LINE_CLIP_THRESHOLD;
-  const clippedPrefix =
-    shouldClip && unchangedPrefix.length > LONG_DIFF_LINE_CONTEXT_CHARS
-      ? unchangedPrefix.slice(-LONG_DIFF_LINE_CONTEXT_CHARS)
-      : unchangedPrefix;
-  const clippedSuffix =
-    shouldClip && unchangedSuffix.length > LONG_DIFF_LINE_CONTEXT_CHARS
-      ? unchangedSuffix.slice(0, LONG_DIFF_LINE_CONTEXT_CHARS)
-      : unchangedSuffix;
-  const hasLeadingClip = shouldClip && clippedPrefix !== unchangedPrefix;
-  const hasTrailingClip = shouldClip && clippedSuffix !== unchangedSuffix;
-
-  return (
-    <>
-      {line[0]}
-      {hasLeadingClip ? <span class="reader-ai-diff-inline-ellipsis">…</span> : null}
-      {clippedPrefix}
-      {changed ? <span class={changedClass}>{changed}</span> : null}
-      {clippedSuffix}
-      {hasTrailingClip ? <span class="reader-ai-diff-inline-ellipsis">…</span> : null}
-    </>
+  const { content: pairContent } = getUnifiedDiffLineParts(pairLine);
+  const isDeletion = line.startsWith('-');
+  const segments = selectInlineDiffSegments(
+    isDeletion ? content : pairContent,
+    isDeletion ? pairContent : content,
+    isDeletion ? 'left' : 'right',
   );
+  return renderInlineDiffSegments(segments, changedClass);
 }
 
 function renderUnifiedDiffLine(
@@ -142,6 +138,19 @@ interface SideBySideRow {
   kind: 'context' | 'add' | 'del' | 'replace' | 'meta';
 }
 
+function renderSideBySideCellContent(
+  leftContent: string | null,
+  rightContent: string | null,
+  changedClass: string,
+  side: 'left' | 'right',
+): ComponentChildren {
+  const content = side === 'left' ? leftContent : rightContent;
+  const pairContent = side === 'left' ? rightContent : leftContent;
+  if (content === null) return '';
+  if (pairContent === null || content === pairContent) return content;
+  return renderInlineDiffSegments(selectInlineDiffSegments(leftContent ?? '', rightContent ?? '', side), changedClass);
+}
+
 function buildSideBySideRows(diff: string): SideBySideRow[] {
   const rows: SideBySideRow[] = [];
   const lines = diff.split('\n');
@@ -209,7 +218,9 @@ export function SideBySideDiffView({
                           : ''
                     }`}
                   >
-                    {row.left ?? ''}
+                    {row.kind === 'replace'
+                      ? renderSideBySideCellContent(row.left, row.right, 'reader-ai-diff-inline-change--del', 'left')
+                      : (row.left ?? '')}
                   </div>
                   <div
                     class={`reader-ai-diff-popout-cell reader-ai-diff-popout-cell--right${
@@ -220,7 +231,9 @@ export function SideBySideDiffView({
                           : ''
                     }`}
                   >
-                    {row.right ?? ''}
+                    {row.kind === 'replace'
+                      ? renderSideBySideCellContent(row.left, row.right, 'reader-ai-diff-inline-change--add', 'right')
+                      : (row.right ?? '')}
                   </div>
                 </div>
               ))}
