@@ -149,6 +149,48 @@ test('buildDiffPreviewBlocksFromHunks narrows long single-line replacements to t
   ]);
 });
 
+test('buildDiffPreviewBlocksFromHunks does not narrow a long single-line replacement inside a bare URL', (t) => {
+  const original =
+    'Prefix text with extra context before and after https://example.com/articles/beta-preview-reference to keep the line long.';
+  const modified =
+    'Prefix text with extra context before and after https://example.com/articles/BETA-preview-reference to keep the line long.';
+
+  const diff = generateUnifiedDiff('doc.md', original, modified);
+  const hunks = parseUnifiedDiffHunks(diff);
+  const blocks = buildDiffPreviewBlocksFromHunks(original, modified, hunks);
+
+  t.deepEqual(blocks, [
+    {
+      from: 0,
+      to: original.length,
+      deletedText: original,
+      insertedText: modified,
+      label: hunks[0]?.header,
+    },
+  ]);
+});
+
+test('buildDiffPreviewBlocksFromHunks does not narrow a long single-line replacement inside a markdown link', (t) => {
+  const original =
+    'Prefix text with extra context before and after [release notes beta](https://example.com/docs/reference) to keep the line long.';
+  const modified =
+    'Prefix text with extra context before and after [release notes BETA](https://example.com/docs/reference) to keep the line long.';
+
+  const diff = generateUnifiedDiff('doc.md', original, modified);
+  const hunks = parseUnifiedDiffHunks(diff);
+  const blocks = buildDiffPreviewBlocksFromHunks(original, modified, hunks);
+
+  t.deepEqual(blocks, [
+    {
+      from: 0,
+      to: original.length,
+      deletedText: original,
+      insertedText: modified,
+      label: hunks[0]?.header,
+    },
+  ]);
+});
+
 test('hasVisibleBlockDiffPreview returns true only when a non-inline block preview is present', (t) => {
   t.false(
     hasVisibleBlockDiffPreview({
@@ -424,7 +466,6 @@ test('editorDiffPreviewExtension renders accept reject split buttons with state 
                   status: 'accepted',
                   changeId: 'change-1',
                   hunkId: 'hunk-1',
-                  actions: [{ id: 'review', label: 'Review' }],
                 },
               ],
             },
@@ -443,19 +484,17 @@ test('editorDiffPreviewExtension renders accept reject split buttons with state 
       '.cm-editor-diff-preview-state-split .cm-editor-diff-preview-action',
     );
     t.is(splitButtons.length, 2);
-    t.is(splitButtons[0]?.textContent?.includes('Accepted'), true);
+    t.is(splitButtons[0]?.textContent?.includes('Keep'), true);
     t.is(splitButtons[0]?.querySelectorAll('svg').length, 1);
     t.is(splitButtons[1]?.querySelectorAll('svg').length, 1);
 
     const buttons = view.dom.querySelectorAll<HTMLButtonElement>('.cm-editor-diff-preview-action');
-    t.is(buttons.length, 3);
+    t.is(buttons.length, 2);
     buttons[0]?.click();
     buttons[1]?.click();
-    buttons[2]?.click();
     t.deepEqual(events, [
       { actionId: 'accept', changeId: 'change-1', hunkId: 'hunk-1' },
       { actionId: 'reject', changeId: 'change-1', hunkId: 'hunk-1' },
-      { actionId: 'review', changeId: 'change-1', hunkId: 'hunk-1' },
     ]);
     view.destroy();
   } finally {

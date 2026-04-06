@@ -257,10 +257,7 @@ test('buildReaderAiEditorOverlay maps hunk review status into diff preview actio
 
   t.truthy(overlay);
   t.is(overlay?.hunks[0]?.status, 'accepted');
-  t.deepEqual(overlay?.diffPreview?.blocks[0]?.actions, [
-    { id: 'reject', label: 'Reject', tone: 'danger' },
-    { id: 'review', label: 'View in sidebar' },
-  ]);
+  t.deepEqual(overlay?.diffPreview?.blocks[0]?.actions, [{ id: 'reject', label: 'Reject', tone: 'danger' }]);
   t.is(overlay?.diffPreview?.blocks[0]?.changeId, 'change:1');
   t.is(overlay?.diffPreview?.blocks[0]?.hunkId, 'hunk:1');
   t.is(overlay?.markers?.[0]?.status, 'accepted');

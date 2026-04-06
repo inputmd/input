@@ -122,20 +122,13 @@ function buildReaderAiDiffPreviewActions(hunk: ReaderAiEditorHunkOverlay): Edito
     return [
       { id: 'keep_mine', label: 'Keep mine' },
       { id: 'use_ai', label: 'Use AI', tone: 'primary' },
-      { id: 'review', label: 'View in sidebar' },
     ];
   }
   if (hunk.status === 'accepted') {
-    return [
-      { id: 'reject', label: 'Reject', tone: 'danger' },
-      { id: 'review', label: 'View in sidebar' },
-    ];
+    return [{ id: 'reject', label: 'Reject', tone: 'danger' }];
   }
   if (hunk.status === 'rejected') {
-    return [
-      { id: 'accept', label: 'Accept', tone: 'primary' },
-      { id: 'review', label: 'View in sidebar' },
-    ];
+    return [{ id: 'accept', label: 'Accept', tone: 'primary' }];
   }
   return [];
 }
@@ -168,13 +161,7 @@ function attachReaderAiReviewMetadataToBlocks(options: {
     status:
       options.fileStatus === 'ready' ? 'accepted' : options.fileStatus === 'conflicted' ? 'conflicted' : undefined,
     detail: options.statusMessage ?? undefined,
-    actions:
-      options.fileStatus === 'ready'
-        ? [
-            { id: 'reject', label: 'Reject', tone: 'danger' },
-            { id: 'review', label: 'View in sidebar' },
-          ]
-        : [],
+    actions: options.fileStatus === 'ready' ? [{ id: 'reject', label: 'Reject', tone: 'danger' }] : [],
   }));
 }
 

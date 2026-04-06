@@ -21,7 +21,7 @@ export interface EditorDiffPreview {
   badge?: string;
 }
 
-export type EditorDiffPreviewActionId = 'accept' | 'reject' | 'review' | 'keep_mine' | 'use_ai';
+export type EditorDiffPreviewActionId = 'accept' | 'reject' | 'keep_mine' | 'use_ai';
 
 export interface EditorDiffPreviewAction {
   id: EditorDiffPreviewActionId;
@@ -160,6 +160,27 @@ function commonSuffixLength(left: string, right: string, prefixLength = 0): numb
   return index;
 }
 
+function collectProtectedLinkRanges(line: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const patterns = [/\[[^\]]+\]\((?:[^()\s]+|\([^()\s]*\))+\)/g, /<https?:\/\/[^>\s]+>/g, /\bhttps?:\/\/[^\s<>()]+/g];
+
+  for (const pattern of patterns) {
+    for (const match of line.matchAll(pattern)) {
+      const text = match[0];
+      const start = match.index;
+      if (typeof start !== 'number' || text.length === 0) continue;
+      ranges.push({ start, end: start + text.length });
+    }
+  }
+
+  return ranges;
+}
+
+function rangeIntersectsLink(line: string, start: number, end: number): boolean {
+  if (start >= end) return false;
+  return collectProtectedLinkRanges(line).some((range) => start < range.end && end > range.start);
+}
+
 function narrowLongSingleLineHunkBlock(
   block: EditorDiffPreviewBlock,
   lineStart: number,
@@ -174,6 +195,12 @@ function narrowLongSingleLineHunkBlock(
   const suffixLength = commonSuffixLength(deletedLine, insertedLine, prefixLength);
   const deletedEnd = deletedLine.length - suffixLength;
   const insertedEnd = insertedLine.length - suffixLength;
+  if (
+    rangeIntersectsLink(deletedLine, prefixLength, deletedEnd) ||
+    rangeIntersectsLink(insertedLine, prefixLength, insertedEnd)
+  ) {
+    return null;
+  }
   const narrowedDeleted = deletedLine.slice(prefixLength, deletedEnd);
   const narrowedInserted = insertedLine.slice(prefixLength, insertedEnd);
   if (!narrowedDeleted && !narrowedInserted) return null;
@@ -314,6 +341,17 @@ class DiffPreviewWidget extends WidgetType {
   }
 
   private appendInlineDiffContent(wrapper: HTMLElement): void {
+    if (this.block.status === 'rejected') {
+      const existing = trimSingleTrailingNewline(this.block.deletedText ?? '');
+      if (existing) {
+        const span = document.createElement('span');
+        span.className = 'cm-editor-diff-preview-inline-part cm-editor-diff-preview-inline-part--existing';
+        span.textContent = existing;
+        wrapper.append(span);
+      }
+      return;
+    }
+
     const deleted = trimSingleTrailingNewline(this.block.deletedText ?? '');
     if (deleted) {
       const span = document.createElement('span');
@@ -344,11 +382,11 @@ class DiffPreviewWidget extends WidgetType {
       const stateGroup = document.createElement('div');
       stateGroup.className = 'cm-editor-diff-preview-state-split';
       stateGroup.setAttribute('role', 'group');
-      stateGroup.setAttribute('aria-label', 'Choose whether to accept or reject this change');
+      stateGroup.setAttribute('aria-label', 'Choose whether to keep or ignore this change');
       stateGroup.append(
         this.createActionButton({
           actionId: 'accept',
-          label: currentActionId === 'accept' ? 'Accepted' : 'Accept',
+          label: 'Keep',
           tone: currentActionId === 'accept' ? 'primary' : 'neutral',
           stateKind: 'accept',
           prominent: currentActionId === 'accept',
@@ -357,7 +395,7 @@ class DiffPreviewWidget extends WidgetType {
         }),
         this.createActionButton({
           actionId: 'reject',
-          label: currentActionId === 'reject' ? 'Rejected' : 'Reject',
+          label: 'Ignored',
           tone: currentActionId === 'reject' ? 'danger' : 'neutral',
           stateKind: 'reject',
           prominent: currentActionId === 'reject',

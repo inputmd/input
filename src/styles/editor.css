@@ -656,6 +656,12 @@
   margin-right: 0.25rem;
 }
 
+.cm-editor .cm-editor-diff-preview-inline-part--existing {
+  color: var(--text);
+  background: color-mix(in srgb, var(--btn-bg) 72%, transparent);
+  border-radius: 2px;
+}
+
 .cm-editor .cm-editor-diff-preview-actions {
   display: flex;
   align-items: center;

@@ -1688,13 +1688,6 @@ export function EditView({
   const showModelStatusIndicator = locked;
   const handleDiffPreviewAction = useCallback(
     (event: EditorDiffPreviewActionEvent) => {
-      if (event.actionId === 'review') {
-        onReaderAiOpenReviewTarget?.({
-          changeId: event.changeId,
-          ...(event.hunkId ? { hunkId: event.hunkId } : {}),
-        });
-        return;
-      }
       if (event.actionId === 'accept') {
         onReaderAiToggleReviewTarget?.({
           changeId: event.changeId,
@@ -1719,12 +1712,7 @@ export function EditView({
         void onReaderAiApplyReviewTarget?.({ changeId: event.changeId, hunkId: event.hunkId });
       }
     },
-    [
-      onReaderAiApplyReviewTarget,
-      onReaderAiKeepLocalReviewTarget,
-      onReaderAiOpenReviewTarget,
-      onReaderAiToggleReviewTarget,
-    ],
+    [onReaderAiApplyReviewTarget, onReaderAiKeepLocalReviewTarget, onReaderAiToggleReviewTarget],
   );
 
   return (
