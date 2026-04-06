@@ -5,6 +5,7 @@ import type { ReaderAiEditorCheckpoint } from './reader_ai_editor_checkpoints';
 import type { ReaderAiHistoryEntry } from './reader_ai_history_store';
 import type { ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
 import type { ReaderAiProposalToolCallStatus, ReaderAiSelectedHunkIdsByChangeId } from './reader_ai_state';
+import { buildReaderAiTranscriptFromMessages, type ReaderAiTranscriptItem } from './reader_ai_transcript';
 
 export type ReaderAiConversationScope = { kind: 'document' } | { kind: 'selection'; source: string };
 
@@ -17,6 +18,7 @@ export interface ReaderAiSessionSnapshot {
   sending: boolean;
   applyingChanges: boolean;
   toolStatus: string | null;
+  transcript: ReaderAiTranscriptItem[];
   toolLog: ReaderAiToolLogEntry[];
   editProposals: ReaderAiEditProposal[];
   proposalStatusesByToolCallId: Record<string, ReaderAiProposalToolCallStatus>;
@@ -46,6 +48,7 @@ export function createEmptyReaderAiSessionSnapshot(): ReaderAiSessionSnapshot {
     sending: false,
     applyingChanges: false,
     toolStatus: null,
+    transcript: [],
     toolLog: [],
     editProposals: [],
     proposalStatusesByToolCallId: {},
@@ -84,6 +87,7 @@ export function createReaderAiSessionSnapshotFromHistory(options: {
     queuedCommands: loaded.queuedCommands ?? [],
     summary: loaded.summary ?? '',
     scope: loaded.scope ?? null,
+    transcript: loaded.transcript ?? buildReaderAiTranscriptFromMessages(loaded.messages),
     toolLog: (loaded.toolLog ?? []) as ReaderAiToolLogEntry[],
     editProposals: loaded.editProposals ?? activeChangeSet?.editProposals ?? [],
     proposalStatusesByToolCallId:
@@ -113,6 +117,7 @@ export function createReaderAiHistoryEntryFromSessionSnapshot(
     | 'queuedCommands'
     | 'summary'
     | 'scope'
+    | 'transcript'
     | 'toolLog'
     | 'editProposals'
     | 'proposalStatusesByToolCallId'
@@ -133,6 +138,7 @@ export function createReaderAiHistoryEntryFromSessionSnapshot(
     ...(snapshot.queuedCommands.length > 0 ? { queuedCommands: snapshot.queuedCommands } : {}),
     ...(snapshot.summary ? { summary: snapshot.summary } : {}),
     ...(snapshot.scope ? { scope: snapshot.scope } : {}),
+    ...(snapshot.transcript.length > 0 ? { transcript: snapshot.transcript } : {}),
     ...(snapshot.toolLog.length > 0 ? { toolLog: snapshot.toolLog } : {}),
     ...(snapshot.editProposals.length > 0 ? { editProposals: snapshot.editProposals } : {}),
     ...(Object.keys(snapshot.proposalStatusesByToolCallId).length > 0

@@ -59,6 +59,11 @@ import {
   flushPersistedReaderAiHistoryEntry,
   schedulePersistReaderAiHistoryEntry,
 } from '../reader_ai_state_store';
+import {
+  createReaderAiTranscriptId,
+  type ReaderAiTranscriptItem,
+  reconcileReaderAiTranscriptWithMessages,
+} from '../reader_ai_transcript';
 
 export { buildReaderAiHistoryDocumentKey, type ReaderAiConversationScope, type ReaderAiEditorCheckpoint };
 
@@ -107,6 +112,7 @@ export function useReaderAiSession({
   const [readerAiHasEligibleSelection, setReaderAiHasEligibleSelection] = useState(false);
   const [readerAiSending, setReaderAiSending] = useState(false);
   const [readerAiToolStatus, setReaderAiToolStatus] = useState<string | null>(null);
+  const [readerAiTranscript, setReaderAiTranscript] = useState<ReaderAiTranscriptItem[]>([]);
   const [readerAiToolLog, setReaderAiToolLog] = useState<ReaderAiToolLogEntry[]>([]);
   const [readerAiEditProposals, setReaderAiEditProposals] = useState<ReaderAiEditProposal[]>([]);
   const [readerAiProposalStatusesByToolCallId, setReaderAiProposalStatusesByToolCallId] = useState<
@@ -167,6 +173,24 @@ export function useReaderAiSession({
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const readerAiCurrentRunIdRef = useRef<string | null>(null);
   const readerAiStagedFileContentsRef = useRef<Record<string, string>>(readerAiStagedFileContents);
+
+  const appendReaderAiTranscriptItem = useCallback((item: ReaderAiTranscriptItem) => {
+    setReaderAiTranscript((current) => [...current, item]);
+  }, []);
+
+  const updateReaderAiTranscriptItem = useCallback(
+    (itemId: string | null, updater: (item: ReaderAiTranscriptItem) => ReaderAiTranscriptItem | null) => {
+      if (!itemId) return;
+      setReaderAiTranscript((current) =>
+        current.flatMap((item) => {
+          if (item.id !== itemId) return [item];
+          const updated = updater(item);
+          return updated ? [updated] : [];
+        }),
+      );
+    },
+    [],
+  );
 
   const updateReaderAiRun = useCallback((runId: string, updater: (run: ReaderAiRunRecord) => ReaderAiRunRecord) => {
     setReaderAiRuns((current) =>
@@ -262,6 +286,7 @@ export function useReaderAiSession({
     setReaderAiSending(snapshot.sending);
     setReaderAiApplyingChanges(snapshot.applyingChanges);
     setReaderAiToolStatus(snapshot.toolStatus);
+    setReaderAiTranscript(snapshot.transcript);
     setReaderAiToolLog(snapshot.toolLog);
     setReaderAiEditProposals(snapshot.editProposals);
     setReaderAiProposalStatusesByToolCallId(snapshot.proposalStatusesByToolCallId);
@@ -370,6 +395,7 @@ export function useReaderAiSession({
         queuedCommands: readerAiQueuedCommands,
         summary: readerAiSummary,
         scope: readerAiConversationScope,
+        transcript: readerAiTranscript,
         toolLog: readerAiToolLog,
         editProposals: readerAiEditProposals,
         proposalStatusesByToolCallId: readerAiProposalStatusesByToolCallId,
@@ -397,6 +423,7 @@ export function useReaderAiSession({
       readerAiEditorCheckpoints,
       readerAiProposalStatusesByToolCallId,
       readerAiRuns,
+      readerAiTranscript,
       readerAiStagedChanges,
       readerAiStagedChangesInvalid,
       readerAiStagedFileContents,
@@ -477,6 +504,16 @@ export function useReaderAiSession({
     readerAiAbortRef.current?.abort();
     readerAiAbortRef.current = null;
     readerAiCurrentRunIdRef.current = null;
+    setReaderAiTranscript((current) => {
+      const lastIndex = current.length - 1;
+      if (lastIndex < 0) return current;
+      const last = current[lastIndex];
+      if (last.kind !== 'assistant_turn' || last.status !== 'streaming') return current;
+      if (!last.content.trim()) return current.slice(0, -1);
+      const next = [...current];
+      next[lastIndex] = { ...last, status: 'aborted' };
+      return next;
+    });
     setReaderAiSending(false);
     setReaderAiToolStatus(null);
   }, [updateReaderAiRun]);
@@ -499,6 +536,7 @@ export function useReaderAiSession({
       inlinePromptAbortRef.current = null;
       resetInlinePromptState();
       setReaderAiMessages(messages);
+      setReaderAiTranscript((current) => reconcileReaderAiTranscriptWithMessages(current, messages));
       setReaderAiQueuedCommands([]);
       setReaderAiSummary('');
       setReaderAiSending(false);
@@ -1017,6 +1055,7 @@ export function useReaderAiSession({
         scope: nextConversationScope,
         ...(parentRunId ? { parentRunId } : {}),
       });
+      const initialAssistantTurnId = createReaderAiTranscriptId('assistant');
       readerAiCurrentRunIdRef.current = currentRun.id;
       setReaderAiRuns((current) => [...current, currentRun].slice(-12));
       setReaderAiActiveRunId(currentRun.id);
@@ -1027,6 +1066,18 @@ export function useReaderAiSession({
         ...baseMessages,
         assistantEdited ? { role: 'assistant', content: '', edited: true } : { role: 'assistant', content: '' },
       ]);
+      setReaderAiTranscript((current) => [
+        ...reconcileReaderAiTranscriptWithMessages(current, baseMessages),
+        {
+          id: initialAssistantTurnId,
+          kind: 'assistant_turn',
+          runId: currentRun.id,
+          iteration: 0,
+          content: '',
+          ...(assistantEdited ? { edited: true } : {}),
+          status: 'streaming',
+        },
+      ]);
       setReaderAiSending(true);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
@@ -1034,6 +1085,8 @@ export function useReaderAiSession({
 
       let received = false;
       let receivedStagedChanges = false;
+      let currentAssistantTurnId: string | null = initialAssistantTurnId;
+      let currentIteration = 0;
       let separateNextTurnOutput = false;
       let streamErrorMessage: string | null = null;
       let streamedResponseChars = 0;
@@ -1084,6 +1137,17 @@ export function useReaderAiSession({
                 ? (((argsObj as Record<string, unknown>).path as string | undefined) ??
                   ((argsObj as Record<string, unknown>).query as string | undefined))
                 : undefined;
+              appendReaderAiTranscriptItem({
+                id: createReaderAiTranscriptId('tool-call'),
+                kind: 'tool_call',
+                runId: currentRun.id,
+                iteration: currentIteration,
+                toolCallId: event.id ?? createReaderAiTranscriptId('tool'),
+                name: event.name,
+                ...(toolArguments ? { argumentsJson: toolArguments } : {}),
+                ...(typeof detail === 'string' ? { detail } : {}),
+                ...(event.name === 'task' && event.id ? { taskId: event.id } : {}),
+              });
               setReaderAiToolLog((log) => [
                 ...log,
                 {
@@ -1125,6 +1189,18 @@ export function useReaderAiSession({
                   ? `${event.error} — ${event.preview}`
                   : event.error
                 : event.preview;
+              appendReaderAiTranscriptItem({
+                id: createReaderAiTranscriptId('tool-result'),
+                kind: 'tool_result',
+                runId: currentRun.id,
+                iteration: currentIteration,
+                toolCallId: event.id ?? createReaderAiTranscriptId('tool'),
+                name: event.name,
+                ...(resultDetail ? { preview: resultDetail } : {}),
+                ...(event.error ? { error: event.error } : {}),
+                ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+                ...(event.name === 'task' && event.id ? { taskId: event.id } : {}),
+              });
               const callStatus: ReaderAiToolLogEntry['callStatus'] = event.error ? 'rejected' : 'succeeded';
               setReaderAiToolLog((log) => [
                 ...log.map((entry) =>
@@ -1196,6 +1272,13 @@ export function useReaderAiSession({
                       status: finalStatus,
                     }
                   : proposal;
+                appendReaderAiTranscriptItem({
+                  id: createReaderAiTranscriptId('proposal'),
+                  kind: 'edit_proposal',
+                  runId: currentRun.id,
+                  iteration: currentIteration,
+                  proposal: nextProposal,
+                });
                 return [...current.filter((entry) => entry.id !== proposal.id), nextProposal];
               });
             },
@@ -1215,6 +1298,17 @@ export function useReaderAiSession({
                           : 'Error';
               const detail = event.detail ? `${phaseLabel}: ${event.detail}` : phaseLabel;
               setReaderAiToolStatus(detail);
+              if (event.id) {
+                appendReaderAiTranscriptItem({
+                  id: createReaderAiTranscriptId('task-progress'),
+                  kind: 'task_progress',
+                  runId: currentRun.id,
+                  iteration: currentIteration,
+                  taskId: event.id,
+                  phase: event.phase,
+                  detail,
+                });
+              }
               setReaderAiToolLog((log) => [...log, { type: 'progress', name: 'task', detail, taskId: event.id }]);
               updateReaderAiRun(currentRun.id, (run) => ({
                 ...run,
@@ -1306,6 +1400,13 @@ export function useReaderAiSession({
                 return next;
               });
               setReaderAiDocumentEditedContent(typeof documentContent === 'string' ? documentContent : null);
+              appendReaderAiTranscriptItem({
+                id: createReaderAiTranscriptId('staged'),
+                kind: 'staged_changes_snapshot',
+                runId: currentRun.id,
+                iteration: currentIteration,
+                changes,
+              });
               ensureReaderAiActiveChangeSet(currentRun.id, (changeSet) => ({
                 ...changeSet,
                 status: changes.length > 0 ? 'ready' : changeSet.status,
@@ -1313,7 +1414,19 @@ export function useReaderAiSession({
             },
             onTurnStart: (iteration) => {
               logReceiveStart('turn_start');
-              if (iteration <= 0 || !separateNextTurnOutput) return;
+              currentIteration = iteration;
+              if (iteration <= 0) return;
+              currentAssistantTurnId = createReaderAiTranscriptId('assistant');
+              appendReaderAiTranscriptItem({
+                id: currentAssistantTurnId,
+                kind: 'assistant_turn',
+                runId: currentRun.id,
+                iteration,
+                content: '',
+                ...(assistantEdited ? { edited: true } : {}),
+                status: 'streaming',
+              });
+              if (!separateNextTurnOutput) return;
               setReaderAiMessages((current) => {
                 if (current.length === 0) return current;
                 const updated = [...current];
@@ -1326,19 +1439,47 @@ export function useReaderAiSession({
               });
               separateNextTurnOutput = false;
             },
-            onTurnEnd: (_iteration, reason) => {
+            onTurnEnd: (iteration, reason) => {
+              currentIteration = iteration;
+              updateReaderAiTranscriptItem(currentAssistantTurnId, (item) =>
+                item.kind !== 'assistant_turn'
+                  ? item
+                  : { ...item, status: reason === 'timeout' ? 'failed' : 'completed' },
+              );
               if (reason === 'tool_calls') separateNextTurnOutput = true;
             },
             onStreamError: (message) => {
               logReceiveStart('stream_error');
               streamErrorMessage = message;
               setReaderAiError(message);
+              appendReaderAiTranscriptItem({
+                id: createReaderAiTranscriptId('error'),
+                kind: 'error',
+                runId: currentRun.id,
+                iteration: currentIteration,
+                message,
+              });
             },
             onDelta: (delta) => {
               if (!delta) return;
               logReceiveStart('delta');
               received = true;
               streamedResponseChars += delta.length;
+              if (!currentAssistantTurnId) {
+                currentAssistantTurnId = createReaderAiTranscriptId('assistant');
+                appendReaderAiTranscriptItem({
+                  id: currentAssistantTurnId,
+                  kind: 'assistant_turn',
+                  runId: currentRun.id,
+                  iteration: currentIteration,
+                  content: '',
+                  ...(assistantEdited ? { edited: true } : {}),
+                  status: 'streaming',
+                });
+              }
+              updateReaderAiTranscriptItem(currentAssistantTurnId, (item) =>
+                item.kind !== 'assistant_turn' ? item : { ...item, content: `${item.content}${delta}` },
+              );
               setReaderAiMessages((current) => {
                 if (current.length === 0) {
                   return assistantEdited
@@ -1379,6 +1520,15 @@ export function useReaderAiSession({
               : modelId.trim().toLowerCase().endsWith(':free')
                 ? 'No response. Using a free endpoint, consider trying a different model.'
                 : 'No response.';
+          updateReaderAiTranscriptItem(currentAssistantTurnId, (item) =>
+            item.kind !== 'assistant_turn'
+              ? item
+              : {
+                  ...item,
+                  content: item.content.trim() ? item.content : fallback,
+                  status: 'completed',
+                },
+          );
           setReaderAiMessages((current) => {
             if (current.length === 0) {
               return assistantEdited
@@ -1400,6 +1550,9 @@ export function useReaderAiSession({
             return updated;
           });
         }
+        updateReaderAiTranscriptItem(currentAssistantTurnId, (item) =>
+          item.kind !== 'assistant_turn' || item.status !== 'streaming' ? item : { ...item, status: 'completed' },
+        );
 
         updateReaderAiRun(currentRun.id, (run) => ({
           ...run,
@@ -1425,6 +1578,21 @@ export function useReaderAiSession({
           if (last.role === 'assistant' && !last.content.trim()) return current.slice(0, -1);
           return current;
         });
+        setReaderAiTranscript((current) => {
+          const itemId = currentAssistantTurnId;
+          if (!itemId) return current;
+          return current.flatMap((item) => {
+            if (item.id !== itemId || item.kind !== 'assistant_turn') return [item];
+            if (!item.content.trim()) return [];
+            return [
+              {
+                ...item,
+                status:
+                  err instanceof DOMException && err.name === 'AbortError' ? ('aborted' as const) : ('failed' as const),
+              },
+            ];
+          });
+        });
         updateReaderAiRun(currentRun.id, (run) => ({
           ...run,
           status: err instanceof DOMException && err.name === 'AbortError' ? 'aborted' : 'failed',
@@ -1445,10 +1613,12 @@ export function useReaderAiSession({
       }
     },
     [
+      appendReaderAiTranscriptItem,
       ensureReaderAiActiveChangeSet,
       readerAiConversationScope,
       readerAiDocumentEditedContent,
       readerAiSummary,
+      updateReaderAiTranscriptItem,
       updateReaderAiRun,
     ],
   );
@@ -1488,6 +1658,7 @@ export function useReaderAiSession({
     readerAiStagedChangesInvalid,
     readerAiStagedChangesStreaming,
     readerAiRuns,
+    readerAiTranscript,
     readerAiToolLog,
     readerAiToolStatus,
     readerAiActiveEditorCheckpoint,

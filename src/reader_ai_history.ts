@@ -3,6 +3,7 @@ import type { ReaderAiEditProposal, ReaderAiStagedChange, ReaderAiStagedHunk } f
 import type { ReaderAiEditorCheckpoint } from './reader_ai_editor_checkpoints';
 import type { ReaderAiStepErrorCode } from './reader_ai_errors';
 import type { ReaderAiChangeSetFileRecord, ReaderAiChangeSetRecord, ReaderAiRunRecord } from './reader_ai_ledger';
+import type { ReaderAiTranscriptItem } from './reader_ai_transcript';
 import type { Route } from './routing';
 import type { PublicRepoRef } from './wiki_links';
 
@@ -16,6 +17,7 @@ export interface ReaderAiHistoryEntry {
   queuedCommands?: string[];
   summary?: string;
   scope?: { kind: 'document' } | { kind: 'selection'; source: string };
+  transcript?: ReaderAiTranscriptItem[];
   toolLog?: Array<{
     type: 'call' | 'result' | 'progress';
     id?: string;
@@ -39,6 +41,210 @@ export interface ReaderAiHistoryEntry {
   activeRunId?: string;
   changeSets?: ReaderAiChangeSetRecord[];
   activeChangeSetId?: string;
+}
+
+function normalizePersistedTranscript(value: unknown): NonNullable<ReaderAiHistoryEntry['transcript']> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry): ReaderAiTranscriptItem | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const kind = (entry as { kind?: unknown }).kind;
+      const id = typeof (entry as { id?: unknown }).id === 'string' ? (entry as { id: string }).id : '';
+      if (!id || typeof kind !== 'string') return null;
+
+      if (kind === 'user_message') {
+        const content =
+          typeof (entry as { content?: unknown }).content === 'string' ? (entry as { content: string }).content : '';
+        const messageIndex =
+          typeof (entry as { messageIndex?: unknown }).messageIndex === 'number'
+            ? (entry as { messageIndex: number }).messageIndex
+            : NaN;
+        if (!Number.isFinite(messageIndex)) return null;
+        return {
+          id,
+          kind,
+          messageIndex,
+          content,
+          ...((entry as { edited?: unknown }).edited === true ? { edited: true } : {}),
+        };
+      }
+
+      if (kind === 'assistant_turn') {
+        const status = (entry as { status?: unknown }).status;
+        const content =
+          typeof (entry as { content?: unknown }).content === 'string' ? (entry as { content: string }).content : '';
+        if (status !== 'streaming' && status !== 'completed' && status !== 'aborted' && status !== 'failed')
+          return null;
+        return {
+          id,
+          kind,
+          content,
+          status,
+          ...(typeof (entry as { runId?: unknown }).runId === 'string'
+            ? { runId: (entry as { runId: string }).runId }
+            : {}),
+          ...(typeof (entry as { iteration?: unknown }).iteration === 'number'
+            ? { iteration: (entry as { iteration: number }).iteration }
+            : {}),
+          ...((entry as { edited?: unknown }).edited === true ? { edited: true } : {}),
+        };
+      }
+
+      if (kind === 'tool_call') {
+        const toolCallId =
+          typeof (entry as { toolCallId?: unknown }).toolCallId === 'string'
+            ? (entry as { toolCallId: string }).toolCallId
+            : '';
+        const name = typeof (entry as { name?: unknown }).name === 'string' ? (entry as { name: string }).name : '';
+        if (!toolCallId || !name) return null;
+        return {
+          id,
+          kind,
+          toolCallId,
+          name,
+          ...(typeof (entry as { runId?: unknown }).runId === 'string'
+            ? { runId: (entry as { runId: string }).runId }
+            : {}),
+          ...(typeof (entry as { iteration?: unknown }).iteration === 'number'
+            ? { iteration: (entry as { iteration: number }).iteration }
+            : {}),
+          ...(typeof (entry as { argumentsJson?: unknown }).argumentsJson === 'string'
+            ? { argumentsJson: (entry as { argumentsJson: string }).argumentsJson }
+            : {}),
+          ...(typeof (entry as { detail?: unknown }).detail === 'string'
+            ? { detail: (entry as { detail: string }).detail }
+            : {}),
+          ...(typeof (entry as { taskId?: unknown }).taskId === 'string'
+            ? { taskId: (entry as { taskId: string }).taskId }
+            : {}),
+        };
+      }
+
+      if (kind === 'tool_result') {
+        const toolCallId =
+          typeof (entry as { toolCallId?: unknown }).toolCallId === 'string'
+            ? (entry as { toolCallId: string }).toolCallId
+            : '';
+        const name = typeof (entry as { name?: unknown }).name === 'string' ? (entry as { name: string }).name : '';
+        if (!toolCallId || !name) return null;
+        const errorCode = (entry as { errorCode?: unknown }).errorCode;
+        return {
+          id,
+          kind,
+          toolCallId,
+          name,
+          ...(typeof (entry as { runId?: unknown }).runId === 'string'
+            ? { runId: (entry as { runId: string }).runId }
+            : {}),
+          ...(typeof (entry as { iteration?: unknown }).iteration === 'number'
+            ? { iteration: (entry as { iteration: number }).iteration }
+            : {}),
+          ...(typeof (entry as { preview?: unknown }).preview === 'string'
+            ? { preview: (entry as { preview: string }).preview }
+            : {}),
+          ...(typeof (entry as { error?: unknown }).error === 'string'
+            ? { error: (entry as { error: string }).error }
+            : {}),
+          ...(errorCode === 'invalid_arguments' ||
+          errorCode === 'conflict' ||
+          errorCode === 'not_found' ||
+          errorCode === 'timeout' ||
+          errorCode === 'rate_limited' ||
+          errorCode === 'network' ||
+          errorCode === 'task_failed' ||
+          errorCode === 'unknown_tool' ||
+          errorCode === 'unknown'
+            ? { errorCode: errorCode as ReaderAiStepErrorCode }
+            : {}),
+          ...(typeof (entry as { taskId?: unknown }).taskId === 'string'
+            ? { taskId: (entry as { taskId: string }).taskId }
+            : {}),
+        };
+      }
+
+      if (kind === 'task_progress') {
+        const taskId =
+          typeof (entry as { taskId?: unknown }).taskId === 'string' ? (entry as { taskId: string }).taskId : '';
+        const phase = (entry as { phase?: unknown }).phase;
+        if (
+          !taskId ||
+          (phase !== 'started' &&
+            phase !== 'iteration_start' &&
+            phase !== 'tool_call' &&
+            phase !== 'tool_result' &&
+            phase !== 'completed' &&
+            phase !== 'error')
+        ) {
+          return null;
+        }
+        return {
+          id,
+          kind,
+          taskId,
+          phase,
+          ...(typeof (entry as { runId?: unknown }).runId === 'string'
+            ? { runId: (entry as { runId: string }).runId }
+            : {}),
+          ...(typeof (entry as { iteration?: unknown }).iteration === 'number'
+            ? { iteration: (entry as { iteration: number }).iteration }
+            : {}),
+          ...(typeof (entry as { detail?: unknown }).detail === 'string'
+            ? { detail: (entry as { detail: string }).detail }
+            : {}),
+        };
+      }
+
+      if (kind === 'edit_proposal') {
+        const proposal = normalizePersistedEditProposals([(entry as { proposal?: unknown }).proposal])[0];
+        if (!proposal) return null;
+        return {
+          id,
+          kind,
+          proposal,
+          ...(typeof (entry as { runId?: unknown }).runId === 'string'
+            ? { runId: (entry as { runId: string }).runId }
+            : {}),
+          ...(typeof (entry as { iteration?: unknown }).iteration === 'number'
+            ? { iteration: (entry as { iteration: number }).iteration }
+            : {}),
+        };
+      }
+
+      if (kind === 'staged_changes_snapshot') {
+        const normalizedChanges = normalizePersistedStagedChanges((entry as { changes?: unknown }).changes).changes;
+        return {
+          id,
+          kind,
+          changes: normalizedChanges,
+          ...(typeof (entry as { runId?: unknown }).runId === 'string'
+            ? { runId: (entry as { runId: string }).runId }
+            : {}),
+          ...(typeof (entry as { iteration?: unknown }).iteration === 'number'
+            ? { iteration: (entry as { iteration: number }).iteration }
+            : {}),
+        };
+      }
+
+      if (kind === 'error') {
+        const message =
+          typeof (entry as { message?: unknown }).message === 'string' ? (entry as { message: string }).message : '';
+        if (!message) return null;
+        return {
+          id,
+          kind,
+          message,
+          ...(typeof (entry as { runId?: unknown }).runId === 'string'
+            ? { runId: (entry as { runId: string }).runId }
+            : {}),
+          ...(typeof (entry as { iteration?: unknown }).iteration === 'number'
+            ? { iteration: (entry as { iteration: number }).iteration }
+            : {}),
+        };
+      }
+
+      return null;
+    })
+    .filter((entry): entry is ReaderAiTranscriptItem => entry !== null);
 }
 
 export interface ReaderAiHistoryStore {
@@ -675,6 +881,8 @@ export function loadReaderAiHistoryStore(): ReaderAiHistoryStore {
             parsed.scope = { kind: 'selection', source };
           }
         }
+        const normalizedTranscript = normalizePersistedTranscript((entry as { transcript?: unknown }).transcript);
+        if (normalizedTranscript.length > 0) parsed.transcript = normalizedTranscript;
         const normalizedToolLog = normalizePersistedToolLog(entry.toolLog);
         if (normalizedToolLog.length > 0) parsed.toolLog = normalizedToolLog;
         const editProposals = normalizePersistedEditProposals((entry as { editProposals?: unknown }).editProposals);
@@ -748,6 +956,7 @@ export function persistReaderAiMessagesToHistory(
   queuedCommands?: string[],
   summary?: string,
   scope?: ReaderAiHistoryEntry['scope'],
+  transcript?: ReaderAiTranscriptItem[],
   toolLog?: Array<{
     type: 'call' | 'result' | 'progress';
     id?: string;
@@ -778,6 +987,7 @@ export function persistReaderAiMessagesToHistory(
   if (queuedCommands && queuedCommands.length > 0) entry.queuedCommands = queuedCommands.slice(0, 10);
   if (summary) entry.summary = summary;
   if (scope) entry.scope = scope;
+  if (transcript && transcript.length > 0) entry.transcript = transcript;
   if (toolLog && toolLog.length > 0) entry.toolLog = toolLog;
   if (editProposals && editProposals.length > 0) entry.editProposals = editProposals;
   if (proposalStatusesByToolCallId && Object.keys(proposalStatusesByToolCallId).length > 0)

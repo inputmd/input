@@ -22,6 +22,7 @@ export function persistReaderAiHistoryEntry(historyKey: string, entry: ReaderAiH
     entry.queuedCommands,
     entry.summary,
     entry.scope,
+    entry.transcript,
     entry.toolLog,
     entry.editProposals,
     entry.proposalStatusesByToolCallId,

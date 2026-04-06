@@ -7,10 +7,11 @@ import { parseMarkdownToHtml } from '../markdown';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from '../reader_ai';
 import type { ReaderAiRunRecord } from '../reader_ai_ledger';
 import type { ReaderAiProposalToolCallStatus } from '../reader_ai_state';
+import type { ReaderAiTranscriptItem } from '../reader_ai_transcript';
 import { copyTextToClipboard } from '../util';
 import { ReaderAiRunHistorySection } from './ReaderAiRunHistory';
 import { StagedChangesSection } from './ReaderAiStagedChanges';
-import { type ReaderAiToolLogEntry, ToolLogSection } from './ReaderAiToolLog';
+import type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
 
 export type { ReaderAiToolLogEntry } from './ReaderAiToolLog';
 
@@ -36,6 +37,7 @@ interface ReaderAiPanelProps {
   modelsError: string | null;
   selectedModel: string;
   messages: ReaderAiMessage[];
+  transcript: ReaderAiTranscriptItem[];
   runs: ReaderAiRunRecord[];
   queuedCommands: string[];
   sending: boolean;
@@ -83,6 +85,13 @@ interface ReaderAiPanelProps {
 
 const INLINE_SPINNER_HOST_TAGS = new Set(['P', 'LI', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TD', 'TH']);
 const READER_AI_BOTTOM_BUFFER_PX = 12;
+const READER_AI_TOOL_LABELS: Record<string, string> = {
+  read_document: 'Read document',
+  search_document: 'Searched document',
+  propose_replace_region: 'Proposed region replacement',
+  propose_replace_matches: 'Proposed match replacement',
+  task: 'Ran subagent',
+};
 
 function getLastMeaningfulNode(root: ParentNode): ChildNode | null {
   for (let node = root.lastChild; node; node = node.previousSibling) {
@@ -115,6 +124,7 @@ function findInlineSpinnerHost(root: HTMLElement): HTMLElement {
 function buildReaderAiTranscript(options: {
   selectedModel: string;
   messages: ReaderAiMessage[];
+  transcript: ReaderAiTranscriptItem[];
   runs: ReaderAiRunRecord[];
   toolLog: ReaderAiToolLogEntry[];
   editProposals: ReaderAiEditProposal[];
@@ -133,6 +143,7 @@ function buildReaderAiTranscript(options: {
       toolStatus: options.toolStatus,
       queuedCommands: options.queuedCommands,
       messages: options.messages,
+      transcript: options.transcript,
       toolLog: options.toolLog,
       runs: options.runs,
       editProposals: options.editProposals,
@@ -141,6 +152,162 @@ function buildReaderAiTranscript(options: {
     null,
     2,
   );
+}
+
+function readerAiToolLabel(name: string): string {
+  return READER_AI_TOOL_LABELS[name] ?? name;
+}
+
+function readerAiTranscriptIterationKey(item: { runId?: string; iteration?: number }): string {
+  return `${item.runId ?? 'unknown-run'}:${typeof item.iteration === 'number' ? item.iteration : -1}`;
+}
+
+type ReaderAiInlineActivity =
+  | {
+      id: string;
+      kind: 'tool';
+      toolCallId: string;
+      name: string;
+      detail?: string;
+      error?: string;
+      pending: boolean;
+    }
+  | {
+      id: string;
+      kind: 'task_progress';
+      detail: string;
+    }
+  | {
+      id: string;
+      kind: 'error';
+      message: string;
+    };
+
+type ReaderAiTranscriptBlock =
+  | {
+      id: string;
+      kind: 'user';
+      item: Extract<ReaderAiTranscriptItem, { kind: 'user_message' }>;
+    }
+  | {
+      id: string;
+      kind: 'assistant';
+      runId?: string;
+      edited?: boolean;
+      status: Extract<ReaderAiTranscriptItem, { kind: 'assistant_turn' }>['status'];
+      entries: Array<
+        | {
+            id: string;
+            kind: 'content';
+            content: string;
+          }
+        | {
+            id: string;
+            kind: 'activity';
+            activity: ReaderAiInlineActivity;
+          }
+      >;
+    };
+
+function appendReaderAiAssistantContent(current: string, next: string): string {
+  if (!current.trim()) return next;
+  if (!next.trim()) return current;
+  return `${current}\n\n${next}`;
+}
+
+function buildReaderAiInlineActivity(
+  item: Exclude<ReaderAiTranscriptItem, Extract<ReaderAiTranscriptItem, { kind: 'user_message' | 'assistant_turn' }>>,
+): ReaderAiInlineActivity | null {
+  if (item.kind === 'tool_call') {
+    return {
+      id: item.id,
+      kind: 'tool',
+      toolCallId: item.toolCallId,
+      name: item.name,
+      ...(item.detail ? { detail: item.detail } : {}),
+      pending: true,
+    };
+  }
+  if (item.kind === 'tool_result') {
+    return {
+      id: item.id,
+      kind: 'tool',
+      toolCallId: item.toolCallId,
+      name: item.name,
+      ...(item.error ? { error: item.error } : {}),
+      pending: false,
+    };
+  }
+  if (item.kind === 'task_progress') {
+    return {
+      id: item.id,
+      kind: 'task_progress',
+      detail: item.detail ?? 'Subagent update',
+    };
+  }
+  if (item.kind === 'edit_proposal' || item.kind === 'staged_changes_snapshot') return null;
+  return {
+    id: item.id,
+    kind: 'error',
+    message: item.message,
+  };
+}
+
+function replaceReaderAiInlineToolActivity(
+  entries: Extract<ReaderAiTranscriptBlock, { kind: 'assistant' }>['entries'],
+  nextActivity: Extract<ReaderAiInlineActivity, { kind: 'tool' }>,
+): void {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry.kind !== 'activity') continue;
+    const candidate = entry.activity;
+    if (candidate.kind !== 'tool' || candidate.toolCallId !== nextActivity.toolCallId) continue;
+    entries[index] = {
+      ...entry,
+      activity: {
+        ...nextActivity,
+        ...(candidate.detail ? { detail: candidate.detail } : {}),
+      },
+    };
+    return;
+  }
+  entries.push({
+    id: nextActivity.id,
+    kind: 'activity',
+    activity: nextActivity,
+  });
+}
+
+function readerAiInlineActivityPresentation(activity: ReaderAiInlineActivity): {
+  text: string;
+  tone: 'default' | 'error';
+  pending?: boolean;
+} {
+  if (activity.kind === 'tool') {
+    const label = readerAiToolLabel(activity.name);
+    const text = activity.detail ? `${label}: ${activity.detail}` : label;
+    if (activity.pending) {
+      return {
+        text,
+        tone: 'default',
+        pending: true,
+      };
+    }
+    return {
+      text,
+      tone: activity.error ? 'error' : 'default',
+    };
+  }
+  if (activity.kind === 'task_progress') {
+    return {
+      text: `Subagent: ${activity.detail}`,
+      tone: 'default',
+    };
+  }
+  return {
+    text: activity.message,
+    tone: 'error',
+  };
 }
 
 function ReaderAiAssistantMessage({
@@ -187,12 +354,13 @@ export function ReaderAiPanel({
   modelsError,
   selectedModel,
   messages,
+  transcript,
   runs,
   queuedCommands,
   sending,
   toolStatus,
   toolLog,
-  proposalStatusesByToolCallId,
+  proposalStatusesByToolCallId: _proposalStatusesByToolCallId,
   editProposals,
   stagedChanges,
   stagedChangesStreaming = false,
@@ -267,13 +435,6 @@ export function ReaderAiPanel({
     return null;
   }, [modelsLoading, modelsError, queuedCommands.length, selectedModel, sending]);
   const composerInputDisabled = !selectedModel;
-  let lastUserMessageIndex = -1;
-  for (let i = messageCount - 1; i >= 0; i--) {
-    if (messages[i].role === 'user') {
-      lastUserMessageIndex = i;
-      break;
-    }
-  }
   const composerPlaceholder = selectionModeEnabled ? 'Ask about this selection...' : 'Ask about this document...';
   const isAssistantThinking =
     sending &&
@@ -332,13 +493,20 @@ export function ReaderAiPanel({
     root.scrollTop = getConversationEndScrollTop(root);
   }, [getConversationEndScrollTop, isNearConversationEnd]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: toolLog.length and editProposals.length trigger scroll on new activity
+  // biome-ignore lint/correctness/useExhaustiveDependencies: transcript.length and editProposals.length trigger scroll on new activity
   useEffect(() => {
     const root = messagesRef.current;
     if (!root || (messageCount === 0 && !sending)) return;
     if (!pinnedToBottomRef.current && !isNearConversationEnd(root)) return;
     root.scrollTop = getConversationEndScrollTop(root);
-  }, [editProposals.length, getConversationEndScrollTop, isNearConversationEnd, messageCount, sending, toolLog.length]);
+  }, [
+    editProposals.length,
+    getConversationEndScrollTop,
+    isNearConversationEnd,
+    messageCount,
+    sending,
+    transcript.length,
+  ]);
 
   useEffect(() => {
     if (editingIndex === null) return;
@@ -637,6 +805,7 @@ export function ReaderAiPanel({
         buildReaderAiTranscript({
           selectedModel,
           messages,
+          transcript,
           runs,
           toolLog,
           editProposals,
@@ -658,6 +827,7 @@ export function ReaderAiPanel({
     selectedModel,
     sending,
     stagedChanges,
+    transcript,
     toolLog,
     toolStatus,
   ]);
@@ -679,6 +849,281 @@ export function ReaderAiPanel({
     },
     [getActionErrorMessage, onRetryRunStep],
   );
+
+  const transcriptBlocks = useMemo(() => {
+    const proposalIterationKeys = new Set(
+      transcript
+        .filter(
+          (item): item is Extract<ReaderAiTranscriptItem, { kind: 'edit_proposal' }> => item.kind === 'edit_proposal',
+        )
+        .map((item) => readerAiTranscriptIterationKey(item)),
+    );
+
+    const transcriptItems = transcript.filter((item) => {
+      if (item.kind !== 'staged_changes_snapshot') return true;
+      return !proposalIterationKeys.has(readerAiTranscriptIterationKey(item));
+    });
+    const blocks: ReaderAiTranscriptBlock[] = [];
+    let currentAssistantBlock: Extract<ReaderAiTranscriptBlock, { kind: 'assistant' }> | null = null;
+
+    for (const item of transcriptItems) {
+      if (item.kind === 'user_message') {
+        currentAssistantBlock = null;
+        blocks.push({
+          id: item.id,
+          kind: 'user',
+          item,
+        });
+        continue;
+      }
+      if (item.kind === 'assistant_turn') {
+        if (currentAssistantBlock?.runId && item.runId === currentAssistantBlock.runId) {
+          currentAssistantBlock.edited = currentAssistantBlock.edited || item.edited === true;
+          currentAssistantBlock.status = item.status;
+          if (item.content.trim()) {
+            const lastEntry = currentAssistantBlock.entries[currentAssistantBlock.entries.length - 1];
+            if (lastEntry?.kind === 'content') {
+              lastEntry.content = appendReaderAiAssistantContent(lastEntry.content, item.content);
+            } else {
+              currentAssistantBlock.entries.push({
+                id: item.id,
+                kind: 'content',
+                content: item.content,
+              });
+            }
+          }
+          continue;
+        }
+        currentAssistantBlock = {
+          id: item.id,
+          kind: 'assistant',
+          ...(item.runId ? { runId: item.runId } : {}),
+          ...(item.edited ? { edited: true } : {}),
+          status: item.status,
+          entries: item.content.trim()
+            ? [
+                {
+                  id: item.id,
+                  kind: 'content',
+                  content: item.content,
+                },
+              ]
+            : [],
+        };
+        blocks.push(currentAssistantBlock);
+        continue;
+      }
+
+      if (!currentAssistantBlock) {
+        currentAssistantBlock = {
+          id: `assistant-inline:${item.id}`,
+          kind: 'assistant',
+          ...(item.runId ? { runId: item.runId } : {}),
+          status: 'completed',
+          entries: [],
+        };
+        blocks.push(currentAssistantBlock);
+      }
+
+      const activity = buildReaderAiInlineActivity(item);
+      if (!activity) continue;
+      if (activity.kind === 'tool' && !activity.pending) {
+        replaceReaderAiInlineToolActivity(currentAssistantBlock.entries, activity);
+        continue;
+      }
+      currentAssistantBlock.entries.push({
+        id: activity.id,
+        kind: 'activity',
+        activity,
+      });
+    }
+
+    return blocks;
+  }, [transcript]);
+
+  const renderUserMessageCard = (
+    message: ReaderAiMessage,
+    index: number,
+    options?: { ref?: (node: HTMLDivElement | null) => void },
+  ) => (
+    <div key={`user:${index}`} ref={options?.ref}>
+      <div class="reader-ai-message reader-ai-message--user">
+        <div class="reader-ai-message-role">
+          <span>You</span>
+          {editingIndex === index ? null : (
+            <span class="reader-ai-message-actions">
+              <button
+                type="button"
+                class="reader-ai-message-icon-btn"
+                onClick={() => {
+                  setEditingIndex(index);
+                  setEditingDraft(message.content);
+                }}
+                disabled={sending || !selectedModel}
+                aria-label="Edit message"
+              >
+                <Pencil size={13} aria-hidden="true" />
+              </button>
+              <DropdownMenu.Root onOpenChange={blurOnClose}>
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    type="button"
+                    class="reader-ai-message-menu-trigger"
+                    aria-label="Message actions"
+                    disabled={!selectedModel}
+                  >
+                    <MoreHorizontal size={13} aria-hidden="true" />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
+                    <DropdownMenu.Item
+                      class="reader-ai-composer-menu-item"
+                      disabled={sending || !selectedModel}
+                      onSelect={() => {
+                        setEditingIndex(index);
+                        setEditingDraft(message.content);
+                      }}
+                    >
+                      Edit
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      class="reader-ai-composer-menu-item"
+                      disabled={sending || !selectedModel}
+                      onSelect={() => {
+                        void retryUserMessage(index);
+                      }}
+                    >
+                      Retry
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      class="reader-ai-composer-menu-item"
+                      disabled={sending || !selectedModel || !onResetToMessage}
+                      onSelect={() => {
+                        void resetToMessage(index);
+                      }}
+                    >
+                      Reset to here
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </span>
+          )}
+        </div>
+        {editingIndex === index ? (
+          <div class="reader-ai-inline-edit">
+            <textarea
+              ref={editInputRef}
+              class="reader-ai-inline-edit-input"
+              value={editingDraft}
+              onInput={(event) => setEditingDraft(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+                  event.preventDefault();
+                  void applyEdit();
+                  return;
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  cancelEdit();
+                }
+              }}
+              rows={3}
+              disabled={sending || !selectedModel}
+            />
+            <div class="reader-ai-inline-edit-actions">
+              <button
+                type="button"
+                class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--secondary"
+                onClick={cancelEdit}
+                disabled={sending}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--primary"
+                onClick={() => void applyEdit()}
+                disabled={sending || !selectedModel || editingDraft.trim().length === 0}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div class="reader-ai-message-content">{message.content}</div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderTranscriptItems = transcriptBlocks.map((block, index) => {
+    const isLastItem = index === transcriptBlocks.length - 1;
+    const itemRef = isLastItem ? lastMessageRef : undefined;
+
+    if (block.kind === 'user') {
+      const message = messages[block.item.messageIndex] ?? { role: 'user' as const, content: block.item.content };
+      return renderUserMessageCard(message, block.item.messageIndex, {
+        ref: itemRef ? (node) => void (itemRef.current = node) : undefined,
+      });
+    }
+
+    if (block.kind === 'assistant') {
+      const streaming = block.status === 'streaming' && sending && isLastItem;
+      return (
+        <div key={block.id} ref={itemRef}>
+          <div class="reader-ai-message reader-ai-message--assistant">
+            <div class="reader-ai-message-role">
+              <span>Reader AI</span>
+              {block.edited ? <span class="reader-ai-message-edited">Edited</span> : null}
+            </div>
+            {streaming && block.entries.length === 0 ? (
+              <div class="reader-ai-thinking">
+                <span class="reader-ai-thinking-spinner" aria-hidden="true" />
+                <span>{thinkingSeconds >= 5 ? `Thinking... (${thinkingSeconds} seconds)` : 'Thinking...'}</span>
+              </div>
+            ) : null}
+            {block.entries.length > 0 ? (
+              <div class="reader-ai-message-inline-activity-list">
+                {block.entries.map((entry, entryIndex) => {
+                  if (entry.kind === 'content') {
+                    const isLastContentEntry = streaming && entryIndex === block.entries.length - 1;
+                    return (
+                      <ReaderAiAssistantMessage
+                        key={entry.id}
+                        content={entry.content}
+                        streaming={isLastContentEntry}
+                        onRendered={isLastContentEntry ? maybeScrollMessagesToBottom : undefined}
+                      />
+                    );
+                  }
+
+                  const presentation = readerAiInlineActivityPresentation(entry.activity);
+                  return (
+                    <div
+                      key={entry.id}
+                      class={`reader-ai-message-inline-activity reader-ai-message-inline-activity--${presentation.tone}`}
+                    >
+                      {presentation.pending ? (
+                        <span
+                          class="reader-ai-thinking-spinner reader-ai-thinking-spinner--message-activity"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                      <span>{presentation.text}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  });
 
   const composer = (
     <div
@@ -849,173 +1294,9 @@ export function ReaderAiPanel({
                 </button>
               </div>
             ) : null}
-            {messages.map((message, index) => (
-              <div key={`${message.role}-${index}`} ref={index === messageCount - 1 ? lastMessageRef : undefined}>
-                <div class={`reader-ai-message reader-ai-message--${message.role}`}>
-                  <div class="reader-ai-message-role">
-                    {message.role === 'user' ? (
-                      <>
-                        <span>You</span>
-                        {editingIndex === index ? null : (
-                          <span class="reader-ai-message-actions">
-                            <button
-                              type="button"
-                              class="reader-ai-message-icon-btn"
-                              onClick={() => {
-                                setEditingIndex(index);
-                                setEditingDraft(message.content);
-                              }}
-                              disabled={sending || !selectedModel}
-                              aria-label="Edit message"
-                            >
-                              <Pencil size={13} aria-hidden="true" />
-                            </button>
-                            <DropdownMenu.Root onOpenChange={blurOnClose}>
-                              <DropdownMenu.Trigger asChild>
-                                <button
-                                  type="button"
-                                  class="reader-ai-message-menu-trigger"
-                                  aria-label="Message actions"
-                                  disabled={!selectedModel}
-                                >
-                                  <MoreHorizontal size={13} aria-hidden="true" />
-                                </button>
-                              </DropdownMenu.Trigger>
-                              <DropdownMenu.Portal>
-                                <DropdownMenu.Content class="reader-ai-composer-menu" sideOffset={6} align="end">
-                                  <DropdownMenu.Item
-                                    class="reader-ai-composer-menu-item"
-                                    disabled={sending || !selectedModel}
-                                    onSelect={() => {
-                                      setEditingIndex(index);
-                                      setEditingDraft(message.content);
-                                    }}
-                                  >
-                                    Edit
-                                  </DropdownMenu.Item>
-                                  <DropdownMenu.Item
-                                    class="reader-ai-composer-menu-item"
-                                    disabled={sending || !selectedModel}
-                                    onSelect={() => {
-                                      void retryUserMessage(index);
-                                    }}
-                                  >
-                                    Retry
-                                  </DropdownMenu.Item>
-                                  <DropdownMenu.Item
-                                    class="reader-ai-composer-menu-item"
-                                    disabled={sending || !selectedModel || !onResetToMessage}
-                                    onSelect={() => {
-                                      void resetToMessage(index);
-                                    }}
-                                  >
-                                    Reset to here
-                                  </DropdownMenu.Item>
-                                </DropdownMenu.Content>
-                              </DropdownMenu.Portal>
-                            </DropdownMenu.Root>
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <span>Reader AI</span>
-                        {message.edited ? <span class="reader-ai-message-edited">Edited</span> : null}
-                      </>
-                    )}
-                  </div>
-                  {message.role === 'assistant' ? (
-                    sending && index === messageCount - 1 && !message.content.trim() ? (
-                      <div class="reader-ai-thinking">
-                        <span class="reader-ai-thinking-spinner" aria-hidden="true" />
-                        <span>{thinkingSeconds >= 5 ? `Thinking... (${thinkingSeconds} seconds)` : 'Thinking...'}</span>
-                      </div>
-                    ) : (
-                      <ReaderAiAssistantMessage
-                        content={message.content}
-                        streaming={sending && index === messageCount - 1}
-                        onRendered={sending && index === messageCount - 1 ? maybeScrollMessagesToBottom : undefined}
-                      />
-                    )
-                  ) : editingIndex === index ? (
-                    <div class="reader-ai-inline-edit">
-                      <textarea
-                        ref={editInputRef}
-                        class="reader-ai-inline-edit-input"
-                        value={editingDraft}
-                        onInput={(event) => setEditingDraft(event.currentTarget.value)}
-                        onKeyDown={(event) => {
-                          if (
-                            event.key === 'Enter' &&
-                            !event.shiftKey &&
-                            !event.altKey &&
-                            !event.metaKey &&
-                            !event.ctrlKey
-                          ) {
-                            event.preventDefault();
-                            void applyEdit();
-                            return;
-                          }
-                          if (event.key === 'Escape') {
-                            event.preventDefault();
-                            cancelEdit();
-                          }
-                        }}
-                        rows={3}
-                        disabled={sending || !selectedModel}
-                      />
-                      <div class="reader-ai-inline-edit-actions">
-                        <button
-                          type="button"
-                          class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--secondary"
-                          onClick={cancelEdit}
-                          disabled={sending}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          class="reader-ai-inline-edit-btn reader-ai-inline-edit-btn--primary"
-                          onClick={() => void applyEdit()}
-                          disabled={sending || !selectedModel || editingDraft.trim().length === 0}
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div class="reader-ai-message-content">{message.content}</div>
-                  )}
-                </div>
-                {index === lastUserMessageIndex ? (
-                  <>
-                    {toolLog.length > 0 ? (
-                      <ToolLogSection
-                        entries={toolLog}
-                        live={sending}
-                        proposalStatusesByToolCallId={proposalStatusesByToolCallId}
-                      />
-                    ) : null}
-                    {sending && toolStatus && toolLog.length === 0 ? (
-                      <div class="reader-ai-tool-status">{toolStatus}</div>
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
-            ))}
-            {lastUserMessageIndex === -1 ? (
-              <>
-                {toolLog.length > 0 ? (
-                  <ToolLogSection
-                    entries={toolLog}
-                    live={sending}
-                    proposalStatusesByToolCallId={proposalStatusesByToolCallId}
-                  />
-                ) : null}
-                {sending && toolStatus && toolLog.length === 0 ? (
-                  <div class="reader-ai-tool-status">{toolStatus}</div>
-                ) : null}
-              </>
+            {renderTranscriptItems}
+            {sending && toolStatus && toolLog.length === 0 && transcriptBlocks.length === 0 ? (
+              <div class="reader-ai-tool-status">{toolStatus}</div>
             ) : null}
             {editorCheckpoint ? (
               <div class="reader-ai-checkpoint-card" role="status" aria-live="polite">

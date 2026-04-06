@@ -1170,6 +1170,7 @@ export function App() {
     readerAiStagedChanges,
     readerAiStagedChangesInvalid,
     readerAiStagedChangesStreaming,
+    readerAiTranscript,
     readerAiToolLog,
     readerAiToolStatus,
     onReaderAiClear,
@@ -8248,6 +8249,7 @@ export function App() {
             modelsError={readerAiModelsError}
             selectedModel={readerAiSelectedModel}
             messages={readerAiMessages}
+            transcript={readerAiTranscript}
             runs={readerAiRuns}
             queuedCommands={readerAiQueuedCommands}
             sending={readerAiSending}
