@@ -92,6 +92,15 @@ export interface ReaderAiEditorOverlay {
   checkpoint: ReaderAiEditorCheckpointSummary | null;
 }
 
+const ACTIONABLE_READER_AI_EDITOR_FILE_STATUSES = new Set<ReaderAiEditorFileStatus>([
+  'ready',
+  'applying',
+  'partial',
+  'conflicted',
+  'stale',
+  'failed',
+]);
+
 interface BuildReaderAiEditorOverlayOptions {
   active: boolean;
   path: string | null;
@@ -672,4 +681,10 @@ export function buildReaderAiEditorOverlay(options: BuildReaderAiEditorOverlayOp
           }
         : null,
   };
+}
+
+export function hasActionableReaderAiEditorOverlay(overlay: ReaderAiEditorOverlay | null): boolean {
+  if (!overlay) return false;
+  if (!ACTIONABLE_READER_AI_EDITOR_FILE_STATUSES.has(overlay.fileStatus)) return false;
+  return overlay.primaryChangeId !== null;
 }

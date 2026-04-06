@@ -224,6 +224,15 @@ export interface EditViewProps {
   contentRevision?: number;
   contentSelection?: { anchor: number; head: number } | null;
   readerAiEditorOverlay?: ReaderAiEditorOverlay | null;
+  readerAiFloatingActions?: {
+    statusLabel: string;
+    statusMessage?: string | null;
+    applying: boolean;
+    canApply: boolean;
+    applyLabel: string;
+    onApply: () => void;
+    onDiscard: () => void;
+  } | null;
   onChangeMarkerClick?: (marker: EditorChangeMarker) => void;
   onReaderAiToggleReviewTarget?: (target: { changeId: string; hunkId?: string; selected: boolean }) => void;
   onReaderAiOpenReviewTarget?: (target: { changeId: string; hunkId?: string }) => void;
@@ -284,6 +293,7 @@ export function EditView({
   contentRevision = 0,
   contentSelection = null,
   readerAiEditorOverlay = null,
+  readerAiFloatingActions = null,
   onChangeMarkerClick,
   onReaderAiToggleReviewTarget,
   onReaderAiOpenReviewTarget,
@@ -1735,10 +1745,46 @@ export function EditView({
         </div>
       ) : null}
       <div class="editor-workspace" ref={splitRef} style={layoutStyle}>
-        {locked && showLockIndicator ? (
-          <div class="editor-lock-indicator" role="status" aria-live="polite">
-            <span class="editor-loading-spinner" aria-hidden="true" />
-            <span>{lockLabel}</span>
+        {(locked && showLockIndicator) || readerAiFloatingActions ? (
+          <div class="editor-top-right-overlays">
+            {locked && showLockIndicator ? (
+              <div class="editor-lock-indicator" role="status" aria-live="polite">
+                <span class="editor-loading-spinner" aria-hidden="true" />
+                <span>{lockLabel}</span>
+              </div>
+            ) : null}
+            {readerAiFloatingActions ? (
+              <section
+                class="editor-reader-ai-floating-actions"
+                aria-label="Reader AI staged changes"
+                aria-live="polite"
+              >
+                <div class="editor-reader-ai-floating-actions-copy">
+                  <div class="editor-reader-ai-floating-actions-title">Reader AI changes</div>
+                  <div class="editor-reader-ai-floating-actions-message">
+                    {readerAiFloatingActions.statusMessage ?? readerAiFloatingActions.statusLabel}
+                  </div>
+                </div>
+                <div class="editor-reader-ai-floating-actions-buttons">
+                  <button
+                    type="button"
+                    class="editor-reader-ai-floating-actions-secondary"
+                    onClick={readerAiFloatingActions.onDiscard}
+                    disabled={readerAiFloatingActions.applying}
+                  >
+                    Discard all changes
+                  </button>
+                  <button
+                    type="button"
+                    class="editor-reader-ai-floating-actions-apply button-success-solid"
+                    onClick={readerAiFloatingActions.onApply}
+                    disabled={readerAiFloatingActions.applying || !readerAiFloatingActions.canApply}
+                  >
+                    {readerAiFloatingActions.applying ? 'Applying…' : readerAiFloatingActions.applyLabel}
+                  </button>
+                </div>
+              </section>
+            ) : null}
           </div>
         ) : null}
         {loading ? (

@@ -148,7 +148,7 @@ import {
   prepareReaderAiSelectedChangesForApply,
 } from './reader_ai_controller_runtime';
 import { findLatestReaderAiEditorCheckpointForPath } from './reader_ai_editor_checkpoints';
-import { buildReaderAiEditorOverlay } from './reader_ai_editor_state';
+import { buildReaderAiEditorOverlay, hasActionableReaderAiEditorOverlay } from './reader_ai_editor_state';
 import {
   createReaderAiApplyConflictMessage,
   executeReaderAiHostApply,
@@ -7546,6 +7546,19 @@ export function App() {
             locked={readerAiEditorLocked}
             showLockIndicator={readerAiEditorLocked || !showReaderAiPanel}
             lockLabel={editorLockLabel}
+            readerAiFloatingActions={
+              showReaderAiFloatingActions
+                ? {
+                    statusLabel: readerAiEditorOverlay?.statusLabel ?? 'Reader AI changes',
+                    statusMessage: readerAiEditorOverlay?.statusMessage ?? null,
+                    applying: readerAiApplyingChanges,
+                    canApply: canApplyWithoutSaving,
+                    applyLabel: readerAiFloatingApplyLabel,
+                    onApply: () => void onReaderAiApplyChanges('without-saving'),
+                    onDiscard: onReaderAiIgnoreChanges,
+                  }
+                : null
+            }
             imageUploadIssue={
               failedImageUpload
                 ? {
@@ -8041,6 +8054,17 @@ export function App() {
     return null;
   }, [readerAiSelectedChangesApplyPreparation.invalid]);
   const isEditorProposalWorkflow = activeView === 'edit';
+  const showReaderAiFloatingActions =
+    activeView === 'edit' &&
+    !showReaderAiPanel &&
+    !readerAiStagedChangesStreaming &&
+    hasActionableReaderAiEditorOverlay(readerAiEditorOverlay);
+  const readerAiFloatingApplyLabel = useMemo(() => {
+    const baseLabel = 'Apply changes';
+    return !canApplyWithoutSaving && applyDisabledReasonLabel
+      ? `${baseLabel} (${applyDisabledReasonLabel})`
+      : baseLabel;
+  }, [applyDisabledReasonLabel, canApplyWithoutSaving]);
   return (
     <>
       <Toolbar

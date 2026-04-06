@@ -1,7 +1,7 @@
 import test from 'ava';
 import type { ReaderAiStagedChange } from '../../src/reader_ai.ts';
 import type { ReaderAiEditorCheckpoint } from '../../src/reader_ai_editor_checkpoints.ts';
-import { buildReaderAiEditorOverlay } from '../../src/reader_ai_editor_state.ts';
+import { buildReaderAiEditorOverlay, hasActionableReaderAiEditorOverlay } from '../../src/reader_ai_editor_state.ts';
 import type { ReaderAiChangeSetRecord, ReaderAiRunRecord } from '../../src/reader_ai_ledger.ts';
 
 function createRun(): ReaderAiRunRecord {
@@ -321,4 +321,75 @@ test('buildReaderAiEditorOverlay ignores superseded change sets when no active p
   t.is(overlay?.statusLabel, 'Editor');
   t.is(overlay?.diffPreview, null);
   t.is(overlay?.markers, null);
+});
+
+test('hasActionableReaderAiEditorOverlay only returns true for pending editor-side Reader AI states', (t) => {
+  const readyOverlay = buildReaderAiEditorOverlay({
+    active: true,
+    path: 'doc.md',
+    revision: 3,
+    currentDocumentSavedContent: 'before\n',
+    currentDocumentContent: 'before\n',
+    hasUnsavedChanges: false,
+    effectiveStagedChanges: [
+      {
+        id: 'change:1',
+        path: 'doc.md',
+        type: 'edit',
+        diff: '@@ -1 +1 @@\n-before\n+after\n',
+        revision: 3,
+        originalContent: 'before\n',
+        modifiedContent: 'after\n',
+      },
+    ],
+    selectedChangeIds: new Set(['change:1']),
+    selectedHunkIdsByChangeId: {},
+    activeChangeSet: null,
+    activeEditorCheckpoint: null,
+    changeSets: [],
+    runs: [],
+  });
+
+  const appliedOverlay = buildReaderAiEditorOverlay({
+    active: true,
+    path: 'doc.md',
+    revision: 4,
+    currentDocumentSavedContent: 'before\n',
+    currentDocumentContent: 'after\n',
+    hasUnsavedChanges: true,
+    effectiveStagedChanges: [],
+    selectedChangeIds: new Set(),
+    selectedHunkIdsByChangeId: {},
+    activeChangeSet: null,
+    activeEditorCheckpoint: createCheckpoint(),
+    changeSets: [
+      {
+        id: 'changeset:1',
+        runId: 'run:1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        status: 'applied',
+        editProposals: [],
+        proposalStatusesByToolCallId: {},
+        stagedChanges: [],
+        stagedFileContents: {},
+        documentEditedContent: null,
+        files: [
+          {
+            path: 'doc.md',
+            status: 'applied',
+            hasCompleteContent: true,
+            baseRevision: 3,
+          },
+        ],
+        appliedPaths: ['doc.md'],
+        failedPaths: [],
+      },
+    ],
+    runs: [createRun()],
+  });
+
+  t.true(hasActionableReaderAiEditorOverlay(readyOverlay));
+  t.false(hasActionableReaderAiEditorOverlay(appliedOverlay));
+  t.false(hasActionableReaderAiEditorOverlay(null));
 });
