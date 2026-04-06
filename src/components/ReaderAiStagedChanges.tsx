@@ -56,6 +56,7 @@ export function StagedChangesSection({
   applying,
   streaming,
   title,
+  showHeader = true,
   reviewControls = true,
   editorProposalMode,
   canUndoEditorApply,
@@ -80,6 +81,7 @@ export function StagedChangesSection({
   applying: boolean;
   streaming?: boolean;
   title?: string;
+  showHeader?: boolean;
   reviewControls?: boolean;
   editorProposalMode?: boolean;
   canUndoEditorApply?: boolean;
@@ -190,28 +192,30 @@ export function StagedChangesSection({
 
   return (
     <div ref={rootRef} class="reader-ai-staged-changes">
-      <div class="reader-ai-staged-changes-header">
-        <div class="reader-ai-staged-changes-header-copy">
-          <span>
-            {formatChangeCountLabel(title ?? (streaming ? 'Proposed changes' : 'Staged changes'), changes.length)}
-          </span>
-          {streaming ? (
-            <span class="reader-ai-staged-changes-live-pill">
-              <span class="reader-ai-staged-changes-live-dot" aria-hidden="true" />
-              Streaming
+      {showHeader ? (
+        <div class="reader-ai-staged-changes-header">
+          <div class="reader-ai-staged-changes-header-copy">
+            <span>
+              {formatChangeCountLabel(title ?? (streaming ? 'Proposed changes' : 'Staged changes'), changes.length)}
             </span>
-          ) : null}
+            {streaming ? (
+              <span class="reader-ai-staged-changes-live-pill">
+                <span class="reader-ai-staged-changes-live-dot" aria-hidden="true" />
+                Streaming
+              </span>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            class="reader-ai-staged-changes-popout"
+            onClick={() => setPopoutOpen(true)}
+            title="Pop out side-by-side diff"
+            aria-label="Pop out side-by-side diff"
+          >
+            <Maximize2 size={13} />
+          </button>
         </div>
-        <button
-          type="button"
-          class="reader-ai-staged-changes-popout"
-          onClick={() => setPopoutOpen(true)}
-          title="Pop out side-by-side diff"
-          aria-label="Pop out side-by-side diff"
-        >
-          <Maximize2 size={13} />
-        </button>
-      </div>
+      ) : null}
       {changes.map((change) => (
         <div key={change.id ?? change.path} class="reader-ai-staged-change">
           <div

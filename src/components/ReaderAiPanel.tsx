@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ArrowLeft, ArrowRight, CircleStop, MoreHorizontal, Pencil, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, CircleStop, MoreHorizontal, Pencil, X } from 'lucide-react';
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
@@ -220,7 +220,7 @@ function ReaderAiTranscriptCard({
   action,
   children,
 }: {
-  title: string;
+  title: ComponentChildren;
   action?: ComponentChildren;
   children?: ComponentChildren;
 }) {
@@ -241,6 +241,11 @@ function appendReaderAiAssistantContent(current: string, next: string): string {
   if (!current.trim()) return next;
   if (!next.trim()) return current;
   return `${current}\n\n${next}`;
+}
+
+function formatDiscardedChangesTitle(changeCount: number): string {
+  if (changeCount === 1) return 'Discarded changes';
+  return `Discarded changes (${changeCount} files)`;
 }
 
 function buildReaderAiInlineActivity(
@@ -440,6 +445,7 @@ export function ReaderAiPanel({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [expandedChangeSetIds, setExpandedChangeSetIds] = useState<Set<string>>(new Set());
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
   const [panelView, setPanelView] = useState<ReaderAiPanelView>('chat');
   const panelRef = useRef<HTMLElement>(null);
@@ -1170,10 +1176,37 @@ export function ReaderAiPanel({
 
     if (block.kind === 'change_set') {
       const canRestore = typeof onRestoreTranscriptChangeSet === 'function';
+      const expanded = expandedChangeSetIds.has(block.id);
+      const detailsId = `reader-ai-change-set-${block.id}`;
       return (
         <div key={block.id} ref={itemRef}>
           <ReaderAiTranscriptCard
-            title={`Discarded changes (${block.item.changes.length} file${block.item.changes.length === 1 ? '' : 's'})`}
+            title={
+              <a
+                href="#"
+                class="reader-ai-transcript-card-toggle"
+                aria-expanded={expanded}
+                aria-controls={detailsId}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setExpandedChangeSetIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(block.id)) next.delete(block.id);
+                    else next.add(block.id);
+                    return next;
+                  });
+                }}
+              >
+                {expanded ? (
+                  <ChevronDown size={12} aria-hidden="true" />
+                ) : (
+                  <ChevronRight size={12} aria-hidden="true" />
+                )}
+                <span class="reader-ai-transcript-card-title">
+                  {formatDiscardedChangesTitle(block.item.changes.length)}
+                </span>
+              </a>
+            }
             action={
               canRestore ? (
                 <button
@@ -1181,18 +1214,23 @@ export function ReaderAiPanel({
                   class="reader-ai-checkpoint-card-action"
                   onClick={() => onRestoreTranscriptChangeSet?.(block.item)}
                 >
-                  Restore to staging
+                  Restore changes
                 </button>
               ) : undefined
             }
           >
-            <StagedChangesSection
-              changes={block.item.changes}
-              applying={false}
-              title="Discarded changes"
-              reviewControls={false}
-              showFooter={false}
-            />
+            {expanded ? (
+              <div id={detailsId}>
+                <StagedChangesSection
+                  changes={block.item.changes}
+                  applying={false}
+                  title="Discarded changes"
+                  showHeader={false}
+                  reviewControls={false}
+                  showFooter={false}
+                />
+              </div>
+            ) : null}
           </ReaderAiTranscriptCard>
         </div>
       );

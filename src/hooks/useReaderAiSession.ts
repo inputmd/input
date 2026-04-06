@@ -99,6 +99,99 @@ interface ReaderAiRetryRequest {
   retryStepId?: string;
 }
 
+type ReaderAiChangeSetDecisionItem = Extract<ReaderAiTranscriptItem, { kind: 'change_set_decision' }>;
+
+function normalizeReaderAiSelectedHunkIdsByChangeId(value?: Record<string, string[]>): Record<string, string[]> {
+  if (!value) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([changeId, hunkIds]) => [changeId, [...hunkIds].sort()]),
+  );
+}
+
+function normalizeReaderAiStagedFileContents(value?: Record<string, string>): Record<string, string> {
+  if (!value) return {};
+  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function normalizeReaderAiDiscardedChanges(changes: ReaderAiStagedChange[]) {
+  return [...changes]
+    .map((change) => ({
+      path: change.path,
+      type: change.type,
+      diff: change.diff,
+      revision: change.revision ?? null,
+      originalContent: change.originalContent ?? null,
+      modifiedContent: change.modifiedContent ?? null,
+      hunks:
+        change.hunks?.map((hunk) => ({
+          header: hunk.header,
+          oldStart: hunk.oldStart,
+          oldLines: hunk.oldLines,
+          newStart: hunk.newStart,
+          newLines: hunk.newLines,
+          lines: hunk.lines.map((line) => ({
+            type: line.type,
+            content: line.content,
+          })),
+        })) ?? [],
+    }))
+    .sort(
+      (left, right) =>
+        left.path.localeCompare(right.path) ||
+        left.type.localeCompare(right.type) ||
+        left.diff.localeCompare(right.diff),
+    );
+}
+
+function buildReaderAiChangeSetDecisionComparisonPayload(
+  item: Pick<
+    ReaderAiChangeSetDecisionItem,
+    | 'action'
+    | 'changes'
+    | 'selectedChangeIds'
+    | 'selectedHunkIdsByChangeId'
+    | 'stagedFileContents'
+    | 'documentEditedContent'
+  >,
+) {
+  return {
+    action: item.action,
+    changes: normalizeReaderAiDiscardedChanges(item.changes),
+    selectedChangeIds: [...(item.selectedChangeIds ?? [])].sort(),
+    selectedHunkIdsByChangeId: normalizeReaderAiSelectedHunkIdsByChangeId(item.selectedHunkIdsByChangeId),
+    stagedFileContents: normalizeReaderAiStagedFileContents(item.stagedFileContents),
+    documentEditedContent: item.documentEditedContent ?? null,
+  };
+}
+
+function areReaderAiChangeSetDecisionsEquivalent(
+  left: Pick<
+    ReaderAiChangeSetDecisionItem,
+    | 'action'
+    | 'changes'
+    | 'selectedChangeIds'
+    | 'selectedHunkIdsByChangeId'
+    | 'stagedFileContents'
+    | 'documentEditedContent'
+  >,
+  right: Pick<
+    ReaderAiChangeSetDecisionItem,
+    | 'action'
+    | 'changes'
+    | 'selectedChangeIds'
+    | 'selectedHunkIdsByChangeId'
+    | 'stagedFileContents'
+    | 'documentEditedContent'
+  >,
+): boolean {
+  return (
+    JSON.stringify(buildReaderAiChangeSetDecisionComparisonPayload(left)) ===
+    JSON.stringify(buildReaderAiChangeSetDecisionComparisonPayload(right))
+  );
+}
+
 export function useReaderAiSession({
   historyEligible,
   historyDocumentKey,
@@ -206,7 +299,7 @@ export function useReaderAiSession({
       stagedFileContents?: Record<string, string>;
       documentEditedContent?: string | null;
     }) => {
-      appendReaderAiTranscriptItem({
+      const nextItem: ReaderAiChangeSetDecisionItem = {
         id: createReaderAiTranscriptId('change-set'),
         kind: 'change_set_decision',
         action: options.action,
@@ -225,9 +318,22 @@ export function useReaderAiSession({
         ...(typeof options.documentEditedContent === 'string' || options.documentEditedContent === null
           ? { documentEditedContent: options.documentEditedContent }
           : {}),
+      };
+      setReaderAiTranscript((current) => {
+        if (nextItem.action !== 'discarded') return [...current, nextItem];
+        const previousDiscardedItem = [...current]
+          .reverse()
+          .find(
+            (item): item is ReaderAiChangeSetDecisionItem =>
+              item.kind === 'change_set_decision' && item.action === 'discarded',
+          );
+        if (previousDiscardedItem && areReaderAiChangeSetDecisionsEquivalent(previousDiscardedItem, nextItem)) {
+          return current;
+        }
+        return [...current, nextItem];
       });
     },
-    [appendReaderAiTranscriptItem],
+    [],
   );
 
   const updateReaderAiRun = useCallback((runId: string, updater: (run: ReaderAiRunRecord) => ReaderAiRunRecord) => {

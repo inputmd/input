@@ -779,6 +779,7 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  flex: 1 1 auto;
 }
 
 .reader-ai-transcript-card-title {
@@ -791,6 +792,27 @@
 .reader-ai-transcript-card-action {
   margin-left: auto;
   flex: 0 0 auto;
+}
+
+.reader-ai-transcript-card-toggle {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
+  text-decoration: none;
+  padding: 1px 3px;
+  margin: -1px -3px;
+  border-radius: 4px;
+}
+
+.reader-ai-transcript-card-toggle:hover {
+  background: color-mix(in srgb, var(--btn-hover) 72%, transparent);
+}
+
+.reader-ai-transcript-card-toggle:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--btn-hover) 72%, transparent);
 }
 
 .reader-ai-suggest-project-mode {
