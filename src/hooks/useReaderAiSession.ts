@@ -1133,10 +1133,21 @@ export function useReaderAiSession({
               const argsObj = typeof event.arguments === 'object' ? event.arguments : undefined;
               const toolArguments =
                 typeof event.arguments === 'string' ? event.arguments : argsObj ? JSON.stringify(argsObj) : undefined;
-              const detail = argsObj
-                ? (((argsObj as Record<string, unknown>).path as string | undefined) ??
-                  ((argsObj as Record<string, unknown>).query as string | undefined))
-                : undefined;
+              const detail = (() => {
+                if (!argsObj) return undefined;
+                const argsRecord = argsObj as Record<string, unknown>;
+                if (event.name === 'read_document') {
+                  const startLine = typeof argsRecord.start_line === 'number' ? argsRecord.start_line : undefined;
+                  const endLine = typeof argsRecord.end_line === 'number' ? argsRecord.end_line : undefined;
+                  if (typeof startLine === 'number' && typeof endLine === 'number') {
+                    return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
+                  }
+                  if (typeof startLine === 'number') return `from line ${startLine}`;
+                  if (typeof endLine === 'number') return `through line ${endLine}`;
+                  return undefined;
+                }
+                return (argsRecord.path as string | undefined) ?? (argsRecord.query as string | undefined);
+              })();
               appendReaderAiTranscriptItem({
                 id: createReaderAiTranscriptId('tool-call'),
                 kind: 'tool_call',
