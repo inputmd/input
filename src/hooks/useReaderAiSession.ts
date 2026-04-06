@@ -172,7 +172,10 @@ export function useReaderAiSession({
   const readerAiPrevHistoryKeyRef = useRef<string | null>(null);
   const readerAiSkipPersistHistoryKeyRef = useRef<string | null>(null);
   const readerAiCurrentRunIdRef = useRef<string | null>(null);
+  const readerAiSummaryRef = useRef(readerAiSummary);
+  const readerAiConversationScopeRef = useRef<ReaderAiConversationScope | null>(readerAiConversationScope);
   const readerAiStagedFileContentsRef = useRef<Record<string, string>>(readerAiStagedFileContents);
+  const readerAiDocumentEditedContentRef = useRef<string | null>(readerAiDocumentEditedContent);
 
   const appendReaderAiTranscriptItem = useCallback((item: ReaderAiTranscriptItem) => {
     setReaderAiTranscript((current) => [...current, item]);
@@ -305,7 +308,23 @@ export function useReaderAiSession({
     setReaderAiChangeSets(snapshot.changeSets);
     setReaderAiActiveChangeSetId(snapshot.activeChangeSetId);
     readerAiCurrentRunIdRef.current = snapshot.activeRunId;
+    readerAiSummaryRef.current = snapshot.summary;
+    readerAiConversationScopeRef.current = snapshot.scope;
+    readerAiStagedChangesRef.current = snapshot.stagedChanges;
+    readerAiEditProposalsRef.current = snapshot.editProposals;
+    readerAiSelectedChangeIdsRef.current = snapshot.selectedChangeIds;
+    readerAiSelectedHunkIdsByChangeIdRef.current = snapshot.selectedHunkIdsByChangeId;
+    readerAiStagedFileContentsRef.current = snapshot.stagedFileContents;
+    readerAiDocumentEditedContentRef.current = snapshot.documentEditedContent;
   }, []);
+
+  useEffect(() => {
+    readerAiSummaryRef.current = readerAiSummary;
+  }, [readerAiSummary]);
+
+  useEffect(() => {
+    readerAiConversationScopeRef.current = readerAiConversationScope;
+  }, [readerAiConversationScope]);
 
   useEffect(() => {
     readerAiStagedChangesRef.current = readerAiStagedChanges;
@@ -326,6 +345,10 @@ export function useReaderAiSession({
   useEffect(() => {
     readerAiStagedFileContentsRef.current = readerAiStagedFileContents;
   }, [readerAiStagedFileContents]);
+
+  useEffect(() => {
+    readerAiDocumentEditedContentRef.current = readerAiDocumentEditedContent;
+  }, [readerAiDocumentEditedContent]);
 
   useEffect(() => {
     if (!readerAiActiveChangeSetId) return;
@@ -534,11 +557,20 @@ export function useReaderAiSession({
       readerAiAbortRef.current = null;
       inlinePromptAbortRef.current?.abort();
       inlinePromptAbortRef.current = null;
+      readerAiSummaryRef.current = '';
+      readerAiConversationScopeRef.current = null;
+      readerAiEditProposalsRef.current = [];
+      readerAiSelectedChangeIdsRef.current = new Set();
+      readerAiSelectedHunkIdsByChangeIdRef.current = {};
+      readerAiStagedChangesRef.current = [];
+      readerAiStagedFileContentsRef.current = {};
+      readerAiDocumentEditedContentRef.current = null;
       resetInlinePromptState();
       setReaderAiMessages(messages);
       setReaderAiTranscript((current) => reconcileReaderAiTranscriptWithMessages(current, messages));
       setReaderAiQueuedCommands([]);
       setReaderAiSummary('');
+      setReaderAiConversationScope(null);
       setReaderAiSending(false);
       setReaderAiToolStatus(null);
       setReaderAiToolLog([]);
@@ -552,7 +584,9 @@ export function useReaderAiSession({
       setReaderAiStagedFileContents({});
       setReaderAiDocumentEditedContent(null);
       setReaderAiApplyingChanges(false);
+      setReaderAiRuns([]);
       setReaderAiActiveRunId(null);
+      setReaderAiChangeSets([]);
       setReaderAiActiveChangeSetId(null);
       readerAiCurrentRunIdRef.current = null;
     },
@@ -695,6 +729,12 @@ export function useReaderAiSession({
 
   const resetReaderAiStagedState = useCallback(
     (options?: { clearError?: boolean; preserveEditorCheckpoint?: boolean }) => {
+      readerAiEditProposalsRef.current = [];
+      readerAiSelectedChangeIdsRef.current = new Set();
+      readerAiSelectedHunkIdsByChangeIdRef.current = {};
+      readerAiStagedChangesRef.current = [];
+      readerAiStagedFileContentsRef.current = {};
+      readerAiDocumentEditedContentRef.current = null;
       setReaderAiEditProposals([]);
       setReaderAiProposalStatusesByToolCallId({});
       setReaderAiStagedChanges([]);
@@ -719,6 +759,12 @@ export function useReaderAiSession({
 
   const resetReaderAiProposalsForRetry = useCallback(() => {
     const activeChangeSetId = readerAiActiveChangeSetId;
+    readerAiEditProposalsRef.current = [];
+    readerAiSelectedChangeIdsRef.current = new Set();
+    readerAiSelectedHunkIdsByChangeIdRef.current = {};
+    readerAiStagedChangesRef.current = [];
+    readerAiStagedFileContentsRef.current = {};
+    readerAiDocumentEditedContentRef.current = null;
     setReaderAiEditProposals([]);
     setReaderAiProposalStatusesByToolCallId({});
     setReaderAiStagedChanges([]);
@@ -1023,7 +1069,7 @@ export function useReaderAiSession({
       const hasPendingDocumentProposal =
         allowDocumentEdits &&
         readerAiStagedChangesRef.current.length > 0 &&
-        typeof readerAiDocumentEditedContent === 'string';
+        typeof readerAiDocumentEditedContentRef.current === 'string';
       const fallbackConversationScope = (() => {
         if (!allowDocumentEdits) return { kind: 'document' } as ReaderAiConversationScope;
         if (!selectionSource) return { kind: 'document' } as ReaderAiConversationScope;
@@ -1036,7 +1082,7 @@ export function useReaderAiSession({
       })();
       const nextConversationScope = hasPendingDocumentProposal
         ? ({ kind: 'document' } as ReaderAiConversationScope)
-        : (readerAiConversationScope ?? fallbackConversationScope);
+        : (readerAiConversationScopeRef.current ?? fallbackConversationScope);
       const source = nextConversationScope.kind === 'selection' ? nextConversationScope.source : documentSource;
       if (!source.trim()) {
         showWarningToast('Reader AI needs document content before it can answer.');
@@ -1059,7 +1105,7 @@ export function useReaderAiSession({
       readerAiCurrentRunIdRef.current = currentRun.id;
       setReaderAiRuns((current) => [...current, currentRun].slice(-12));
       setReaderAiActiveRunId(currentRun.id);
-      if (readerAiConversationScope === null || hasPendingDocumentProposal) {
+      if (readerAiConversationScopeRef.current === null || hasPendingDocumentProposal) {
         setReaderAiConversationScope(nextConversationScope);
       }
       setReaderAiMessages([
@@ -1099,7 +1145,7 @@ export function useReaderAiSession({
         model: selectedModel,
         source,
         messages: sanitizedMessages,
-        summary: readerAiSummary || undefined,
+        summary: readerAiSummaryRef.current || undefined,
         mode: 'default',
         currentDocPath,
       });
@@ -1626,8 +1672,6 @@ export function useReaderAiSession({
     [
       appendReaderAiTranscriptItem,
       ensureReaderAiActiveChangeSet,
-      readerAiConversationScope,
-      readerAiDocumentEditedContent,
       readerAiSummary,
       updateReaderAiTranscriptItem,
       updateReaderAiRun,
