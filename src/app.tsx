@@ -5863,7 +5863,7 @@ export function App() {
     repoAccessMode === 'shared' ||
     (currentGistId !== null && !user) ||
     route.name === 'sharefile';
-  const dailyNoteDisabled = currentGistId !== null && gistFiles === null;
+  const showSidebarDailyNoteAction = Boolean(user && repoAccessMode === 'installed' && selectedRepoRef);
 
   const handleOpenDailyNote = useCallback(async () => {
     const now = new Date();
@@ -8244,7 +8244,7 @@ export function App() {
               }
               disabled={sidebarDisabled}
               readOnly={isSidebarReadOnly}
-              dailyNoteDisabled={dailyNoteDisabled}
+              showDailyNoteAction={showSidebarDailyNoteAction}
               onOpenDailyNote={handleOpenDailyNote}
               onCreateFile={handleCreateFile}
               onConfirmImplicitMarkdownExtension={handleConfirmImplicitMarkdownExtension}

@@ -42,7 +42,7 @@ interface SidebarProps {
   onFileFilterChange: (value: SidebarFileFilter) => void;
   disabled?: boolean;
   readOnly?: boolean;
-  dailyNoteDisabled?: boolean;
+  showDailyNoteAction?: boolean;
   onSelectFile: (path: string) => void;
   onClearSelection?: () => void;
   onViewOnGitHub: (path: string) => void;
@@ -383,7 +383,7 @@ export function Sidebar({
   onFileFilterChange,
   disabled = false,
   readOnly = false,
-  dailyNoteDisabled = false,
+  showDailyNoteAction = false,
   onSelectFile,
   onClearSelection,
   onViewOnGitHub,
@@ -1401,17 +1401,14 @@ export function Sidebar({
         {!readOnly && creatingNew && createParentPath === '' && renderCreateRow(0)}
         {draggingExternalFile && <div class="sidebar-upload-drop-overlay">Drop to upload</div>}
       </div>
-      <div class="sidebar-floating-action">
-        <button
-          type="button"
-          class="sidebar-daily-note-btn"
-          disabled={dailyNoteDisabled}
-          onClick={() => void onOpenDailyNote()}
-        >
-          <CalendarDays size={14} className="sidebar-daily-note-btn-icon" aria-hidden="true" />
-          <span>Open daily note</span>
-        </button>
-      </div>
+      {showDailyNoteAction ? (
+        <div class="sidebar-floating-action">
+          <button type="button" class="sidebar-daily-note-btn" onClick={() => void onOpenDailyNote()}>
+            <CalendarDays size={14} className="sidebar-daily-note-btn-icon" aria-hidden="true" />
+            <span>Open daily note</span>
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }
