@@ -624,6 +624,10 @@ export function ReaderAiPanel({
     const onWheel = (event: WheelEvent) => {
       if (!messagesRef.current) return;
       const activeMessages = messagesRef.current;
+      const eventTarget = event.target;
+      if (eventTarget instanceof Node && activeMessages.contains(eventTarget)) {
+        return;
+      }
       const unit =
         event.deltaMode === WheelEvent.DOM_DELTA_LINE
           ? 16

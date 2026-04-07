@@ -289,6 +289,19 @@ body {
   min-width: 0;
 }
 
+@media (min-width: 769px) {
+  .app-body--edit {
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+  }
+
+  .app-body--edit main {
+    min-height: 0;
+    overflow: hidden;
+  }
+}
+
 .app-body--with-sidebar main {
   margin-left: var(--sidebar-width, 220px);
 }

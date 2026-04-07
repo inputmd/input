@@ -14,13 +14,19 @@
   --editor-bottom-right-overlay-bottom: 12px;
   --editor-bottom-right-overlay-gap: 8px;
   --editor-bottom-right-indicator-height: 32px;
+  --editor-bottom-right-overlay-right: calc(
+    var(--editor-top-right-overlay-reader-ai-offset) +
+    var(--editor-top-right-overlay-edge-gap)
+  );
   width: 100%;
   margin: 0;
   padding: 0;
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
 }
 
 .app-body--with-sidebar .edit-view {
@@ -69,6 +75,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 .editor-workspace > .editor-inline-alert {
@@ -149,7 +156,7 @@
 .editor-preview-alert {
   position: fixed;
   top: calc(var(--toolbar-height) + 6px);
-  right: 8px;
+  right: calc(var(--editor-top-right-overlay-reader-ai-offset) + 8px);
   z-index: 16;
   max-width: min(360px, calc(100vw - 24px));
   padding: 10px 12px;
@@ -268,14 +275,10 @@
   border-left: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   overflow-y: auto;
   overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 0 16px 24px;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
-}
-
-@media (max-width: 768px) {
-  .mobile-preview-pane {
-    overscroll-behavior: contain;
-  }
 }
 
 .mobile-preview-controls {
@@ -405,6 +408,8 @@
   .editor-workspace {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    height: 100%;
   }
 
   .doc-editor {
@@ -413,9 +418,13 @@
   }
 
   .editor-splitter {
-    position: relative;
+    position: absolute;
+    top: 0;
+    right: calc(var(--editor-preview-width, 0px) - 7px);
+    bottom: 0;
+    z-index: 2;
     display: block;
-    width: 7px;
+    width: 6px;
     cursor: col-resize;
     background: transparent;
   }
@@ -424,7 +433,8 @@
     content: "";
     position: absolute;
     inset: 0;
-    background: var(--input-bg);
+    background: var(--bg);
+    border-left: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
     opacity: 0;
     pointer-events: none;
   }
@@ -437,14 +447,16 @@
   .editor-preview-pane {
     display: block;
     min-width: 0;
-    overflow: auto;
+    min-height: 0;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
     overflow-anchor: none;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
     background: var(--bg);
     border-left: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
-    position: sticky;
-    top: var(--toolbar-height);
-    height: calc(100vh - var(--toolbar-height));
-    align-self: start;
+    align-self: stretch;
   }
 
   .editor-preview-pane.is-restoring-preview {
@@ -453,7 +465,7 @@
 
   .editor-preview-controls {
     position: fixed;
-    right: 12px;
+    right: var(--editor-bottom-right-overlay-right);
     bottom: var(--editor-bottom-right-overlay-bottom);
     z-index: 15;
     display: inline-flex;

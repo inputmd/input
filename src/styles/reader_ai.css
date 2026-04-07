@@ -19,7 +19,6 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overscroll-behavior: contain;
   z-index: 15;
 }
 
@@ -210,7 +209,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -678,6 +677,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 12px 14px 14px;
 }
 

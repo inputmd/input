@@ -8207,7 +8207,7 @@ export function App() {
         onSignInWithGitHub={handleSignInWithGitHub}
       />
       <div
-        class={`${showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}${showReaderAiPanel ? ' app-body--with-reader-ai' : ''}`}
+        class={`${showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}${showReaderAiPanel ? ' app-body--with-reader-ai' : ''}${activeView === 'edit' ? ' app-body--edit' : ''}`}
         style={
           showSidebar || mountReaderAiPanel
             ? ({

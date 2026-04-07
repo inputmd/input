@@ -35,6 +35,8 @@
 
 .doc-editor .cm-scroller {
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: var(--editor-padding-y) var(--editor-padding-x);
   font-family: inherit;
   font-size: inherit;

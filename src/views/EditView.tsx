@@ -1272,12 +1272,10 @@ export function EditView({
 
   const onSplitPointerDown = (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
     if (!previewVisible || !canRenderPreview || !onSidePaneResize) return;
-    const container = splitRef.current;
-    if (!container) return;
-
-    const startRect = container.getBoundingClientRect();
+    const startX = event.clientX;
+    const startWidth = sidePaneWidth;
     const onMove = (moveEvent: globalThis.PointerEvent) => {
-      onSidePaneResize(startRect.right - moveEvent.clientX);
+      onSidePaneResize(startWidth - (moveEvent.clientX - startX));
     };
     const cleanupPointerListeners = () => {
       window.removeEventListener('pointermove', onMove);
@@ -1293,7 +1291,10 @@ export function EditView({
 
   const layoutStyle =
     markdown && previewVisible && canRenderPreview
-      ? { gridTemplateColumns: `minmax(0, 1fr) 7px ${sidePaneWidth}px` }
+      ? ({
+          gridTemplateColumns: `minmax(0, 1fr) ${sidePaneWidth}px`,
+          '--editor-preview-width': `${sidePaneWidth}px`,
+        } as JSX.CSSProperties)
       : undefined;
   const editViewStyle =
     markdown && previewVisible && canRenderPreview

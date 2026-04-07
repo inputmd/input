@@ -9,6 +9,8 @@
   border-right: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   background: var(--toolbar-bg);
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   font-family: var(--font-ui);
