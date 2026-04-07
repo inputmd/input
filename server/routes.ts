@@ -202,6 +202,11 @@ const OPENROUTER_PAID_MODELS: ReaderAiModelEntry[] = [
     context_length: 1_000_000,
   },
   {
+    id: 'arcee-ai/trinity-large-thinking',
+    name: 'Arcee AI: Trinity Large Thinking (Paid)',
+    context_length: 262_144,
+  },
+  {
     id: 'google/gemini-3-flash-preview',
     name: 'Google: Gemini 3 Flash Preview (Paid)',
     context_length: 1_048_576,
