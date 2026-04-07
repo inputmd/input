@@ -199,6 +199,69 @@ test('markdown editor collapses emphasis markers until the selection enters the 
   }
 });
 
+test('markdown editor collapses strikethrough markers until the selection enters the formatted span', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc = 'Use ~~strike~~ here.';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.regex(view.dom.textContent ?? '', /Use strike here\./);
+    t.false((view.dom.textContent ?? '').includes('~~strike~~'));
+
+    const strikeFrom = doc.indexOf('strike');
+    view.dispatch({ selection: EditorSelection.cursor(strikeFrom + 1) });
+    t.regex(view.dom.textContent ?? '', /Use ~~strike~~ here\./);
+
+    const strikeEnd = doc.indexOf(' here.');
+    view.dispatch({ selection: EditorSelection.cursor(strikeEnd) });
+    t.regex(view.dom.textContent ?? '', /Use ~~strike~~ here\./);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('markdown editor treats single-tilde markup like strikethrough to match the renderer', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc = 'Use ~strike~ here.';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.regex(view.dom.textContent ?? '', /Use strike here\./);
+    t.false((view.dom.textContent ?? '').includes('~strike~'));
+    t.truthy(view.dom.querySelector('.cm-single-tilde-strikethrough'));
+
+    const strikeFrom = doc.indexOf('strike');
+    view.dispatch({ selection: EditorSelection.cursor(strikeFrom + 1) });
+    t.regex(view.dom.textContent ?? '', /Use ~strike~ here\./);
+
+    const strikeEnd = doc.indexOf(' here.');
+    view.dispatch({ selection: EditorSelection.cursor(strikeEnd) });
+    t.regex(view.dom.textContent ?? '', /Use ~strike~ here\./);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
 test('markdown editor collapses double-colon highlight markers until the selection enters the span', (t) => {
   const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
   const restore = installDomGlobals(dom);
