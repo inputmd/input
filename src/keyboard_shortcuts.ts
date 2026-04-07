@@ -1,5 +1,8 @@
+export const APP_SHORTCUTS_ALLOWED_ATTR = 'data-allow-app-shortcuts';
+
 export function isEditableShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
+  if (target.closest(`[${APP_SHORTCUTS_ALLOWED_ATTR}="true"]`) !== null) return false;
   return target.isContentEditable || target.closest('input, textarea, select, [contenteditable="true"]') !== null;
 }
 

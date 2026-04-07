@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, CircleStop, MoreHoriz
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
-import { matchesPrimaryShortcut } from '../keyboard_shortcuts';
+import { APP_SHORTCUTS_ALLOWED_ATTR, matchesPrimaryShortcut } from '../keyboard_shortcuts';
 import { parseMarkdownToHtml } from '../markdown';
 import type { ReaderAiEditProposal, ReaderAiStagedChange } from '../reader_ai';
 import type { ReaderAiRunRecord } from '../reader_ai_ledger';
@@ -1299,6 +1299,7 @@ export function ReaderAiPanel({
         <textarea
           ref={composerInputRef}
           class={`reader-ai-input${hasMessages ? ' reader-ai-input--bottom' : ''}`}
+          {...{ [APP_SHORTCUTS_ALLOWED_ATTR]: 'true' }}
           value={draft}
           placeholder={composerPlaceholder}
           onInput={(event) => {
