@@ -724,6 +724,23 @@ test('setPromptListCollapsedStateInUrl can clear conversation collapse without e
   });
 });
 
+test('setPromptListCollapsedStateInUrl persists collapsed conversations when expanded is the default', (t) => {
+  withDom(() => {
+    const html = parseMarkdownToHtml(['~ Question', '⏺ Answer one.', '~ Follow up', '⏺ Answer two.'].join('\n'));
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `<div class="rendered-markdown">${html}</div>`;
+
+    const conversation = wrapper.querySelector<HTMLElement>('.prompt-list-conversation');
+    t.truthy(conversation);
+    if (!conversation) return;
+
+    setPromptListCollapsedStateInUrl(conversation, true);
+
+    t.is(conversation.getAttribute('data-collapsed'), 'true');
+    t.is(window.location.search, `?plc=${conversation.getAttribute('data-prompt-list-id')}`);
+  });
+});
+
 test('parseMarkdownToHtml leaves single-paragraph prompt answers uncollapsed', (t) => {
   const html = withDom(() => parseMarkdownToHtml(['~ Question', '⏺ Only one paragraph.'].join('\n')));
 

@@ -314,7 +314,7 @@ function writeCollapsedPromptListIdsToLocation(collapsedIds: Set<string>) {
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
-export function syncPromptListCollapsedStateFromUrl(root: ParentNode, defaultCollapsed = true) {
+export function syncPromptListCollapsedStateFromUrl(root: ParentNode, defaultCollapsed = false) {
   const collapsedIds = readCollapsedPromptListIdsFromLocation();
   root.querySelectorAll<HTMLElement>('.prompt-list-conversation[data-prompt-list-id]').forEach((container) => {
     const id = container.getAttribute('data-prompt-list-id')?.trim() ?? '';
@@ -325,7 +325,7 @@ export function syncPromptListCollapsedStateFromUrl(root: ParentNode, defaultCol
 export function setPromptListCollapsedStateInUrl(
   container: HTMLElement,
   collapsed: boolean,
-  defaultCollapsed = true,
+  defaultCollapsed = false,
   options?: SetPromptListCollapsedStateOptions,
 ) {
   if (defaultCollapsed) {
@@ -347,7 +347,7 @@ export function setPromptListCollapsedStateInUrl(
   setPromptListCollapsedState(container, collapsed, options);
 }
 
-export function togglePromptListCollapsedStateInUrl(container: HTMLElement, defaultCollapsed = true) {
+export function togglePromptListCollapsedStateInUrl(container: HTMLElement, defaultCollapsed = false) {
   const nextCollapsed = container.getAttribute('data-collapsed') !== 'true';
   setPromptListCollapsedStateInUrl(container, nextCollapsed, defaultCollapsed);
 }
