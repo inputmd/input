@@ -50,4 +50,4 @@ export function isAllowedOrigin(origin: string): boolean {
 }
 
 export const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self' 'sha256-wBdtWdXsHnAU2DdByySW4LlXFAScrBvmBgkXtydwJdg='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com http://127.0.0.1:8788 http://localhost:8788; font-src 'self' https:";
+  "default-src 'self'; script-src 'self' 'sha256-wBdtWdXsHnAU2DdByySW4LlXFAScrBvmBgkXtydwJdg=' https://*.webcontainer-api.io https://*.staticblitz.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com http://127.0.0.1:8788 http://localhost:8788 https://*.webcontainer-api.io https://*.staticblitz.com wss://*.webcontainer-api.io; font-src 'self' https:; worker-src 'self' blob:; frame-src 'self' https://*.webcontainer-api.io https://*.staticblitz.com";

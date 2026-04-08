@@ -14,3 +14,10 @@ export function matchesPrimaryShortcut(event: KeyboardEvent, key: string): boole
   const usesSinglePrimaryModifier = (event.metaKey || event.ctrlKey) && !(event.metaKey && event.ctrlKey);
   return usesSinglePrimaryModifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === key;
 }
+
+export function shouldBypassTerminalMetaShortcut(event: KeyboardEvent): boolean {
+  if (!event.metaKey) return false;
+  if (event.code === 'KeyC' || event.code === 'KeyV') return false;
+  if (!event.ctrlKey && !event.altKey && !event.shiftKey && event.code === 'KeyK') return false;
+  return true;
+}

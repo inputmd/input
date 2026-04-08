@@ -638,6 +638,7 @@
 }
 
 .toolbar-toggle-controls .preview-toggle-btn,
+.toolbar-terminal-trigger,
 .action-buttons .author-menu-trigger {
   display: inline-flex;
   align-items: center;

@@ -16,6 +16,7 @@ import type { PromptListRequest } from './components/markdown_editor_commands';
 import { formatMarkdownEditorPaste } from './components/markdown_editor_paste';
 import { ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFile, type SidebarFileFilter } from './components/Sidebar';
+import { TerminalPanel } from './components/TerminalPanel';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
@@ -56,8 +57,10 @@ import {
   getInstallUrl,
   getPendingInstallationId,
   getPublicRepoContents,
+  getPublicRepoTarball,
   getPublicRepoTree,
   getRepoContents,
+  getRepoTarball,
   getRepoTree,
   getSelectedRepo,
   getSharedRepoFile,
@@ -72,6 +75,7 @@ import {
   publicRepoRawFileUrl,
   putEditorSharedRepoFile,
   putRepoFile,
+  type RepoFileEntry,
   type RepoFileShareLink,
   type RepoRecentCommitsResult,
   type RepoTreeResult,
@@ -240,7 +244,7 @@ interface RecentRepoVisit {
   source: 'installed' | 'public';
 }
 
-type SidePane = 'none' | 'preview' | 'reader-ai';
+type SidePane = 'none' | 'preview' | 'reader-ai' | 'terminal';
 
 interface ForkRepoDialogState {
   targetKind: 'repo' | 'gist';
@@ -363,6 +367,21 @@ function renameRepoDocFiles(files: RepoDocFile[], renames: Array<{ from: string;
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
+function renameRepoFileEntries(files: RepoFileEntry[], renames: Array<{ from: string; to: string }>): RepoFileEntry[] {
+  if (renames.length === 0) return files;
+  const renameMap = new Map(renames.map((entry) => [entry.from, entry.to]));
+  return files
+    .map((file) => {
+      const nextPath = renameMap.get(file.path);
+      if (!nextPath) return file;
+      return {
+        ...file,
+        path: nextPath,
+      };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
 function repoDocFilesFromTree(result: RepoTreeResult, markdownOnly: boolean): RepoDocFile[] {
   if (Array.isArray(result.entries) && result.entries.length > 0) {
     return result.entries
@@ -441,7 +460,7 @@ function readStoredSidePanePreference(): SidePane {
   if (typeof window === 'undefined') return 'none';
   try {
     const stored = localStorage.getItem(SIDE_PANE_MODE_KEY);
-    if (stored === 'reader-ai' || stored === 'none') return stored;
+    if (stored === 'reader-ai' || stored === 'none' || stored === 'terminal') return stored;
     if (stored === 'preview') return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'preview' : 'none';
     if (localStorage.getItem(READER_AI_VISIBLE_KEY) === 'true') return 'reader-ai';
     if (window.matchMedia(DESKTOP_MEDIA_QUERY).matches && localStorage.getItem(EDITOR_PREVIEW_VISIBLE_KEY) === 'true') {
@@ -879,6 +898,14 @@ export function App() {
   const defaultSidePane = useCallback(() => defaultSidePaneForViewport(), []);
   const previewVisible = sidePane === 'preview';
   const readerAiVisible = sidePane === 'reader-ai';
+  const terminalVisible = sidePane === 'terminal';
+  // Lazily-fetched tarball contents for repo workspaces, used by the terminal
+  // to mount the full FS into WebContainer. Cached by sidebarWorkspaceKey so
+  // it's invalidated automatically on workspace switch.
+  const [terminalRepoFiles, setTerminalRepoFiles] = useState<{
+    key: string;
+    files: RepoFileEntry[];
+  } | null>(null);
   // Track initialization
   const initialized = useRef(false);
   const markdownLinkPreviewCacheRef = useRef(new Map<string, { title: string; html: string } | null>());
@@ -886,6 +913,7 @@ export function App() {
   const inlinePromptAbortRef = useRef<AbortController | null>(null);
   const inlinePromptProtectedRangeRef = useRef<EditorProtectedRange | null>(inlinePromptProtectedRange);
   const editViewControllerRef = useRef<EditorController | null>(null);
+  const currentRepoDocPathRef = useRef<string | null>(currentRepoDocPath);
   const currentFileNameRef = useRef<string | null>(currentFileName);
   const prevRouteNameRef = useRef(route.name);
   const sidePaneSkipPersistRef = useRef(false);
@@ -895,6 +923,7 @@ export function App() {
   const hydratedLocalDraftKeysRef = useRef(new Set<string>());
   const externalEditSessionIdRef = useRef(0);
   const hasTypedInExternalEditSessionRef = useRef(false);
+  currentRepoDocPathRef.current = currentRepoDocPath;
   currentFileNameRef.current = currentFileName;
   const cancelEditContentSnapshot = useCallback(() => {
     if (editContentSnapshotTimerRef.current == null) return;
@@ -3716,6 +3745,10 @@ export function App() {
     setSidePane('reader-ai');
   }, []);
 
+  const onToggleTerminal = useCallback(() => {
+    setSidePane((pane) => (pane === 'terminal' ? 'none' : 'terminal'));
+  }, []);
+
   const loadReaderAiModels = useCallback(async () => {
     setReaderAiModelsLoading(true);
     setReaderAiModelsError(null);
@@ -6505,7 +6538,11 @@ export function App() {
           const nextSidebarFiles = renameRepoDocFiles(repoSidebarFiles, renames);
           setRepoSidebarFiles(nextSidebarFiles);
           setRepoFiles(nextSidebarFiles.filter((file) => isMarkdownFileName(file.path)));
-          if (currentFileNameRef.current === oldPath) {
+          setTerminalRepoFiles((current) => {
+            if (current?.key !== `repo:${selectedRepo}`) return current;
+            return { ...current, files: renameRepoFileEntries(current.files, renames) };
+          });
+          if (currentRepoDocPathRef.current === oldPath) {
             if (selectedRepoRef) {
               navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, newPath));
             } else {
@@ -6632,13 +6669,17 @@ export function App() {
           const nextSidebarFiles = renameRepoDocFiles(repoSidebarFiles, renames);
           setRepoSidebarFiles(nextSidebarFiles);
           setRepoFiles(nextSidebarFiles.filter((file) => isMarkdownFileName(file.path)));
-          if (currentFileName && isPathInFolder(currentFileName, oldPath)) {
+          setTerminalRepoFiles((current) => {
+            if (current?.key !== `repo:${selectedRepo}`) return current;
+            return { ...current, files: renameRepoFileEntries(current.files, renames) };
+          });
+          if (currentRepoDocPathRef.current && isPathInFolder(currentRepoDocPathRef.current, oldPath)) {
             if (selectedRepoRef) {
               navigate(
                 routePath.repoFile(
                   selectedRepoRef.owner,
                   selectedRepoRef.repo,
-                  renamePathWithNewFolder(currentFileName, oldPath, newPath),
+                  renamePathWithNewFolder(currentRepoDocPathRef.current, oldPath, newPath),
                 ),
               );
             } else {
@@ -7800,6 +7841,7 @@ export function App() {
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        window.dispatchEvent(new Event('input:layout-settled'));
       };
 
       window.addEventListener('pointermove', onMove);
@@ -7817,6 +7859,7 @@ export function App() {
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        window.dispatchEvent(new Event('input:layout-settled'));
       };
 
       window.addEventListener('pointermove', onMove);
@@ -7915,9 +7958,79 @@ export function App() {
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const mountReaderAiPanel = showReaderAiToggle;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
+  const showTerminalToggle =
+    Boolean(import.meta.env.VITE_WEBCONTAINERS_API_KEY) && readerAiHistoryEligible && !documentStack.hasStack;
+  const showTerminalPanel = showTerminalToggle && terminalVisible;
+  const mountTerminalPanel = showTerminalPanel;
+  // For repo workspaces, fetch the full file tree (with contents) once when the
+  // terminal becomes mountable, then reuse it. Gists already carry contents
+  // inline so they don't need this. Invalidates automatically on workspace
+  // switch via sidebarWorkspaceKey.
+  useEffect(() => {
+    if (!showTerminalToggle) {
+      setTerminalRepoFiles((current) => (current === null ? current : null));
+      return;
+    }
+    if (!mountTerminalPanel) return;
+    if (currentGistId) return;
+    if (terminalRepoFiles?.key === sidebarWorkspaceKey) return;
+    const key = sidebarWorkspaceKey;
+    let cancelled = false;
+    void (async () => {
+      try {
+        let files: RepoFileEntry[] | null = null;
+        if (repoAccessMode === 'installed' && selectedRepo && activeInstalledRepoInstallationId) {
+          files = await getRepoTarball(activeInstalledRepoInstallationId, selectedRepo);
+        } else if (repoAccessMode === 'public' && publicRepoRef) {
+          files = await getPublicRepoTarball(publicRepoRef.owner, publicRepoRef.repo);
+        }
+        if (cancelled || files === null) return;
+        setTerminalRepoFiles({ key, files });
+      } catch (err) {
+        console.error('[terminal] failed to fetch repo tarball', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showTerminalToggle,
+    mountTerminalPanel,
+    sidebarWorkspaceKey,
+    currentGistId,
+    repoAccessMode,
+    selectedRepo,
+    activeInstalledRepoInstallationId,
+    publicRepoRef,
+    terminalRepoFiles,
+  ]);
+  // Build the stable base snapshot fed to the terminal. The active editor
+  // buffer is passed separately so typing does not rebuild the full repo map.
+  const terminalBaseFiles = useMemo<Record<string, string>>(() => {
+    if (!mountTerminalPanel) return {};
+    const result: Record<string, string> = {};
+    if (currentGistId && gistFiles) {
+      for (const [name, file] of Object.entries(gistFiles)) {
+        if (file.truncated || file.content == null) continue;
+        result[name] = file.content;
+      }
+    } else if (terminalRepoFiles && terminalRepoFiles.key === sidebarWorkspaceKey) {
+      for (const entry of terminalRepoFiles.files) {
+        result[entry.path] = entry.content;
+      }
+    }
+    return result;
+  }, [mountTerminalPanel, currentGistId, gistFiles, terminalRepoFiles, sidebarWorkspaceKey]);
+  const terminalLiveFile = useMemo<{ path: string; content: string } | null>(() => {
+    if (!mountTerminalPanel || activeView !== 'edit') return null;
+    const path = currentGistId ? currentFileName : currentRepoDocPath;
+    if (!path) return null;
+    return { path, content: editContent };
+  }, [mountTerminalPanel, activeView, currentGistId, currentFileName, currentRepoDocPath, editContent]);
   const headerSidebarToggleAvailable = activeView === 'content' || activeView === 'edit';
   const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;
   const headerReaderAiToggleAvailable = showReaderAiToggle && !readerAiToggleDisabled;
+  const headerTerminalToggleAvailable = showTerminalToggle;
   const showGistHeaderShare = currentGistId !== null && (route.name === 'gist' || route.name === 'edit');
   const showInstalledRepoHeaderShare =
     repoAccessMode === 'installed' &&
@@ -7946,6 +8059,7 @@ export function App() {
     const bindings = [
       { key: 'b', available: headerSidebarToggleAvailable, action: onToggleSidebar },
       { key: 'o', available: headerReaderAiToggleAvailable, action: onToggleReaderAi },
+      { key: 't', available: headerTerminalToggleAvailable, action: onToggleTerminal },
       { key: 'i', available: true, action: toggleTheme },
       { key: 'p', available: headerPreviewToggleAvailable, action: onTogglePreview },
       { key: 'e', available: showHeaderEdit, action: onEdit },
@@ -7966,9 +8080,11 @@ export function App() {
     headerSidebarToggleAvailable,
     headerPreviewToggleAvailable,
     headerReaderAiToggleAvailable,
+    headerTerminalToggleAvailable,
     onToggleSidebar,
     onTogglePreview,
     onToggleReaderAi,
+    onToggleTerminal,
     onEdit,
     showHeaderEdit,
     toggleTheme,
@@ -8194,6 +8310,9 @@ export function App() {
         aiVisible={showReaderAiPanel}
         aiDisabled={readerAiToggleDisabled}
         onToggleAi={onToggleReaderAi}
+        showTerminalToggle={showTerminalToggle}
+        terminalVisible={showTerminalPanel}
+        onToggleTerminal={onToggleTerminal}
         aiModels={readerAiModels}
         aiModelsLoading={readerAiModelsLoading}
         aiModelsError={readerAiModelsError}
@@ -8216,12 +8335,12 @@ export function App() {
         onSignInWithGitHub={handleSignInWithGitHub}
       />
       <div
-        class={`${showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}${showReaderAiPanel ? ' app-body--with-reader-ai' : ''}${activeView === 'edit' ? ' app-body--edit' : ''}`}
+        class={`${showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}${showReaderAiPanel ? ' app-body--with-reader-ai' : ''}${showTerminalPanel ? ' app-body--with-terminal' : ''}${activeView === 'edit' ? ' app-body--edit' : ''}`}
         style={
-          showSidebar || mountReaderAiPanel
+          showSidebar || mountReaderAiPanel || mountTerminalPanel
             ? ({
                 ...(showSidebar ? { '--sidebar-width': `${sidebarWidth}px` } : {}),
-                ...(mountReaderAiPanel ? { '--reader-ai-width': `${sidePaneWidth}px` } : {}),
+                ...(mountReaderAiPanel || mountTerminalPanel ? { '--reader-ai-width': `${sidePaneWidth}px` } : {}),
               } as JSX.CSSProperties)
             : undefined
         }
@@ -8285,16 +8404,15 @@ export function App() {
         >
           <main>{renderView()}</main>
         </ErrorBoundary>
-        {showReaderAiPanel ? (
-          <>
-            <div class="reader-ai-backdrop" onClick={onToggleReaderAi} />
-            <div
-              class="reader-ai-splitter"
-              role="separator"
-              aria-orientation="vertical"
-              onPointerDown={onReaderAiSplitPointerDown}
-            />
-          </>
+        {showReaderAiPanel ? <div class="reader-ai-backdrop" onClick={onToggleReaderAi} /> : null}
+        {showTerminalPanel ? <div class="terminal-backdrop" onClick={onToggleTerminal} /> : null}
+        {showReaderAiPanel || showTerminalPanel ? (
+          <div
+            class="reader-ai-splitter"
+            role="separator"
+            aria-orientation="vertical"
+            onPointerDown={onReaderAiSplitPointerDown}
+          />
         ) : null}
         {mountReaderAiPanel ? (
           <ReaderAiPanel
@@ -8352,6 +8470,15 @@ export function App() {
               readerAiConversationScope?.kind === 'selection' ||
               (readerAiConversationScope === null && readerAiHasEligibleSelection)
             }
+          />
+        ) : null}
+        {mountTerminalPanel ? (
+          <TerminalPanel
+            key={sidebarWorkspaceKey}
+            visible={showTerminalPanel}
+            apiKey={import.meta.env.VITE_WEBCONTAINERS_API_KEY as string | undefined}
+            baseFiles={terminalBaseFiles}
+            liveFile={terminalLiveFile}
           />
         ) : null}
       </div>

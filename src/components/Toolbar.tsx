@@ -15,6 +15,7 @@ import {
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
+  SquareTerminal,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
@@ -174,6 +175,9 @@ interface ToolbarProps {
   aiVisible: boolean;
   aiDisabled?: boolean;
   onToggleAi: () => void;
+  showTerminalToggle: boolean;
+  terminalVisible: boolean;
+  onToggleTerminal: () => void;
   aiModels: ReaderAiModel[];
   aiModelsLoading: boolean;
   aiModelsError: string | null;
@@ -267,6 +271,9 @@ export function Toolbar({
   aiVisible,
   aiDisabled = false,
   onToggleAi,
+  showTerminalToggle,
+  terminalVisible,
+  onToggleTerminal,
   aiModels,
   aiModelsLoading,
   aiModelsError,
@@ -1160,6 +1167,17 @@ export function Toolbar({
               ) : null}
             </div>
           </div>
+        ) : null}
+        {showTerminalToggle ? (
+          <button
+            type="button"
+            class={`preview-toggle-btn toolbar-terminal-trigger toolbar-terminal-toggle${terminalVisible ? '' : ' preview-toggle-btn-off'}`}
+            title="Toggle terminal"
+            aria-label="Toggle terminal"
+            onClick={onToggleTerminal}
+          >
+            <SquareTerminal size={16} />
+          </button>
         ) : null}
         {user ? (
           <DropdownMenu.Root onOpenChange={blurOnClose}>

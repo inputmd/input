@@ -1,6 +1,10 @@
 import test from 'ava';
 import { JSDOM } from 'jsdom';
-import { APP_SHORTCUTS_ALLOWED_ATTR, isEditableShortcutTarget } from '../../src/keyboard_shortcuts.ts';
+import {
+  APP_SHORTCUTS_ALLOWED_ATTR,
+  isEditableShortcutTarget,
+  shouldBypassTerminalMetaShortcut,
+} from '../../src/keyboard_shortcuts.ts';
 
 function withDom<T>(callback: () => T): T {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://input.test/doc' });
@@ -41,4 +45,24 @@ test('isEditableShortcutTarget allows marked composer targets to receive app sho
 
     t.false(isEditableShortcutTarget(input));
   });
+});
+
+test('shouldBypassTerminalMetaShortcut keeps Cmd+K inside the terminal', (t) => {
+  const dom = new JSDOM('');
+  try {
+    const event = new dom.window.KeyboardEvent('keydown', { key: 'k', code: 'KeyK', metaKey: true });
+    t.false(shouldBypassTerminalMetaShortcut(event));
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('shouldBypassTerminalMetaShortcut still bypasses browser shortcuts like Cmd+L', (t) => {
+  const dom = new JSDOM('');
+  try {
+    const event = new dom.window.KeyboardEvent('keydown', { key: 'l', code: 'KeyL', metaKey: true });
+    t.true(shouldBypassTerminalMetaShortcut(event));
+  } finally {
+    dom.window.close();
+  }
 });
