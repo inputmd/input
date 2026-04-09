@@ -1,7 +1,7 @@
-import type { SidebarFile, SidebarFileFilter } from '../components/Sidebar';
-import type { RepoDocFile } from '../document_store';
-import type { GistFile } from '../github';
-import type { RepoFileEntry } from '../github_app';
+import type { SidebarFile, SidebarFileFilter } from '../components/Sidebar.tsx';
+import type { RepoDocFile } from '../document_store.ts';
+import type { GistFile } from '../github.ts';
+import type { RepoFileEntry } from '../github_app.ts';
 import {
   fileNameFromPath,
   isEditableTextFilePath,
@@ -9,14 +9,15 @@ import {
   isSidebarTextFileName,
   isSidebarTextListPath,
   isVisibleSidebarFilePath,
-} from '../path_utils';
-import { isMarkdownFileName } from '../util';
+} from '../path_utils.ts';
+import { isMarkdownFileName } from '../util.ts';
 import type {
   BuildRepoWorkspaceIdentityArgs,
+  RepoWorkspaceDeletedFile,
   RepoWorkspaceFileCounts,
   RepoWorkspaceIdentity,
   RepoWorkspaceRename,
-} from './types';
+} from './types.ts';
 
 function withScratchSidebarFile(files: SidebarFile[], scratchPath: string | null): SidebarFile[] {
   if (!scratchPath) return files;
@@ -173,6 +174,75 @@ export function buildRepoWorkspaceSidebarSourceFiles({
   return withScratchSidebarFile(files, scratchSidebarPath);
 }
 
+export function applyRepoOverlayFilesToDocFiles(
+  files: RepoDocFile[],
+  overlayFiles: Array<{ path: string; content: string }>,
+): RepoDocFile[] {
+  if (overlayFiles.length === 0) return files;
+
+  const overlayByPath = new Map(overlayFiles.map((file) => [file.path, file.content]));
+  const encoder = new TextEncoder();
+  const nextFiles = files.map((file) => {
+    const overlayContent = overlayByPath.get(file.path);
+    if (overlayContent == null) return file;
+    return {
+      ...file,
+      size: encoder.encode(overlayContent).length,
+    };
+  });
+
+  for (const [path, content] of overlayByPath) {
+    if (files.some((file) => file.path === path)) continue;
+    nextFiles.push({
+      name: fileNameFromPath(path),
+      path,
+      sha: '',
+      size: encoder.encode(content).length,
+    });
+  }
+
+  nextFiles.sort((a, b) => a.path.localeCompare(b.path));
+  return nextFiles;
+}
+
+export function findRepoRenamedBaseSourcePath(renames: RepoWorkspaceRename[], path: string): string | null {
+  for (const rename of renames) {
+    if (rename.to === path) return rename.from;
+  }
+  return null;
+}
+
+export function applyRepoWorkspaceMutationsToDocFiles(
+  files: RepoDocFile[],
+  options: {
+    overlayFiles: Array<{ path: string; content: string }>;
+    deletedBaseFiles: RepoWorkspaceDeletedFile[];
+    renamedBaseFiles: RepoWorkspaceRename[];
+  },
+): RepoDocFile[] {
+  const { overlayFiles, deletedBaseFiles, renamedBaseFiles } = options;
+  if (overlayFiles.length === 0 && deletedBaseFiles.length === 0 && renamedBaseFiles.length === 0) return files;
+
+  const deletedPaths = new Set(deletedBaseFiles.map((file) => file.path));
+  const renamedPaths = new Map(renamedBaseFiles.map((file) => [file.from, file.to]));
+  const nextFiles = files
+    .flatMap((file) => {
+      if (deletedPaths.has(file.path)) return [];
+      const renamedPath = renamedPaths.get(file.path);
+      if (!renamedPath) return [file];
+      return [
+        {
+          ...file,
+          name: fileNameFromPath(renamedPath),
+          path: renamedPath,
+        },
+      ];
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+
+  return applyRepoOverlayFilesToDocFiles(nextFiles, overlayFiles);
+}
+
 export function filterRepoWorkspaceSidebarFiles(
   files: SidebarFile[],
   sidebarFileFilter: SidebarFileFilter,
@@ -254,4 +324,26 @@ export function renameRepoTerminalBaseFiles(
     next[rename.to] = source;
   }
   return next ?? files;
+}
+
+export function applyRepoWorkspaceMutationsToTerminalFiles(
+  files: Record<string, string>,
+  options: {
+    overlayFiles: Array<{ path: string; content: string }>;
+    deletedBaseFiles: RepoWorkspaceDeletedFile[];
+    renamedBaseFiles: RepoWorkspaceRename[];
+  },
+): Record<string, string> {
+  const { overlayFiles, deletedBaseFiles, renamedBaseFiles } = options;
+  if (overlayFiles.length === 0 && deletedBaseFiles.length === 0 && renamedBaseFiles.length === 0) return files;
+
+  let nextFiles = removeRepoTerminalBaseFiles(
+    files,
+    deletedBaseFiles.map((file) => file.path),
+  );
+  nextFiles = renameRepoTerminalBaseFiles(nextFiles, renamedBaseFiles);
+  for (const overlayFile of overlayFiles) {
+    nextFiles = setRepoTerminalBaseFile(nextFiles, overlayFile.path, overlayFile.content);
+  }
+  return nextFiles;
 }

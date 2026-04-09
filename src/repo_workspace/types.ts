@@ -20,10 +20,21 @@ export interface RepoWorkspaceRename {
   to: string;
 }
 
+export type RepoWorkspaceMutationSource = 'editor' | 'sidebar' | 'terminal' | 'reader_ai';
+
 export interface RepoWorkspaceOverlayFile {
   path: string;
   content: string;
-  source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai';
+  source: RepoWorkspaceMutationSource;
+}
+
+export interface RepoWorkspaceDeletedFile {
+  path: string;
+  source: RepoWorkspaceMutationSource;
+}
+
+export interface RepoWorkspaceRenamedFile extends RepoWorkspaceRename {
+  source: RepoWorkspaceMutationSource;
 }
 
 export interface RepoWorkspaceIdentity {
@@ -45,6 +56,8 @@ export interface RepoWorkspaceState {
   sidebarFiles: SidebarFile[];
   sidebarFileCounts: RepoWorkspaceFileCounts;
   overlayFiles: RepoWorkspaceOverlayFile[];
+  deletedBaseFiles: RepoWorkspaceDeletedFile[];
+  renamedBaseFiles: RepoWorkspaceRenamedFile[];
   hasOverlayChanges: boolean;
   terminalSnapshotVersion: number;
   terminalBaseFiles: Record<string, string>;
@@ -52,9 +65,13 @@ export interface RepoWorkspaceState {
   getRepoMarkdownPaths: () => string[];
   getRepoSidebarPaths: () => string[];
   getRepoOverlayPaths: () => string[];
+  getRepoDeletedBasePaths: () => string[];
+  getRepoRenamedBasePaths: () => RepoWorkspaceRename[];
   hasRepoSidebarPath: (path: string) => boolean;
   findBaseRepoSidebarFile: (path: string) => RepoDocFile | undefined;
   findRepoSidebarFile: (path: string) => RepoDocFile | undefined;
+  findRepoRenamedBaseSourcePath: (path: string) => string | null;
+  resolveRepoBasePath: (path: string) => string | null;
   listRepoSidebarFilesInFolder: (folderPath: string) => RepoDocFile[];
   resetRepoState: () => void;
   replaceRepoSnapshot: (repoSidebarFiles: RepoDocFile[], options?: { invalidateTerminal?: boolean }) => void;
@@ -64,14 +81,23 @@ export interface RepoWorkspaceState {
   setRepoFileContent: (path: string, content: string) => void;
   removeRepoFileContent: (path: string) => void;
   removeRepoFileContents: (paths: string[]) => void;
-  stageRepoOverlayFile: (path: string, content: string, source?: RepoWorkspaceOverlayFile['source']) => void;
+  stageRepoOverlayFile: (path: string, content: string, source?: RepoWorkspaceMutationSource) => void;
   clearRepoOverlayFile: (path: string) => void;
+  clearRepoOverlayFiles: (paths: string[]) => void;
+  stageRepoDeletedBaseFile: (path: string, source?: RepoWorkspaceMutationSource) => void;
+  clearRepoDeletedBaseFile: (path: string) => void;
+  clearRepoDeletedBaseFiles: (paths: string[]) => void;
+  stageRepoRenamedBaseFile: (from: string, to: string, source?: RepoWorkspaceMutationSource) => void;
+  clearRepoRenamedBaseFile: (path: string) => void;
+  clearRepoRenamedBaseFiles: (paths: string[]) => void;
   clearAllRepoOverlayFiles: () => void;
+  clearAllRepoWorkspaceChanges: () => void;
   setSharedRepoFile: (repoFile: RepoDocFile) => void;
   upsertRepoFile: (repoFile: RepoDocFile) => void;
   updateRepoFile: (path: string, updates: Partial<Pick<RepoDocFile, 'name' | 'sha' | 'size'>>) => void;
   applyRepoRenames: (renames: RepoWorkspaceRename[]) => void;
   applyRepoContentRenames: (renames: RepoWorkspaceRename[]) => void;
+  applyRepoOverlayRenames: (renames: RepoWorkspaceRename[]) => void;
 }
 
 export interface UseRepoWorkspaceArgs {

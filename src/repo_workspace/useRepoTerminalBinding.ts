@@ -2,8 +2,14 @@ import { useEffect, useMemo } from 'preact/hooks';
 import type { GistFile } from '../github';
 import { getPublicRepoTarball, getRepoTarball } from '../github_app';
 import type { PublicRepoRef } from '../wiki_links';
-import { buildGistTerminalBaseFiles } from './helpers';
-import type { RepoAccessMode, RepoTerminalBinding, RepoWorkspaceOverlayFile } from './types';
+import { applyRepoWorkspaceMutationsToTerminalFiles, buildGistTerminalBaseFiles } from './helpers';
+import type {
+  RepoAccessMode,
+  RepoTerminalBinding,
+  RepoWorkspaceDeletedFile,
+  RepoWorkspaceOverlayFile,
+  RepoWorkspaceRenamedFile,
+} from './types';
 
 interface UseRepoTerminalBindingArgs {
   workspaceKey: string;
@@ -21,6 +27,8 @@ interface UseRepoTerminalBindingArgs {
   terminalBaseFiles: Record<string, string>;
   terminalBaseSnapshotKey: string | null;
   overlayFiles: RepoWorkspaceOverlayFile[];
+  deletedBaseFiles: RepoWorkspaceDeletedFile[];
+  renamedBaseFiles: RepoWorkspaceRenamedFile[];
   replaceTerminalBaseSnapshot: (snapshotKey: string, files: Record<string, string>) => void;
   editing: boolean;
   activeEditPath: string | null;
@@ -43,6 +51,8 @@ export function useRepoTerminalBinding({
   terminalBaseFiles,
   terminalBaseSnapshotKey,
   overlayFiles,
+  deletedBaseFiles,
+  renamedBaseFiles,
   replaceTerminalBaseSnapshot,
   editing,
   activeEditPath,
@@ -102,20 +112,20 @@ export function useRepoTerminalBinding({
       return buildGistTerminalBaseFiles(gistFiles);
     }
     if (terminalBaseSnapshotKey !== cacheKey) return {};
-    const nonLiveOverlayFiles = overlayFiles.filter((file) => file.path !== activeEditPath);
-    if (nonLiveOverlayFiles.length === 0) return terminalBaseFiles;
-    const merged = { ...terminalBaseFiles };
-    for (const file of nonLiveOverlayFiles) {
-      merged[file.path] = file.content;
-    }
-    return merged;
+    return applyRepoWorkspaceMutationsToTerminalFiles(terminalBaseFiles, {
+      overlayFiles: overlayFiles.filter((file) => file.path !== activeEditPath),
+      deletedBaseFiles,
+      renamedBaseFiles,
+    });
   }, [
     activeEditPath,
     cacheKey,
     currentGistId,
+    deletedBaseFiles,
     gistFiles,
     mounted,
     overlayFiles,
+    renamedBaseFiles,
     terminalBaseFiles,
     terminalBaseSnapshotKey,
   ]);

@@ -4,11 +4,13 @@ import type { RepoFileEntry } from '../github_app';
 import { clearStoredScrollPositions } from '../scroll_positions';
 import { isMarkdownFileName } from '../util';
 import {
+  applyRepoWorkspaceMutationsToDocFiles,
   buildRepoTerminalBaseFiles,
   buildRepoWorkspaceSidebarSourceFiles,
   countRepoWorkspaceSidebarFiles,
   filterRepoMarkdownFiles,
   filterRepoWorkspaceSidebarFiles,
+  findRepoRenamedBaseSourcePath as findRenamedBaseSourcePath,
   findRepoDocFileByPath,
   hasRepoDocFilePath,
   listRepoDocFilePaths,
@@ -36,6 +38,12 @@ export function useRepoWorkspace({
   const [overlayFilesByPath, setOverlayFilesByPath] = useState<
     Record<string, { content: string; source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' }>
   >({});
+  const [deletedBaseFilesByPath, setDeletedBaseFilesByPath] = useState<
+    Record<string, { source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' }>
+  >({});
+  const [renamedBaseFilesByFrom, setRenamedBaseFilesByFrom] = useState<
+    Record<string, { to: string; source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' }>
+  >({});
   const [terminalSnapshotVersion, setTerminalSnapshotVersion] = useState(0);
   const [terminalBaseSnapshot, setTerminalBaseSnapshot] = useState<{
     key: string;
@@ -56,21 +64,6 @@ export function useRepoWorkspace({
     clearStoredScrollPositions();
   }, [workspaceIdentity.scrollWorkspaceKey]);
 
-  const sidebarSourceFiles = useMemo(() => {
-    return buildRepoWorkspaceSidebarSourceFiles({
-      gistFiles,
-      currentFileName,
-      repoSidebarFiles,
-      currentRepoDocPath,
-      scratchSidebarPath,
-    });
-  }, [currentFileName, currentRepoDocPath, gistFiles, repoSidebarFiles, scratchSidebarPath]);
-
-  const sidebarFiles = useMemo(() => {
-    return filterRepoWorkspaceSidebarFiles(sidebarSourceFiles, sidebarFileFilter);
-  }, [sidebarFileFilter, sidebarSourceFiles]);
-
-  const sidebarFileCounts = useMemo(() => countRepoWorkspaceSidebarFiles(sidebarSourceFiles), [sidebarSourceFiles]);
   const overlayFiles = useMemo(
     () =>
       Object.entries(overlayFilesByPath)
@@ -82,30 +75,110 @@ export function useRepoWorkspace({
         .sort((a, b) => a.path.localeCompare(b.path)),
     [overlayFilesByPath],
   );
-  const hasOverlayChanges = overlayFiles.length > 0;
-  const getRepoMarkdownPaths = useCallback(() => listRepoDocFilePaths(repoMarkdownFiles), [repoMarkdownFiles]);
-  const getRepoSidebarPaths = useCallback(() => listRepoDocFilePaths(repoSidebarFiles), [repoSidebarFiles]);
+  const deletedBaseFiles = useMemo(
+    () =>
+      Object.entries(deletedBaseFilesByPath)
+        .map(([path, entry]) => ({
+          path,
+          source: entry.source,
+        }))
+        .sort((a, b) => a.path.localeCompare(b.path)),
+    [deletedBaseFilesByPath],
+  );
+  const renamedBaseFiles = useMemo(
+    () =>
+      Object.entries(renamedBaseFilesByFrom)
+        .map(([from, entry]) => ({
+          from,
+          to: entry.to,
+          source: entry.source,
+        }))
+        .sort((a, b) => a.from.localeCompare(b.from)),
+    [renamedBaseFilesByFrom],
+  );
+  const hasOverlayChanges = overlayFiles.length > 0 || deletedBaseFiles.length > 0 || renamedBaseFiles.length > 0;
+  const effectiveRepoSidebarFiles = useMemo(
+    () =>
+      applyRepoWorkspaceMutationsToDocFiles(repoSidebarFiles, {
+        overlayFiles,
+        deletedBaseFiles,
+        renamedBaseFiles,
+      }),
+    [deletedBaseFiles, overlayFiles, renamedBaseFiles, repoSidebarFiles],
+  );
+  const effectiveRepoMarkdownFiles = useMemo(
+    () =>
+      filterRepoMarkdownFiles(
+        applyRepoWorkspaceMutationsToDocFiles(repoMarkdownFiles, {
+          overlayFiles,
+          deletedBaseFiles,
+          renamedBaseFiles,
+        }),
+      ),
+    [deletedBaseFiles, overlayFiles, renamedBaseFiles, repoMarkdownFiles],
+  );
+  const sidebarSourceFiles = useMemo(() => {
+    return buildRepoWorkspaceSidebarSourceFiles({
+      gistFiles,
+      currentFileName,
+      repoSidebarFiles: effectiveRepoSidebarFiles,
+      currentRepoDocPath,
+      scratchSidebarPath,
+    });
+  }, [currentFileName, currentRepoDocPath, effectiveRepoSidebarFiles, gistFiles, scratchSidebarPath]);
+
+  const sidebarFiles = useMemo(() => {
+    return filterRepoWorkspaceSidebarFiles(sidebarSourceFiles, sidebarFileFilter);
+  }, [sidebarFileFilter, sidebarSourceFiles]);
+
+  const sidebarFileCounts = useMemo(() => countRepoWorkspaceSidebarFiles(sidebarSourceFiles), [sidebarSourceFiles]);
+  const getRepoMarkdownPaths = useCallback(
+    () => listRepoDocFilePaths(effectiveRepoMarkdownFiles),
+    [effectiveRepoMarkdownFiles],
+  );
+  const getRepoSidebarPaths = useCallback(
+    () => listRepoDocFilePaths(effectiveRepoSidebarFiles),
+    [effectiveRepoSidebarFiles],
+  );
   const getRepoOverlayPaths = useCallback(() => overlayFiles.map((file) => file.path), [overlayFiles]);
+  const getRepoDeletedBasePaths = useCallback(() => deletedBaseFiles.map((file) => file.path), [deletedBaseFiles]);
+  const getRepoRenamedBasePaths = useCallback(
+    () => renamedBaseFiles.map((file) => ({ from: file.from, to: file.to })),
+    [renamedBaseFiles],
+  );
   const hasRepoSidebarPath = useCallback(
-    (path: string) => hasRepoDocFilePath(repoSidebarFiles, path),
-    [repoSidebarFiles],
+    (path: string) => hasRepoDocFilePath(effectiveRepoSidebarFiles, path),
+    [effectiveRepoSidebarFiles],
   );
   const findBaseRepoSidebarFile = useCallback(
     (path: string) => findRepoDocFileByPath(repoSidebarFiles, path),
     [repoSidebarFiles],
   );
   const findRepoSidebarFile = useCallback(
-    (path: string) => findRepoDocFileByPath(repoSidebarFiles, path),
-    [repoSidebarFiles],
+    (path: string) => findRepoDocFileByPath(effectiveRepoSidebarFiles, path),
+    [effectiveRepoSidebarFiles],
+  );
+  const findRepoRenamedBaseSourcePath = useCallback(
+    (path: string) => findRenamedBaseSourcePath(renamedBaseFiles, path),
+    [renamedBaseFiles],
+  );
+  const resolveRepoBasePath = useCallback(
+    (path: string) => {
+      if (findRepoDocFileByPath(repoSidebarFiles, path)) return path;
+      return findRenamedBaseSourcePath(renamedBaseFiles, path);
+    },
+    [renamedBaseFiles, repoSidebarFiles],
   );
   const listRepoSidebarFilesInFolder = useCallback(
-    (folderPath: string) => listRepoDocFilesInFolder(repoSidebarFiles, folderPath),
-    [repoSidebarFiles],
+    (folderPath: string) => listRepoDocFilesInFolder(effectiveRepoSidebarFiles, folderPath),
+    [effectiveRepoSidebarFiles],
   );
   const resetRepoState = useCallback(() => {
     setRepoMarkdownFiles([]);
     setRepoSidebarFiles([]);
     setOverlayFilesByPath({});
+    setDeletedBaseFilesByPath({});
+    setRenamedBaseFilesByFrom({});
     setTerminalBaseSnapshot(null);
   }, []);
   const replaceRepoSnapshot = useCallback((files: RepoDocFile[], options?: { invalidateTerminal?: boolean }) => {
@@ -181,8 +254,92 @@ export function useRepoWorkspace({
       return next;
     });
   }, []);
+  const clearRepoOverlayFiles = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    setOverlayFilesByPath((current) => {
+      let next: Record<string, { content: string; source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' }> | null =
+        null;
+      for (const path of paths) {
+        if (!(next ?? current)[path]) continue;
+        if (next === null) next = { ...current };
+        delete next[path];
+      }
+      return next ?? current;
+    });
+  }, []);
+  const stageRepoDeletedBaseFile = useCallback(
+    (path: string, source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' = 'sidebar') => {
+      setDeletedBaseFilesByPath((current) => {
+        const existing = current[path];
+        if (existing?.source === source) return current;
+        return {
+          ...current,
+          [path]: { source },
+        };
+      });
+    },
+    [],
+  );
+  const clearRepoDeletedBaseFile = useCallback((path: string) => {
+    setDeletedBaseFilesByPath((current) => {
+      if (!(path in current)) return current;
+      const next = { ...current };
+      delete next[path];
+      return next;
+    });
+  }, []);
+  const clearRepoDeletedBaseFiles = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    setDeletedBaseFilesByPath((current) => {
+      let next: Record<string, { source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' }> | null = null;
+      for (const path of paths) {
+        if (!(next ?? current)[path]) continue;
+        if (next === null) next = { ...current };
+        delete next[path];
+      }
+      return next ?? current;
+    });
+  }, []);
+  const stageRepoRenamedBaseFile = useCallback(
+    (from: string, to: string, source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' = 'sidebar') => {
+      setRenamedBaseFilesByFrom((current) => {
+        const existing = current[from];
+        if (existing?.to === to && existing.source === source) return current;
+        return {
+          ...current,
+          [from]: { to, source },
+        };
+      });
+    },
+    [],
+  );
+  const clearRepoRenamedBaseFile = useCallback((path: string) => {
+    setRenamedBaseFilesByFrom((current) => {
+      if (!(path in current)) return current;
+      const next = { ...current };
+      delete next[path];
+      return next;
+    });
+  }, []);
+  const clearRepoRenamedBaseFiles = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    setRenamedBaseFilesByFrom((current) => {
+      let next: Record<string, { to: string; source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' }> | null = null;
+      for (const path of paths) {
+        if (!(next ?? current)[path]) continue;
+        if (next === null) next = { ...current };
+        delete next[path];
+      }
+      return next ?? current;
+    });
+  }, []);
   const clearAllRepoOverlayFiles = useCallback(() => {
     setOverlayFilesByPath((current) => (Object.keys(current).length === 0 ? current : {}));
+  }, []);
+  const clearAllRepoWorkspaceChanges = useCallback(() => {
+    setOverlayFilesByPath((current) => (Object.keys(current).length === 0 ? current : {}));
+    setDeletedBaseFilesByPath((current) => (Object.keys(current).length === 0 ? current : {}));
+    setRenamedBaseFilesByFrom((current) => (Object.keys(current).length === 0 ? current : {}));
   }, []);
   const setSharedRepoFile = useCallback((file: RepoDocFile) => {
     setRepoSidebarFiles([file]);
@@ -214,18 +371,38 @@ export function useRepoWorkspace({
         : current,
     );
   }, []);
+  const applyRepoOverlayRenames = useCallback((renames: Array<{ from: string; to: string }>) => {
+    if (renames.length === 0) return;
+    setOverlayFilesByPath((current) => {
+      let next: typeof current | null = null;
+      for (const rename of renames) {
+        const entry = (next ?? current)[rename.from];
+        if (!entry) continue;
+        if (next === null) next = { ...current };
+        delete next[rename.from];
+        next[rename.to] = entry;
+      }
+      return next ?? current;
+    });
+  }, []);
 
   return useMemo(
     () => ({
       findRepoSidebarFile,
       getRepoMarkdownPaths,
+      getRepoDeletedBasePaths,
       getRepoOverlayPaths,
+      getRepoRenamedBasePaths,
       getRepoSidebarPaths,
       hasRepoSidebarPath,
       hasOverlayChanges,
       findBaseRepoSidebarFile,
       listRepoSidebarFilesInFolder,
+      deletedBaseFiles,
+      renamedBaseFiles,
       overlayFiles,
+      findRepoRenamedBaseSourcePath,
+      resolveRepoBasePath,
       sidebarWorkspaceKey: workspaceIdentity.sidebarWorkspaceKey,
       sidebarFiles,
       sidebarFileCounts,
@@ -242,23 +419,43 @@ export function useRepoWorkspace({
       removeRepoFileContents,
       stageRepoOverlayFile,
       clearRepoOverlayFile,
+      clearRepoOverlayFiles,
+      stageRepoDeletedBaseFile,
+      clearRepoDeletedBaseFile,
+      clearRepoDeletedBaseFiles,
+      stageRepoRenamedBaseFile,
+      clearRepoRenamedBaseFile,
+      clearRepoRenamedBaseFiles,
       clearAllRepoOverlayFiles,
+      clearAllRepoWorkspaceChanges,
       setSharedRepoFile,
       upsertRepoFile,
       updateRepoFile,
       applyRepoRenames,
       applyRepoContentRenames,
+      applyRepoOverlayRenames,
     }),
     [
+      applyRepoOverlayRenames,
       applyRepoContentRenames,
       applyRepoRenames,
       clearTerminalBaseSnapshot,
+      clearAllRepoWorkspaceChanges,
       clearAllRepoOverlayFiles,
+      clearRepoDeletedBaseFile,
+      clearRepoDeletedBaseFiles,
       clearRepoOverlayFile,
+      clearRepoOverlayFiles,
+      clearRepoRenamedBaseFile,
+      clearRepoRenamedBaseFiles,
+      deletedBaseFiles,
       findRepoSidebarFile,
       findBaseRepoSidebarFile,
+      findRepoRenamedBaseSourcePath,
       getRepoMarkdownPaths,
+      getRepoDeletedBasePaths,
       getRepoOverlayPaths,
+      getRepoRenamedBasePaths,
       getRepoSidebarPaths,
       hasRepoSidebarPath,
       hasOverlayChanges,
@@ -269,9 +466,13 @@ export function useRepoWorkspace({
       replaceRepoMarkdownFiles,
       replaceRepoSnapshot,
       replaceTerminalBaseSnapshot,
+      renamedBaseFiles,
       resetRepoState,
+      resolveRepoBasePath,
       setRepoFileContent,
+      stageRepoDeletedBaseFile,
       stageRepoOverlayFile,
+      stageRepoRenamedBaseFile,
       setSharedRepoFile,
       sidebarFileCounts,
       sidebarFiles,
