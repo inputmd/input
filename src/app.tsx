@@ -4607,11 +4607,14 @@ export function App() {
     hasUnsavedChanges,
   ]);
 
+  const currentInstalledRepoFileSupportsPrivateShare =
+    currentRepoDocPath !== null && isMarkdownFileName(currentRepoDocPath);
   const canTrackRepoShareLinks =
     repoAccessMode === 'installed' &&
     selectedRepoPrivate === true &&
     selectedRepo !== null &&
     currentRepoDocPath !== null &&
+    currentInstalledRepoFileSupportsPrivateShare &&
     (route.name === 'repofile' || route.name === 'repoedit');
 
   useEffect(() => {
@@ -4686,6 +4689,11 @@ export function App() {
         currentRepoDocPath
       ) {
         if (selectedRepoPrivate === true) {
+          if (!isMarkdownFileName(currentRepoDocPath)) {
+            dismissToast(shareToastId);
+            showFailureToast('Sharing is not available for this file');
+            return;
+          }
           const instId = activeInstalledRepoInstallationId ?? getInstallationId();
           if (!instId) {
             dismissToast(shareToastId);
@@ -7914,6 +7922,7 @@ export function App() {
   const showInstalledRepoHeaderShare =
     repoAccessMode === 'installed' &&
     currentRepoDocPath !== null &&
+    (selectedRepoPrivate !== true || currentInstalledRepoFileSupportsPrivateShare) &&
     (route.name === 'repoedit' || (route.name === 'repofile' && Boolean(user)));
   const showHeaderShare = showInstalledRepoHeaderShare || showGistHeaderShare;
   const showHeaderViewInGitHub = showHomeHeaderSourceAction || currentGistId !== null || currentRepoDocPath !== null;
