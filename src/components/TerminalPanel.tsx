@@ -9,12 +9,12 @@ import {
   type TerminalImportDiff,
 } from '../repo_workspace/terminal_sync.ts';
 
-interface TerminalLiveFile {
+export interface TerminalLiveFile {
   path: string;
   content: string;
 }
 
-interface TerminalPanelProps {
+export interface TerminalPanelProps {
   className?: string;
   visible: boolean;
   apiKey: string | undefined;

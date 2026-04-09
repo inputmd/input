@@ -31,7 +31,7 @@ export interface SidebarFile {
 
 export type SidebarFileFilter = 'markdown' | 'text' | 'all';
 
-interface SidebarProps {
+export interface SidebarProps {
   workspaceKey: string;
   files: SidebarFile[];
   hasOpenFile?: boolean;

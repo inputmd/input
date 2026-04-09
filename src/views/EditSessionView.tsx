@@ -3,7 +3,7 @@ import { parseMarkdownDocument } from '../markdown';
 import type { WikiLinkResolver } from '../wiki_links';
 import { EditView, type EditViewProps } from './EditView';
 
-interface EditSessionViewProps
+export interface EditSessionViewProps
   extends Omit<
     EditViewProps,
     | 'content'
