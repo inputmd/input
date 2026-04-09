@@ -12,6 +12,8 @@ import {
   type TerminalImportDiff,
   type TerminalImportOptions,
 } from '../repo_workspace/terminal_sync.ts';
+import { buildWebContainerHomeOverlayBootstrapScript } from '../webcontainer_home_overlay.ts';
+import { WEBCONTAINER_HOME_OVERLAY_FILES } from '../webcontainer_home_overlay_manifest.ts';
 
 export interface TerminalLiveFile {
   path: string;
@@ -129,18 +131,23 @@ async function readStreamFully(stream: ReadableStream<string>): Promise<string> 
   return result;
 }
 
-async function writeHomeJshrc(wc: WebContainer): Promise<void> {
-  const script = [
-    "const fs = require('fs');",
-    "const path = require('path');",
-    "const home = process.env.HOME || '';",
-    "const target = path.join(home, '.jshrc');",
-    `fs.writeFileSync(target, Buffer.from(${JSON.stringify(btoa(SAMPLE_JSHRC))}, 'base64').toString('utf8'));`,
-  ].join(' ');
-  const bootstrap = await wc.spawn('node', ['-e', script]);
-  const [output, exitCode] = await Promise.all([readStreamFully(bootstrap.output), bootstrap.exit]);
-  if (exitCode !== 0) {
-    throw new Error(`node bootstrap exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+const HOME_OVERLAY_BOOTSTRAP_SCRIPT = buildWebContainerHomeOverlayBootstrapScript(WEBCONTAINER_HOME_OVERLAY_FILES);
+const HOME_OVERLAY_BOOTSTRAP_FILENAME = '.input-home-overlay-bootstrap.cjs';
+
+async function provisionHomeOverlay(wc: WebContainer): Promise<void> {
+  await wc.fs.writeFile(HOME_OVERLAY_BOOTSTRAP_FILENAME, HOME_OVERLAY_BOOTSTRAP_SCRIPT);
+  try {
+    const bootstrap = await wc.spawn('node', [HOME_OVERLAY_BOOTSTRAP_FILENAME]);
+    const [output, exitCode] = await Promise.all([readStreamFully(bootstrap.output), bootstrap.exit]);
+    if (exitCode !== 0) {
+      throw new Error(`node bootstrap exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+    }
+  } finally {
+    try {
+      await wc.fs.rm(HOME_OVERLAY_BOOTSTRAP_FILENAME, { force: true });
+    } catch {
+      // best-effort cleanup
+    }
   }
 }
 
@@ -233,7 +240,6 @@ const TERMINAL_FONT_FAMILY =
 const LIVE_FILE_DEBOUNCE_MS = 300;
 const TERMINAL_AUTO_IMPORT_INTERVAL_MS = 3000;
 const TERMINAL_IMPORT_MAX_FILE_BYTES = 512 * 1024;
-const SAMPLE_JSHRC = ['export PATH="$HOME/.local/bin:$PATH"', 'npm config set prefix ~/.local', ''].join('\n');
 const TERMINAL_SCROLLBAR_RESERVATION_PX = 15;
 const TERMINAL_MIN_COLS = 2;
 const TERMINAL_MIN_ROWS = 1;
@@ -577,10 +583,12 @@ export function TerminalPanel({
       setFsReady(true);
 
       try {
-        await writeHomeJshrc(wc);
+        await provisionHomeOverlay(wc);
       } catch (err) {
-        console.error('[terminal] failed to write ~/.jshrc', err);
-        terminal.write(`[terminal] failed to write ~/.jshrc: ${err instanceof Error ? err.message : String(err)}\r\n`);
+        console.error('[terminal] failed to provision home overlay', err);
+        terminal.write(
+          `[terminal] failed to provision home overlay: ${err instanceof Error ? err.message : String(err)}\r\n`,
+        );
       }
 
       terminal.write('Spawning jsh...\r\n');
