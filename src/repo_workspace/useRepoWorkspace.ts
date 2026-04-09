@@ -24,7 +24,19 @@ import {
   updateRepoDocFile,
   upsertRepoDocFile,
 } from './helpers';
-import type { RepoWorkspaceState, UseRepoWorkspaceArgs } from './types';
+import {
+  applyTerminalImportDiffToWorkspaceChanges,
+  type TerminalImportDiff,
+  type TerminalImportedWorkspaceChanges,
+} from './terminal_sync';
+import type {
+  RepoWorkspaceDeletedFile,
+  RepoWorkspaceMutationSource,
+  RepoWorkspaceOverlayFile,
+  RepoWorkspaceRenamedFile,
+  RepoWorkspaceState,
+  UseRepoWorkspaceArgs,
+} from './types';
 
 export function useRepoWorkspace({
   workspaceIdentity,
@@ -98,6 +110,23 @@ export function useRepoWorkspace({
     [renamedBaseFilesByFrom],
   );
   const hasOverlayChanges = overlayFiles.length > 0 || deletedBaseFiles.length > 0 || renamedBaseFiles.length > 0;
+  // Mirror the latest workspace-changes records into refs so terminal-import
+  // applies (which run inside async callbacks) can read coherent baselines
+  // without waiting for React to commit, and so back-to-back applies in the
+  // same tick stay consistent. The applyTerminalImportDiffToWorkspace method
+  // also writes these refs synchronously.
+  const overlayFilesRef = useRef<RepoWorkspaceOverlayFile[]>(overlayFiles);
+  const deletedBaseFilesRef = useRef<RepoWorkspaceDeletedFile[]>(deletedBaseFiles);
+  const renamedBaseFilesRef = useRef<RepoWorkspaceRenamedFile[]>(renamedBaseFiles);
+  useEffect(() => {
+    overlayFilesRef.current = overlayFiles;
+  }, [overlayFiles]);
+  useEffect(() => {
+    deletedBaseFilesRef.current = deletedBaseFiles;
+  }, [deletedBaseFiles]);
+  useEffect(() => {
+    renamedBaseFilesRef.current = renamedBaseFiles;
+  }, [renamedBaseFiles]);
   const effectiveRepoSidebarFiles = useMemo(
     () =>
       applyRepoWorkspaceMutationsToDocFiles(repoSidebarFiles, {
@@ -179,6 +208,9 @@ export function useRepoWorkspace({
     [effectiveRepoSidebarFiles],
   );
   const resetRepoState = useCallback(() => {
+    overlayFilesRef.current = [];
+    deletedBaseFilesRef.current = [];
+    renamedBaseFilesRef.current = [];
     setRepoMarkdownFiles([]);
     setRepoSidebarFiles([]);
     setOverlayFilesByPath({});
@@ -341,7 +373,57 @@ export function useRepoWorkspace({
   const clearAllRepoOverlayFiles = useCallback(() => {
     setOverlayFilesByPath((current) => (Object.keys(current).length === 0 ? current : {}));
   }, []);
+  const getWorkspaceChangesSnapshot = useCallback(
+    (): {
+      overlayFiles: RepoWorkspaceOverlayFile[];
+      deletedBaseFiles: RepoWorkspaceDeletedFile[];
+      renamedBaseFiles: RepoWorkspaceRenamedFile[];
+    } => ({
+      overlayFiles: overlayFilesRef.current,
+      deletedBaseFiles: deletedBaseFilesRef.current,
+      renamedBaseFiles: renamedBaseFilesRef.current,
+    }),
+    [],
+  );
+  const applyTerminalImportDiffToWorkspace = useCallback(
+    (diff: TerminalImportDiff, resolveBasePath: (path: string) => string | null): TerminalImportedWorkspaceChanges => {
+      const result = applyTerminalImportDiffToWorkspaceChanges({
+        overlayFiles: overlayFilesRef.current,
+        deletedBaseFiles: deletedBaseFilesRef.current,
+        renamedBaseFiles: renamedBaseFilesRef.current,
+        diff,
+        resolveRepoBasePath: resolveBasePath,
+      });
+      // Update refs synchronously so back-to-back applies in the same tick
+      // see each other's effects without waiting for React commit.
+      overlayFilesRef.current = result.overlayFiles;
+      deletedBaseFilesRef.current = result.deletedBaseFiles;
+      renamedBaseFilesRef.current = result.renamedBaseFiles;
+      // Convert back to records and dispatch state updates. React 18
+      // automatic batching collapses these three setters into one render.
+      const overlayRecord: Record<string, { content: string; source: RepoWorkspaceMutationSource }> = {};
+      for (const file of result.overlayFiles) {
+        overlayRecord[file.path] = { content: file.content, source: file.source };
+      }
+      const deletedRecord: Record<string, { source: RepoWorkspaceMutationSource }> = {};
+      for (const file of result.deletedBaseFiles) {
+        deletedRecord[file.path] = { source: file.source };
+      }
+      const renamedRecord: Record<string, { to: string; source: RepoWorkspaceMutationSource }> = {};
+      for (const file of result.renamedBaseFiles) {
+        renamedRecord[file.from] = { to: file.to, source: file.source };
+      }
+      setOverlayFilesByPath(overlayRecord);
+      setDeletedBaseFilesByPath(deletedRecord);
+      setRenamedBaseFilesByFrom(renamedRecord);
+      return result;
+    },
+    [],
+  );
   const clearAllRepoWorkspaceChanges = useCallback(() => {
+    overlayFilesRef.current = [];
+    deletedBaseFilesRef.current = [];
+    renamedBaseFilesRef.current = [];
     setOverlayFilesByPath((current) => (Object.keys(current).length === 0 ? current : {}));
     setDeletedBaseFilesByPath((current) => (Object.keys(current).length === 0 ? current : {}));
     setRenamedBaseFilesByFrom((current) => (Object.keys(current).length === 0 ? current : {}));
@@ -433,6 +515,8 @@ export function useRepoWorkspace({
       clearRepoRenamedBaseFiles,
       clearAllRepoOverlayFiles,
       clearAllRepoWorkspaceChanges,
+      getWorkspaceChangesSnapshot,
+      applyTerminalImportDiffToWorkspace,
       setSharedRepoFile,
       upsertRepoFile,
       updateRepoFile,
@@ -444,9 +528,11 @@ export function useRepoWorkspace({
       applyRepoOverlayRenames,
       applyRepoContentRenames,
       applyRepoRenames,
+      applyTerminalImportDiffToWorkspace,
       clearTerminalBaseSnapshot,
       clearAllRepoWorkspaceChanges,
       clearAllRepoOverlayFiles,
+      getWorkspaceChangesSnapshot,
       clearRepoDeletedBaseFile,
       clearRepoDeletedBaseFiles,
       clearRepoOverlayFile,

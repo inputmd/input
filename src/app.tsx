@@ -162,11 +162,7 @@ import {
   useRepoTerminalBinding,
   useRepoWorkspace,
 } from './repo_workspace';
-import {
-  applyTerminalImportDiffToWorkspaceChanges,
-  type TerminalImportDiff,
-  type TerminalImportOptions,
-} from './repo_workspace/terminal_sync.ts';
+import type { TerminalImportDiff, TerminalImportOptions } from './repo_workspace/terminal_sync.ts';
 import { matchRoute, type Route, routePath } from './routing';
 import {
   buildRepoNewDraftPath,
@@ -1022,6 +1018,8 @@ export function App() {
     clearRepoRenamedBaseFile,
     clearRepoRenamedBaseFiles,
     clearAllRepoWorkspaceChanges,
+    getWorkspaceChangesSnapshot,
+    applyTerminalImportDiffToWorkspace,
     setSharedRepoFile,
     upsertRepoFile,
     updateRepoFile,
@@ -1057,45 +1055,17 @@ export function App() {
     }) => {
       if (workspaceKey !== sidebarWorkspaceKey) return;
       if (repoAccessMode !== 'installed') return;
-
-      let imported = 0;
-      for (const path of diff.deletes) {
-        if (activeView === 'edit' && editingBackend === 'repo' && currentRepoDocPathRef.current === path) continue;
-        const baseRepoPath = resolveRepoBasePath(path);
-        if (!baseRepoPath) {
-          clearRepoOverlayFile(path);
-          continue;
-        }
-        clearRepoOverlayFile(path);
-        clearRepoRenamedBaseFile(baseRepoPath);
-        stageRepoDeletedBaseFile(baseRepoPath, 'terminal');
-        imported += 1;
-      }
-      for (const [path, content] of Object.entries(diff.upserts)) {
-        if (activeView === 'edit' && editingBackend === 'repo' && currentRepoDocPathRef.current === path) continue;
-        const baseRepoPath = resolveRepoBasePath(path);
-        if (baseRepoPath) {
-          clearRepoDeletedBaseFile(baseRepoPath);
-        }
-        stageRepoOverlayFile(path, content, 'terminal');
-        imported += 1;
-      }
-      if (imported > 0 && !terminalVisible && !options?.silent) {
-        showSuccessToast(`Imported ${imported} terminal change${imported === 1 ? '' : 's'}`);
+      const result = applyTerminalImportDiffToWorkspace(diff, resolveRepoBasePath);
+      if (result.importedCount > 0 && !terminalVisible && !options?.silent) {
+        showSuccessToast(`Imported ${result.importedCount} terminal change${result.importedCount === 1 ? '' : 's'}`);
       }
     },
     [
-      activeView,
-      clearRepoDeletedBaseFile,
-      clearRepoOverlayFile,
-      clearRepoRenamedBaseFile,
-      editingBackend,
+      applyTerminalImportDiffToWorkspace,
       repoAccessMode,
       resolveRepoBasePath,
       sidebarWorkspaceKey,
       showSuccessToast,
-      stageRepoDeletedBaseFile,
-      stageRepoOverlayFile,
       terminalVisible,
     ],
   );
@@ -1582,11 +1552,6 @@ export function App() {
 
   useEffect(() => {
     if (!activeInstalledRepoOverlayPath || currentDocumentSavedContent === null) return;
-    const baseRepoPath = resolveRepoBasePath(activeInstalledRepoOverlayPath);
-    if (!baseRepoPath) {
-      stageRepoOverlayFile(activeInstalledRepoOverlayPath, editContent, 'editor');
-      return;
-    }
     if (editContent === currentDocumentSavedContent) {
       clearRepoOverlayFile(activeInstalledRepoOverlayPath);
       return;
@@ -1597,7 +1562,6 @@ export function App() {
     clearRepoOverlayFile,
     currentDocumentSavedContent,
     editContent,
-    resolveRepoBasePath,
     stageRepoOverlayFile,
   ]);
 
@@ -5249,20 +5213,17 @@ export function App() {
         repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
       if (!instId || !repoName) return null;
 
-      const terminalImportDiff = await importMountedTerminalDiff({ silent: true });
-      const importedWorkspaceChanges = terminalImportDiff
-        ? applyTerminalImportDiffToWorkspaceChanges({
-            overlayFiles,
-            deletedBaseFiles,
-            renamedBaseFiles,
-            diff: terminalImportDiff,
-            resolveRepoBasePath,
-          })
-        : null;
+      // The import handler synchronously updates the workspace-changes refs
+      // via applyTerminalImportDiffToWorkspace, so by the time this await
+      // resolves, getWorkspaceChangesSnapshot() reflects the post-import
+      // state. Avoid reading the closure-captured arrays here — they may be
+      // stale relative to a concurrent background import.
+      await importMountedTerminalDiff({ silent: true });
+      const snapshot = getWorkspaceChangesSnapshot();
       const workspaceSavePlan = buildRepoWorkspaceTextSavePlan({
-        overlayFiles: importedWorkspaceChanges?.overlayFiles ?? overlayFiles,
-        deletedBaseFiles: importedWorkspaceChanges?.deletedBaseFiles ?? deletedBaseFiles,
-        renamedBaseFiles: importedWorkspaceChanges?.renamedBaseFiles ?? renamedBaseFiles,
+        overlayFiles: snapshot.overlayFiles,
+        deletedBaseFiles: snapshot.deletedBaseFiles,
+        renamedBaseFiles: snapshot.renamedBaseFiles,
         draftFile: options?.draftFile ?? null,
         findBaseRepoSidebarFile,
         resolveRepoBasePath,
@@ -5294,12 +5255,10 @@ export function App() {
       applyInstalledRepoWorkspaceMutationToTerminal,
       clearAllRepoWorkspaceChanges,
       currentRouteRepoRef,
-      deletedBaseFiles,
       findBaseRepoSidebarFile,
+      getWorkspaceChangesSnapshot,
       importMountedTerminalDiff,
-      overlayFiles,
       refreshRepoTreeAfterWrite,
-      renamedBaseFiles,
       repoAccessMode,
       resolveRepoBasePath,
       selectedRepo,

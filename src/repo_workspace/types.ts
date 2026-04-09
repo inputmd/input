@@ -6,6 +6,7 @@ import type { RepoFileEntry } from '../github_app';
 import type { Route } from '../routing';
 import type { EditSessionViewProps } from '../views/EditSessionView';
 import type { PublicRepoRef } from '../wiki_links';
+import type { TerminalImportDiff, TerminalImportedWorkspaceChanges } from './terminal_sync';
 
 export type RepoAccessMode = 'installed' | 'shared' | 'public' | null;
 
@@ -92,6 +93,15 @@ export interface RepoWorkspaceState {
   clearRepoRenamedBaseFiles: (paths: string[]) => void;
   clearAllRepoOverlayFiles: () => void;
   clearAllRepoWorkspaceChanges: () => void;
+  getWorkspaceChangesSnapshot: () => {
+    overlayFiles: RepoWorkspaceOverlayFile[];
+    deletedBaseFiles: RepoWorkspaceDeletedFile[];
+    renamedBaseFiles: RepoWorkspaceRenamedFile[];
+  };
+  applyTerminalImportDiffToWorkspace: (
+    diff: TerminalImportDiff,
+    resolveBasePath: (path: string) => string | null,
+  ) => TerminalImportedWorkspaceChanges;
   setSharedRepoFile: (repoFile: RepoDocFile) => void;
   upsertRepoFile: (repoFile: RepoDocFile) => void;
   updateRepoFile: (path: string, updates: Partial<Pick<RepoDocFile, 'name' | 'sha' | 'size'>>) => void;

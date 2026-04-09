@@ -285,9 +285,11 @@ export function TerminalPanel({
   const restartWebContainerInFlightRef = useRef<Promise<void> | null>(null);
   const unmountedRef = useRef(false);
   const wcRef = useRef<WebContainer | null>(null);
-  // Snapshot of paths/contents currently in the WC FS, used to compute diffs
-  // for incremental sync. Reset on each (re)mount of the panel.
-  const mirroredFilesRef = useRef<Map<string, string>>(new Map());
+  // Snapshot of what's been written to the WC FS so far. Updated only AFTER a
+  // write/rm lands in the sync queue, so it remains an accurate cache for
+  // skipping redundant writes even when the queue is mid-drain. Never used as
+  // a baseline for import diffs — see importTerminalDiff for that.
+  const lastWrittenRef = useRef<Map<string, string>>(new Map());
   // Latest props, captured each render so boot sees the freshest snapshot.
   const baseFilesRef = useRef(baseFiles);
   baseFilesRef.current = baseFiles;
@@ -369,11 +371,11 @@ export function TerminalPanel({
       const pendingPath = liveFilePathRef.current;
       const pendingContent = liveFileContentRef.current;
       if (pendingPath !== null && pendingContent !== null) {
-        mirroredFilesRef.current.set(pendingPath, pendingContent);
         syncQueueRef.current = syncQueueRef.current.then(async () => {
           if (unmountedRef.current) return;
           try {
             await writeTextFile(wc, pendingPath, pendingContent);
+            lastWrittenRef.current.set(pendingPath, pendingContent);
           } catch (err) {
             console.error('[terminal] live sync flush failed', pendingPath, err);
           }
@@ -390,7 +392,14 @@ export function TerminalPanel({
         const wc = wcRef.current;
         if (!wc || !onImportDiffRef.current) return null;
         await flushManagedSync();
-        const managedFiles = Object.fromEntries(mirroredFilesRef.current.entries());
+        // Recompute the managed baseline fresh from current props instead of
+        // reading a cached mirror. This avoids any window where the baseline
+        // is advanced before the corresponding FS write has actually landed.
+        const managedFiles = buildManagedFiles(
+          baseFilesRef.current,
+          liveFilePathRef.current,
+          liveFileContentRef.current,
+        );
         const actualFiles = await snapshotTerminalTextFiles(wc);
         const diff = buildTerminalImportDiff({
           managedFiles,
@@ -398,7 +407,6 @@ export function TerminalPanel({
           activeEditPath: liveFilePathRef.current,
         });
         if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return null;
-        mirroredFilesRef.current = new Map(Object.entries(actualFiles));
         await onImportDiffRef.current({
           workspaceKey: workspaceKeyRef.current,
           diff,
@@ -559,7 +567,12 @@ export function TerminalPanel({
         return;
       }
 
-      mirroredFilesRef.current = new Map(Object.entries(initialFiles));
+      // After mount(), the FS contains exactly initialFiles, so we can seed
+      // the write-skip cache to match. This is the one place where it's safe
+      // to set lastWrittenRef synchronously: the awaited mount() above is the
+      // write that lands the bytes, and no other queue work is in flight yet
+      // (sessionId guards above ensure prior sessions are aborted).
+      lastWrittenRef.current = new Map(Object.entries(initialFiles));
       wcRef.current = wc;
       setFsReady(true);
 
@@ -887,7 +900,7 @@ export function TerminalPanel({
     if (!fsReady) return;
     const wc = wcRef.current;
     if (!wc) return;
-    const previous = mirroredFilesRef.current;
+    const previous = lastWrittenRef.current;
     const next = new Map(Object.entries(buildManagedFiles(baseFiles, liveFilePath, liveFileContentRef.current)));
     const writes: Array<[string, string]> = [];
     const removes: string[] = [];
@@ -898,12 +911,12 @@ export function TerminalPanel({
       if (!next.has(path)) removes.push(path);
     }
     if (writes.length === 0 && removes.length === 0) return;
-    mirroredFilesRef.current = next;
     syncQueueRef.current = syncQueueRef.current.then(async () => {
       if (unmountedRef.current) return;
       for (const path of removes) {
         try {
           await wc.fs.rm(path, { force: true, recursive: true });
+          lastWrittenRef.current.delete(path);
         } catch (err) {
           console.error('[terminal] sync rm failed', path, err);
         }
@@ -911,6 +924,7 @@ export function TerminalPanel({
       for (const [path, contents] of writes) {
         try {
           await writeTextFile(wc, path, contents);
+          lastWrittenRef.current.set(path, contents);
         } catch (err) {
           console.error('[terminal] sync write failed', path, err);
         }
@@ -922,7 +936,7 @@ export function TerminalPanel({
   // single file path after the user pauses, instead of diffing the whole tree.
   useEffect(() => {
     if (!fsReady || liveFilePath === null || liveFileContent === null) return;
-    if (mirroredFilesRef.current.get(liveFilePath) === liveFileContent) return;
+    if (lastWrittenRef.current.get(liveFilePath) === liveFileContent) return;
     const wc = wcRef.current;
     if (!wc) return;
     if (liveSyncTimerRef.current !== null) {
@@ -930,11 +944,11 @@ export function TerminalPanel({
     }
     liveSyncTimerRef.current = window.setTimeout(() => {
       liveSyncTimerRef.current = null;
-      mirroredFilesRef.current.set(liveFilePath, liveFileContent);
       syncQueueRef.current = syncQueueRef.current.then(async () => {
         if (unmountedRef.current) return;
         try {
           await writeTextFile(wc, liveFilePath, liveFileContent);
+          lastWrittenRef.current.set(liveFilePath, liveFileContent);
         } catch (err) {
           console.error('[terminal] live sync write failed', liveFilePath, err);
         }
@@ -973,7 +987,7 @@ export function TerminalPanel({
       setShellReady(false);
       setResettingShell(false);
       setRestartingWebContainer(false);
-      mirroredFilesRef.current = new Map();
+      lastWrittenRef.current = new Map();
     };
   }, [importTerminalDiff, releaseShellSession]);
 
