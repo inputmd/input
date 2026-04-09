@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.4/schema.json",
   "files": {
-    "includes": ["src/**", "server/**", "reader-ai/**", "vite.config.ts"]
+    "includes": ["src/**", "server/**", "reader-ai/**", "vite.config.ts", "!!**/.claude"]
   },
   "formatter": {
     "indentStyle": "space",
