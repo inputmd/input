@@ -1,6 +1,9 @@
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { FileSystemTree, WebContainer } from '@webcontainer/api';
 import type { Terminal as GhosttyTerminal } from 'ghostty-web';
+import { Power } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { blurOnClose } from '../dom_utils.ts';
 import { shouldBypassTerminalMetaShortcut } from '../keyboard_shortcuts.ts';
 import { isLikelyBinaryBytes } from '../path_utils.ts';
 import {
@@ -39,6 +42,8 @@ export interface TerminalPanelProps {
     handler: ((options?: TerminalImportOptions) => Promise<TerminalImportDiff | null>) | null,
   ) => void;
 }
+
+type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
 
 // Cache the WebContainer boot promise so we only ever boot once per page.
 // WebContainer.boot() throws if called more than once.
@@ -234,6 +239,12 @@ const TERMINAL_MIN_COLS = 2;
 const TERMINAL_MIN_ROWS = 1;
 const LAYOUT_SETTLED_EVENT = 'input:layout-settled';
 
+function waitForNextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
 function fitTerminal(terminal: GhosttyTerminal, container: HTMLElement): void {
   const metrics = terminal.renderer?.getMetrics?.();
   if (!metrics || metrics.width === 0 || metrics.height === 0) return;
@@ -266,6 +277,12 @@ export function TerminalPanel({
   const startedRef = useRef(false);
   const disposeRef = useRef<(() => void) | null>(null);
   const terminalRef = useRef<GhosttyTerminal | null>(null);
+  const shellRef = useRef<SpawnedShell | null>(null);
+  const shellWriterRef = useRef<WritableStreamDefaultWriter<string> | null>(null);
+  const shellSessionIdRef = useRef(0);
+  const webContainerSessionIdRef = useRef(0);
+  const restartInFlightRef = useRef<Promise<void> | null>(null);
+  const restartWebContainerInFlightRef = useRef<Promise<void> | null>(null);
   const unmountedRef = useRef(false);
   const wcRef = useRef<WebContainer | null>(null);
   // Snapshot of paths/contents currently in the WC FS, used to compute diffs
@@ -285,11 +302,63 @@ export function TerminalPanel({
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const liveSyncTimerRef = useRef<number | null>(null);
   const [fsReady, setFsReady] = useState(false);
+  const [shellReady, setShellReady] = useState(false);
+  const [resettingShell, setResettingShell] = useState(false);
+  const [restartingWebContainer, setRestartingWebContainer] = useState(false);
   const onImportDiffRef = useRef(onImportDiff);
   onImportDiffRef.current = onImportDiff;
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
   const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
+  const canResetTerminal =
+    !error && fsReady && !resettingShell && !restartingWebContainer && (shellReady || shellSessionIdRef.current > 0);
+  const canRestartWebContainer =
+    !error && !resettingShell && !restartingWebContainer && (fsReady || shellSessionIdRef.current > 0);
+
+  const releaseShellSession = useCallback(() => {
+    const shell = shellRef.current;
+    shellRef.current = null;
+    if (shell) {
+      try {
+        shell.kill();
+      } catch {
+        // ignore
+      }
+    }
+    const shellWriter = shellWriterRef.current;
+    shellWriterRef.current = null;
+    if (shellWriter) {
+      try {
+        void shellWriter.close().catch(() => {
+          // ignore
+        });
+      } catch {
+        // ignore
+      }
+      try {
+        shellWriter.releaseLock();
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const teardownWebContainer = useCallback((wc: WebContainer | null) => {
+    if (!wc) {
+      webContainerBootPromise = null;
+      return;
+    }
+    try {
+      wc.teardown();
+    } catch (err) {
+      console.error('[terminal] webcontainer teardown failed', err);
+    } finally {
+      if (wcRef.current === wc) {
+        wcRef.current = null;
+      }
+      webContainerBootPromise = null;
+    }
+  }, []);
 
   const flushManagedSync = useCallback(async (): Promise<void> => {
     const wc = wcRef.current;
@@ -349,6 +418,260 @@ export function TerminalPanel({
     [flushManagedSync],
   );
 
+  const spawnShellSession = useCallback(
+    async (options?: {
+      resetTerminal?: boolean;
+      syncManagedFiles?: boolean;
+      announceReady?: boolean;
+    }): Promise<void> => {
+      const wc = wcRef.current;
+      const terminal = terminalRef.current;
+      if (!wc || !terminal) {
+        throw new Error('Terminal is not ready.');
+      }
+
+      if (options?.syncManagedFiles) {
+        await flushManagedSync();
+      }
+
+      const sessionId = shellSessionIdRef.current + 1;
+      shellSessionIdRef.current = sessionId;
+      setShellReady(false);
+      releaseShellSession();
+
+      if (options?.resetTerminal) {
+        terminal.reset();
+      }
+
+      const spawnedShell = await wc.spawn('jsh', []);
+      if (unmountedRef.current || shellSessionIdRef.current !== sessionId) {
+        try {
+          spawnedShell.kill();
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      shellRef.current = spawnedShell;
+      const shellWriter = spawnedShell.input.getWriter();
+      shellWriterRef.current = shellWriter;
+
+      try {
+        spawnedShell.resize({ cols: terminal.cols, rows: terminal.rows });
+      } catch {
+        // some versions don't support resize before first write
+      }
+
+      if (options?.announceReady) {
+        terminal.write('Shell spawned.\r\n');
+      }
+
+      // Defensive sink: never let an exception inside terminal.write() (e.g. a
+      // ghostty-web parser error on an unexpected byte sequence) propagate
+      // back to pipeTo, because that would cancel shell.output and break the
+      // session — even though jsh is still running.
+      void spawnedShell.output
+        .pipeTo(
+          new WritableStream({
+            write(chunk) {
+              if (shellSessionIdRef.current !== sessionId) return;
+              try {
+                terminal.write(chunk);
+              } catch (err) {
+                console.error('[terminal] write failed; chunk dropped', err);
+              }
+            },
+          }),
+        )
+        .catch((err) => {
+          if (shellSessionIdRef.current !== sessionId) return;
+          console.error('[terminal] output pipe closed', err);
+        });
+
+      setShellReady(true);
+    },
+    [flushManagedSync, releaseShellSession],
+  );
+
+  const initializeWebContainerSession = useCallback(
+    async (options?: {
+      forceReboot?: boolean;
+      importBeforeReboot?: boolean;
+      resetTerminal?: boolean;
+      announceRestart?: boolean;
+    }): Promise<void> => {
+      const terminal = terminalRef.current;
+      if (!terminal) {
+        throw new Error('Terminal is not ready.');
+      }
+
+      const previousWc = wcRef.current;
+      const sessionId = webContainerSessionIdRef.current + 1;
+      webContainerSessionIdRef.current = sessionId;
+      restartInFlightRef.current = null;
+      shellSessionIdRef.current += 1;
+      setFsReady(false);
+      setShellReady(false);
+      releaseShellSession();
+
+      if (options?.resetTerminal) {
+        terminal.reset();
+      }
+      if (options?.announceRestart) {
+        terminal.write('Restarting WebContainer...\r\n');
+      }
+
+      if (options?.importBeforeReboot && previousWc) {
+        try {
+          await importTerminalDiff({ silent: true });
+          await waitForNextAnimationFrame();
+        } catch (err) {
+          console.error('[terminal] import before restart failed', err);
+        }
+      }
+
+      if (options?.forceReboot) {
+        teardownWebContainer(previousWc);
+      }
+
+      terminal.write('Booting WebContainer...\r\n');
+      const wc = await bootWebContainer(apiKey);
+      if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
+        return;
+      }
+
+      // Clear any state from a previous mount (e.g. another workspace) and
+      // populate the FS with the latest workspace files before spawning a shell.
+      terminal.write('Mounting workspace files...\r\n');
+      await clearWorkdir(wc);
+      if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
+        return;
+      }
+
+      const initialFiles = buildManagedFiles(baseFilesRef.current, liveFilePathRef.current, liveFileContentRef.current);
+      try {
+        await wc.mount(buildFileSystemTree(initialFiles));
+      } catch (mountErr) {
+        console.error('[terminal] initial mount failed', mountErr);
+      }
+      if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
+        return;
+      }
+
+      mirroredFilesRef.current = new Map(Object.entries(initialFiles));
+      wcRef.current = wc;
+      setFsReady(true);
+
+      try {
+        await writeHomeJshrc(wc);
+      } catch (err) {
+        console.error('[terminal] failed to write ~/.jshrc', err);
+        terminal.write(`[terminal] failed to write ~/.jshrc: ${err instanceof Error ? err.message : String(err)}\r\n`);
+      }
+
+      terminal.write('Spawning jsh...\r\n');
+      await spawnShellSession({ announceReady: true });
+      if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        try {
+          terminal.focus();
+        } catch {
+          // ignore
+        }
+      });
+    },
+    [apiKey, importTerminalDiff, releaseShellSession, spawnShellSession, teardownWebContainer],
+  );
+
+  const restartShell = useCallback(async (): Promise<void> => {
+    if (restartInFlightRef.current) {
+      return await restartInFlightRef.current;
+    }
+
+    const pendingRestart = (async () => {
+      const terminal = terminalRef.current;
+      const wc = wcRef.current;
+      if (!terminal || !wc || unmountedRef.current) return;
+
+      setResettingShell(true);
+      try {
+        await spawnShellSession({ resetTerminal: true, syncManagedFiles: true });
+        window.requestAnimationFrame(() => {
+          try {
+            terminal.focus();
+          } catch {
+            // ignore
+          }
+        });
+      } catch (err) {
+        console.error('[terminal] reset failed', err);
+        const message = err instanceof Error ? err.message : String(err);
+        try {
+          terminal.writeln(`[terminal] failed to reset shell: ${message}`);
+        } catch {
+          // ignore
+        }
+      } finally {
+        setResettingShell(false);
+      }
+    })();
+
+    restartInFlightRef.current = pendingRestart;
+    try {
+      await pendingRestart;
+    } finally {
+      if (restartInFlightRef.current === pendingRestart) {
+        restartInFlightRef.current = null;
+      }
+    }
+  }, [spawnShellSession]);
+
+  const restartWebContainer = useCallback(async (): Promise<void> => {
+    if (restartWebContainerInFlightRef.current) {
+      return await restartWebContainerInFlightRef.current;
+    }
+
+    const pendingRestart = (async () => {
+      if (!terminalRef.current || unmountedRef.current) return;
+
+      setRestartingWebContainer(true);
+      try {
+        await initializeWebContainerSession({
+          forceReboot: true,
+          importBeforeReboot: true,
+          resetTerminal: true,
+          announceRestart: true,
+        });
+      } catch (err) {
+        console.error('[terminal] webcontainer restart failed', err);
+        const terminal = terminalRef.current;
+        const message = err instanceof Error ? err.message : String(err);
+        if (terminal) {
+          try {
+            terminal.writeln(`[terminal] failed to restart WebContainer: ${message}`);
+          } catch {
+            // ignore
+          }
+        }
+      } finally {
+        setRestartingWebContainer(false);
+      }
+    })();
+
+    restartWebContainerInFlightRef.current = pendingRestart;
+    try {
+      await pendingRestart;
+    } finally {
+      if (restartWebContainerInFlightRef.current === pendingRestart) {
+        restartWebContainerInFlightRef.current = null;
+      }
+    }
+  }, [initializeWebContainerSession]);
+
   useEffect(() => {
     registerImportHandler?.((options) => importTerminalDiff(options));
     return () => {
@@ -403,13 +726,6 @@ export function TerminalPanel({
       let resizeFrameId: number | null = null;
       let layoutSettledTimeoutId: number | null = null;
       let layoutSettledHandler: (() => void) | null = null;
-      let shell: {
-        output: ReadableStream<string>;
-        input: WritableStream<string>;
-        kill: () => void;
-        resize: (size: { cols: number; rows: number }) => void;
-      } | null = null;
-      let writer: WritableStreamDefaultWriter<string> | null = null;
       let onDataDispose: { dispose: () => void } | null = null;
       let onResizeDispose: { dispose: () => void } | null = null;
       let metaKeyBypassTarget: HTMLElement | null = null;
@@ -438,30 +754,17 @@ export function TerminalPanel({
         }
         metaKeyBypassTarget = null;
         metaKeyBypassHandler = null;
+        restartInFlightRef.current = null;
+        restartWebContainerInFlightRef.current = null;
+        shellSessionIdRef.current += 1;
+        webContainerSessionIdRef.current += 1;
+        setShellReady(false);
+        setFsReady(false);
+        setRestartingWebContainer(false);
         if (terminalRef.current === term) terminalRef.current = null;
         if (disposeRef.current === cleanup) disposeRef.current = null;
         wcRef.current = null;
-        if (writer) {
-          try {
-            writer.close();
-          } catch {
-            // ignore
-          }
-          try {
-            writer.releaseLock();
-          } catch {
-            // ignore
-          }
-          writer = null;
-        }
-        if (shell) {
-          try {
-            shell.kill();
-          } catch {
-            // ignore
-          }
-          shell = null;
-        }
+        releaseShellSession();
         term?.dispose();
         term = null;
       };
@@ -545,95 +848,24 @@ export function TerminalPanel({
         layoutSettledHandler = onLayoutSettled;
         window.addEventListener(LAYOUT_SETTLED_EVENT, onLayoutSettled);
 
-        terminal.write('Booting WebContainer...\r\n');
-        const wc = await bootWebContainer(apiKey);
+        await initializeWebContainerSession({ resetTerminal: true });
         if (unmountedRef.current) {
           cleanup();
           return;
         }
 
-        // Clear any state from a previous mount (e.g. another workspace) and
-        // populate the FS with this workspace's files. Read the files snapshot
-        // through the ref so we always get the latest value at this instant,
-        // not the value captured when the boot effect first ran.
-        terminal.write('Mounting workspace files...\r\n');
-        await clearWorkdir(wc);
-        if (unmountedRef.current) {
-          cleanup();
-          return;
-        }
-        const initialFiles = buildManagedFiles(
-          baseFilesRef.current,
-          liveFilePathRef.current,
-          liveFileContentRef.current,
-        );
-        try {
-          await wc.mount(buildFileSystemTree(initialFiles));
-        } catch (mountErr) {
-          console.error('[terminal] initial mount failed', mountErr);
-        }
-        if (unmountedRef.current) {
-          cleanup();
-          return;
-        }
-        mirroredFilesRef.current = new Map(Object.entries(initialFiles));
-        wcRef.current = wc;
-        setFsReady(true);
-
-        try {
-          await writeHomeJshrc(wc);
-        } catch (err) {
-          console.error('[terminal] failed to write ~/.jshrc', err);
-          terminal.write(
-            `[terminal] failed to write ~/.jshrc: ${err instanceof Error ? err.message : String(err)}\r\n`,
-          );
-        }
-
-        terminal.write('Spawning jsh...\r\n');
-        const spawnedShell = await wc.spawn('jsh', []);
-        shell = spawnedShell;
-        if (unmountedRef.current) {
-          cleanup();
-          return;
-        }
-        terminal.write('Shell spawned.\r\n');
-
-        try {
-          spawnedShell.resize({ cols: terminal.cols, rows: terminal.rows });
-        } catch {
-          // some versions don't support resize before first write
-        }
-
-        // Defensive sink: never let an exception inside terminal.write() (e.g. a
-        // ghostty-web parser error on an unexpected byte sequence) propagate
-        // back to pipeTo, because that would cancel shell.output and break the
-        // session — even though jsh is still running.
-        void spawnedShell.output
-          .pipeTo(
-            new WritableStream({
-              write(chunk) {
-                try {
-                  terminal.write(chunk);
-                } catch (err) {
-                  console.error('[terminal] write failed; chunk dropped', err);
-                }
-              },
-            }),
-          )
-          .catch((err) => {
-            console.error('[terminal] output pipe closed', err);
-          });
-
-        const shellWriter = spawnedShell.input.getWriter();
-        writer = shellWriter;
         onDataDispose = terminal.onData((data) => {
+          const shellWriter = shellWriterRef.current;
+          if (!shellWriter) return;
           shellWriter.write(data).catch((err) => {
             console.error('[terminal] input write failed', err);
           });
         });
         onResizeDispose = terminal.onResize(({ cols, rows }) => {
+          const shell = shellRef.current;
+          if (!shell) return;
           try {
-            spawnedShell.resize({ cols, rows });
+            shell.resize({ cols, rows });
           } catch {
             // ignore
           }
@@ -646,7 +878,7 @@ export function TerminalPanel({
         startedRef.current = false;
       }
     })();
-  }, [visible, apiKey]);
+  }, [visible, apiKey, initializeWebContainerSession, releaseShellSession]);
 
   // Sync structural changes immediately: base snapshot updates, active file
   // path switches, and leaving edit mode. This avoids whole-tree work on each
@@ -727,14 +959,23 @@ export function TerminalPanel({
         window.clearTimeout(liveSyncTimerRef.current);
         liveSyncTimerRef.current = null;
       }
+      restartInFlightRef.current = null;
+      restartWebContainerInFlightRef.current = null;
+      shellSessionIdRef.current += 1;
+      webContainerSessionIdRef.current += 1;
       disposeRef.current?.();
       disposeRef.current = null;
       terminalRef.current = null;
+      releaseShellSession();
       startedRef.current = false;
       wcRef.current = null;
+      setFsReady(false);
+      setShellReady(false);
+      setResettingShell(false);
+      setRestartingWebContainer(false);
       mirroredFilesRef.current = new Map();
     };
-  }, [importTerminalDiff]);
+  }, [importTerminalDiff, releaseShellSession]);
 
   return (
     <aside
@@ -745,7 +986,45 @@ export function TerminalPanel({
       {error ? (
         <div class="terminal-panel__error">{error}</div>
       ) : (
-        <div class="terminal-panel__surface" ref={containerRef} />
+        <>
+          <div class="terminal-panel__surface" ref={containerRef} />
+          <div class="terminal-panel__overlay-controls">
+            <DropdownMenu.Root onOpenChange={blurOnClose}>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  class="terminal-panel__menu-trigger"
+                  aria-label="Terminal actions"
+                  title="Terminal actions"
+                >
+                  <Power size={14} aria-hidden="true" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
+                  <DropdownMenu.Item
+                    class="terminal-panel__menu-item"
+                    disabled={!canResetTerminal}
+                    onSelect={() => {
+                      void restartShell();
+                    }}
+                  >
+                    Reset terminal
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    class="terminal-panel__menu-item"
+                    disabled={!canRestartWebContainer}
+                    onSelect={() => {
+                      void restartWebContainer();
+                    }}
+                  >
+                    Restart WebContainer
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
+        </>
       )}
     </aside>
   );
