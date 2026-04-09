@@ -41,7 +41,9 @@ export function TextCodeView({
   const pendingScrollRestoreKeyRef = useRef<string | null>(null);
   const restoreScrollPositionRef = useRef<(() => void) | null>(null);
   const lastHandledGoToLineRequestRef = useRef<number | null>(null);
-  const detectedLanguage = detectedLanguageForFileName(fileName);
+  const detectedLanguage = detectedLanguageForFileName(fileName, {
+    includeJavaScriptModules: true,
+  });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQueryState] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
@@ -141,7 +143,11 @@ export function TextCodeView({
             run: () => true,
           },
         ]),
-        languageCompartmentRef.current.of(detectedLanguageForFileName(initialFileNameRef.current)?.extensions ?? []),
+        languageCompartmentRef.current.of(
+          detectedLanguageForFileName(initialFileNameRef.current, {
+            includeJavaScriptModules: true,
+          })?.extensions ?? [],
+        ),
       ],
     });
 

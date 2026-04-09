@@ -119,7 +119,10 @@ export function TextEditor({
   const streamingCursorFollowingRef = useRef(false);
   const ignoreNextStreamingScrollEventRef = useRef(false);
   const hasPendingLocalEditsRef = useRef(false);
-  const detectedLanguage = detectedLanguageForFileName(fileName, { includeMarkdown: false });
+  const detectedLanguage = detectedLanguageForFileName(fileName, {
+    includeJavaScriptModules: true,
+    includeMarkdown: false,
+  });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQueryState] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);

@@ -4,7 +4,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { yaml } from '@codemirror/lang-yaml';
 import type { Extension } from '@codemirror/state';
-import { markdownCodeLanguageSupport } from './codemirror_markdown';
+import { markdownCodeLanguageSupport } from './codemirror_markdown.ts';
 
 function extensionForFileName(fileName: string | null | undefined): string | null {
   if (!fileName) return null;
@@ -17,13 +17,22 @@ export interface DetectedLanguage {
   extensions: Extension[];
 }
 
+export interface DetectedLanguageOptions {
+  includeJavaScriptModules?: boolean;
+  includeMarkdown?: boolean;
+}
+
 export function detectedLanguageForFileName(
   fileName: string | null | undefined,
-  options?: { includeMarkdown?: boolean },
+  options?: DetectedLanguageOptions,
 ): DetectedLanguage | null {
   const extension = extensionForFileName(fileName);
   switch (extension) {
     case 'js':
+    case 'cjs':
+    case 'mjs':
+      if ((extension === 'cjs' || extension === 'mjs') && options?.includeJavaScriptModules !== true) return null;
+      return { label: 'JavaScript', extensions: [javascript()] };
     case 'jsonc':
     case 'json':
       return { label: 'JavaScript', extensions: [javascript()] };
