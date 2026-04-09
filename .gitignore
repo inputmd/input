@@ -11,8 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
-!webcontainer-home-overlay/.local/
-!webcontainer-home-overlay/.local/**
+!vendor/overlay/.local/
+!vendor/overlay/.local/**
 .env
 
 # SQLite

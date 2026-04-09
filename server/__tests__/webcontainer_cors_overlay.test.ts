@@ -3,9 +3,9 @@ import test from 'ava';
 
 async function loadCorsOverlayModule() {
   const originalHttpsRequest = https.request;
-  const url = new URL('../../webcontainer-home-overlay/cors.mjs', import.meta.url);
+  const url = new URL('../../vendor/overlay/cors.mjs', import.meta.url);
   url.searchParams.set('test', `${Date.now()}-${Math.random()}`);
-  const module = (await import(url.href)) as typeof import('../../webcontainer-home-overlay/cors.mjs');
+  const module = (await import(url.href)) as typeof import('../../vendor/overlay/cors.mjs');
   return {
     module,
     restore() {

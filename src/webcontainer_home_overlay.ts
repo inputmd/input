@@ -1,9 +1,4 @@
-export interface WebContainerHomeOverlayFile {
-  path: string;
-  contents: string;
-  executable?: boolean;
-}
-
+export const WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL = '/api/webcontainer-home-overlay.tar';
 export const WEBCONTAINER_HOME_OVERLAY_MANIFEST_PATH = '.input-webcontainer-home-overlay.json';
 
 function normalizeWebContainerHomeOverlayPath(path: string): string {
@@ -11,8 +6,7 @@ function normalizeWebContainerHomeOverlayPath(path: string): string {
   if (trimmed.startsWith('/')) {
     throw new Error(`WebContainer home overlay path must be relative to $HOME: ${path}`);
   }
-  const normalized = trimmed;
-  const segments = normalized.split('/').filter(Boolean);
+  const segments = trimmed.split('/').filter(Boolean);
   if (segments.length === 0) {
     throw new Error('WebContainer home overlay paths must not be empty.');
   }
@@ -22,32 +16,148 @@ function normalizeWebContainerHomeOverlayPath(path: string): string {
   return segments.join('/');
 }
 
-export function buildWebContainerHomeOverlayBootstrapScript(files: readonly WebContainerHomeOverlayFile[]): string {
-  const seenPaths = new Set<string>();
-  const normalizedFiles = files.map((file) => {
-    const path = normalizeWebContainerHomeOverlayPath(file.path);
-    if (seenPaths.has(path)) {
-      throw new Error(`Duplicate WebContainer home overlay path: ${path}`);
-    }
-    seenPaths.add(path);
-    return {
-      path,
-      contents: file.contents,
-      executable: file.executable === true,
-    };
-  });
+export function buildWebContainerHomeOverlayProvisionScript(archivePath: string): string {
+  const normalizedArchivePath = normalizeWebContainerHomeOverlayPath(archivePath);
 
   return [
     "const fs = require('fs');",
     "const path = require('path');",
+    'const TAR_BLOCK_BYTES = 512;',
+    `const archivePath = ${JSON.stringify(normalizedArchivePath)};`,
+    `const manifestRelativePath = ${JSON.stringify(WEBCONTAINER_HOME_OVERLAY_MANIFEST_PATH)};`,
     "const home = process.env.HOME || '';",
     "if (!home) throw new Error('HOME is not set');",
-    `const manifestPath = path.join(home, ${JSON.stringify(WEBCONTAINER_HOME_OVERLAY_MANIFEST_PATH)});`,
-    `const files = ${JSON.stringify(normalizedFiles)};`,
+    'const manifestPath = path.join(home, manifestRelativePath);',
+    'function decodeTarString(bytes) {',
+    '  const end = bytes.indexOf(0);',
+    '  const value = end === -1 ? bytes : bytes.subarray(0, end);',
+    '  return new TextDecoder().decode(value);',
+    '}',
+    'function parseTarOctal(bytes) {',
+    '  const value = decodeTarString(bytes).trim();',
+    '  if (!value) return 0;',
+    '  return Number.parseInt(value, 8);',
+    '}',
+    'function normalizePath(rawPath) {',
+    '  const trimmed = rawPath.trim();',
+    "  if (trimmed.startsWith('/')) {",
+    "    throw new Error('WebContainer home overlay path must be relative to $HOME: ' + rawPath);",
+    '  }',
+    "  const segments = trimmed.split('/').filter(Boolean);",
+    '  if (segments.length === 0) {',
+    "    throw new Error('WebContainer home overlay paths must not be empty.');",
+    '  }',
+    "  if (segments.some((segment) => segment === '.' || segment === '..')) {",
+    "    throw new Error('WebContainer home overlay path must stay inside $HOME: ' + rawPath);",
+    '  }',
+    "  return segments.join('/');",
+    '}',
+    'function normalizeSymlinkTarget(rawTargetPath, entryPath) {',
+    '  const trimmed = rawTargetPath.trim();',
+    "  if (!trimmed) throw new Error('WebContainer home overlay symlink target must not be empty.');",
+    "  if (trimmed.startsWith('/')) {",
+    "    throw new Error('WebContainer home overlay symlink target must be relative: ' + rawTargetPath);",
+    '  }',
+    '  const resolvedTargetPath = path.posix.normalize(path.posix.join(path.posix.dirname(entryPath), trimmed));',
+    "  if (resolvedTargetPath === '..' || resolvedTargetPath.startsWith('../')) {",
+    "    throw new Error('WebContainer home overlay symlink target must stay inside $HOME: ' + rawTargetPath);",
+    '  }',
+    '  return trimmed;',
+    '}',
+    'function isZeroTarBlock(block) {',
+    '  for (const value of block) {',
+    '    if (value !== 0) return false;',
+    '  }',
+    '  return true;',
+    '}',
+    'function parsePaxOverrides(bytes) {',
+    '  const text = new TextDecoder().decode(bytes);',
+    '  let offset = 0;',
+    '  const overrides = { path: null, linkpath: null };',
+    '  while (offset < text.length) {',
+    "    const spaceIndex = text.indexOf(' ', offset);",
+    '    if (spaceIndex === -1) break;',
+    '    const length = Number.parseInt(text.slice(offset, spaceIndex), 10);',
+    '    if (!Number.isFinite(length) || length <= 0) break;',
+    '    const record = text.slice(spaceIndex + 1, offset + length - 1);',
+    "    const equalsIndex = record.indexOf('=');",
+    '    if (equalsIndex !== -1) {',
+    '      const key = record.slice(0, equalsIndex);',
+    "      if (key === 'path') overrides.path = record.slice(equalsIndex + 1);",
+    "      else if (key === 'linkpath') overrides.linkpath = record.slice(equalsIndex + 1);",
+    '    }',
+    '    offset += length;',
+    '  }',
+    '  return overrides;',
+    '}',
+    'function parseFilesFromArchive(archive) {',
+    '  if (archive.length % TAR_BLOCK_BYTES !== 0) {',
+    "    throw new Error('WebContainer home overlay tar archive must be padded to 512-byte blocks.');",
+    '  }',
+    '  const files = [];',
+    '  let offset = 0;',
+    '  let nextPaxPath = null;',
+    '  let nextPaxLinkPath = null;',
+    '  while (offset + TAR_BLOCK_BYTES <= archive.length) {',
+    '    const headerBlock = archive.subarray(offset, offset + TAR_BLOCK_BYTES);',
+    '    offset += TAR_BLOCK_BYTES;',
+    '    if (isZeroTarBlock(headerBlock)) break;',
+    '    const name = decodeTarString(headerBlock.subarray(0, 100));',
+    '    const mode = parseTarOctal(headerBlock.subarray(100, 108));',
+    '    const size = parseTarOctal(headerBlock.subarray(124, 136));',
+    '    const type = decodeTarString(headerBlock.subarray(156, 157));',
+    '    const linkName = decodeTarString(headerBlock.subarray(157, 257));',
+    '    const prefix = decodeTarString(headerBlock.subarray(345, 500));',
+    '    const dataStart = offset;',
+    '    const dataEnd = dataStart + size;',
+    '    if (dataEnd > archive.length) {',
+    "      throw new Error('WebContainer home overlay tar entry exceeds archive bounds: ' + (nextPaxPath ?? [prefix, name].filter(Boolean).join('/')));",
+    '    }',
+    '    const contents = archive.subarray(dataStart, dataEnd);',
+    '    offset += Math.ceil(size / TAR_BLOCK_BYTES) * TAR_BLOCK_BYTES;',
+    "    if (type === 'x') {",
+    '      const overrides = parsePaxOverrides(contents);',
+    '      nextPaxPath = overrides.path;',
+    '      nextPaxLinkPath = overrides.linkpath;',
+    '      continue;',
+    '    }',
+    '    const resolvedPath = normalizePath(nextPaxPath ?? [prefix, name].filter(Boolean).join("/"));',
+    '    const resolvedLinkName = nextPaxLinkPath ?? linkName;',
+    '    nextPaxPath = null;',
+    '    nextPaxLinkPath = null;',
+    "    if (type === '5') continue;",
+    "    if (type === '2') {",
+    '      files.push({',
+    '        kind: "symlink",',
+    '        path: resolvedPath,',
+    '        linkPath: normalizeSymlinkTarget(resolvedLinkName, resolvedPath),',
+    '      });',
+    '      continue;',
+    '    }',
+    "    if (type !== '' && type !== '0') continue;",
+    '    files.push({',
+    '      kind: "file",',
+    '      path: resolvedPath,',
+    '      contents,',
+    '      executable: (mode & 0o111) !== 0,',
+    '    });',
+    '  }',
+    '  return files;',
+    '}',
+    'const archive = fs.readFileSync(archivePath);',
+    'const files = parseFilesFromArchive(archive);',
     'let previousPaths = [];',
     'try {',
-    "  const previousValue = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));",
-    "  previousPaths = Array.isArray(previousValue) ? previousValue.filter((value) => typeof value === 'string') : [];",
+    "  const manifestValue = fs.readFileSync(manifestPath, 'utf8');",
+    '  const parsed = JSON.parse(manifestValue);',
+    '  if (Array.isArray(parsed)) {',
+    "    for (const entry of parsed) {",
+    "      if (typeof entry !== 'string') continue;",
+    '      try {',
+    '        previousPaths.push(normalizePath(entry));',
+    '      } catch {}',
+    '    }',
+    '  }',
     '} catch {}',
     'const nextPaths = new Set(files.map((file) => file.path));',
     'for (const relativePath of previousPaths) {',
@@ -57,10 +167,15 @@ export function buildWebContainerHomeOverlayBootstrapScript(files: readonly WebC
     '  } catch {}',
     '}',
     'for (const file of files) {',
-    '  const target = path.join(home, file.path);',
-    '  fs.mkdirSync(path.dirname(target), { recursive: true });',
-    "  fs.writeFileSync(target, file.contents, 'utf8');",
-    '  fs.chmodSync(target, file.executable ? 0o755 : 0o644);',
+    '  const targetPath = path.join(home, file.path);',
+    '  fs.rmSync(targetPath, { force: true, recursive: true });',
+    '  fs.mkdirSync(path.dirname(targetPath), { recursive: true });',
+    '  if (file.kind === "symlink") {',
+    '    fs.symlinkSync(file.linkPath, targetPath);',
+    '    continue;',
+    '  }',
+    '  fs.writeFileSync(targetPath, file.contents);',
+    '  fs.chmodSync(targetPath, file.executable ? 0o755 : 0o644);',
     '}',
     "fs.writeFileSync(manifestPath, JSON.stringify(files.map((file) => file.path), null, 2) + '\\n', 'utf8');",
   ].join(' ');

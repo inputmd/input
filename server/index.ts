@@ -15,11 +15,13 @@ import { applySecurityHeaders } from './security_headers';
 import { startSessionCleanup } from './session';
 import { serveIndexHtml, serveStatic } from './static_files';
 import { extractSubdomain } from './subdomain';
+import { initWebContainerHomeOverlayArchive } from './webcontainer_home_overlay_archive';
 
 try {
   await initDictionary();
+  await initWebContainerHomeOverlayArchive();
 } catch (err) {
-  console.error('[dictionary] Failed to load bloom filter:', err);
+  console.error('Failed to initialize server startup assets:', err);
   process.exit(1);
 }
 

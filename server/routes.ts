@@ -84,6 +84,7 @@ import {
 import { verifyRepoFileShareToken } from './share_tokens.ts';
 import { stripManagedSubdomain } from './subdomain.ts';
 import type { Session, UserInstallation } from './types.ts';
+import { writeWebContainerHomeOverlayArchiveResponse } from './webcontainer_home_overlay_archive.ts';
 
 interface RouteContext {
   req: http.IncomingMessage;
@@ -140,6 +141,10 @@ interface ShareRepoFileListQuery {
   installationId: string;
   repoFullName: string;
   path: string;
+}
+
+async function handleWebContainerHomeOverlayArchive({ res }: RouteContext): Promise<void> {
+  await writeWebContainerHomeOverlayArchiveResponse(res);
 }
 
 interface EditorShareRepoFileUpdateBody extends Record<string, unknown> {
@@ -3488,6 +3493,7 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: PUBLIC_REPO_TREE_PATTERN, handler: handleGetPublicTree },
   { method: 'GET', pattern: PUBLIC_REPO_TARBALL_PATTERN, handler: handlePublicRepoTarball },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
+  { method: 'GET', pattern: /^\/api\/webcontainer-home-overlay\.tar$/, handler: handleWebContainerHomeOverlayArchive },
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
   { method: 'POST', pattern: /^\/api\/ai\/apply$/, handler: handleReaderAiApply },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },

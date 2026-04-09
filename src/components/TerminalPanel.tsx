@@ -12,8 +12,10 @@ import {
   type TerminalImportDiff,
   type TerminalImportOptions,
 } from '../repo_workspace/terminal_sync.ts';
-import { buildWebContainerHomeOverlayBootstrapScript } from '../webcontainer_home_overlay.ts';
-import { WEBCONTAINER_HOME_OVERLAY_FILES } from '../webcontainer_home_overlay_manifest.ts';
+import {
+  buildWebContainerHomeOverlayProvisionScript,
+  WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL,
+} from '../webcontainer_home_overlay.ts';
 import { useDialogs } from './DialogProvider';
 
 // Ctrl-C doesn't actually interrupt processes inside WebContainer (upstream
@@ -171,20 +173,50 @@ async function readStreamFully(stream: ReadableStream<string>): Promise<string> 
   return result;
 }
 
-const HOME_OVERLAY_BOOTSTRAP_SCRIPT = buildWebContainerHomeOverlayBootstrapScript(WEBCONTAINER_HOME_OVERLAY_FILES);
-const HOME_OVERLAY_BOOTSTRAP_FILENAME = '.input-home-overlay-bootstrap.cjs';
+const HOME_OVERLAY_ARCHIVE_FILENAME = '.input-home-overlay.tar';
+const HOME_OVERLAY_PROVISION_FILENAME = '.input-home-overlay-provision.cjs';
+
+async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBuffer>> {
+  const response = await fetch(WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL, { credentials: 'same-origin' });
+  if (!response.ok) {
+    throw new Error(`Failed to load WebContainer home overlay archive (${response.status})`);
+  }
+  const contentType = response.headers.get('content-type') ?? '';
+  const archive = new Uint8Array(await response.arrayBuffer());
+  if (contentType && !contentType.includes('application/x-tar') && !contentType.includes('application/octet-stream')) {
+    const preview = new TextDecoder().decode(archive.subarray(0, 200)).replace(/\s+/g, ' ').trim();
+    throw new Error(
+      `Unexpected WebContainer home overlay response type: ${contentType}; preview=${JSON.stringify(preview)}`,
+    );
+  }
+  if (archive.byteLength % 512 !== 0) {
+    const preview = new TextDecoder().decode(archive.subarray(0, 200)).replace(/\s+/g, ' ').trim();
+    throw new Error(
+      `Invalid WebContainer home overlay archive size: ${archive.byteLength} bytes; preview=${JSON.stringify(preview)}`,
+    );
+  }
+  return archive;
+}
 
 async function provisionHomeOverlay(wc: WebContainer): Promise<void> {
-  await wc.fs.writeFile(HOME_OVERLAY_BOOTSTRAP_FILENAME, HOME_OVERLAY_BOOTSTRAP_SCRIPT);
+  const archive = await fetchWebContainerHomeOverlayArchive();
+  const provisionScript = buildWebContainerHomeOverlayProvisionScript(HOME_OVERLAY_ARCHIVE_FILENAME);
+  await wc.fs.writeFile(HOME_OVERLAY_ARCHIVE_FILENAME, archive);
+  await wc.fs.writeFile(HOME_OVERLAY_PROVISION_FILENAME, provisionScript);
   try {
-    const bootstrap = await wc.spawn('node', [HOME_OVERLAY_BOOTSTRAP_FILENAME]);
-    const [output, exitCode] = await Promise.all([readStreamFully(bootstrap.output), bootstrap.exit]);
+    const provision = await wc.spawn('node', [HOME_OVERLAY_PROVISION_FILENAME]);
+    const [output, exitCode] = await Promise.all([readStreamFully(provision.output), provision.exit]);
     if (exitCode !== 0) {
-      throw new Error(`node bootstrap exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+      throw new Error(`node overlay provision exited with code ${exitCode}; output=${JSON.stringify(output)}`);
     }
   } finally {
     try {
-      await wc.fs.rm(HOME_OVERLAY_BOOTSTRAP_FILENAME, { force: true });
+      await wc.fs.rm(HOME_OVERLAY_PROVISION_FILENAME, { force: true });
+    } catch {
+      // best-effort cleanup
+    }
+    try {
+      await wc.fs.rm(HOME_OVERLAY_ARCHIVE_FILENAME, { force: true });
     } catch {
       // best-effort cleanup
     }
@@ -250,9 +282,7 @@ async function snapshotTerminalTextFiles(
   if (state.truncated) return {};
   if (depth > TERMINAL_IMPORT_MAX_DEPTH) {
     state.truncated = true;
-    console.error(
-      `[terminal-import] truncated: depth exceeded ${TERMINAL_IMPORT_MAX_DEPTH} at ${path}`,
-    );
+    console.error(`[terminal-import] truncated: depth exceeded ${TERMINAL_IMPORT_MAX_DEPTH} at ${path}`);
     return {};
   }
 
@@ -269,19 +299,14 @@ async function snapshotTerminalTextFiles(
       const childRelativePath = normalizedRelativePath ? `${normalizedRelativePath}/${entry}` : entry;
       if (!shouldImportTerminalPath(childRelativePath)) continue;
       const childPath = path === '.' ? entry : `${path}/${entry}`;
-      Object.assign(
-        files,
-        await snapshotTerminalTextFiles(wc, childPath, childRelativePath, depth + 1, state),
-      );
+      Object.assign(files, await snapshotTerminalTextFiles(wc, childPath, childRelativePath, depth + 1, state));
     }
     return files;
   } catch {
     if (!normalizedRelativePath || !shouldImportTerminalPath(normalizedRelativePath)) return {};
     if (state.count >= TERMINAL_IMPORT_MAX_ENTRIES) {
       state.truncated = true;
-      console.error(
-        `[terminal-import] truncated: entry count exceeded ${TERMINAL_IMPORT_MAX_ENTRIES} at ${path}`,
-      );
+      console.error(`[terminal-import] truncated: entry count exceeded ${TERMINAL_IMPORT_MAX_ENTRIES} at ${path}`);
       return {};
     }
     const bytes = await readTerminalFileBytes(wc, path);
