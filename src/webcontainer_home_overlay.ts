@@ -151,7 +151,7 @@ export function buildWebContainerHomeOverlayProvisionScript(archivePath: string)
     "  const manifestValue = fs.readFileSync(manifestPath, 'utf8');",
     '  const parsed = JSON.parse(manifestValue);',
     '  if (Array.isArray(parsed)) {',
-    "    for (const entry of parsed) {",
+    '    for (const entry of parsed) {',
     "      if (typeof entry !== 'string') continue;",
     '      try {',
     '        previousPaths.push(normalizePath(entry));',
