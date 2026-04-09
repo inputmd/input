@@ -19,6 +19,7 @@ import {
   removeRepoTerminalBaseFiles,
   renameRepoDocFiles,
   renameRepoTerminalBaseFiles,
+  resolveRepoWorkspaceBasePath,
   setRepoTerminalBaseFile,
   updateRepoDocFile,
   upsertRepoDocFile,
@@ -163,11 +164,15 @@ export function useRepoWorkspace({
     [renamedBaseFiles],
   );
   const resolveRepoBasePath = useCallback(
-    (path: string) => {
-      if (findRepoDocFileByPath(repoSidebarFiles, path)) return path;
-      return findRenamedBaseSourcePath(renamedBaseFiles, path);
-    },
-    [renamedBaseFiles, repoSidebarFiles],
+    (path: string) =>
+      resolveRepoWorkspaceBasePath({
+        path,
+        files: repoSidebarFiles,
+        overlayFiles,
+        deletedBaseFiles,
+        renamedBaseFiles,
+      }),
+    [deletedBaseFiles, overlayFiles, renamedBaseFiles, repoSidebarFiles],
   );
   const listRepoSidebarFilesInFolder = useCallback(
     (folderPath: string) => listRepoDocFilesInFolder(effectiveRepoSidebarFiles, folderPath),

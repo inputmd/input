@@ -5,6 +5,7 @@ import {
   applyRepoWorkspaceMutationsToDocFiles,
   applyRepoWorkspaceMutationsToTerminalFiles,
   findRepoRenamedBaseSourcePath,
+  resolveRepoWorkspaceBasePath,
 } from '../../src/repo_workspace/helpers.ts';
 
 const baseFiles: RepoDocFile[] = [
@@ -88,6 +89,56 @@ test('buildRepoWorkspaceTextSavePlan degrades rename plus edit into delete plus 
   t.deepEqual(plan.touchedFiles, [{ path: 'docs/renamed.md', content: 'changed' }]);
 });
 
+test('buildRepoWorkspaceTextSavePlan keeps delete plus recreate at the same path', (t) => {
+  const plan = buildRepoWorkspaceTextSavePlan({
+    overlayFiles: [{ path: 'docs/a.md', content: 'replacement', source: 'sidebar' }],
+    deletedBaseFiles: [{ path: 'docs/a.md', source: 'sidebar' }],
+    renamedBaseFiles: [],
+    findBaseRepoSidebarFile,
+    resolveRepoBasePath: (path) =>
+      resolveRepoWorkspaceBasePath({
+        path,
+        files: baseFiles,
+        overlayFiles: [{ path: 'docs/a.md', content: 'replacement', source: 'sidebar' }],
+        deletedBaseFiles: [{ path: 'docs/a.md', source: 'sidebar' }],
+        renamedBaseFiles: [],
+      }),
+  });
+
+  t.deepEqual(plan.mutation, {
+    message: 'Apply 2 workspace changes',
+    deletes: ['docs/a.md'],
+    creates: [{ path: 'docs/a.md', content: 'replacement' }],
+  });
+  t.is(plan.changeCount, 2);
+});
+
+test('buildRepoWorkspaceTextSavePlan keeps rename plus recreate of the source path', (t) => {
+  const overlayFiles = [{ path: 'docs/a.md', content: 'replacement', source: 'sidebar' }] as const;
+  const renamedBaseFiles = [{ from: 'docs/a.md', to: 'docs/renamed.md', source: 'sidebar' }] as const;
+  const plan = buildRepoWorkspaceTextSavePlan({
+    overlayFiles: [...overlayFiles],
+    deletedBaseFiles: [],
+    renamedBaseFiles: [...renamedBaseFiles],
+    findBaseRepoSidebarFile,
+    resolveRepoBasePath: (path) =>
+      resolveRepoWorkspaceBasePath({
+        path,
+        files: baseFiles,
+        overlayFiles: [...overlayFiles],
+        deletedBaseFiles: [],
+        renamedBaseFiles: [...renamedBaseFiles],
+      }),
+  });
+
+  t.deepEqual(plan.mutation, {
+    message: 'Apply 2 workspace changes',
+    renames: [{ from: 'docs/a.md', to: 'docs/renamed.md' }],
+    creates: [{ path: 'docs/a.md', content: 'replacement' }],
+  });
+  t.is(plan.changeCount, 2);
+});
+
 test('applyRepoWorkspaceMutationsToDocFiles projects deletes renames and overlay content', (t) => {
   const projectedFiles = applyRepoWorkspaceMutationsToDocFiles(baseFiles, {
     overlayFiles: [{ path: 'docs/renamed.md', content: 'changed', source: 'editor' }],
@@ -123,4 +174,37 @@ test('applyRepoWorkspaceMutationsToTerminalFiles projects delete rename and over
 test('findRepoRenamedBaseSourcePath returns the base source for a renamed path', (t) => {
   t.is(findRepoRenamedBaseSourcePath([{ from: 'docs/a.md', to: 'docs/renamed.md' }], 'docs/renamed.md'), 'docs/a.md');
   t.is(findRepoRenamedBaseSourcePath([{ from: 'docs/a.md', to: 'docs/renamed.md' }], 'docs/missing.md'), null);
+});
+
+test('resolveRepoWorkspaceBasePath treats recreated source paths as overlay-only', (t) => {
+  t.is(
+    resolveRepoWorkspaceBasePath({
+      path: 'docs/a.md',
+      files: baseFiles,
+      overlayFiles: [{ path: 'docs/a.md', content: 'replacement', source: 'sidebar' }],
+      deletedBaseFiles: [{ path: 'docs/a.md', source: 'sidebar' }],
+      renamedBaseFiles: [],
+    }),
+    null,
+  );
+  t.is(
+    resolveRepoWorkspaceBasePath({
+      path: 'docs/a.md',
+      files: baseFiles,
+      overlayFiles: [{ path: 'docs/a.md', content: 'replacement', source: 'sidebar' }],
+      deletedBaseFiles: [],
+      renamedBaseFiles: [{ from: 'docs/a.md', to: 'docs/renamed.md', source: 'sidebar' }],
+    }),
+    null,
+  );
+  t.is(
+    resolveRepoWorkspaceBasePath({
+      path: 'docs/renamed.md',
+      files: baseFiles,
+      overlayFiles: [{ path: 'docs/renamed.md', content: 'changed', source: 'editor' }],
+      deletedBaseFiles: [],
+      renamedBaseFiles: [{ from: 'docs/a.md', to: 'docs/renamed.md', source: 'sidebar' }],
+    }),
+    'docs/a.md',
+  );
 });

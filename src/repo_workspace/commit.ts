@@ -95,9 +95,16 @@ export function buildRepoWorkspaceTextSavePlan({
       createsByPath.set(path, content);
       continue;
     }
-    if (deletePaths.has(basePath)) continue;
     const renamedTarget = renameTargetsBySource.get(basePath);
+    if (deletePaths.has(basePath)) {
+      createsByPath.set(path, content);
+      continue;
+    }
     if (renamedTarget) {
+      if (path === basePath) {
+        createsByPath.set(path, content);
+        continue;
+      }
       renamesBySource.delete(basePath);
       deletePaths.add(basePath);
       createsByPath.set(path, content);

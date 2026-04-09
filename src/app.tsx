@@ -162,6 +162,7 @@ import {
   useRepoTerminalBinding,
   useRepoWorkspace,
 } from './repo_workspace';
+import { applyTerminalImportDiffToWorkspaceChanges, type TerminalImportDiff } from './repo_workspace/terminal_sync.ts';
 import { matchRoute, type Route, routePath } from './routing';
 import {
   buildRepoNewDraftPath,
@@ -856,6 +857,7 @@ export function App() {
   const currentFileNameRef = useRef<string | null>(currentFileName);
   const prevRouteNameRef = useRef(route.name);
   const sidePaneSkipPersistRef = useRef(false);
+  const terminalImportHandlerRef = useRef<(() => Promise<TerminalImportDiff | null>) | null>(null);
   const pendingGistDraftDirtyRef = useRef(false);
   const editContentRef = useRef(editContent);
   const editContentSnapshotTimerRef = useRef<number | null>(null);
@@ -1036,6 +1038,55 @@ export function App() {
   const routeView = viewFromRoute(route);
   const activeView = viewPhase ?? routeView;
   const currentRouteKey = routeKeyFromRoute(route);
+  const applyTerminalImportDiff = useCallback(
+    async ({ workspaceKey, diff }: { workspaceKey: string; diff: TerminalImportDiff }) => {
+      if (workspaceKey !== sidebarWorkspaceKey) return;
+      if (repoAccessMode !== 'installed') return;
+
+      let imported = 0;
+      for (const path of diff.deletes) {
+        if (activeView === 'edit' && editingBackend === 'repo' && currentRepoDocPathRef.current === path) continue;
+        const baseRepoPath = resolveRepoBasePath(path);
+        if (!baseRepoPath) {
+          clearRepoOverlayFile(path);
+          continue;
+        }
+        clearRepoOverlayFile(path);
+        clearRepoRenamedBaseFile(baseRepoPath);
+        stageRepoDeletedBaseFile(baseRepoPath, 'terminal');
+        imported += 1;
+      }
+      for (const [path, content] of Object.entries(diff.upserts)) {
+        if (activeView === 'edit' && editingBackend === 'repo' && currentRepoDocPathRef.current === path) continue;
+        const baseRepoPath = resolveRepoBasePath(path);
+        if (baseRepoPath) {
+          clearRepoDeletedBaseFile(baseRepoPath);
+        }
+        stageRepoOverlayFile(path, content, 'terminal');
+        imported += 1;
+      }
+      if (imported > 0 && !terminalVisible) {
+        showSuccessToast(`Imported ${imported} terminal change${imported === 1 ? '' : 's'}`);
+      }
+    },
+    [
+      activeView,
+      clearRepoDeletedBaseFile,
+      clearRepoOverlayFile,
+      clearRepoRenamedBaseFile,
+      editingBackend,
+      repoAccessMode,
+      resolveRepoBasePath,
+      sidebarWorkspaceKey,
+      showSuccessToast,
+      stageRepoDeletedBaseFile,
+      stageRepoOverlayFile,
+      terminalVisible,
+    ],
+  );
+  const registerTerminalImportHandler = useCallback((handler: (() => Promise<TerminalImportDiff | null>) | null) => {
+    terminalImportHandlerRef.current = handler;
+  }, []);
   const sharedRepoFullNameForPersistence =
     route.name === 'repofile' || route.name === 'repoedit'
       ? `${safeDecodeURIComponent(route.params.owner)}/${safeDecodeURIComponent(route.params.repo)}`
@@ -3830,29 +3881,43 @@ export function App() {
     showRateLimitToastIfNeeded,
   ]);
 
-  const onTogglePreview = useCallback(() => {
+  const importVisibleTerminalDiff = useCallback(async (): Promise<TerminalImportDiff | null> => {
+    if (!terminalVisible || !terminalImportHandlerRef.current) return null;
+    try {
+      return await terminalImportHandlerRef.current();
+    } catch (err) {
+      console.error('[terminal] import before pane switch failed', err);
+      return null;
+    }
+  }, [terminalVisible]);
+
+  const onTogglePreview = useCallback(async () => {
+    await importVisibleTerminalDiff();
     setSidePane((pane) => (pane === 'preview' ? 'none' : 'preview'));
-  }, []);
+  }, [importVisibleTerminalDiff]);
 
   const [readerAiActivationRequestKey, setReaderAiActivationRequestKey] = useState(0);
 
-  const onToggleReaderAi = useCallback(() => {
+  const onToggleReaderAi = useCallback(async () => {
+    await importVisibleTerminalDiff();
     if (readerAiVisible) {
       setSidePane('none');
       return;
     }
     setReaderAiActivationRequestKey((current) => current + 1);
     setSidePane('reader-ai');
-  }, [readerAiVisible]);
+  }, [importVisibleTerminalDiff, readerAiVisible]);
 
-  const onOpenReaderAi = useCallback(() => {
+  const onOpenReaderAi = useCallback(async () => {
+    await importVisibleTerminalDiff();
     setReaderAiActivationRequestKey((current) => current + 1);
     setSidePane('reader-ai');
-  }, []);
+  }, [importVisibleTerminalDiff]);
 
-  const onToggleTerminal = useCallback(() => {
+  const onToggleTerminal = useCallback(async () => {
+    await importVisibleTerminalDiff();
     setSidePane((pane) => (pane === 'terminal' ? 'none' : 'terminal'));
-  }, []);
+  }, [importVisibleTerminalDiff]);
 
   const loadReaderAiModels = useCallback(async () => {
     setReaderAiModelsLoading(true);
@@ -5161,10 +5226,20 @@ export function App() {
         repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
       if (!instId || !repoName) return null;
 
+      const terminalImportDiff = await importVisibleTerminalDiff();
+      const importedWorkspaceChanges = terminalImportDiff
+        ? applyTerminalImportDiffToWorkspaceChanges({
+            overlayFiles,
+            deletedBaseFiles,
+            renamedBaseFiles,
+            diff: terminalImportDiff,
+            resolveRepoBasePath,
+          })
+        : null;
       const workspaceSavePlan = buildRepoWorkspaceTextSavePlan({
-        overlayFiles,
-        deletedBaseFiles,
-        renamedBaseFiles,
+        overlayFiles: importedWorkspaceChanges?.overlayFiles ?? overlayFiles,
+        deletedBaseFiles: importedWorkspaceChanges?.deletedBaseFiles ?? deletedBaseFiles,
+        renamedBaseFiles: importedWorkspaceChanges?.renamedBaseFiles ?? renamedBaseFiles,
         draftFile: options?.draftFile ?? null,
         findBaseRepoSidebarFile,
         resolveRepoBasePath,
@@ -5198,6 +5273,7 @@ export function App() {
       currentRouteRepoRef,
       deletedBaseFiles,
       findBaseRepoSidebarFile,
+      importVisibleTerminalDiff,
       overlayFiles,
       refreshRepoTreeAfterWrite,
       renamedBaseFiles,
@@ -5328,6 +5404,7 @@ export function App() {
             },
           });
           if (!workspaceCommit) return null;
+          if (workspaceCommit.workspaceSavePlan.changeCount === 0) return null;
           const { refreshedFiles } = workspaceCommit;
           const refreshedCurrentFile =
             refreshedFiles?.find((file) => file.path === currentRepoDocPath) ??
@@ -5578,7 +5655,9 @@ export function App() {
   );
 
   const saveInstalledRepoWorkspaceFromContentView = useCallback(async () => {
-    if (repoAccessMode !== 'installed' || activeView !== 'content' || !hasOverlayChanges) return false;
+    if (repoAccessMode !== 'installed' || activeView !== 'content' || (!hasOverlayChanges && !terminalVisible)) {
+      return false;
+    }
     if (saveInFlightRef.current || readerAiSaveLocked) return false;
     if (pendingImageUploads.size > 0) {
       void showAlert('Wait for image uploads to finish before saving.');
@@ -5590,6 +5669,7 @@ export function App() {
     try {
       const workspaceCommit = await commitInstalledRepoWorkspaceChanges();
       if (!workspaceCommit) return false;
+      if (workspaceCommit.workspaceSavePlan.changeCount === 0) return false;
       const { refreshedFiles, currentRepoRef, instId, repoName } = workspaceCommit;
       const refreshedCurrentFile =
         currentRepoDocPath == null
@@ -5644,6 +5724,7 @@ export function App() {
     showAlert,
     showRateLimitToastIfNeeded,
     showSuccessToast,
+    terminalVisible,
     updatePostSaveVerification,
   ]);
 
@@ -5858,20 +5939,34 @@ export function App() {
   ]);
 
   const onSave = useCallback(async () => {
-    if (repoAccessMode === 'installed' && activeView === 'content' && hasOverlayChanges) {
+    if (repoAccessMode === 'installed' && activeView === 'content' && (hasOverlayChanges || terminalVisible)) {
       await saveInstalledRepoWorkspaceFromContentView();
       return;
     }
     await commitAndStayInEdit();
-  }, [activeView, commitAndStayInEdit, hasOverlayChanges, repoAccessMode, saveInstalledRepoWorkspaceFromContentView]);
+  }, [
+    activeView,
+    commitAndStayInEdit,
+    hasOverlayChanges,
+    repoAccessMode,
+    saveInstalledRepoWorkspaceFromContentView,
+    terminalVisible,
+  ]);
 
   const onSaveAndExit = useCallback(async () => {
-    if (repoAccessMode === 'installed' && activeView === 'content' && hasOverlayChanges) {
+    if (repoAccessMode === 'installed' && activeView === 'content' && (hasOverlayChanges || terminalVisible)) {
       await saveInstalledRepoWorkspaceFromContentView();
       return;
     }
     await commitAndExitEdit();
-  }, [activeView, commitAndExitEdit, hasOverlayChanges, repoAccessMode, saveInstalledRepoWorkspaceFromContentView]);
+  }, [
+    activeView,
+    commitAndExitEdit,
+    hasOverlayChanges,
+    repoAccessMode,
+    saveInstalledRepoWorkspaceFromContentView,
+    terminalVisible,
+  ]);
 
   useEffect(() => {
     if (activeView !== 'edit' || !currentDocumentDraftKey || !currentDocumentDraft) return;
@@ -8131,15 +8226,17 @@ export function App() {
   const editPreviewEnabled = isScratchDocument || isMarkdownFileName(currentFileName ?? editTitle);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
   const canSaveCurrentEdit =
-    (hasUnsavedChanges || (repoAccessMode === 'installed' && hasOverlayChanges)) &&
+    (hasUnsavedChanges || (repoAccessMode === 'installed' && (hasOverlayChanges || terminalVisible))) &&
     !readerAiSaveLocked &&
     !repoEditLoading &&
     pendingImageUploadCount === 0;
-  const showRepoWorkspaceActions = activeView === 'content' && repoAccessMode === 'installed' && hasOverlayChanges;
+  const showRepoWorkspaceCancelAction = activeView === 'content' && repoAccessMode === 'installed' && hasOverlayChanges;
+  const showRepoWorkspaceSaveAction =
+    activeView === 'content' && repoAccessMode === 'installed' && (hasOverlayChanges || terminalVisible);
   const showEditorCancel =
-    (activeView === 'edit' && !draftMode && repoAccessMode !== 'public') || showRepoWorkspaceActions;
+    (activeView === 'edit' && !draftMode && repoAccessMode !== 'public') || showRepoWorkspaceCancelAction;
   const showEditorSave =
-    (activeView === 'edit' && !(draftMode && !user) && repoAccessMode !== 'public') || showRepoWorkspaceActions;
+    (activeView === 'edit' && !(draftMode && !user) && repoAccessMode !== 'public') || showRepoWorkspaceSaveAction;
   const editPreviewWikiLinkResolver = useMemo(() => {
     if (!editPreviewEnabled) return undefined;
 
@@ -8317,6 +8414,8 @@ export function App() {
     editing: activeView === 'edit',
     activeEditPath: currentGistId ? currentFileName : currentRepoDocPath,
     editContent,
+    onImportDiff: applyTerminalImportDiff,
+    registerImportHandler: registerTerminalImportHandler,
   });
   const headerSidebarToggleAvailable = activeView === 'content' || activeView === 'edit';
   const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;

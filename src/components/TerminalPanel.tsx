@@ -17,6 +17,7 @@ export interface TerminalLiveFile {
 export interface TerminalPanelProps {
   className?: string;
   visible: boolean;
+  workspaceKey: string;
   apiKey: string | undefined;
   /**
    * Stable workspace snapshot mirrored into the WebContainer FS on mount and
@@ -28,6 +29,8 @@ export interface TerminalPanelProps {
    * one-way (app → terminal) and is synced as a single debounced file write.
    */
   liveFile: TerminalLiveFile | null;
+  onImportDiff?: (args: { workspaceKey: string; diff: TerminalImportDiff }) => void | Promise<void>;
+  registerImportHandler?: (handler: (() => Promise<TerminalImportDiff | null>) | null) => void;
 }
 
 // Cache the WebContainer boot promise so we only ever boot once per page.
@@ -158,6 +161,49 @@ async function writeTextFile(wc: WebContainer, path: string, contents: string): 
   await wc.fs.writeFile(path, contents);
 }
 
+async function readTerminalFileBytes(wc: WebContainer, path: string): Promise<Uint8Array | null> {
+  try {
+    const value = await (wc.fs as { readFile(path: string): Promise<unknown> }).readFile(path);
+    if (typeof value === 'string') return new TextEncoder().encode(value);
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) {
+      return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function snapshotTerminalTextFiles(
+  wc: WebContainer,
+  path = '.',
+  relativePath = '',
+): Promise<Record<string, string>> {
+  const normalizedRelativePath = relativePath.replace(/^\/+|\/+$/g, '');
+  if (normalizedRelativePath && !shouldImportTerminalPath(normalizedRelativePath)) {
+    return {};
+  }
+
+  try {
+    const entries = await wc.fs.readdir(path);
+    const files: Record<string, string> = {};
+    for (const entry of entries) {
+      const childRelativePath = normalizedRelativePath ? `${normalizedRelativePath}/${entry}` : entry;
+      if (!shouldImportTerminalPath(childRelativePath)) continue;
+      const childPath = path === '.' ? entry : `${path}/${entry}`;
+      Object.assign(files, await snapshotTerminalTextFiles(wc, childPath, childRelativePath));
+    }
+    return files;
+  } catch {
+    if (!normalizedRelativePath || !shouldImportTerminalPath(normalizedRelativePath)) return {};
+    const bytes = await readTerminalFileBytes(wc, path);
+    if (!bytes || bytes.length > TERMINAL_IMPORT_MAX_FILE_BYTES || isLikelyBinaryBytes(bytes)) return {};
+    return { [normalizedRelativePath]: new TextDecoder().decode(bytes) };
+  }
+}
+
 async function loadGhosttyWeb() {
   const module = await import('ghostty-web');
   if (!ghosttyInitPromise) {
@@ -173,6 +219,8 @@ async function loadGhosttyWeb() {
 const TERMINAL_FONT_FAMILY =
   "'JetBrains Mono', 'SF Mono Web', 'SF Mono', 'Fira Mono', ui-monospace, Menlo, Monaco, Consolas, monospace";
 const LIVE_FILE_DEBOUNCE_MS = 300;
+const TERMINAL_AUTO_IMPORT_INTERVAL_MS = 3000;
+const TERMINAL_IMPORT_MAX_FILE_BYTES = 512 * 1024;
 const SAMPLE_JSHRC = ['export PATH="$HOME/.local/bin:$PATH"', 'npm config set prefix ~/.local', ''].join('\n');
 const TERMINAL_SCROLLBAR_RESERVATION_PX = 15;
 const TERMINAL_MIN_COLS = 2;
@@ -196,7 +244,16 @@ function fitTerminal(terminal: GhosttyTerminal, container: HTMLElement): void {
   terminal.resize(cols, rows);
 }
 
-export function TerminalPanel({ className, visible, apiKey, baseFiles, liveFile }: TerminalPanelProps) {
+export function TerminalPanel({
+  className,
+  visible,
+  workspaceKey,
+  apiKey,
+  baseFiles,
+  liveFile,
+  onImportDiff,
+  registerImportHandler,
+}: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
@@ -221,6 +278,84 @@ export function TerminalPanel({ className, visible, apiKey, baseFiles, liveFile 
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const liveSyncTimerRef = useRef<number | null>(null);
   const [fsReady, setFsReady] = useState(false);
+  const onImportDiffRef = useRef(onImportDiff);
+  onImportDiffRef.current = onImportDiff;
+  const workspaceKeyRef = useRef(workspaceKey);
+  workspaceKeyRef.current = workspaceKey;
+  const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
+
+  const flushManagedSync = useCallback(async (): Promise<void> => {
+    const wc = wcRef.current;
+    if (!wc) return;
+    if (liveSyncTimerRef.current !== null) {
+      window.clearTimeout(liveSyncTimerRef.current);
+      liveSyncTimerRef.current = null;
+      const pendingPath = liveFilePathRef.current;
+      const pendingContent = liveFileContentRef.current;
+      if (pendingPath !== null && pendingContent !== null) {
+        mirroredFilesRef.current.set(pendingPath, pendingContent);
+        syncQueueRef.current = syncQueueRef.current.then(async () => {
+          if (unmountedRef.current) return;
+          try {
+            await writeTextFile(wc, pendingPath, pendingContent);
+          } catch (err) {
+            console.error('[terminal] live sync flush failed', pendingPath, err);
+          }
+        });
+      }
+    }
+    await syncQueueRef.current;
+  }, []);
+
+  const importTerminalDiff = useCallback(async (): Promise<TerminalImportDiff | null> => {
+    if (importInFlightRef.current) return importInFlightRef.current;
+    const pendingImport = (async (): Promise<TerminalImportDiff | null> => {
+      const wc = wcRef.current;
+      if (!wc || !onImportDiffRef.current) return null;
+      await flushManagedSync();
+      const managedFiles = Object.fromEntries(mirroredFilesRef.current.entries());
+      const actualFiles = await snapshotTerminalTextFiles(wc);
+      const diff = buildTerminalImportDiff({
+        managedFiles,
+        actualFiles,
+        activeEditPath: liveFilePathRef.current,
+      });
+      if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return null;
+      mirroredFilesRef.current = new Map(Object.entries(actualFiles));
+      await onImportDiffRef.current({
+        workspaceKey: workspaceKeyRef.current,
+        diff,
+      });
+      return diff;
+    })();
+    importInFlightRef.current = pendingImport;
+    try {
+      return await pendingImport;
+    } finally {
+      if (importInFlightRef.current === pendingImport) {
+        importInFlightRef.current = null;
+      }
+    }
+  }, [flushManagedSync]);
+
+  useEffect(() => {
+    registerImportHandler?.(() => importTerminalDiff());
+    return () => {
+      registerImportHandler?.(null);
+    };
+  }, [importTerminalDiff, registerImportHandler]);
+
+  useEffect(() => {
+    if (!visible || !fsReady) return;
+    const intervalId = window.setInterval(() => {
+      void importTerminalDiff().catch((err) => {
+        console.error('[terminal] background import failed', err);
+      });
+    }, TERMINAL_AUTO_IMPORT_INTERVAL_MS);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [fsReady, importTerminalDiff, visible]);
 
   useEffect(() => {
     if (!visible) return;
@@ -574,6 +709,9 @@ export function TerminalPanel({ className, visible, apiKey, baseFiles, liveFile 
   useEffect(() => {
     return () => {
       unmountedRef.current = true;
+      void importTerminalDiff().catch((err) => {
+        console.error('[terminal] import on unmount failed', err);
+      });
       if (liveSyncTimerRef.current !== null) {
         window.clearTimeout(liveSyncTimerRef.current);
         liveSyncTimerRef.current = null;
@@ -585,7 +723,7 @@ export function TerminalPanel({ className, visible, apiKey, baseFiles, liveFile 
       wcRef.current = null;
       mirroredFilesRef.current = new Map();
     };
-  }, []);
+  }, [importTerminalDiff]);
 
   return (
     <aside

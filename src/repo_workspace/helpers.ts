@@ -16,6 +16,7 @@ import type {
   RepoWorkspaceDeletedFile,
   RepoWorkspaceFileCounts,
   RepoWorkspaceIdentity,
+  RepoWorkspaceOverlayFile,
   RepoWorkspaceRename,
 } from './types.ts';
 
@@ -210,6 +211,25 @@ export function findRepoRenamedBaseSourcePath(renames: RepoWorkspaceRename[], pa
     if (rename.to === path) return rename.from;
   }
   return null;
+}
+
+export function resolveRepoWorkspaceBasePath(options: {
+  path: string;
+  files: RepoDocFile[];
+  overlayFiles: RepoWorkspaceOverlayFile[];
+  deletedBaseFiles: RepoWorkspaceDeletedFile[];
+  renamedBaseFiles: RepoWorkspaceRename[];
+}): string | null {
+  const { path, files, overlayFiles, deletedBaseFiles, renamedBaseFiles } = options;
+  const pathHasOverlay = overlayFiles.some((file) => file.path === path);
+  if (
+    pathHasOverlay &&
+    (deletedBaseFiles.some((file) => file.path === path) || renamedBaseFiles.some((file) => file.from === path))
+  ) {
+    return null;
+  }
+  if (findRepoDocFileByPath(files, path)) return path;
+  return findRepoRenamedBaseSourcePath(renamedBaseFiles, path);
 }
 
 export function applyRepoWorkspaceMutationsToDocFiles(
