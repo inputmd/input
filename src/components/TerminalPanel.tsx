@@ -235,11 +235,27 @@ async function readTerminalFileBytes(wc: WebContainer, path: string): Promise<Ui
   return null;
 }
 
+interface SnapshotState {
+  count: number;
+  truncated: boolean;
+}
+
 async function snapshotTerminalTextFiles(
   wc: WebContainer,
   path = '.',
   relativePath = '',
+  depth = 0,
+  state: SnapshotState = { count: 0, truncated: false },
 ): Promise<Record<string, string>> {
+  if (state.truncated) return {};
+  if (depth > TERMINAL_IMPORT_MAX_DEPTH) {
+    state.truncated = true;
+    console.error(
+      `[terminal-import] truncated: depth exceeded ${TERMINAL_IMPORT_MAX_DEPTH} at ${path}`,
+    );
+    return {};
+  }
+
   const normalizedRelativePath = relativePath.replace(/^\/+|\/+$/g, '');
   if (normalizedRelativePath && !shouldImportTerminalPath(normalizedRelativePath)) {
     return {};
@@ -249,16 +265,28 @@ async function snapshotTerminalTextFiles(
     const entries = await wc.fs.readdir(path);
     const files: Record<string, string> = {};
     for (const entry of entries) {
+      if (state.truncated) break;
       const childRelativePath = normalizedRelativePath ? `${normalizedRelativePath}/${entry}` : entry;
       if (!shouldImportTerminalPath(childRelativePath)) continue;
       const childPath = path === '.' ? entry : `${path}/${entry}`;
-      Object.assign(files, await snapshotTerminalTextFiles(wc, childPath, childRelativePath));
+      Object.assign(
+        files,
+        await snapshotTerminalTextFiles(wc, childPath, childRelativePath, depth + 1, state),
+      );
     }
     return files;
   } catch {
     if (!normalizedRelativePath || !shouldImportTerminalPath(normalizedRelativePath)) return {};
+    if (state.count >= TERMINAL_IMPORT_MAX_ENTRIES) {
+      state.truncated = true;
+      console.error(
+        `[terminal-import] truncated: entry count exceeded ${TERMINAL_IMPORT_MAX_ENTRIES} at ${path}`,
+      );
+      return {};
+    }
     const bytes = await readTerminalFileBytes(wc, path);
     if (!bytes || bytes.length > TERMINAL_IMPORT_MAX_FILE_BYTES || isLikelyBinaryBytes(bytes)) return {};
+    state.count += 1;
     return { [normalizedRelativePath]: new TextDecoder().decode(bytes) };
   }
 }
@@ -280,6 +308,8 @@ const TERMINAL_FONT_FAMILY =
 const LIVE_FILE_DEBOUNCE_MS = 300;
 const TERMINAL_AUTO_IMPORT_INTERVAL_MS = 3000;
 const TERMINAL_IMPORT_MAX_FILE_BYTES = 512 * 1024;
+const TERMINAL_IMPORT_MAX_ENTRIES = 5000;
+const TERMINAL_IMPORT_MAX_DEPTH = 50;
 const TERMINAL_SCROLLBAR_RESERVATION_PX = 15;
 const TERMINAL_MIN_COLS = 2;
 const TERMINAL_MIN_ROWS = 1;
