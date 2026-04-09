@@ -60,6 +60,25 @@ let webContainerBootPromise: Promise<WebContainer> | null = null;
 let webContainerBootWorkdirName: string | null = null;
 let ghosttyInitPromise: Promise<void> | null = null;
 
+function terminalDownloadName(path: string, workdirName: string): string {
+  const normalized = path.replace(/^\/+|\/+$/g, '');
+  if (!normalized || normalized === '.') return `${workdirName || 'workspace'}.zip`;
+  const baseName = normalized.split('/').filter(Boolean).at(-1) ?? workdirName ?? 'download';
+  return `${baseName}.zip`;
+}
+
+function triggerBrowserDownload(blob: Blob, fileName: string): void {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = fileName;
+  link.style.display = 'none';
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(href), 0);
+}
+
 function isLocalhostHostname(): boolean {
   if (typeof window === 'undefined') return false;
   const host = window.location.hostname;
@@ -340,9 +359,14 @@ export function TerminalPanel({
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
   const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
-  const { showConfirm } = useDialogs();
+  const [downloadingPath, setDownloadingPath] = useState(false);
+  const { showAlert, showConfirm, showPrompt } = useDialogs();
+  const showAlertRef = useRef(showAlert);
+  showAlertRef.current = showAlert;
   const showConfirmRef = useRef(showConfirm);
   showConfirmRef.current = showConfirm;
+  const showPromptRef = useRef(showPrompt);
+  showPromptRef.current = showPrompt;
   // Timestamp of the last Ctrl-C keystroke, used to detect a double-press.
   const lastCtrlCAtRef = useRef<number>(0);
   // True while the reset-session confirm dialog is open, to suppress further
@@ -353,6 +377,7 @@ export function TerminalPanel({
     !error && fsReady && !resettingShell && !restartingWebContainer && (shellReady || shellSessionIdRef.current > 0);
   const canRestartWebContainer =
     !error && !resettingShell && !restartingWebContainer && (fsReady || shellSessionIdRef.current > 0);
+  const canDownloadFromWebContainer = !error && fsReady && !restartingWebContainer && !downloadingPath;
 
   const releaseShellSession = useCallback(() => {
     const shell = shellRef.current;
@@ -727,6 +752,28 @@ export function TerminalPanel({
     }
   }, [initializeWebContainerSession]);
 
+  const downloadFromWebContainer = useCallback(async (): Promise<void> => {
+    const wc = wcRef.current;
+    if (!wc) return;
+    const requestedPath = await showPromptRef.current('Download path:', '.');
+    const normalizedPath = requestedPath?.trim();
+    if (!normalizedPath) return;
+
+    setDownloadingPath(true);
+    try {
+      const archiveBytes = await wc.export(normalizedPath, { format: 'zip' });
+      const blobBytes = Uint8Array.from(archiveBytes);
+      triggerBrowserDownload(
+        new Blob([blobBytes], { type: 'application/zip' }),
+        terminalDownloadName(normalizedPath, workdirName),
+      );
+    } catch (err) {
+      await showAlertRef.current(err instanceof Error ? err.message : `Failed to download ${normalizedPath}`);
+    } finally {
+      setDownloadingPath(false);
+    }
+  }, [workdirName]);
+
   useEffect(() => {
     registerImportHandler?.((options) => importTerminalDiff(options));
     return () => {
@@ -1093,6 +1140,15 @@ export function TerminalPanel({
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
+                  <DropdownMenu.Item
+                    class="terminal-panel__menu-item"
+                    disabled={!canDownloadFromWebContainer}
+                    onSelect={() => {
+                      void downloadFromWebContainer();
+                    }}
+                  >
+                    Download...
+                  </DropdownMenu.Item>
                   <DropdownMenu.Item
                     class="terminal-panel__menu-item"
                     disabled={!canResetTerminal}
