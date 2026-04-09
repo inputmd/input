@@ -1,40 +1,37 @@
+import http from 'node:http';
 import https from 'node:https';
 
+const originalHttpRequest = http.request;
 const originalHttpsRequest = https.request;
 
-export const REQUEST_HEADER_RULES = [
-  {
-    id: 'anthropic-direct-browser-access',
-    match: {
-      protocol: 'https:',
-      hostname: 'api.anthropic.com',
-      pathnamePrefix: '/',
-    },
-    headers: {
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-  },
-];
+export const DEFAULT_HOST_BRIDGE_URL = 'http://127.0.0.1:4318';
+export const REWRITE_HOSTS = ['api.anthropic.com', 'downloads.claude.ai', 'platform.claude.com'];
 
 function isPlainObject(value) {
   return Object.prototype.toString.call(value) === '[object Object]';
 }
 
-function mergeHeaders(headers, overrides) {
+function stripHostHeaders(headers) {
   if (Array.isArray(headers)) {
-    return [...headers, ...Object.entries(overrides).flatMap(([key, value]) => [key, value])];
+    const next = [];
+    for (let index = 0; index < headers.length; index += 2) {
+      const name = headers[index];
+      const value = headers[index + 1];
+      if (typeof name === 'string' && name.toLowerCase() === 'host') continue;
+      next.push(name, value);
+    }
+    return next;
   }
   if (typeof Headers !== 'undefined' && headers instanceof Headers) {
     const nextHeaders = new Headers(headers);
-    for (const [key, value] of Object.entries(overrides)) {
-      nextHeaders.set(key, value);
-    }
+    nextHeaders.delete('host');
     return nextHeaders;
   }
-  return {
-    ...(isPlainObject(headers) ? headers : {}),
-    ...overrides,
-  };
+  if (!isPlainObject(headers)) return headers;
+  const nextHeaders = { ...headers };
+  delete nextHeaders.host;
+  delete nextHeaders.Host;
+  return nextHeaders;
 }
 
 function buildRequestUrlFromOptions(options) {
@@ -73,58 +70,97 @@ export function normalizeHttpsRequestUrl(primary, secondary) {
   return buildRequestUrlFromOptions(secondary) ?? buildRequestUrlFromOptions(primary);
 }
 
-export function matchesRequestHeaderRule(url, rule) {
-  if (!(url instanceof URL)) return false;
-  if (rule.match.protocol && url.protocol !== rule.match.protocol) return false;
-  if (rule.match.hostname && url.hostname !== rule.match.hostname) return false;
-  if (rule.match.pathnamePrefix && !url.pathname.startsWith(rule.match.pathnamePrefix)) return false;
-  return true;
-}
-
-export function resolveHttpsRequestHeaderOverrides(url) {
-  const headers = {};
-  for (const rule of REQUEST_HEADER_RULES) {
-    if (!matchesRequestHeaderRule(url, rule)) continue;
-    Object.assign(headers, rule.headers);
+export function resolveHostBridgeBaseUrl(rawBaseUrl = process.env.INPUT_HOST_BRIDGE_URL) {
+  try {
+    return new URL(rawBaseUrl || DEFAULT_HOST_BRIDGE_URL);
+  } catch {
+    return new URL(DEFAULT_HOST_BRIDGE_URL);
   }
-  return Object.keys(headers).length > 0 ? headers : null;
 }
 
-export function buildPatchedHttpsRequestArgs(args) {
+export function shouldRewriteHostBridgeUrl(url) {
+  return url instanceof URL && REWRITE_HOSTS.includes(url.hostname);
+}
+
+export function buildHostBridgeProxyUrl(url, rawBaseUrl = process.env.INPUT_HOST_BRIDGE_URL) {
+  const baseUrl = resolveHostBridgeBaseUrl(rawBaseUrl);
+  const nextUrl = new URL(baseUrl.href);
+  nextUrl.pathname = `${baseUrl.pathname.replace(/\/$/, '')}/proxy/${encodeURIComponent(url.hostname)}${url.pathname}`;
+  nextUrl.search = url.search;
+  return nextUrl;
+}
+
+export function buildPatchedHttpsRequestArgs(args, rawBaseUrl = process.env.INPUT_HOST_BRIDGE_URL) {
   const nextArgs = [...args];
   const primary = nextArgs[0];
   const secondary = nextArgs[1];
   const requestUrl = normalizeHttpsRequestUrl(primary, secondary);
   if (!requestUrl) return nextArgs;
 
-  const headerOverrides = resolveHttpsRequestHeaderOverrides(requestUrl);
-  if (!headerOverrides) return nextArgs;
+  if (!shouldRewriteHostBridgeUrl(requestUrl)) return nextArgs;
+  const bridgeUrl = buildHostBridgeProxyUrl(requestUrl, rawBaseUrl);
 
   if (isPlainObject(primary)) {
     nextArgs[0] = {
       ...primary,
-      headers: mergeHeaders(primary.headers, headerOverrides),
+      headers: stripHostHeaders(primary.headers),
+      host: bridgeUrl.host,
+      hostname: bridgeUrl.hostname,
+      path: `${bridgeUrl.pathname}${bridgeUrl.search}`,
+      port: bridgeUrl.port || '80',
+      protocol: bridgeUrl.protocol,
+      servername: bridgeUrl.hostname,
     };
     return nextArgs;
   }
 
-  if (isPlainObject(secondary)) {
+  nextArgs[0] = bridgeUrl;
+  if (isPlainObject(secondary) && secondary.headers) {
     nextArgs[1] = {
       ...secondary,
-      headers: mergeHeaders(secondary.headers, headerOverrides),
+      headers: stripHostHeaders(secondary.headers),
     };
-    return nextArgs;
-  }
-
-  const injectedOptions = { headers: { ...headerOverrides } };
-  if (typeof secondary === 'function') {
-    nextArgs.splice(1, 0, injectedOptions);
-  } else {
-    nextArgs[1] = injectedOptions;
   }
   return nextArgs;
 }
 
+export function rewriteFetchInput(input, rawBaseUrl = process.env.INPUT_HOST_BRIDGE_URL) {
+  let requestUrl = null;
+  try {
+    requestUrl =
+      typeof input === 'string'
+        ? new URL(input)
+        : input instanceof URL
+          ? input
+          : input && input.url
+            ? new URL(input.url)
+            : null;
+  } catch {
+    requestUrl = null;
+  }
+  if (!requestUrl || !shouldRewriteHostBridgeUrl(requestUrl)) return null;
+  return buildHostBridgeProxyUrl(requestUrl, rawBaseUrl);
+}
+
 https.request = function (...args) {
-  return Reflect.apply(originalHttpsRequest, this, buildPatchedHttpsRequestArgs(args));
+  const patchedArgs = buildPatchedHttpsRequestArgs(args);
+  const patchedUrl = normalizeHttpsRequestUrl(patchedArgs[0], patchedArgs[1]);
+  if (patchedUrl?.protocol === 'http:') {
+    return Reflect.apply(originalHttpRequest, this, patchedArgs);
+  }
+  return Reflect.apply(originalHttpsRequest, this, patchedArgs);
 };
+
+const originalFetch = globalThis.fetch;
+if (originalFetch) {
+  globalThis.fetch = function (input, init) {
+    const bridgeUrl = rewriteFetchInput(input);
+    if (!bridgeUrl) {
+      return originalFetch.call(this, input, init);
+    }
+    if (typeof input === 'string' || input instanceof URL) {
+      return originalFetch.call(this, bridgeUrl, init);
+    }
+    return originalFetch.call(this, new Request(bridgeUrl, input), init);
+  };
+}

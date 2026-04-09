@@ -84,6 +84,15 @@ import {
 import { verifyRepoFileShareToken } from './share_tokens.ts';
 import { stripManagedSubdomain } from './subdomain.ts';
 import type { Session, UserInstallation } from './types.ts';
+import {
+  attachUpstreamProxyCookies,
+  buildUpstreamProxyRequestHeaders,
+  buildUpstreamProxyUrl,
+  copyUpstreamProxyResponseHeaders,
+  getUpstreamProxyForwardedUserAgent,
+  getUpstreamProxySessionId,
+  storeUpstreamProxyResponseCookies,
+} from './upstream_proxy.ts';
 import { writeWebContainerHomeOverlayArchiveResponse } from './webcontainer_home_overlay_archive.ts';
 
 interface RouteContext {
@@ -145,6 +154,87 @@ interface ShareRepoFileListQuery {
 
 async function handleWebContainerHomeOverlayArchive({ res }: RouteContext): Promise<void> {
   await writeWebContainerHomeOverlayArchiveResponse(res);
+}
+
+async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): Promise<void> {
+  const upstreamUrl = buildUpstreamProxyUrl(pathname, url.search);
+  const method = req.method ?? 'GET';
+  const hasBody = method !== 'GET' && method !== 'HEAD';
+  const abortController = new AbortController();
+  const onClientAborted = () => abortController.abort();
+  const onResponseClose = () => {
+    if (!res.writableEnded) {
+      abortController.abort();
+    }
+  };
+  req.on('aborted', onClientAborted);
+  res.on('close', onResponseClose);
+  const upstreamHeaders = buildUpstreamProxyRequestHeaders(req.headers);
+  const proxySessionId = getUpstreamProxySessionId(req.headers);
+  const forwardedUserAgent = getUpstreamProxyForwardedUserAgent(req.headers);
+  attachUpstreamProxyCookies(upstreamHeaders, proxySessionId, upstreamUrl.hostname, upstreamUrl.pathname);
+  if (forwardedUserAgent) {
+    upstreamHeaders.set('user-agent', forwardedUserAgent);
+  }
+
+  let upstream: Response;
+  try {
+    const fetchInit: RequestInit & { body?: unknown; duplex?: 'half' } = {
+      headers: upstreamHeaders,
+      method,
+      signal: abortController.signal,
+    };
+    if (hasBody) {
+      fetchInit.body = Readable.toWeb(req);
+      fetchInit.duplex = 'half';
+    }
+    upstream = await fetch(upstreamUrl, fetchInit as RequestInit);
+  } catch (err) {
+    req.off('aborted', onClientAborted);
+    res.off('close', onResponseClose);
+    if (abortController.signal.aborted) {
+      if (!res.writableEnded) res.end();
+      return;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    throw new ClientError(`Upstream fetch failed: ${message}`, 502);
+  }
+  storeUpstreamProxyResponseCookies(proxySessionId, upstreamUrl.hostname, upstream.headers);
+
+  res.statusCode = upstream.status;
+  copyUpstreamProxyResponseHeaders(upstream, res);
+
+  if (!upstream.body) {
+    req.off('aborted', onClientAborted);
+    res.off('close', onResponseClose);
+    res.end();
+    return;
+  }
+
+  const reader = upstream.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || res.writableEnded) break;
+      const canContinue = res.write(value);
+      if (!canContinue) {
+        await new Promise<void>((resolve) => res.once('drain', () => resolve()));
+      }
+    }
+  } catch (err) {
+    if (!abortController.signal.aborted) {
+      console.error('[upstream-proxy] stream error:', err);
+    }
+  } finally {
+    req.off('aborted', onClientAborted);
+    res.off('close', onResponseClose);
+    try {
+      reader.releaseLock();
+    } catch {
+      // ignore
+    }
+    if (!res.writableEnded) res.end();
+  }
 }
 
 interface EditorShareRepoFileUpdateBody extends Record<string, unknown> {
@@ -3494,6 +3584,12 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: PUBLIC_REPO_TARBALL_PATTERN, handler: handlePublicRepoTarball },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
   { method: 'GET', pattern: /^\/api\/webcontainer-home-overlay\.tar$/, handler: handleWebContainerHomeOverlayArchive },
+  { method: 'GET', pattern: /^\/api\/upstream-proxy\/.+$/, handler: handleUpstreamProxy },
+  { method: 'HEAD', pattern: /^\/api\/upstream-proxy\/.+$/, handler: handleUpstreamProxy },
+  { method: 'POST', pattern: /^\/api\/upstream-proxy\/.+$/, handler: handleUpstreamProxy },
+  { method: 'PUT', pattern: /^\/api\/upstream-proxy\/.+$/, handler: handleUpstreamProxy },
+  { method: 'PATCH', pattern: /^\/api\/upstream-proxy\/.+$/, handler: handleUpstreamProxy },
+  { method: 'DELETE', pattern: /^\/api\/upstream-proxy\/.+$/, handler: handleUpstreamProxy },
   { method: 'GET', pattern: /^\/api\/ai\/models$/, handler: handleReaderAiModels },
   { method: 'POST', pattern: /^\/api\/ai\/apply$/, handler: handleReaderAiApply },
   { method: 'POST', pattern: /^\/api\/ai\/chat$/, handler: handleReaderAiChat },

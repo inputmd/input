@@ -14,93 +14,77 @@ async function loadCorsOverlayModule() {
   };
 }
 
-test('cors overlay extracts header rules into declarative URL match config', async (t) => {
+test('cors overlay exposes the upstream hosts rewritten through the local bridge', async (t) => {
   const { module, restore } = await loadCorsOverlayModule();
   t.teardown(restore);
 
-  t.deepEqual(module.REQUEST_HEADER_RULES, [
-    {
-      id: 'anthropic-direct-browser-access',
-      match: {
-        protocol: 'https:',
-        hostname: 'api.anthropic.com',
-        pathnamePrefix: '/',
-      },
-      headers: {
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-    },
-  ]);
+  t.deepEqual(module.REWRITE_HOSTS, ['api.anthropic.com', 'downloads.claude.ai', 'platform.claude.com']);
 });
 
-test('cors overlay injects headers for https.request(url, callback)', async (t) => {
+test('cors overlay builds the local host bridge URL for matching upstream requests', async (t) => {
+  const { module, restore } = await loadCorsOverlayModule();
+  t.teardown(restore);
+
+  const nextUrl = module.buildHostBridgeProxyUrl(
+    new URL('https://api.anthropic.com/v1/messages?beta=true'),
+    'http://127.0.0.1:4318',
+  );
+
+  t.is(nextUrl.toString(), 'http://127.0.0.1:4318/proxy/api.anthropic.com/v1/messages?beta=true');
+});
+
+test('cors overlay rewrites https.request(url, callback) to the local bridge URL', async (t) => {
   const { module, restore } = await loadCorsOverlayModule();
   t.teardown(restore);
 
   const callback = () => {};
-  const patchedArgs = module.buildPatchedHttpsRequestArgs(['https://api.anthropic.com/v1/messages', callback]);
+  const patchedArgs = module.buildPatchedHttpsRequestArgs(
+    ['https://api.anthropic.com/v1/messages', callback],
+    'http://127.0.0.1:4318',
+  );
 
-  t.is(patchedArgs[0], 'https://api.anthropic.com/v1/messages');
-  t.deepEqual(patchedArgs[1], {
-    headers: {
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-  });
-  t.is(patchedArgs[2], callback);
+  t.true(patchedArgs[0] instanceof URL);
+  t.is(String(patchedArgs[0]), 'http://127.0.0.1:4318/proxy/api.anthropic.com/v1/messages');
+  t.is(patchedArgs[1], callback);
 });
 
-test('cors overlay injects headers for https.request(url, options) without mutating input options', async (t) => {
+test('cors overlay rewrites https.request(options) without mutating input options', async (t) => {
   const { module, restore } = await loadCorsOverlayModule();
   t.teardown(restore);
 
   const options = {
     headers: {
       authorization: 'Bearer test',
-    },
-    method: 'POST',
-  };
-  const patchedArgs = module.buildPatchedHttpsRequestArgs(['https://api.anthropic.com/v1/messages', options]);
-
-  t.deepEqual(options, {
-    headers: {
-      authorization: 'Bearer test',
-    },
-    method: 'POST',
-  });
-  t.deepEqual(patchedArgs[1], {
-    headers: {
-      authorization: 'Bearer test',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    method: 'POST',
-  });
-  t.not(patchedArgs[1], options);
-});
-
-test('cors overlay injects headers for https.request(options) by hostname and pathname', async (t) => {
-  const { module, restore } = await loadCorsOverlayModule();
-  t.teardown(restore);
-
-  const options = {
-    headers: {
-      authorization: 'Bearer test',
+      host: 'api.anthropic.com',
     },
     hostname: 'api.anthropic.com',
     method: 'POST',
     path: '/v1/messages',
   };
-  const patchedArgs = module.buildPatchedHttpsRequestArgs([options]);
+  const patchedArgs = module.buildPatchedHttpsRequestArgs([options], 'http://127.0.0.1:4318');
 
   t.deepEqual(patchedArgs[0], {
     headers: {
       authorization: 'Bearer test',
-      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    host: '127.0.0.1:4318',
+    hostname: '127.0.0.1',
+    method: 'POST',
+    path: '/proxy/api.anthropic.com/v1/messages',
+    port: '4318',
+    protocol: 'http:',
+    servername: '127.0.0.1',
+  });
+  t.not(patchedArgs[0], options);
+  t.deepEqual(options, {
+    headers: {
+      authorization: 'Bearer test',
+      host: 'api.anthropic.com',
     },
     hostname: 'api.anthropic.com',
     method: 'POST',
     path: '/v1/messages',
   });
-  t.not(patchedArgs[0], options);
 });
 
 test('cors overlay leaves unrelated requests unchanged', async (t) => {
@@ -111,5 +95,20 @@ test('cors overlay leaves unrelated requests unchanged', async (t) => {
   const patchedArgs = module.buildPatchedHttpsRequestArgs([options]);
 
   t.is(patchedArgs[0], options);
-  t.is(module.resolveHttpsRequestHeaderOverrides(new URL('https://example.com/v1/messages')), null);
+  t.false(module.shouldRewriteHostBridgeUrl(new URL('https://example.com/v1/messages')));
+});
+
+test('cors overlay rewrites downloads host requests through the local bridge URL', async (t) => {
+  const { module, restore } = await loadCorsOverlayModule();
+  t.teardown(restore);
+
+  const nextUrl = module.rewriteFetchInput(
+    'https://downloads.claude.ai/claude-code-releases/plugins/claude-plugins-official/latest',
+    'http://127.0.0.1:4318',
+  );
+
+  t.is(
+    nextUrl?.toString(),
+    'http://127.0.0.1:4318/proxy/downloads.claude.ai/claude-code-releases/plugins/claude-plugins-official/latest',
+  );
 });

@@ -24,6 +24,7 @@ import {
   buildWebContainerHomeOverlayProvisionScript,
   WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL,
 } from '../webcontainer_home_overlay.ts';
+import { startWebContainerHostBridge, type WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
 import { useDialogs } from './DialogProvider';
 
 // Ctrl-C doesn't actually interrupt processes inside WebContainer (upstream
@@ -422,6 +423,7 @@ export function TerminalPanel({
   const terminalRef = useRef<GhosttyTerminal | null>(null);
   const shellRef = useRef<SpawnedShell | null>(null);
   const shellWriterRef = useRef<WritableStreamDefaultWriter<string> | null>(null);
+  const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
   const shellSessionIdRef = useRef(0);
   const historySyncRef = useRef<SpawnedShell | null>(null);
   const historySyncProcessIdRef = useRef(0);
@@ -506,6 +508,12 @@ export function TerminalPanel({
         // ignore
       }
     }
+  }, []);
+
+  const releaseHostBridgeSession = useCallback(() => {
+    const hostBridge = hostBridgeRef.current;
+    hostBridgeRef.current = null;
+    hostBridge?.stop();
   }, []);
 
   const flushPersistedTerminalHistory = useCallback(() => {
@@ -717,7 +725,9 @@ export function TerminalPanel({
         terminal.reset();
       }
 
-      const spawnedShell = await wc.spawn('jsh', []);
+      const spawnedShell = await wc.spawn('jsh', [], {
+        env: hostBridgeRef.current?.env,
+      });
       if (unmountedRef.current || shellSessionIdRef.current !== sessionId) {
         try {
           spawnedShell.kill();
@@ -785,6 +795,7 @@ export function TerminalPanel({
       webContainerSessionIdRef.current = sessionId;
       restartInFlightRef.current = null;
       releaseHistorySyncSession();
+      releaseHostBridgeSession();
       shellSessionIdRef.current += 1;
       setFsReady(false);
       setShellReady(false);
@@ -867,6 +878,25 @@ export function TerminalPanel({
         );
       }
 
+      try {
+        hostBridgeRef.current = await startWebContainerHostBridge({
+          onLog(message) {
+            console.error(message);
+            try {
+              terminal.write(`${message}\r\n`);
+            } catch {
+              // ignore
+            }
+          },
+          wc,
+        });
+      } catch (err) {
+        console.error('[terminal] failed to start host bridge', err);
+        terminal.write(
+          `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
+        );
+      }
+
       terminal.write('Spawning jsh...\r\n');
       await spawnShellSession({ announceReady: true });
       if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
@@ -894,6 +924,7 @@ export function TerminalPanel({
       apiKey,
       captureTerminalHistory,
       importTerminalDiff,
+      releaseHostBridgeSession,
       releaseHistorySyncSession,
       releaseShellSession,
       spawnShellSession,
@@ -1112,6 +1143,7 @@ export function TerminalPanel({
         if (terminalRef.current === term) terminalRef.current = null;
         if (disposeRef.current === cleanup) disposeRef.current = null;
         wcRef.current = null;
+        releaseHostBridgeSession();
         releaseShellSession();
         term?.dispose();
         term = null;
@@ -1268,6 +1300,7 @@ export function TerminalPanel({
     flushPersistedTerminalHistory,
     initializeWebContainerSession,
     releaseHistorySyncSession,
+    releaseHostBridgeSession,
     releaseShellSession,
   ]);
 
@@ -1371,6 +1404,7 @@ export function TerminalPanel({
       disposeRef.current?.();
       disposeRef.current = null;
       terminalRef.current = null;
+      releaseHostBridgeSession();
       releaseShellSession();
       startedRef.current = false;
       wcRef.current = null;
@@ -1385,6 +1419,7 @@ export function TerminalPanel({
     flushPersistedTerminalHistory,
     importTerminalDiff,
     releaseHistorySyncSession,
+    releaseHostBridgeSession,
     releaseShellSession,
   ]);
 
