@@ -14,6 +14,12 @@ import {
 } from '../repo_workspace/terminal_sync.ts';
 import { buildWebContainerHomeOverlayBootstrapScript } from '../webcontainer_home_overlay.ts';
 import { WEBCONTAINER_HOME_OVERLAY_FILES } from '../webcontainer_home_overlay_manifest.ts';
+import { useDialogs } from './DialogProvider';
+
+// Ctrl-C doesn't actually interrupt processes inside WebContainer (upstream
+// bug). As a workaround, pressing Ctrl-C twice within this window prompts the
+// user to reset the terminal session instead.
+const CTRL_C_RESET_WINDOW_MS = 1000;
 
 export interface TerminalLiveFile {
   path: string;
@@ -334,6 +340,15 @@ export function TerminalPanel({
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
   const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
+  const { showConfirm } = useDialogs();
+  const showConfirmRef = useRef(showConfirm);
+  showConfirmRef.current = showConfirm;
+  // Timestamp of the last Ctrl-C keystroke, used to detect a double-press.
+  const lastCtrlCAtRef = useRef<number>(0);
+  // True while the reset-session confirm dialog is open, to suppress further
+  // Ctrl-C handling until the user responds.
+  const ctrlCConfirmOpenRef = useRef(false);
+  const restartShellRef = useRef<(() => Promise<void>) | null>(null);
   const canResetTerminal =
     !error && fsReady && !resettingShell && !restartingWebContainer && (shellReady || shellSessionIdRef.current > 0);
   const canRestartWebContainer =
@@ -668,6 +683,7 @@ export function TerminalPanel({
       }
     }
   }, [spawnShellSession]);
+  restartShellRef.current = restartShell;
 
   const restartWebContainer = useCallback(async (): Promise<void> => {
     if (restartWebContainerInFlightRef.current) {
@@ -894,6 +910,41 @@ export function TerminalPanel({
         }
 
         onDataDispose = terminal.onData((data) => {
+          // Intercept Ctrl-C. WebContainer's shell doesn't actually deliver
+          // SIGINT to running processes, so pressing Ctrl-C twice in quick
+          // succession prompts the user to reset the session instead.
+          if (data === '\x03') {
+            if (ctrlCConfirmOpenRef.current) return;
+            const now = Date.now();
+            const previous = lastCtrlCAtRef.current;
+            if (previous && now - previous <= CTRL_C_RESET_WINDOW_MS) {
+              lastCtrlCAtRef.current = 0;
+              ctrlCConfirmOpenRef.current = true;
+              void (async () => {
+                try {
+                  const confirmed = await showConfirmRef.current(
+                    'Ctrl-C does not interrupt running processes in this terminal. Reset the terminal session instead?',
+                    {
+                      intent: 'danger',
+                      title: 'Reset terminal session?',
+                      confirmLabel: 'Reset',
+                      cancelLabel: 'Cancel',
+                      defaultFocus: 'action',
+                    },
+                  );
+                  if (confirmed) {
+                    await restartShellRef.current?.();
+                  }
+                } finally {
+                  ctrlCConfirmOpenRef.current = false;
+                }
+              })();
+              return;
+            }
+            lastCtrlCAtRef.current = now;
+          } else {
+            lastCtrlCAtRef.current = 0;
+          }
           const shellWriter = shellWriterRef.current;
           if (!shellWriter) return;
           shellWriter.write(data).catch((err) => {
