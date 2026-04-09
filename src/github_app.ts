@@ -298,6 +298,20 @@ export interface RepoBatchCreateFile {
   content: string;
 }
 
+export interface RepoBatchUpdateFile {
+  path: string;
+  content: string;
+  expectedSha?: string;
+}
+
+export interface RepoBatchMutation {
+  message: string;
+  renames?: RepoBatchRename[];
+  deletes?: string[];
+  creates?: RepoBatchCreateFile[];
+  updates?: RepoBatchUpdateFile[];
+}
+
 export interface SharedRepoFile {
   owner: string;
   repo: string;
@@ -694,12 +708,7 @@ export async function renameRepoPathsAtomic(
 async function runRepoGitBatchMutation(
   installationId: string,
   repoFullName: string,
-  body: {
-    message: string;
-    renames?: RepoBatchRename[];
-    deletes?: string[];
-    creates?: RepoBatchCreateFile[];
-  },
+  body: RepoBatchMutation,
 ): Promise<void> {
   const { owner, repo } = splitFullName(repoFullName);
   const url = `${installationUrl(installationId, 'repos', owner, repo)}/git-batch`;
@@ -723,6 +732,14 @@ async function runRepoGitBatchMutation(
   clearRepoContentsCacheForRepo(installationId, repoFullName);
 }
 
+export async function applyRepoBatchMutationAtomic(
+  installationId: string,
+  repoFullName: string,
+  body: RepoBatchMutation,
+): Promise<void> {
+  await runRepoGitBatchMutation(installationId, repoFullName, body);
+}
+
 export async function deleteRepoPathsAtomic(
   installationId: string,
   repoFullName: string,
@@ -739,6 +756,15 @@ export async function createRepoFilesAtomic(
   message: string,
 ): Promise<void> {
   await runRepoGitBatchMutation(installationId, repoFullName, { creates: files, message });
+}
+
+export async function updateRepoFilesAtomic(
+  installationId: string,
+  repoFullName: string,
+  files: RepoBatchUpdateFile[],
+  message: string,
+): Promise<void> {
+  await runRepoGitBatchMutation(installationId, repoFullName, { updates: files, message });
 }
 
 export async function createRepoFileShareLink(

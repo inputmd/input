@@ -40,6 +40,7 @@ import {
   updateGistDescription,
 } from './github';
 import {
+  applyRepoBatchMutationAtomic,
   clearGitHubAppCaches,
   clearInstallationId,
   clearPendingInstallationId,
@@ -157,6 +158,7 @@ import { buildReaderAiSelectedChange } from './reader_ai_selectors';
 import type { ReaderAiTranscriptItem } from './reader_ai_transcript';
 import {
   buildRepoWorkspaceIdentity,
+  buildRepoWorkspaceTextSavePlan,
   useRepoEditorBinding,
   useRepoSidebarBinding,
   useRepoTerminalBinding,
@@ -854,6 +856,7 @@ export function App() {
   const editViewControllerRef = useRef<EditorController | null>(null);
   const currentRepoDocPathRef = useRef<string | null>(currentRepoDocPath);
   const currentFileNameRef = useRef<string | null>(currentFileName);
+  const previousActiveRepoOverlayPathRef = useRef<string | null>(null);
   const prevRouteNameRef = useRef(route.name);
   const sidePaneSkipPersistRef = useRef(false);
   const pendingGistDraftDirtyRef = useRef(false);
@@ -981,21 +984,34 @@ export function App() {
     sidebarFileFilter,
   });
   const {
+    findBaseRepoSidebarFile,
     findRepoSidebarFile,
     getRepoMarkdownPaths,
     getRepoSidebarPaths,
+    hasOverlayChanges,
     hasRepoSidebarPath,
     listRepoSidebarFilesInFolder,
+    overlayFiles,
     sidebarWorkspaceKey,
     sidebarFiles,
+    terminalBaseFiles,
+    terminalBaseSnapshotKey,
     terminalSnapshotVersion,
     resetRepoState,
     replaceRepoSnapshot,
     replaceRepoMarkdownFiles,
+    replaceTerminalBaseSnapshot,
+    setRepoFileContent,
+    removeRepoFileContent,
+    removeRepoFileContents,
+    stageRepoOverlayFile,
+    clearRepoOverlayFile,
+    clearAllRepoOverlayFiles,
     setSharedRepoFile,
     upsertRepoFile,
     updateRepoFile,
     applyRepoRenames,
+    applyRepoContentRenames,
   } = repoWorkspace;
   const resetInstalledRepoSelectionState = useCallback(() => {
     clearSelectedRepo();
@@ -1478,6 +1494,36 @@ export function App() {
     hasRestorableDocumentDraft,
     hasUnsavedChanges,
     isScratchDocument,
+  ]);
+
+  const activeInstalledRepoOverlayPath =
+    repoAccessMode === 'installed' && activeView === 'edit' && editingBackend === 'repo' ? currentRepoDocPath : null;
+
+  useEffect(() => {
+    if (repoAccessMode === 'installed') return;
+    previousActiveRepoOverlayPathRef.current = null;
+    clearAllRepoOverlayFiles();
+  }, [clearAllRepoOverlayFiles, repoAccessMode]);
+
+  useEffect(() => {
+    const previousPath = previousActiveRepoOverlayPathRef.current;
+    if (previousPath && previousPath !== activeInstalledRepoOverlayPath) {
+      clearRepoOverlayFile(previousPath);
+    }
+    previousActiveRepoOverlayPathRef.current = activeInstalledRepoOverlayPath;
+
+    if (!activeInstalledRepoOverlayPath || currentDocumentSavedContent === null) return;
+    if (editContent === currentDocumentSavedContent) {
+      clearRepoOverlayFile(activeInstalledRepoOverlayPath);
+      return;
+    }
+    stageRepoOverlayFile(activeInstalledRepoOverlayPath, editContent, 'editor');
+  }, [
+    activeInstalledRepoOverlayPath,
+    clearRepoOverlayFile,
+    currentDocumentSavedContent,
+    editContent,
+    stageRepoOverlayFile,
   ]);
 
   useEffect(() => {
@@ -2293,12 +2339,15 @@ export function App() {
     [loadPublicRepoAllFiles, replaceRepoSnapshot],
   );
 
-  const refreshRepoTreeAfterWrite = useCallback(async (): Promise<RepoDocFile[] | null> => {
-    if (repoAccessMode !== 'installed' || !activeInstalledRepoInstallationId || !selectedRepo) return null;
-    const files = await loadRepoAllFiles(activeInstalledRepoInstallationId, selectedRepo);
-    replaceRepoSnapshot(files);
-    return files;
-  }, [repoAccessMode, activeInstalledRepoInstallationId, selectedRepo, loadRepoAllFiles, replaceRepoSnapshot]);
+  const refreshRepoTreeAfterWrite = useCallback(
+    async (options?: { invalidateTerminal?: boolean }): Promise<RepoDocFile[] | null> => {
+      if (repoAccessMode !== 'installed' || !activeInstalledRepoInstallationId || !selectedRepo) return null;
+      const files = await loadRepoAllFiles(activeInstalledRepoInstallationId, selectedRepo);
+      replaceRepoSnapshot(files, options);
+      return files;
+    },
+    [repoAccessMode, activeInstalledRepoInstallationId, selectedRepo, loadRepoAllFiles, replaceRepoSnapshot],
+  );
 
   const onSelectRepo = useCallback(
     (fullName: string, id: number, isPrivate: boolean) => {
@@ -5006,6 +5055,7 @@ export function App() {
           const contentSize = new TextEncoder().encode(content).length;
           setCurrentRepoDocSha(result.content.sha);
           updateRepoFile(currentRepoDocPath, { sha: result.content.sha, size: contentSize });
+          setRepoFileContent(currentRepoDocPath, content);
           setCurrentDocumentSavedContent(content);
           if (currentDocumentDraftKey) {
             removeDocumentDraft(currentDocumentDraftKey);
@@ -5046,25 +5096,37 @@ export function App() {
             };
           }
         } else if (editingBackend === 'repo' && currentRepoDocPath && instId && repoName) {
-          const contentB64 = encodeUtf8ToBase64(content);
-          const result = await putRepoFile(
-            instId,
-            repoName,
-            currentRepoDocPath,
-            `Update ${currentRepoDocPath}`,
-            contentB64,
-            currentRepoDocSha ?? undefined,
-          );
-          const contentSize = new TextEncoder().encode(content).length;
-          setCurrentRepoDocSha(result.content.sha);
-          updateRepoFile(currentRepoDocPath, { sha: result.content.sha, size: contentSize });
+          const workspaceSavePlan = buildRepoWorkspaceTextSavePlan({
+            overlayFiles,
+            currentPath: currentRepoDocPath,
+            targetPath: currentRepoDocPath,
+            currentContent: content,
+            currentSavedContent: currentDocumentSavedContent,
+            findBaseRepoSidebarFile,
+          });
+          if (workspaceSavePlan.changeCount > 0) {
+            await applyRepoBatchMutationAtomic(instId, repoName, workspaceSavePlan.mutation);
+          }
+          for (const file of workspaceSavePlan.touchedFiles) {
+            setRepoFileContent(file.path, file.content);
+          }
+          clearAllRepoOverlayFiles();
+          const refreshedFiles = await refreshRepoTreeAfterWrite({ invalidateTerminal: false });
+          const refreshedCurrentFile =
+            refreshedFiles?.find((file) => file.path === currentRepoDocPath) ??
+            findBaseRepoSidebarFile(currentRepoDocPath);
+          if (refreshedCurrentFile?.sha) {
+            setCurrentRepoDocSha(refreshedCurrentFile.sha);
+          }
           setCurrentDocumentSavedContent(content);
           if (currentDocumentDraftKey) {
             removeDocumentDraft(currentDocumentDraftKey);
             setCurrentDocumentDraft(null);
           }
 
-          const knownMarkdownPaths = getRepoMarkdownPaths();
+          const knownMarkdownPaths =
+            refreshedFiles?.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path) ??
+            getRepoMarkdownPaths();
           renderDocumentContent(content, currentRepoDocPath.split('/').pop() ?? null, currentRepoDocPath, undefined, {
             currentDocPath: currentRepoDocPath,
             knownMarkdownPaths: knownMarkdownPaths.includes(currentRepoDocPath)
@@ -5073,15 +5135,17 @@ export function App() {
           });
           if (currentRepoRef) {
             const routeKey = routeKeyForRepo(currentRepoRef.owner, currentRepoRef.repo, currentRepoDocPath);
-            updatePostSaveVerification({
-              routeKey,
-              status: 'verifying',
-              kind: 'repo',
-              installationId: instId,
-              repoFullName: repoName,
-              path: currentRepoDocPath,
-              expectedSha: result.content.sha,
-            });
+            if (refreshedCurrentFile?.sha) {
+              updatePostSaveVerification({
+                routeKey,
+                status: 'verifying',
+                kind: 'repo',
+                installationId: instId,
+                repoFullName: repoName,
+                path: currentRepoDocPath,
+                expectedSha: refreshedCurrentFile.sha,
+              });
+            }
             commitResult = {
               kind: 'repo',
               created: false,
@@ -5106,26 +5170,42 @@ export function App() {
           const path = scratchFilename
             ? resolveRepoNewFilePath(route, scratchFilename, { literal: true })
             : resolveRepoNewFilePath(route, title);
-          const contentB64 = encodeUtf8ToBase64(content);
-          const result = await putRepoFile(instId, repoName, path, `Create ${fileNameFromPath(path)}`, contentB64);
-          const createdFile: RepoDocFile = {
-            name: fileNameFromPath(result.content.path),
-            path: result.content.path,
-            sha: result.content.sha,
-            size: new TextEncoder().encode(content).length,
-          };
-          upsertRepoFile(createdFile);
+          const workspaceSavePlan = buildRepoWorkspaceTextSavePlan({
+            overlayFiles,
+            currentPath: null,
+            targetPath: path,
+            currentContent: content,
+            currentSavedContent: null,
+            findBaseRepoSidebarFile,
+          });
+          if (workspaceSavePlan.changeCount > 0) {
+            await applyRepoBatchMutationAtomic(instId, repoName, workspaceSavePlan.mutation);
+          }
+          for (const file of workspaceSavePlan.touchedFiles) {
+            setRepoFileContent(file.path, file.content);
+          }
+          clearAllRepoOverlayFiles();
+          const refreshedFiles = await refreshRepoTreeAfterWrite({ invalidateTerminal: false });
+          const createdFile = refreshedFiles?.find((file) => file.path === path) ??
+            findBaseRepoSidebarFile(path) ?? {
+              name: fileNameFromPath(path),
+              path,
+              sha: '',
+              size: new TextEncoder().encode(content).length,
+            };
           if (draftPath) {
             localStorage.removeItem(repoNewDraftKey(instId, repoName, draftPath, 'title'));
             localStorage.removeItem(repoNewDraftKey(instId, repoName, draftPath, 'content'));
           }
-          setCurrentRepoDocPath(result.content.path);
-          setCurrentRepoDocSha(result.content.sha);
-          setCurrentFileName(result.content.path);
+          setCurrentRepoDocPath(createdFile.path);
+          setCurrentRepoDocSha(createdFile.sha || null);
+          setCurrentFileName(createdFile.path);
           setCurrentDocumentSavedContent(content);
 
-          const knownMarkdownPaths = getRepoMarkdownPaths();
-          const createdPath = result.content.path;
+          const knownMarkdownPaths =
+            refreshedFiles?.filter((file) => isMarkdownFileName(file.path)).map((file) => file.path) ??
+            getRepoMarkdownPaths();
+          const createdPath = createdFile.path;
           renderDocumentContent(content, fileNameFromPath(createdPath), createdPath, undefined, {
             currentDocPath: createdPath,
             knownMarkdownPaths: knownMarkdownPaths.includes(createdPath)
@@ -5134,15 +5214,17 @@ export function App() {
           });
           if (selectedRepoRef) {
             const routeKey = routeKeyForRepo(selectedRepoRef.owner, selectedRepoRef.repo, createdPath);
-            updatePostSaveVerification({
-              routeKey,
-              status: 'verifying',
-              kind: 'repo',
-              installationId: instId,
-              repoFullName: repoName,
-              path: createdPath,
-              expectedSha: result.content.sha,
-            });
+            if (createdFile.sha) {
+              updatePostSaveVerification({
+                routeKey,
+                status: 'verifying',
+                kind: 'repo',
+                installationId: instId,
+                repoFullName: repoName,
+                path: createdPath,
+                expectedSha: createdFile.sha,
+              });
+            }
             commitResult = {
               kind: 'repo',
               created: true,
@@ -5242,6 +5324,7 @@ export function App() {
     },
     [
       currentDocumentDraftKey,
+      currentDocumentSavedContent,
       currentFileName,
       currentGistId,
       currentRepoDocPath,
@@ -5257,8 +5340,12 @@ export function App() {
       repoAccessMode,
       route,
       activeScratchFile,
+      clearAllRepoOverlayFiles,
+      findBaseRepoSidebarFile,
       getRepoMarkdownPaths,
       getRepoSidebarPaths,
+      overlayFiles,
+      refreshRepoTreeAfterWrite,
       requestScratchFileName,
       selectedRepoRef,
       showAlert,
@@ -5276,8 +5363,8 @@ export function App() {
       activeInstalledRepoInstallationId,
       browserLocales,
       selectedRepo,
+      setRepoFileContent,
       updateRepoFile,
-      upsertRepoFile,
     ],
   );
 
@@ -5714,6 +5801,7 @@ export function App() {
             size: 0,
           };
           upsertRepoFile(createdFile);
+          setRepoFileContent(createdFile.path, '');
           setHasUnsavedChanges(false);
           if (selectedRepoRef) {
             if (isEditableTextFilePath(result.content.path)) {
@@ -5737,6 +5825,7 @@ export function App() {
       showAlert,
       showRateLimitToastIfNeeded,
       selectedRepoRef,
+      setRepoFileContent,
       setHasUnsavedChanges,
       upsertRepoFile,
     ],
@@ -6061,6 +6150,7 @@ export function App() {
             size: 0,
           };
           upsertRepoFile(createdSeedFile);
+          setRepoFileContent(createdSeedFile.path, '');
           setHasUnsavedChanges(false);
         }
         setSidebarFileFilter('all');
@@ -6077,6 +6167,7 @@ export function App() {
       activeInstalledRepoInstallationId,
       selectedRepo,
       navigateToSidebarFile,
+      setRepoFileContent,
       setHasUnsavedChanges,
       upsertRepoFile,
     ],
@@ -6128,6 +6219,7 @@ export function App() {
           size: file.size,
         };
         upsertRepoFile(createdFile);
+        setRepoFileContent(createdFile.path, new TextDecoder().decode(bytes));
         showSuccessToast('File uploaded');
       } catch (err) {
         showRateLimitToastIfNeeded(err);
@@ -6147,6 +6239,7 @@ export function App() {
       showSuccessToast,
       showAlert,
       showRateLimitToastIfNeeded,
+      setRepoFileContent,
       upsertRepoFile,
     ],
   );
@@ -6304,7 +6397,8 @@ export function App() {
           const repoFile = findRepoSidebarFile(filePath);
           if (!repoFile) return;
           await store.deleteFile(repoFile);
-          await refreshRepoTreeAfterWrite();
+          removeRepoFileContent(repoFile.path);
+          await refreshRepoTreeAfterWrite({ invalidateTerminal: false });
           const deletedCurrent = currentRepoDocPath === repoFile.path;
           if (deletedCurrent) {
             if (selectedRepoRef) {
@@ -6336,6 +6430,7 @@ export function App() {
       currentGistId,
       selectedRepoRef,
       openInstalledRepo,
+      removeRepoFileContent,
       refreshRepoTreeAfterWrite,
     ],
   );
@@ -6392,7 +6487,8 @@ export function App() {
             `Delete folder "${folderPath}"`,
           );
           completedCount = repoTargets.length;
-          const remainingSidebar = (await refreshRepoTreeAfterWrite()) ?? [];
+          removeRepoFileContents(repoTargets.map((file) => file.path));
+          const remainingSidebar = (await refreshRepoTreeAfterWrite({ invalidateTerminal: false })) ?? [];
           const deletedCurrent = currentRepoDocPath
             ? !remainingSidebar.some((file) => file.path === currentRepoDocPath)
             : false;
@@ -6447,6 +6543,7 @@ export function App() {
       selectedRepo,
       selectedRepoRef,
       openInstalledRepo,
+      removeRepoFileContents,
       refreshRepoTreeAfterWrite,
     ],
   );
@@ -6475,6 +6572,7 @@ export function App() {
             `Rename ${oldPath} to ${newPath}`,
           );
           applyRepoRenames(renames);
+          applyRepoContentRenames(renames);
           if (currentRepoDocPathRef.current === oldPath) {
             if (selectedRepoRef) {
               navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, newPath));
@@ -6508,6 +6606,7 @@ export function App() {
       selectedRepoRef,
       activeInstalledRepoInstallationId,
       selectedRepo,
+      applyRepoContentRenames,
       applyRepoRenames,
     ],
   );
@@ -6600,6 +6699,7 @@ export function App() {
           );
           completedCount = paths.length;
           applyRepoRenames(renames);
+          applyRepoContentRenames(renames);
           if (currentRepoDocPathRef.current && isPathInFolder(currentRepoDocPathRef.current, oldPath)) {
             if (selectedRepoRef) {
               navigate(
@@ -6650,6 +6750,7 @@ export function App() {
       activeInstalledRepoInstallationId,
       selectedRepo,
       selectedRepoRef,
+      applyRepoContentRenames,
       applyRepoRenames,
     ],
   );
@@ -7615,7 +7716,10 @@ export function App() {
   const editPreviewEnabled = isScratchDocument || isMarkdownFileName(currentFileName ?? editTitle);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
   const canSaveCurrentEdit =
-    hasUnsavedChanges && !readerAiSaveLocked && !repoEditLoading && pendingImageUploadCount === 0;
+    (hasUnsavedChanges || (repoAccessMode === 'installed' && hasOverlayChanges)) &&
+    !readerAiSaveLocked &&
+    !repoEditLoading &&
+    pendingImageUploadCount === 0;
   const showEditorCancel = activeView === 'edit' && !draftMode && repoAccessMode !== 'public';
   const showEditorSave = activeView === 'edit' && !(draftMode && !user) && repoAccessMode !== 'public';
   const editPreviewWikiLinkResolver = useMemo(() => {
@@ -7786,6 +7890,10 @@ export function App() {
     selectedRepo,
     activeInstalledRepoInstallationId,
     publicRepoRef,
+    terminalBaseFiles,
+    terminalBaseSnapshotKey,
+    overlayFiles,
+    replaceTerminalBaseSnapshot,
     editing: activeView === 'edit',
     activeEditPath: currentGistId ? currentFileName : currentRepoDocPath,
     editContent,

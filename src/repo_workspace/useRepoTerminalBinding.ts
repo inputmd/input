@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo } from 'preact/hooks';
 import type { GistFile } from '../github';
-import { getPublicRepoTarball, getRepoTarball, type RepoFileEntry } from '../github_app';
+import { getPublicRepoTarball, getRepoTarball } from '../github_app';
 import type { PublicRepoRef } from '../wiki_links';
-import type { RepoAccessMode, RepoTerminalBinding } from './types';
+import { buildGistTerminalBaseFiles } from './helpers';
+import type { RepoAccessMode, RepoTerminalBinding, RepoWorkspaceOverlayFile } from './types';
 
 interface UseRepoTerminalBindingArgs {
   workspaceKey: string;
@@ -17,6 +18,10 @@ interface UseRepoTerminalBindingArgs {
   selectedRepo: string | null;
   activeInstalledRepoInstallationId: string | null;
   publicRepoRef: PublicRepoRef | null;
+  terminalBaseFiles: Record<string, string>;
+  terminalBaseSnapshotKey: string | null;
+  overlayFiles: RepoWorkspaceOverlayFile[];
+  replaceTerminalBaseSnapshot: (snapshotKey: string, files: Record<string, string>) => void;
   editing: boolean;
   activeEditPath: string | null;
   editContent: string;
@@ -35,35 +40,42 @@ export function useRepoTerminalBinding({
   selectedRepo,
   activeInstalledRepoInstallationId,
   publicRepoRef,
+  terminalBaseFiles,
+  terminalBaseSnapshotKey,
+  overlayFiles,
+  replaceTerminalBaseSnapshot,
   editing,
   activeEditPath,
   editContent,
 }: UseRepoTerminalBindingArgs): RepoTerminalBinding {
-  const [terminalRepoFiles, setTerminalRepoFiles] = useState<{
-    key: string;
-    files: RepoFileEntry[];
-  } | null>(null);
   const cacheKey = `${workspaceKey}:${snapshotVersion}`;
 
   useEffect(() => {
-    if (!enabled) {
-      setTerminalRepoFiles((current) => (current === null ? current : null));
-      return;
-    }
+    if (!enabled) return;
     if (!mounted) return;
     if (currentGistId) return;
-    if (terminalRepoFiles?.key === cacheKey) return;
+    if (terminalBaseSnapshotKey === cacheKey) return;
     let cancelled = false;
     void (async () => {
       try {
-        let files: RepoFileEntry[] | null = null;
+        let files: Record<string, string> | null = null;
         if (repoAccessMode === 'installed' && selectedRepo && activeInstalledRepoInstallationId) {
-          files = await getRepoTarball(activeInstalledRepoInstallationId, selectedRepo);
+          files = Object.fromEntries(
+            (await getRepoTarball(activeInstalledRepoInstallationId, selectedRepo)).map((entry) => [
+              entry.path,
+              entry.content,
+            ]),
+          );
         } else if (repoAccessMode === 'public' && publicRepoRef) {
-          files = await getPublicRepoTarball(publicRepoRef.owner, publicRepoRef.repo);
+          files = Object.fromEntries(
+            (await getPublicRepoTarball(publicRepoRef.owner, publicRepoRef.repo)).map((entry) => [
+              entry.path,
+              entry.content,
+            ]),
+          );
         }
         if (cancelled || files === null) return;
-        setTerminalRepoFiles({ key: cacheKey, files });
+        replaceTerminalBaseSnapshot(cacheKey, files);
       } catch (err) {
         console.error('[terminal] failed to fetch repo tarball', err);
       }
@@ -79,25 +91,34 @@ export function useRepoTerminalBinding({
     publicRepoRef,
     repoAccessMode,
     selectedRepo,
-    terminalRepoFiles,
+    terminalBaseSnapshotKey,
     cacheKey,
+    replaceTerminalBaseSnapshot,
   ]);
 
   const baseFiles = useMemo<Record<string, string>>(() => {
     if (!mounted) return {};
-    const result: Record<string, string> = {};
     if (currentGistId && gistFiles) {
-      for (const [path, file] of Object.entries(gistFiles)) {
-        if (file.truncated || file.content == null) continue;
-        result[path] = file.content;
-      }
-    } else if (terminalRepoFiles && terminalRepoFiles.key === cacheKey) {
-      for (const entry of terminalRepoFiles.files) {
-        result[entry.path] = entry.content;
-      }
+      return buildGistTerminalBaseFiles(gistFiles);
     }
-    return result;
-  }, [cacheKey, currentGistId, gistFiles, mounted, terminalRepoFiles]);
+    if (terminalBaseSnapshotKey !== cacheKey) return {};
+    const nonLiveOverlayFiles = overlayFiles.filter((file) => file.path !== activeEditPath);
+    if (nonLiveOverlayFiles.length === 0) return terminalBaseFiles;
+    const merged = { ...terminalBaseFiles };
+    for (const file of nonLiveOverlayFiles) {
+      merged[file.path] = file.content;
+    }
+    return merged;
+  }, [
+    activeEditPath,
+    cacheKey,
+    currentGistId,
+    gistFiles,
+    mounted,
+    overlayFiles,
+    terminalBaseFiles,
+    terminalBaseSnapshotKey,
+  ]);
 
   const liveFile = useMemo(() => {
     if (!mounted || !editing || !activeEditPath) return null;

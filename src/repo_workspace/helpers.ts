@@ -1,6 +1,7 @@
 import type { SidebarFile, SidebarFileFilter } from '../components/Sidebar';
 import type { RepoDocFile } from '../document_store';
 import type { GistFile } from '../github';
+import type { RepoFileEntry } from '../github_app';
 import {
   fileNameFromPath,
   isEditableTextFilePath,
@@ -189,4 +190,68 @@ export function countRepoWorkspaceSidebarFiles(files: SidebarFile[]): RepoWorksp
     text: visibleFiles.filter((file) => isSidebarTextFileName(file.path)).length,
     total: visibleFiles.length,
   };
+}
+
+export function buildRepoTerminalBaseFiles(entries: RepoFileEntry[]): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const entry of entries) {
+    files[entry.path] = entry.content;
+  }
+  return files;
+}
+
+export function buildGistTerminalBaseFiles(gistFiles: Record<string, GistFile> | null): Record<string, string> {
+  if (!gistFiles) return {};
+  const files: Record<string, string> = {};
+  for (const [path, file] of Object.entries(gistFiles)) {
+    if (file.truncated || file.content == null) continue;
+    files[path] = file.content;
+  }
+  return files;
+}
+
+export function setRepoTerminalBaseFile(
+  files: Record<string, string>,
+  path: string,
+  content: string,
+): Record<string, string> {
+  if (files[path] === content) return files;
+  return { ...files, [path]: content };
+}
+
+export function removeRepoTerminalBaseFile(files: Record<string, string>, path: string): Record<string, string> {
+  if (!(path in files)) return files;
+  const next = { ...files };
+  delete next[path];
+  return next;
+}
+
+export function removeRepoTerminalBaseFiles(
+  files: Record<string, string>,
+  paths: readonly string[],
+): Record<string, string> {
+  if (paths.length === 0) return files;
+  let next: Record<string, string> | null = null;
+  for (const path of paths) {
+    if (!(path in (next ?? files))) continue;
+    if (next === null) next = { ...files };
+    delete next[path];
+  }
+  return next ?? files;
+}
+
+export function renameRepoTerminalBaseFiles(
+  files: Record<string, string>,
+  renames: RepoWorkspaceRename[],
+): Record<string, string> {
+  if (renames.length === 0) return files;
+  let next: Record<string, string> | null = null;
+  for (const rename of renames) {
+    const source = (next ?? files)[rename.from];
+    if (typeof source !== 'string') continue;
+    if (next === null) next = { ...files };
+    delete next[rename.from];
+    next[rename.to] = source;
+  }
+  return next ?? files;
 }

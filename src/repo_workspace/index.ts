@@ -1,3 +1,4 @@
+export { buildRepoWorkspaceTextSavePlan } from './commit';
 export { buildRepoWorkspaceIdentity } from './helpers';
 export type {
   BuildRepoWorkspaceIdentityArgs,
