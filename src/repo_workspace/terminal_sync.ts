@@ -39,10 +39,12 @@ export function buildTerminalImportDiff(options: {
   managedFiles: Record<string, string>;
   actualFiles: Record<string, string>;
   activeEditPath?: string | null;
+  includeActiveEditPath?: boolean;
 }): TerminalImportDiff {
-  const { managedFiles, actualFiles, activeEditPath = null } = options;
-  const managedEntries = Object.entries(managedFiles).filter(([path]) => path !== activeEditPath);
-  const actualEntries = Object.entries(actualFiles).filter(([path]) => path !== activeEditPath);
+  const { managedFiles, actualFiles, activeEditPath = null, includeActiveEditPath = false } = options;
+  const shouldIncludePath = (path: string) => includeActiveEditPath || path !== activeEditPath;
+  const managedEntries = Object.entries(managedFiles).filter(([path]) => shouldIncludePath(path));
+  const actualEntries = Object.entries(actualFiles).filter(([path]) => shouldIncludePath(path));
   const managedByPath = new Map(managedEntries);
   const actualByPath = new Map(actualEntries);
   const upserts: Record<string, string> = {};

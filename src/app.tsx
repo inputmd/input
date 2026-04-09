@@ -877,6 +877,11 @@ export function App() {
   const editViewControllerRef = useRef<EditorController | null>(null);
   const currentRepoDocPathRef = useRef<string | null>(currentRepoDocPath);
   const currentFileNameRef = useRef<string | null>(currentFileName);
+  const activeTerminalImportPathRef = useRef<string | null>(null);
+  const hasUserTypedUnsavedChangesRef = useRef(false);
+  const currentDocumentSavedContentRef = useRef<string | null>(null);
+  const setHasUnsavedChangesRef = useRef<(value: boolean) => void>(() => {});
+  const setHasUserTypedUnsavedChangesRef = useRef<(value: boolean) => void>(() => {});
   const prevRouteNameRef = useRef(route.name);
   const sidePaneSkipPersistRef = useRef(false);
   const terminalImportHandlerRef = useRef<TerminalImportHandler | null>(null);
@@ -1075,6 +1080,15 @@ export function App() {
       if (workspaceKey !== sidebarWorkspaceKey) return;
       if (repoAccessMode !== 'installed') return;
       const result = applyTerminalImportDiffToWorkspace(diff, resolveRepoBasePath);
+      const activeImportPath = activeTerminalImportPathRef.current;
+      if (activeImportPath && !hasUserTypedUnsavedChangesRef.current) {
+        const nextContent = diff.upserts[activeImportPath];
+        if (typeof nextContent === 'string') {
+          setNextEditContent(nextContent, { origin: 'appEdits' });
+          setHasUserTypedUnsavedChangesRef.current(false);
+          setHasUnsavedChangesRef.current(nextContent !== currentDocumentSavedContentRef.current);
+        }
+      }
       if (result.importedCount > 0 && !terminalVisible && !options?.silent) {
         showSuccessToast(`Imported ${result.importedCount} terminal change${result.importedCount === 1 ? '' : 's'}`);
       }
@@ -1083,6 +1097,7 @@ export function App() {
       applyTerminalImportDiffToWorkspace,
       repoAccessMode,
       resolveRepoBasePath,
+      setNextEditContent,
       sidebarWorkspaceKey,
       showSuccessToast,
       terminalVisible,
@@ -1138,6 +1153,10 @@ export function App() {
     hasRestorableDocumentDraft,
     saveStatusTone,
   } = persistence;
+  hasUserTypedUnsavedChangesRef.current = hasUserTypedUnsavedChanges;
+  currentDocumentSavedContentRef.current = currentDocumentSavedContent;
+  setHasUnsavedChangesRef.current = setHasUnsavedChanges;
+  setHasUserTypedUnsavedChangesRef.current = setHasUserTypedUnsavedChanges;
   const targetRepoEditPath =
     route.name === 'repoedit' ? safeDecodeURIComponent(route.params.path).replace(/^\/+/, '') : null;
   const repoEditLoading =
@@ -1148,6 +1167,7 @@ export function App() {
     () => (editingBackend === 'repo' ? currentRepoDocPath : currentFileName),
     [editingBackend, currentRepoDocPath, currentFileName],
   );
+  activeTerminalImportPathRef.current = activeView === 'edit' ? currentEditingDocPath : null;
   const isScratchDocument = useMemo(
     () =>
       activeView === 'edit' &&
@@ -8441,6 +8461,7 @@ export function App() {
     editing: activeView === 'edit',
     activeEditPath: currentGistId ? currentFileName : currentRepoDocPath,
     editContent,
+    includeActiveEditPathInImports: activeView === 'edit' && !hasUserTypedUnsavedChanges,
     onImportDiff: applyTerminalImportDiff,
     registerImportHandler: registerTerminalImportHandler,
   });

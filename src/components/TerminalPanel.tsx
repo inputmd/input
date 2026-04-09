@@ -53,6 +53,11 @@ export interface TerminalPanelProps {
    * one-way (app → terminal) and is synced as a single debounced file write.
    */
   liveFile: TerminalLiveFile | null;
+  /**
+   * When true, terminal imports may include changes to the active editor file.
+   * This should only be enabled while the editor buffer is still clean.
+   */
+  includeActiveEditPathInImports?: boolean;
   onImportDiff?: (args: {
     workspaceKey: string;
     diff: TerminalImportDiff;
@@ -413,6 +418,7 @@ export function TerminalPanel({
   apiKey,
   baseFiles,
   liveFile,
+  includeActiveEditPathInImports = false,
   onImportDiff,
   registerImportHandler,
 }: TerminalPanelProps) {
@@ -449,6 +455,8 @@ export function TerminalPanel({
   liveFilePathRef.current = liveFilePath;
   const liveFileContentRef = useRef<string | null>(liveFileContent);
   liveFileContentRef.current = liveFileContent;
+  const includeActiveEditPathInImportsRef = useRef(includeActiveEditPathInImports);
+  includeActiveEditPathInImportsRef.current = includeActiveEditPathInImports;
   // Serial sync queue so concurrent file-prop updates can't race against each
   // other or against the initial mount.
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -679,6 +687,7 @@ export function TerminalPanel({
           managedFiles,
           actualFiles,
           activeEditPath: liveFilePathRef.current,
+          includeActiveEditPath: includeActiveEditPathInImportsRef.current,
         });
         if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return null;
         await onImportDiffRef.current({

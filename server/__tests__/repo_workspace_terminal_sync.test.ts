@@ -53,6 +53,28 @@ test('buildTerminalImportDiff ignores the active editor path', (t) => {
   });
 });
 
+test('buildTerminalImportDiff can include the active editor path when requested', (t) => {
+  const diff = buildTerminalImportDiff({
+    managedFiles: {
+      'src/app.tsx': 'editor',
+      'src/keep.ts': 'same',
+    },
+    actualFiles: {
+      'src/app.tsx': 'terminal',
+      'src/keep.ts': 'same',
+    },
+    activeEditPath: 'src/app.tsx',
+    includeActiveEditPath: true,
+  });
+
+  t.deepEqual(diff, {
+    upserts: {
+      'src/app.tsx': 'terminal',
+    },
+    deletes: [],
+  });
+});
+
 test('applyTerminalImportDiffToWorkspaceChanges stages terminal upserts and clears base deletes', (t) => {
   const imported = applyTerminalImportDiffToWorkspaceChanges({
     overlayFiles: [],
