@@ -225,6 +225,7 @@ const MAX_SIDEBAR_WIDTH_PX = 420;
 const DEFAULT_SIDE_PANE_WIDTH_PX = 480;
 const MIN_SIDE_PANE_WIDTH_PX = 280;
 const MAX_SIDE_PANE_WIDTH_PX = 640;
+const MIN_MAIN_CONTENT_WIDTH_PX = 100;
 const SIDEBAR_FILE_FILTER_KEY = 'sidebar_file_filter';
 const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -400,8 +401,26 @@ function clampSidebarWidth(width: number): number {
   return Math.max(MIN_SIDEBAR_WIDTH_PX, Math.min(MAX_SIDEBAR_WIDTH_PX, width));
 }
 
-function clampSidePaneWidth(width: number): number {
-  return Math.max(MIN_SIDE_PANE_WIDTH_PX, Math.min(MAX_SIDE_PANE_WIDTH_PX, width));
+function getMaxSidePaneWidth(options?: {
+  viewportWidth?: number;
+  sidebarVisible?: boolean;
+  sidebarWidth?: number;
+}): number {
+  const viewportWidth =
+    options?.viewportWidth ?? (typeof window === 'undefined' ? Number.POSITIVE_INFINITY : window.innerWidth);
+  const sidebarWidth = options?.sidebarVisible ? (options.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH_PX) : 0;
+  return Math.max(MAX_SIDE_PANE_WIDTH_PX, viewportWidth - sidebarWidth - MIN_MAIN_CONTENT_WIDTH_PX);
+}
+
+function clampSidePaneWidth(
+  width: number,
+  options?: {
+    viewportWidth?: number;
+    sidebarVisible?: boolean;
+    sidebarWidth?: number;
+  },
+): number {
+  return Math.max(MIN_SIDE_PANE_WIDTH_PX, Math.min(getMaxSidePaneWidth(options), width));
 }
 
 function readStoredClampedPaneWidth(storageKey: string): number | null {
@@ -8244,6 +8263,15 @@ export function App() {
       return !current;
     });
   }, [defaultShowSidebar]);
+  const clampResponsiveSidePaneWidth = useCallback(
+    (width: number) =>
+      clampSidePaneWidth(width, {
+        viewportWidth: typeof window === 'undefined' ? undefined : window.innerWidth,
+        sidebarVisible: showSidebar,
+        sidebarWidth,
+      }),
+    [showSidebar, sidebarWidth],
+  );
   const onSidebarSplitPointerDown = useCallback(
     (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
       if (!isDesktopWidth) return;
@@ -8266,7 +8294,7 @@ export function App() {
     (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
       if (!isDesktopWidth) return;
       const onMove = (moveEvent: globalThis.PointerEvent) => {
-        setSidePaneWidth(clampSidePaneWidth(window.innerWidth - moveEvent.clientX));
+        setSidePaneWidth(clampResponsiveSidePaneWidth(window.innerWidth - moveEvent.clientX));
       };
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
@@ -8278,8 +8306,20 @@ export function App() {
       window.addEventListener('pointerup', onUp);
       event.preventDefault();
     },
-    [isDesktopWidth],
+    [clampResponsiveSidePaneWidth, isDesktopWidth],
   );
+  useLayoutEffect(() => {
+    const clampCurrent = () => {
+      setSidePaneWidth((current) => {
+        const next = clampResponsiveSidePaneWidth(current);
+        return next === current ? current : next;
+      });
+    };
+
+    clampCurrent();
+    window.addEventListener('resize', clampCurrent);
+    return () => window.removeEventListener('resize', clampCurrent);
+  }, [clampResponsiveSidePaneWidth]);
   const onOpenLightbox = useCallback((image: HTMLImageElement) => {
     const src = reusableImageSrc(image);
     if (!src) return;
@@ -8611,7 +8651,7 @@ export function App() {
       loading: repoEditLoading,
       goToLineRequest,
       onTogglePreview,
-      onSidePaneResize: (width) => setSidePaneWidth(clampSidePaneWidth(width)),
+      onSidePaneResize: (width) => setSidePaneWidth(clampResponsiveSidePaneWidth(width)),
       onContentChange: onEditContentChange,
       onBracePromptStream,
       onPromptListSubmit,

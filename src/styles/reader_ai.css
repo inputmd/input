@@ -2311,7 +2311,7 @@
   }
 
   .terminal-panel {
-    width: min(92vw, 480px);
+    width: calc(100vw - 100px);
     box-shadow: -8px 0 20px rgba(0, 0, 0, 0.3);
     z-index: 30;
   }
