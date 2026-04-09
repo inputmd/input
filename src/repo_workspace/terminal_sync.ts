@@ -5,6 +5,10 @@ export interface TerminalImportDiff {
   deletes: string[];
 }
 
+export interface TerminalImportOptions {
+  silent?: boolean;
+}
+
 export interface TerminalImportedWorkspaceChanges {
   overlayFiles: RepoWorkspaceOverlayFile[];
   deletedBaseFiles: RepoWorkspaceDeletedFile[];

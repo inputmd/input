@@ -7,6 +7,7 @@ import {
   buildTerminalImportDiff,
   shouldImportTerminalPath,
   type TerminalImportDiff,
+  type TerminalImportOptions,
 } from '../repo_workspace/terminal_sync.ts';
 
 export interface TerminalLiveFile {
@@ -29,8 +30,14 @@ export interface TerminalPanelProps {
    * one-way (app → terminal) and is synced as a single debounced file write.
    */
   liveFile: TerminalLiveFile | null;
-  onImportDiff?: (args: { workspaceKey: string; diff: TerminalImportDiff }) => void | Promise<void>;
-  registerImportHandler?: (handler: (() => Promise<TerminalImportDiff | null>) | null) => void;
+  onImportDiff?: (args: {
+    workspaceKey: string;
+    diff: TerminalImportDiff;
+    options?: TerminalImportOptions;
+  }) => void | Promise<void>;
+  registerImportHandler?: (
+    handler: ((options?: TerminalImportOptions) => Promise<TerminalImportDiff | null>) | null,
+  ) => void;
 }
 
 // Cache the WebContainer boot promise so we only ever boot once per page.
@@ -307,55 +314,59 @@ export function TerminalPanel({
     await syncQueueRef.current;
   }, []);
 
-  const importTerminalDiff = useCallback(async (): Promise<TerminalImportDiff | null> => {
-    if (importInFlightRef.current) return importInFlightRef.current;
-    const pendingImport = (async (): Promise<TerminalImportDiff | null> => {
-      const wc = wcRef.current;
-      if (!wc || !onImportDiffRef.current) return null;
-      await flushManagedSync();
-      const managedFiles = Object.fromEntries(mirroredFilesRef.current.entries());
-      const actualFiles = await snapshotTerminalTextFiles(wc);
-      const diff = buildTerminalImportDiff({
-        managedFiles,
-        actualFiles,
-        activeEditPath: liveFilePathRef.current,
-      });
-      if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return null;
-      mirroredFilesRef.current = new Map(Object.entries(actualFiles));
-      await onImportDiffRef.current({
-        workspaceKey: workspaceKeyRef.current,
-        diff,
-      });
-      return diff;
-    })();
-    importInFlightRef.current = pendingImport;
-    try {
-      return await pendingImport;
-    } finally {
-      if (importInFlightRef.current === pendingImport) {
-        importInFlightRef.current = null;
+  const importTerminalDiff = useCallback(
+    async (options?: TerminalImportOptions): Promise<TerminalImportDiff | null> => {
+      if (importInFlightRef.current) return importInFlightRef.current;
+      const pendingImport = (async (): Promise<TerminalImportDiff | null> => {
+        const wc = wcRef.current;
+        if (!wc || !onImportDiffRef.current) return null;
+        await flushManagedSync();
+        const managedFiles = Object.fromEntries(mirroredFilesRef.current.entries());
+        const actualFiles = await snapshotTerminalTextFiles(wc);
+        const diff = buildTerminalImportDiff({
+          managedFiles,
+          actualFiles,
+          activeEditPath: liveFilePathRef.current,
+        });
+        if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return null;
+        mirroredFilesRef.current = new Map(Object.entries(actualFiles));
+        await onImportDiffRef.current({
+          workspaceKey: workspaceKeyRef.current,
+          diff,
+          options,
+        });
+        return diff;
+      })();
+      importInFlightRef.current = pendingImport;
+      try {
+        return await pendingImport;
+      } finally {
+        if (importInFlightRef.current === pendingImport) {
+          importInFlightRef.current = null;
+        }
       }
-    }
-  }, [flushManagedSync]);
+    },
+    [flushManagedSync],
+  );
 
   useEffect(() => {
-    registerImportHandler?.(() => importTerminalDiff());
+    registerImportHandler?.((options) => importTerminalDiff(options));
     return () => {
       registerImportHandler?.(null);
     };
   }, [importTerminalDiff, registerImportHandler]);
 
   useEffect(() => {
-    if (!visible || !fsReady) return;
+    if (!fsReady) return;
     const intervalId = window.setInterval(() => {
-      void importTerminalDiff().catch((err) => {
+      void importTerminalDiff({ silent: true }).catch((err) => {
         console.error('[terminal] background import failed', err);
       });
     }, TERMINAL_AUTO_IMPORT_INTERVAL_MS);
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fsReady, importTerminalDiff, visible]);
+  }, [fsReady, importTerminalDiff]);
 
   useEffect(() => {
     if (!visible) return;
@@ -371,8 +382,8 @@ export function TerminalPanel({
       });
       return;
     }
-    // Boot lazily when the panel becomes visible. The component remounts on
-    // hide/show, so hidden terminals do no background sync work.
+    // Boot lazily the first time the panel becomes visible. After that we keep
+    // the session mounted while hidden, but skip visible-only work.
     if (startedRef.current || !containerRef.current) return;
     if (!apiKey && !isLocalhostHostname()) {
       setError('VITE_WEBCONTAINERS_API_KEY is not set.');
@@ -709,7 +720,7 @@ export function TerminalPanel({
   useEffect(() => {
     return () => {
       unmountedRef.current = true;
-      void importTerminalDiff().catch((err) => {
+      void importTerminalDiff({ silent: true }).catch((err) => {
         console.error('[terminal] import on unmount failed', err);
       });
       if (liveSyncTimerRef.current !== null) {

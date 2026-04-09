@@ -162,7 +162,11 @@ import {
   useRepoTerminalBinding,
   useRepoWorkspace,
 } from './repo_workspace';
-import { applyTerminalImportDiffToWorkspaceChanges, type TerminalImportDiff } from './repo_workspace/terminal_sync.ts';
+import {
+  applyTerminalImportDiffToWorkspaceChanges,
+  type TerminalImportDiff,
+  type TerminalImportOptions,
+} from './repo_workspace/terminal_sync.ts';
 import { matchRoute, type Route, routePath } from './routing';
 import {
   buildRepoNewDraftPath,
@@ -245,6 +249,8 @@ interface RecentRepoVisit {
   installationId: string | null;
   source: 'installed' | 'public';
 }
+
+type TerminalImportHandler = (options?: TerminalImportOptions) => Promise<TerminalImportDiff | null>;
 
 type SidePane = 'none' | 'preview' | 'reader-ai' | 'terminal';
 
@@ -768,6 +774,7 @@ export function App() {
   const [sidePane, setSidePane] = useState<SidePane>(() =>
     route.name === 'new' ? defaultSidePaneForViewport() : readStoredSidePanePreference(),
   );
+  const [mountedTerminalWorkspaceKey, setMountedTerminalWorkspaceKey] = useState<string | null>(null);
   const [readerAiSource, setReaderAiSource] = useState('');
   const [readerAiModels, setReaderAiModels] = useState<ReaderAiModel[]>([]);
   const [readerAiModelsLoading, setReaderAiModelsLoading] = useState(false);
@@ -857,7 +864,7 @@ export function App() {
   const currentFileNameRef = useRef<string | null>(currentFileName);
   const prevRouteNameRef = useRef(route.name);
   const sidePaneSkipPersistRef = useRef(false);
-  const terminalImportHandlerRef = useRef<(() => Promise<TerminalImportDiff | null>) | null>(null);
+  const terminalImportHandlerRef = useRef<TerminalImportHandler | null>(null);
   const pendingGistDraftDirtyRef = useRef(false);
   const editContentRef = useRef(editContent);
   const editContentSnapshotTimerRef = useRef<number | null>(null);
@@ -1039,7 +1046,15 @@ export function App() {
   const activeView = viewPhase ?? routeView;
   const currentRouteKey = routeKeyFromRoute(route);
   const applyTerminalImportDiff = useCallback(
-    async ({ workspaceKey, diff }: { workspaceKey: string; diff: TerminalImportDiff }) => {
+    async ({
+      workspaceKey,
+      diff,
+      options,
+    }: {
+      workspaceKey: string;
+      diff: TerminalImportDiff;
+      options?: TerminalImportOptions;
+    }) => {
       if (workspaceKey !== sidebarWorkspaceKey) return;
       if (repoAccessMode !== 'installed') return;
 
@@ -1065,7 +1080,7 @@ export function App() {
         stageRepoOverlayFile(path, content, 'terminal');
         imported += 1;
       }
-      if (imported > 0 && !terminalVisible) {
+      if (imported > 0 && !terminalVisible && !options?.silent) {
         showSuccessToast(`Imported ${imported} terminal change${imported === 1 ? '' : 's'}`);
       }
     },
@@ -1084,7 +1099,7 @@ export function App() {
       terminalVisible,
     ],
   );
-  const registerTerminalImportHandler = useCallback((handler: (() => Promise<TerminalImportDiff | null>) | null) => {
+  const registerTerminalImportHandler = useCallback((handler: TerminalImportHandler | null) => {
     terminalImportHandlerRef.current = handler;
   }, []);
   const sharedRepoFullNameForPersistence =
@@ -3881,15 +3896,23 @@ export function App() {
     showRateLimitToastIfNeeded,
   ]);
 
+  const importMountedTerminalDiff = useCallback(
+    async (options?: TerminalImportOptions): Promise<TerminalImportDiff | null> => {
+      if (!terminalImportHandlerRef.current) return null;
+      try {
+        return await terminalImportHandlerRef.current(options);
+      } catch (err) {
+        console.error('[terminal] import failed', err);
+        return null;
+      }
+    },
+    [],
+  );
+
   const importVisibleTerminalDiff = useCallback(async (): Promise<TerminalImportDiff | null> => {
-    if (!terminalVisible || !terminalImportHandlerRef.current) return null;
-    try {
-      return await terminalImportHandlerRef.current();
-    } catch (err) {
-      console.error('[terminal] import before pane switch failed', err);
-      return null;
-    }
-  }, [terminalVisible]);
+    if (!terminalVisible) return null;
+    return await importMountedTerminalDiff();
+  }, [importMountedTerminalDiff, terminalVisible]);
 
   const onTogglePreview = useCallback(async () => {
     await importVisibleTerminalDiff();
@@ -5226,7 +5249,7 @@ export function App() {
         repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
       if (!instId || !repoName) return null;
 
-      const terminalImportDiff = await importVisibleTerminalDiff();
+      const terminalImportDiff = await importMountedTerminalDiff({ silent: true });
       const importedWorkspaceChanges = terminalImportDiff
         ? applyTerminalImportDiffToWorkspaceChanges({
             overlayFiles,
@@ -5273,7 +5296,7 @@ export function App() {
       currentRouteRepoRef,
       deletedBaseFiles,
       findBaseRepoSidebarFile,
-      importVisibleTerminalDiff,
+      importMountedTerminalDiff,
       overlayFiles,
       refreshRepoTreeAfterWrite,
       renamedBaseFiles,
@@ -8391,7 +8414,12 @@ export function App() {
   const showTerminalToggle =
     Boolean(import.meta.env.VITE_WEBCONTAINERS_API_KEY) && readerAiHistoryEligible && !documentStack.hasStack;
   const showTerminalPanel = showTerminalToggle && terminalVisible;
-  const mountTerminalPanel = showTerminalPanel;
+  const mountTerminalPanel =
+    showTerminalToggle && (showTerminalPanel || mountedTerminalWorkspaceKey === sidebarWorkspaceKey);
+  useEffect(() => {
+    if (!showTerminalPanel) return;
+    setMountedTerminalWorkspaceKey((current) => (current === sidebarWorkspaceKey ? current : sidebarWorkspaceKey));
+  }, [showTerminalPanel, sidebarWorkspaceKey]);
   const repoTerminalBinding = useRepoTerminalBinding({
     workspaceKey: sidebarWorkspaceKey,
     snapshotVersion: terminalSnapshotVersion,

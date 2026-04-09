@@ -3,7 +3,7 @@ import type { GistFile } from '../github';
 import { getPublicRepoTarball, getRepoTarball } from '../github_app';
 import type { PublicRepoRef } from '../wiki_links';
 import { applyRepoWorkspaceMutationsToTerminalFiles, buildGistTerminalBaseFiles } from './helpers';
-import type { TerminalImportDiff } from './terminal_sync.ts';
+import type { TerminalImportDiff, TerminalImportOptions } from './terminal_sync.ts';
 import type {
   RepoAccessMode,
   RepoTerminalBinding,
@@ -34,8 +34,14 @@ interface UseRepoTerminalBindingArgs {
   editing: boolean;
   activeEditPath: string | null;
   editContent: string;
-  onImportDiff?: (args: { workspaceKey: string; diff: TerminalImportDiff }) => void | Promise<void>;
-  registerImportHandler?: (handler: (() => Promise<TerminalImportDiff | null>) | null) => void;
+  onImportDiff?: (args: {
+    workspaceKey: string;
+    diff: TerminalImportDiff;
+    options?: TerminalImportOptions;
+  }) => void | Promise<void>;
+  registerImportHandler?: (
+    handler: ((options?: TerminalImportOptions) => Promise<TerminalImportDiff | null>) | null,
+  ) => void;
 }
 
 export function useRepoTerminalBinding({
