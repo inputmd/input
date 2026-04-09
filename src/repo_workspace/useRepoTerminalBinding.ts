@@ -4,6 +4,7 @@ import { getPublicRepoTarball, getRepoTarball } from '../github_app';
 import type { PublicRepoRef } from '../wiki_links';
 import { applyRepoWorkspaceMutationsToTerminalFiles, buildGistTerminalBaseFiles } from './helpers';
 import type { TerminalImportDiff, TerminalImportOptions } from './terminal_sync.ts';
+import { buildTerminalWorkdirName } from './terminal_workdir.ts';
 import type {
   RepoAccessMode,
   RepoTerminalBinding,
@@ -146,11 +147,23 @@ export function useRepoTerminalBinding({
     return { path: activeEditPath, content: editContent };
   }, [activeEditPath, editContent, editing, mounted]);
 
+  const workdirName = useMemo(
+    () =>
+      buildTerminalWorkdirName({
+        currentGistId,
+        repoAccessMode,
+        selectedRepo,
+        publicRepoRef,
+      }),
+    [currentGistId, publicRepoRef, repoAccessMode, selectedRepo],
+  );
+
   return useMemo(
     () => ({
       props: {
         visible,
         workspaceKey,
+        workdirName,
         apiKey,
         baseFiles,
         liveFile,
@@ -158,6 +171,6 @@ export function useRepoTerminalBinding({
         registerImportHandler,
       },
     }),
-    [apiKey, baseFiles, liveFile, onImportDiff, registerImportHandler, visible, workspaceKey],
+    [apiKey, baseFiles, liveFile, onImportDiff, registerImportHandler, visible, workdirName, workspaceKey],
   );
 }

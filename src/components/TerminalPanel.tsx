@@ -24,6 +24,7 @@ export interface TerminalPanelProps {
   className?: string;
   visible: boolean;
   workspaceKey: string;
+  workdirName: string;
   apiKey: string | undefined;
   /**
    * Stable workspace snapshot mirrored into the WebContainer FS on mount and
@@ -50,6 +51,7 @@ type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
 // Cache the WebContainer boot promise so we only ever boot once per page.
 // WebContainer.boot() throws if called more than once.
 let webContainerBootPromise: Promise<WebContainer> | null = null;
+let webContainerBootWorkdirName: string | null = null;
 let ghosttyInitPromise: Promise<void> | null = null;
 
 function isLocalhostHostname(): boolean {
@@ -58,8 +60,19 @@ function isLocalhostHostname(): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
-async function bootWebContainer(apiKey: string | undefined): Promise<WebContainer> {
-  if (webContainerBootPromise) return webContainerBootPromise;
+async function bootWebContainer(apiKey: string | undefined, workdirName: string): Promise<WebContainer> {
+  if (webContainerBootPromise && webContainerBootWorkdirName === workdirName) return webContainerBootPromise;
+  if (webContainerBootPromise && webContainerBootWorkdirName !== workdirName) {
+    try {
+      const wc = await webContainerBootPromise;
+      wc.teardown();
+    } catch {
+      // ignore boot/teardown failures and attempt a clean reboot below
+    } finally {
+      webContainerBootPromise = null;
+      webContainerBootWorkdirName = null;
+    }
+  }
   webContainerBootPromise = (async () => {
     const { WebContainer, configureAPIKey } = await import('@webcontainer/api');
     // The WebContainer dashboard checks the Referer against its allowed-sites
@@ -68,12 +81,14 @@ async function bootWebContainer(apiKey: string | undefined): Promise<WebContaine
     if (apiKey && !isLocalhostHostname()) {
       configureAPIKey(apiKey);
     }
-    return WebContainer.boot({ coep: 'credentialless', workdirName: 'workspace' });
+    return WebContainer.boot({ coep: 'credentialless', workdirName });
   })();
+  webContainerBootWorkdirName = workdirName;
   try {
     return await webContainerBootPromise;
   } catch (err) {
     webContainerBootPromise = null;
+    webContainerBootWorkdirName = null;
     throw err;
   }
 }
@@ -272,6 +287,7 @@ export function TerminalPanel({
   className,
   visible,
   workspaceKey,
+  workdirName,
   apiKey,
   baseFiles,
   liveFile,
@@ -354,6 +370,7 @@ export function TerminalPanel({
   const teardownWebContainer = useCallback((wc: WebContainer | null) => {
     if (!wc) {
       webContainerBootPromise = null;
+      webContainerBootWorkdirName = null;
       return;
     }
     try {
@@ -365,6 +382,7 @@ export function TerminalPanel({
         wcRef.current = null;
       }
       webContainerBootPromise = null;
+      webContainerBootWorkdirName = null;
     }
   }, []);
 
@@ -550,7 +568,7 @@ export function TerminalPanel({
       }
 
       terminal.write('Booting WebContainer...\r\n');
-      const wc = await bootWebContainer(apiKey);
+      const wc = await bootWebContainer(apiKey, workdirName);
       if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
         return;
       }
@@ -605,7 +623,7 @@ export function TerminalPanel({
         }
       });
     },
-    [apiKey, importTerminalDiff, releaseShellSession, spawnShellSession, teardownWebContainer],
+    [apiKey, importTerminalDiff, releaseShellSession, spawnShellSession, teardownWebContainer, workdirName],
   );
 
   const restartShell = useCallback(async (): Promise<void> => {
