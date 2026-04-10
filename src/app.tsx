@@ -6178,21 +6178,24 @@ export function App() {
       if (currentGistId) {
         navigate(
           shouldEditFile ? routePath.gistEdit(currentGistId, filePath) : routePath.gistView(currentGistId, filePath),
+          { state: null },
         );
       } else if (repoAccessMode === 'installed' && selectedRepoRef) {
         navigate(
           shouldEditFile
             ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, filePath)
             : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, filePath),
+          { state: null },
         );
       } else if (repoAccessMode === 'shared' && currentRouteRepoRef) {
         navigate(
           shouldEditFile
             ? routePath.repoEdit(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath)
             : routePath.repoFile(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath),
+          { state: null },
         );
       } else if (repoAccessMode === 'public' && publicRepoRef) {
-        navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath));
+        navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath), { state: null });
       }
     },
     [
@@ -8030,7 +8033,7 @@ export function App() {
           }
         }
 
-        navigate(routePath.repoDocuments(repoRef.owner, repoRef.repo));
+        navigate(routePath.repoDocuments(repoRef.owner, repoRef.repo), { state: null });
       } catch (err) {
         if (err instanceof SessionExpiredError) {
           handleSessionExpired();
