@@ -495,8 +495,8 @@ type ResetKey = 'ctrl-c' | 'ctrl-backslash';
 
 function resetBannerTextForKey(key: ResetKey | null): string {
   return key === 'ctrl-backslash'
-    ? 'Press Ctrl-\\ again to quit to a new shell'
-    : 'Press Ctrl-C again to quit to a new shell';
+    ? 'Press Ctrl-\\ again to reset this terminal'
+    : 'Press Ctrl-C again to reset this terminal';
 }
 
 export function TerminalPanel({
@@ -589,7 +589,9 @@ export function TerminalPanel({
   const [resetBannerPaneId, setResetBannerPaneId] = useState<PaneId | null>(null);
   const [resetBannerKey, setResetBannerKey] = useState<ResetKey | null>(null);
   const lastCtrlZNoticeAtRef = useRef<number>(0);
-  const restartShellRef = useRef<((paneId?: PaneId) => Promise<void>) | null>(null);
+  const restartShellRef = useRef<((paneId?: PaneId, options?: { clearTerminal?: boolean }) => Promise<void>) | null>(
+    null,
+  );
   const [singlePaneId, setSinglePaneId] = useState<PaneId>('primary');
   const [splitOpen, setSplitOpen] = useState(false);
   const [activePaneId, setActivePaneId] = useState<PaneId>('primary');
@@ -942,7 +944,7 @@ export function TerminalPanel({
   const spawnShellSession = useCallback(
     async (
       paneId: PaneId,
-      options?: { resetTerminal?: boolean; syncManagedFiles?: boolean; announceReady?: boolean },
+      options?: { clearTerminal?: boolean; syncManagedFiles?: boolean; announceReady?: boolean },
     ) => {
       const wc = wcRef.current;
       const runtime = paneRuntimesRef.current[paneId];
@@ -959,7 +961,7 @@ export function TerminalPanel({
       runtime.shellSessionId = sessionId;
       releasePaneShellSession(paneId);
 
-      if (options?.resetTerminal) {
+      if (options?.clearTerminal) {
         terminal.reset();
       }
 
@@ -1052,6 +1054,7 @@ export function TerminalPanel({
 
       if (!withinWindow) {
         resetWarningStateRef.current = { paneId, key, stage: 1, at: now };
+        showResetBanner(paneId, key);
         return false;
       }
 
@@ -1059,12 +1062,6 @@ export function TerminalPanel({
         hideResetBanner();
         resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
         void restartShellRef.current?.(paneId);
-        return true;
-      }
-
-      if (current.stage < 2) {
-        resetWarningStateRef.current = { paneId, key, stage: 2, at: now };
-        showResetBanner(paneId, key);
         return true;
       }
 
@@ -1212,7 +1209,7 @@ export function TerminalPanel({
     async (options?: {
       forceReboot?: boolean;
       importBeforeReboot?: boolean;
-      resetTerminal?: boolean;
+      clearTerminal?: boolean;
       announceRestart?: boolean;
     }): Promise<void> => {
       const logPaneId = getPreferredPaneId();
@@ -1231,7 +1228,7 @@ export function TerminalPanel({
       setFsReady(false);
       setShellReadyByPane({ primary: false, secondary: false });
 
-      if (options?.resetTerminal) {
+      if (options?.clearTerminal) {
         for (const paneId of visiblePaneIdsRef.current) {
           paneRuntimesRef.current[paneId].terminal?.reset();
         }
@@ -1364,7 +1361,7 @@ export function TerminalPanel({
   );
 
   const restartShell = useCallback(
-    async (paneId?: PaneId): Promise<void> => {
+    async (paneId?: PaneId, options?: { clearTerminal?: boolean }): Promise<void> => {
       if (restartInFlightRef.current) {
         return await restartInFlightRef.current;
       }
@@ -1379,7 +1376,13 @@ export function TerminalPanel({
         resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
         setResettingShell(true);
         try {
-          await spawnShellSession(targetPaneId, { resetTerminal: true, syncManagedFiles: true });
+          if (!options?.clearTerminal) {
+            terminal.write('\r\n');
+          }
+          await spawnShellSession(targetPaneId, {
+            clearTerminal: options?.clearTerminal,
+            syncManagedFiles: true,
+          });
           focusPane(targetPaneId);
         } catch (err) {
           console.error('[terminal] reset failed', err);
@@ -1420,9 +1423,9 @@ export function TerminalPanel({
       setRestartingWebContainer(true);
       try {
         await initializeWebContainerSession({
+          clearTerminal: true,
           forceReboot: true,
           importBeforeReboot: true,
-          resetTerminal: true,
           announceRestart: true,
         });
       } catch (err) {
@@ -1547,7 +1550,7 @@ export function TerminalPanel({
       try {
         await ensurePaneSurface(singlePaneIdRef.current);
         if (unmountedRef.current) return;
-        await initializeWebContainerSession({ resetTerminal: true });
+        await initializeWebContainerSession({ clearTerminal: true });
       } catch (err) {
         if (unmountedRef.current) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -1828,7 +1831,7 @@ export function TerminalPanel({
                     class="terminal-panel__menu-item"
                     disabled={!canResetTerminal}
                     onSelect={() => {
-                      void restartShellRef.current?.();
+                      void restartShellRef.current?.(undefined, { clearTerminal: true });
                     }}
                   >
                     Reset terminal
