@@ -7,19 +7,19 @@ import { blurOnClose } from '../dom_utils.ts';
 import { matchesControlShortcut, shouldBypassTerminalMetaShortcut } from '../keyboard_shortcuts.ts';
 import { isLikelyBinaryBytes } from '../path_utils.ts';
 import {
+  buildPersistedHomeSeed,
+  buildPersistedHomeSyncScript,
+  loadPersistedHomeEntries,
+  PERSISTED_HOME_SEED_FILENAME,
+  PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
+  persistPersistedHomeEntries,
+} from '../persisted_home_state.ts';
+import {
   buildTerminalImportDiff,
   shouldImportTerminalPath,
   type TerminalImportDiff,
   type TerminalImportOptions,
 } from '../repo_workspace/terminal_sync.ts';
-import {
-  buildPersistedTerminalHistorySeed,
-  buildTerminalHistorySyncScript,
-  loadPersistedTerminalHistory,
-  persistTerminalHistory,
-  TERMINAL_HISTORY_SEED_FILENAME,
-  TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME,
-} from '../terminal_history.ts';
 import {
   buildWebContainerHomeOverlayProvisionScript,
   WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL,
@@ -192,7 +192,7 @@ async function readStreamFully(stream: ReadableStream<string>): Promise<string> 
 
 const HOME_OVERLAY_ARCHIVE_FILENAME = '.input-home-overlay.tar';
 const HOME_OVERLAY_PROVISION_FILENAME = '.input-home-overlay-provision.cjs';
-const TERMINAL_HISTORY_PERSIST_DEBOUNCE_MS = 250;
+const PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS = 250;
 
 function joinHomePath(homeDir: string, fileName: string): string {
   return `${homeDir.replace(/\/+$/, '')}/${fileName}`;
@@ -289,45 +289,51 @@ async function provisionHomeOverlay(wc: WebContainer): Promise<void> {
   }
 }
 
-async function prepareTerminalHistorySupportFiles(wc: WebContainer, homeDir: string): Promise<string> {
-  const scriptPath = joinHomePath(homeDir, TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME);
-  const seedPath = joinHomePath(homeDir, TERMINAL_HISTORY_SEED_FILENAME);
-  await writeContainerFile(wc, scriptPath, buildTerminalHistorySyncScript(seedPath));
+async function preparePersistedHomeSupportFiles(wc: WebContainer, homeDir: string): Promise<string> {
+  const scriptPath = joinHomePath(homeDir, PERSISTED_HOME_SYNC_SCRIPT_FILENAME);
+  const seedPath = joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME);
+  await writeContainerFile(wc, scriptPath, buildPersistedHomeSyncScript(seedPath));
   return scriptPath;
 }
 
-async function restoreTerminalHistoryForWorkspace(
+async function restorePersistedHomeForWorkspace(
   wc: WebContainer,
   workspaceKey: string,
   homeDir: string,
   scriptPath: string,
 ): Promise<void> {
-  const content = loadPersistedTerminalHistory(workspaceKey);
-  await writeContainerFile(
-    wc,
-    joinHomePath(homeDir, TERMINAL_HISTORY_SEED_FILENAME),
-    buildPersistedTerminalHistorySeed(content),
-  );
+  const entries = await loadPersistedHomeEntries(workspaceKey);
+  await writeContainerFile(wc, joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME), buildPersistedHomeSeed(entries));
   const restore = await wc.spawn('node', [scriptPath, 'restore']);
   const [output, exitCode] = await Promise.all([readStreamFully(restore.output), restore.exit]);
   if (exitCode !== 0) {
-    throw new Error(`node terminal history restore exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+    throw new Error(`node persisted home restore exited with code ${exitCode}; output=${JSON.stringify(output)}`);
   }
 }
 
-async function readTerminalHistoryForWorkspace(wc: WebContainer, scriptPath: string): Promise<string> {
-  const reader = await wc.spawn('node', [scriptPath, 'read']);
+async function readPersistedHomeEntriesForWorkspace(
+  wc: WebContainer,
+  scriptPath: string,
+): Promise<Array<{ path: string; content: string }>> {
+  const reader = await wc.spawn('node', [scriptPath, 'snapshot']);
   const [output, exitCode] = await Promise.all([readStreamFully(reader.output), reader.exit]);
   if (exitCode !== 0) {
-    throw new Error(`node terminal history read exited with code ${exitCode}`);
+    throw new Error(`node persisted home snapshot exited with code ${exitCode}`);
   }
   const line = output
     .split('\n')
     .map((entry) => entry.trim())
     .find((entry) => entry.length > 0);
-  if (!line) return '';
-  const parsed = JSON.parse(line) as { type?: string; content?: unknown };
-  return parsed.type === 'history' && typeof parsed.content === 'string' ? parsed.content : '';
+  if (!line) return [];
+  const parsed = JSON.parse(line) as { type?: string; entries?: unknown };
+  if (parsed.type !== 'snapshot' || !Array.isArray(parsed.entries)) return [];
+  return parsed.entries.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const path = (entry as { path?: unknown }).path;
+    const content = (entry as { content?: unknown }).content;
+    if (typeof path !== 'string' || typeof content !== 'string') return [];
+    return [{ path, content }];
+  });
 }
 
 // Wipe everything in the WebContainer working directory. Used when a new
@@ -527,11 +533,11 @@ export function TerminalPanel({
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
   const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
-  const historySyncRef = useRef<SpawnedShell | null>(null);
-  const historySyncProcessIdRef = useRef(0);
-  const historySyncOutputBufferRef = useRef('');
-  const historyPersistTimerRef = useRef<number | null>(null);
-  const pendingHistoryContentRef = useRef<string | null>(null);
+  const persistedHomeSyncRef = useRef<SpawnedShell | null>(null);
+  const persistedHomeSyncProcessIdRef = useRef(0);
+  const persistedHomeSyncOutputBufferRef = useRef('');
+  const persistedHomePersistTimerRef = useRef<number | null>(null);
+  const pendingPersistedHomeEntriesRef = useRef<Array<{ path: string; content: string }> | null>(null);
   const webContainerSessionIdRef = useRef(0);
   const restartInFlightRef = useRef<Promise<void> | null>(null);
   const restartWebContainerInFlightRef = useRef<Promise<void> | null>(null);
@@ -565,7 +571,7 @@ export function TerminalPanel({
   onImportDiffRef.current = onImportDiff;
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
-  const terminalHistoryScriptPathRef = useRef<string | null>(null);
+  const persistedHomeScriptPathRef = useRef<string | null>(null);
   const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
   const [downloadingPath, setDownloadingPath] = useState(false);
   const { showAlert, showPrompt } = useDialogs();
@@ -709,36 +715,38 @@ export function TerminalPanel({
     hostBridge?.stop();
   }, []);
 
-  const flushPersistedTerminalHistory = useCallback(() => {
-    if (historyPersistTimerRef.current !== null) {
-      window.clearTimeout(historyPersistTimerRef.current);
-      historyPersistTimerRef.current = null;
+  const flushPersistedHomeState = useCallback(async () => {
+    if (persistedHomePersistTimerRef.current !== null) {
+      window.clearTimeout(persistedHomePersistTimerRef.current);
+      persistedHomePersistTimerRef.current = null;
     }
-    const pendingContent = pendingHistoryContentRef.current;
-    if (pendingContent === null) return;
-    pendingHistoryContentRef.current = null;
-    persistTerminalHistory(workspaceKeyRef.current, pendingContent);
+    const pendingEntries = pendingPersistedHomeEntriesRef.current;
+    if (pendingEntries === null) return;
+    pendingPersistedHomeEntriesRef.current = null;
+    await persistPersistedHomeEntries(workspaceKeyRef.current, pendingEntries);
   }, []);
 
-  const schedulePersistedTerminalHistory = useCallback((content: string) => {
-    pendingHistoryContentRef.current = content;
-    if (historyPersistTimerRef.current !== null) {
-      window.clearTimeout(historyPersistTimerRef.current);
+  const schedulePersistedHomeState = useCallback((entries: Array<{ path: string; content: string }>) => {
+    pendingPersistedHomeEntriesRef.current = entries;
+    if (persistedHomePersistTimerRef.current !== null) {
+      window.clearTimeout(persistedHomePersistTimerRef.current);
     }
-    historyPersistTimerRef.current = window.setTimeout(() => {
-      historyPersistTimerRef.current = null;
-      const nextContent = pendingHistoryContentRef.current;
-      if (nextContent === null) return;
-      pendingHistoryContentRef.current = null;
-      persistTerminalHistory(workspaceKeyRef.current, nextContent);
-    }, TERMINAL_HISTORY_PERSIST_DEBOUNCE_MS);
+    persistedHomePersistTimerRef.current = window.setTimeout(() => {
+      persistedHomePersistTimerRef.current = null;
+      const nextEntries = pendingPersistedHomeEntriesRef.current;
+      if (nextEntries === null) return;
+      pendingPersistedHomeEntriesRef.current = null;
+      void persistPersistedHomeEntries(workspaceKeyRef.current, nextEntries).catch((err) => {
+        console.error('[terminal] failed to persist managed home state', err);
+      });
+    }, PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS);
   }, []);
 
-  const releaseHistorySyncSession = useCallback(() => {
-    historySyncProcessIdRef.current += 1;
-    historySyncOutputBufferRef.current = '';
-    const process = historySyncRef.current;
-    historySyncRef.current = null;
+  const releasePersistedHomeSyncSession = useCallback(() => {
+    persistedHomeSyncProcessIdRef.current += 1;
+    persistedHomeSyncOutputBufferRef.current = '';
+    const process = persistedHomeSyncRef.current;
+    persistedHomeSyncRef.current = null;
     if (!process) return;
     try {
       process.kill();
@@ -747,32 +755,32 @@ export function TerminalPanel({
     }
   }, []);
 
-  const captureTerminalHistory = useCallback(
+  const capturePersistedHomeState = useCallback(
     async (wc: WebContainer | null): Promise<void> => {
       if (!wc) return;
-      const scriptPath = terminalHistoryScriptPathRef.current;
+      const scriptPath = persistedHomeScriptPathRef.current;
       if (!scriptPath) return;
       try {
-        const content = await readTerminalHistoryForWorkspace(wc, scriptPath);
-        schedulePersistedTerminalHistory(content);
+        const entries = await readPersistedHomeEntriesForWorkspace(wc, scriptPath);
+        schedulePersistedHomeState(entries);
       } catch (err) {
-        console.error('[terminal] failed to capture jsh history', err);
+        console.error('[terminal] failed to capture managed home state', err);
       }
     },
-    [schedulePersistedTerminalHistory],
+    [schedulePersistedHomeState],
   );
 
-  const startTerminalHistorySync = useCallback(
+  const startPersistedHomeSync = useCallback(
     async (wc: WebContainer): Promise<void> => {
-      releaseHistorySyncSession();
-      const scriptPath = terminalHistoryScriptPathRef.current;
+      releasePersistedHomeSyncSession();
+      const scriptPath = persistedHomeScriptPathRef.current;
       if (!scriptPath) return;
-      const processId = historySyncProcessIdRef.current + 1;
-      historySyncProcessIdRef.current = processId;
-      historySyncOutputBufferRef.current = '';
+      const processId = persistedHomeSyncProcessIdRef.current + 1;
+      persistedHomeSyncProcessIdRef.current = processId;
+      persistedHomeSyncOutputBufferRef.current = '';
 
       const watcher = await wc.spawn('node', [scriptPath, 'watch']);
-      if (unmountedRef.current || wcRef.current !== wc || historySyncProcessIdRef.current !== processId) {
+      if (unmountedRef.current || wcRef.current !== wc || persistedHomeSyncProcessIdRef.current !== processId) {
         try {
           watcher.kill();
         } catch {
@@ -781,37 +789,45 @@ export function TerminalPanel({
         return;
       }
 
-      historySyncRef.current = watcher;
+      persistedHomeSyncRef.current = watcher;
       void watcher.output
         .pipeTo(
           new WritableStream({
             write: (chunk) => {
-              if (historySyncProcessIdRef.current !== processId) return;
-              historySyncOutputBufferRef.current += chunk;
+              if (persistedHomeSyncProcessIdRef.current !== processId) return;
+              persistedHomeSyncOutputBufferRef.current += chunk;
               while (true) {
-                const newlineIndex = historySyncOutputBufferRef.current.indexOf('\n');
+                const newlineIndex = persistedHomeSyncOutputBufferRef.current.indexOf('\n');
                 if (newlineIndex === -1) break;
-                const line = historySyncOutputBufferRef.current.slice(0, newlineIndex).trim();
-                historySyncOutputBufferRef.current = historySyncOutputBufferRef.current.slice(newlineIndex + 1);
+                const line = persistedHomeSyncOutputBufferRef.current.slice(0, newlineIndex).trim();
+                persistedHomeSyncOutputBufferRef.current = persistedHomeSyncOutputBufferRef.current.slice(
+                  newlineIndex + 1,
+                );
                 if (!line) continue;
                 try {
-                  const parsed = JSON.parse(line) as { type?: string; content?: unknown };
-                  if (parsed.type === 'history' && typeof parsed.content === 'string') {
-                    schedulePersistedTerminalHistory(parsed.content);
-                  }
+                  const parsed = JSON.parse(line) as { type?: string; entries?: unknown };
+                  if (parsed.type !== 'snapshot' || !Array.isArray(parsed.entries)) continue;
+                  const entries = parsed.entries.flatMap((entry) => {
+                    if (!entry || typeof entry !== 'object') return [];
+                    const path = (entry as { path?: unknown }).path;
+                    const content = (entry as { content?: unknown }).content;
+                    if (typeof path !== 'string' || typeof content !== 'string') return [];
+                    return [{ path, content }];
+                  });
+                  schedulePersistedHomeState(entries);
                 } catch (err) {
-                  console.error('[terminal] failed to parse jsh history event', err);
+                  console.error('[terminal] failed to parse managed home state event', err);
                 }
               }
             },
           }),
         )
         .catch((err) => {
-          if (historySyncProcessIdRef.current !== processId) return;
-          console.error('[terminal] jsh history watcher closed', err);
+          if (persistedHomeSyncProcessIdRef.current !== processId) return;
+          console.error('[terminal] managed home state watcher closed', err);
         });
     },
-    [releaseHistorySyncSession, schedulePersistedTerminalHistory],
+    [releasePersistedHomeSyncSession, schedulePersistedHomeState],
   );
 
   const teardownWebContainer = useCallback((wc: WebContainer | null) => {
@@ -1193,7 +1209,7 @@ export function TerminalPanel({
       const sessionId = webContainerSessionIdRef.current + 1;
       webContainerSessionIdRef.current = sessionId;
       restartInFlightRef.current = null;
-      releaseHistorySyncSession();
+      releasePersistedHomeSyncSession();
       releaseHostBridgeSession();
       releaseAllPaneShellSessions({ invalidate: true });
       setFsReady(false);
@@ -1218,7 +1234,7 @@ export function TerminalPanel({
       }
 
       if (previousWc) {
-        await captureTerminalHistory(previousWc);
+        await capturePersistedHomeState(previousWc);
       }
 
       if (options?.forceReboot) {
@@ -1261,18 +1277,18 @@ export function TerminalPanel({
 
       try {
         const homeDir = await resolveWebContainerHomeDirectory(wc);
-        terminalHistoryScriptPathRef.current = await prepareTerminalHistorySupportFiles(wc, homeDir);
-        await restoreTerminalHistoryForWorkspace(
+        persistedHomeScriptPathRef.current = await preparePersistedHomeSupportFiles(wc, homeDir);
+        await restorePersistedHomeForWorkspace(
           wc,
           workspaceKeyRef.current,
           homeDir,
-          terminalHistoryScriptPathRef.current,
+          persistedHomeScriptPathRef.current,
         );
       } catch (err) {
-        terminalHistoryScriptPathRef.current = null;
-        console.error('[terminal] failed to restore jsh history', err);
+        persistedHomeScriptPathRef.current = null;
+        console.error('[terminal] failed to restore managed home state', err);
         terminal.write(
-          `[terminal] failed to restore jsh history: ${err instanceof Error ? err.message : String(err)}\r\n`,
+          `[terminal] failed to restore managed home state: ${err instanceof Error ? err.message : String(err)}\r\n`,
         );
       }
 
@@ -1304,11 +1320,11 @@ export function TerminalPanel({
       }
 
       try {
-        await startTerminalHistorySync(wc);
+        await startPersistedHomeSync(wc);
       } catch (err) {
-        console.error('[terminal] failed to start jsh history watcher', err);
+        console.error('[terminal] failed to start managed home state watcher', err);
         terminal.write(
-          `[terminal] failed to start jsh history watcher: ${err instanceof Error ? err.message : String(err)}\r\n`,
+          `[terminal] failed to start managed home state watcher: ${err instanceof Error ? err.message : String(err)}\r\n`,
         );
       }
 
@@ -1317,15 +1333,15 @@ export function TerminalPanel({
     },
     [
       apiKey,
-      captureTerminalHistory,
+      capturePersistedHomeState,
       focusPane,
       getPreferredPaneId,
       importTerminalDiff,
       releaseAllPaneShellSessions,
       releaseHostBridgeSession,
-      releaseHistorySyncSession,
+      releasePersistedHomeSyncSession,
       spawnShellSession,
-      startTerminalHistorySync,
+      startPersistedHomeSync,
       teardownWebContainer,
       workdirName,
     ],
@@ -1629,11 +1645,11 @@ export function TerminalPanel({
       unmountedRef.current = true;
       const currentWc = wcRef.current;
       if (currentWc) {
-        void captureTerminalHistory(currentWc).finally(() => {
-          flushPersistedTerminalHistory();
+        void capturePersistedHomeState(currentWc).finally(() => {
+          void flushPersistedHomeState();
         });
       } else {
-        flushPersistedTerminalHistory();
+        void flushPersistedHomeState();
       }
       void importTerminalDiff({ silent: true }).catch((err) => {
         console.error('[terminal] import on unmount failed', err);
@@ -1649,7 +1665,7 @@ export function TerminalPanel({
       restartInFlightRef.current = null;
       restartWebContainerInFlightRef.current = null;
       webContainerSessionIdRef.current += 1;
-      releaseHistorySyncSession();
+      releasePersistedHomeSyncSession();
       releaseHostBridgeSession();
       releaseAllPaneShellSessions({ invalidate: true });
       paneRuntimesRef.current.primary.disposeSurface?.();
@@ -1664,23 +1680,23 @@ export function TerminalPanel({
       lastWrittenRef.current = new Map();
     };
   }, [
-    captureTerminalHistory,
-    flushPersistedTerminalHistory,
+    capturePersistedHomeState,
+    flushPersistedHomeState,
     importTerminalDiff,
     releaseAllPaneShellSessions,
-    releaseHistorySyncSession,
+    releasePersistedHomeSyncSession,
     releaseHostBridgeSession,
   ]);
 
   useEffect(() => {
     const handlePageHide = () => {
-      flushPersistedTerminalHistory();
+      void flushPersistedHomeState();
     };
     window.addEventListener('pagehide', handlePageHide);
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
     };
-  }, [flushPersistedTerminalHistory]);
+  }, [flushPersistedHomeState]);
 
   const activeShellReady = shellReadyByPane[activePaneId];
   const activeShellSessionId = paneRuntimesRef.current[activePaneId].shellSessionId;
