@@ -106,7 +106,7 @@
     0 8px 24px rgba(0, 0, 0, 0.22),
     0 0 0 1px color-mix(in srgb, var(--border) 15%, transparent);
   color: var(--text);
-  z-index: 30;
+  z-index: 80;
 }
 
 .toolbar-collaborator-tooltip-arrow {
@@ -193,7 +193,7 @@
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.24),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
-  z-index: 20;
+  z-index: 80;
 }
 
 .repo-menu-item {
@@ -459,7 +459,7 @@
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.24),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
-  z-index: 40;
+  z-index: 80;
 }
 
 .author-menu-item {
@@ -857,7 +857,7 @@
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.24),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
-  z-index: 60;
+  z-index: 80;
 }
 
 .user-menu-label {
@@ -946,7 +946,7 @@
   .repo-menu-content,
   .author-menu-content,
   .user-menu-content {
-    z-index: 28;
+    z-index: 80;
   }
 }
 
