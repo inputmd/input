@@ -2218,6 +2218,25 @@
   border-top: 1px solid color-mix(in srgb, var(--border) 35%, transparent);
 }
 
+.terminal-panel__reset-banner {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 28px);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, #151515 88%, transparent);
+  color: #f4f4f4;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+  z-index: 3;
+}
+
 .terminal-panel__surface {
   position: relative;
   flex: 1 1 auto;
