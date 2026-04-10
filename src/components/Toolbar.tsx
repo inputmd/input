@@ -322,6 +322,7 @@ export function Toolbar({
   const saveShortcutLabel = isMac ? '⌘S' : 'Ctrl+S';
   const themeShortcutLabel = '^I';
   const sidebarShortcutLabel = '^B';
+  const terminalShortcutLabel = '^T';
   const previewShortcutLabel = 'Ctrl+P';
   const readerAiShortcutLabel = 'Ctrl+O';
   const preventTriggerFocusRestore = (event: Event) => {
@@ -1249,7 +1250,7 @@ export function Toolbar({
             </div>
           </div>
         ) : null}
-        {showTerminalToggle ? (
+        {showTerminalToggle && !user ? (
           <button
             type="button"
             class={`preview-toggle-btn toolbar-terminal-trigger toolbar-terminal-toggle${terminalVisible ? '' : ' preview-toggle-btn-off'}`}
@@ -1285,6 +1286,12 @@ export function Toolbar({
                 align="end"
                 onCloseAutoFocus={preventTriggerFocusRestore}
               >
+                {showTerminalToggle ? (
+                  <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTerminal()}>
+                    <span>{terminalVisible ? 'Hide Terminal' : 'Show Terminal'}</span>
+                    <span class="user-menu-item-shortcut">{terminalShortcutLabel}</span>
+                  </DropdownMenu.Item>
+                ) : null}
                 <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                   <span>Toggle Theme</span>
                   <span class="user-menu-item-shortcut">{themeShortcutLabel}</span>
