@@ -2337,6 +2337,12 @@
 .terminal-panel__surface > canvas {
   display: block;
   transform: translate(10px, 0);
+  opacity: 0.72;
+  transition: opacity 140ms ease;
+}
+
+.terminal-panel__pane:focus-within .terminal-panel__surface > canvas {
+  opacity: 1;
 }
 
 .terminal-panel__error {

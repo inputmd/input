@@ -194,6 +194,54 @@ const HOME_OVERLAY_ARCHIVE_FILENAME = '.input-home-overlay.tar';
 const HOME_OVERLAY_PROVISION_FILENAME = '.input-home-overlay-provision.cjs';
 const TERMINAL_HISTORY_PERSIST_DEBOUNCE_MS = 250;
 
+function joinHomePath(homeDir: string, fileName: string): string {
+  return `${homeDir.replace(/\/+$/, '')}/${fileName}`;
+}
+
+async function resolveWebContainerHomeDirectory(wc: WebContainer): Promise<string> {
+  const process = await wc.spawn('node', ['-p', 'process.env.HOME']);
+  const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
+  if (exitCode !== 0) {
+    throw new Error(`node -p process.env.HOME exited with code ${exitCode}`);
+  }
+  const homeDir = output.trim();
+  if (!homeDir) {
+    throw new Error('WebContainer HOME is empty');
+  }
+  return homeDir;
+}
+
+function encodeBase64(content: string): string {
+  const bytes = new TextEncoder().encode(content);
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function writeContainerFile(wc: WebContainer, filePath: string, content: string): Promise<void> {
+  const process = await wc.spawn('node', [
+    '-e',
+    [
+      "const fs = require('fs');",
+      "const path = require('path');",
+      "const targetPath = process.argv[1] || '';",
+      "const encodedContent = process.argv[2] || '';",
+      "if (!targetPath) throw new Error('Missing target path');",
+      "const content = Buffer.from(encodedContent, 'base64').toString('utf8');",
+      'fs.mkdirSync(path.dirname(targetPath), { recursive: true });',
+      "fs.writeFileSync(targetPath, content, 'utf8');",
+    ].join(' '),
+    filePath,
+    encodeBase64(content),
+  ]);
+  const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
+  if (exitCode !== 0) {
+    throw new Error(`node write helper exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+  }
+}
+
 async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBuffer>> {
   const response = await fetch(WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL, { credentials: 'same-origin' });
   if (!response.ok) {
@@ -241,25 +289,34 @@ async function provisionHomeOverlay(wc: WebContainer): Promise<void> {
   }
 }
 
-async function prepareTerminalHistorySupportFiles(wc: WebContainer): Promise<void> {
-  await wc.fs.writeFile(
-    TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME,
-    buildTerminalHistorySyncScript(TERMINAL_HISTORY_SEED_FILENAME),
-  );
+async function prepareTerminalHistorySupportFiles(wc: WebContainer, homeDir: string): Promise<string> {
+  const scriptPath = joinHomePath(homeDir, TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME);
+  const seedPath = joinHomePath(homeDir, TERMINAL_HISTORY_SEED_FILENAME);
+  await writeContainerFile(wc, scriptPath, buildTerminalHistorySyncScript(seedPath));
+  return scriptPath;
 }
 
-async function restoreTerminalHistoryForWorkspace(wc: WebContainer, workspaceKey: string): Promise<void> {
+async function restoreTerminalHistoryForWorkspace(
+  wc: WebContainer,
+  workspaceKey: string,
+  homeDir: string,
+  scriptPath: string,
+): Promise<void> {
   const content = loadPersistedTerminalHistory(workspaceKey);
-  await wc.fs.writeFile(TERMINAL_HISTORY_SEED_FILENAME, buildPersistedTerminalHistorySeed(content));
-  const restore = await wc.spawn('node', [TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME, 'restore'], { output: false });
-  const exitCode = await restore.exit;
+  await writeContainerFile(
+    wc,
+    joinHomePath(homeDir, TERMINAL_HISTORY_SEED_FILENAME),
+    buildPersistedTerminalHistorySeed(content),
+  );
+  const restore = await wc.spawn('node', [scriptPath, 'restore']);
+  const [output, exitCode] = await Promise.all([readStreamFully(restore.output), restore.exit]);
   if (exitCode !== 0) {
-    throw new Error(`node terminal history restore exited with code ${exitCode}`);
+    throw new Error(`node terminal history restore exited with code ${exitCode}; output=${JSON.stringify(output)}`);
   }
 }
 
-async function readTerminalHistoryForWorkspace(wc: WebContainer): Promise<string> {
-  const reader = await wc.spawn('node', [TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME, 'read']);
+async function readTerminalHistoryForWorkspace(wc: WebContainer, scriptPath: string): Promise<string> {
+  const reader = await wc.spawn('node', [scriptPath, 'read']);
   const [output, exitCode] = await Promise.all([readStreamFully(reader.output), reader.exit]);
   if (exitCode !== 0) {
     throw new Error(`node terminal history read exited with code ${exitCode}`);
@@ -508,6 +565,7 @@ export function TerminalPanel({
   onImportDiffRef.current = onImportDiff;
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
+  const terminalHistoryScriptPathRef = useRef<string | null>(null);
   const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
   const [downloadingPath, setDownloadingPath] = useState(false);
   const { showAlert, showPrompt } = useDialogs();
@@ -692,8 +750,10 @@ export function TerminalPanel({
   const captureTerminalHistory = useCallback(
     async (wc: WebContainer | null): Promise<void> => {
       if (!wc) return;
+      const scriptPath = terminalHistoryScriptPathRef.current;
+      if (!scriptPath) return;
       try {
-        const content = await readTerminalHistoryForWorkspace(wc);
+        const content = await readTerminalHistoryForWorkspace(wc, scriptPath);
         schedulePersistedTerminalHistory(content);
       } catch (err) {
         console.error('[terminal] failed to capture jsh history', err);
@@ -705,11 +765,13 @@ export function TerminalPanel({
   const startTerminalHistorySync = useCallback(
     async (wc: WebContainer): Promise<void> => {
       releaseHistorySyncSession();
+      const scriptPath = terminalHistoryScriptPathRef.current;
+      if (!scriptPath) return;
       const processId = historySyncProcessIdRef.current + 1;
       historySyncProcessIdRef.current = processId;
       historySyncOutputBufferRef.current = '';
 
-      const watcher = await wc.spawn('node', [TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME, 'watch']);
+      const watcher = await wc.spawn('node', [scriptPath, 'watch']);
       if (unmountedRef.current || wcRef.current !== wc || historySyncProcessIdRef.current !== processId) {
         try {
           watcher.kill();
@@ -1198,9 +1260,16 @@ export function TerminalPanel({
       }
 
       try {
-        await prepareTerminalHistorySupportFiles(wc);
-        await restoreTerminalHistoryForWorkspace(wc, workspaceKeyRef.current);
+        const homeDir = await resolveWebContainerHomeDirectory(wc);
+        terminalHistoryScriptPathRef.current = await prepareTerminalHistorySupportFiles(wc, homeDir);
+        await restoreTerminalHistoryForWorkspace(
+          wc,
+          workspaceKeyRef.current,
+          homeDir,
+          terminalHistoryScriptPathRef.current,
+        );
       } catch (err) {
+        terminalHistoryScriptPathRef.current = null;
         console.error('[terminal] failed to restore jsh history', err);
         terminal.write(
           `[terminal] failed to restore jsh history: ${err instanceof Error ? err.message : String(err)}\r\n`,

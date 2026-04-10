@@ -51,10 +51,10 @@ test('terminal history sync script restores and reads ~/.jsh_history', async (t)
   });
 
   const expectedContent = 'npm test\ngit status\n';
-  const scriptPath = path.join(workDir, TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME);
-  const seedPath = path.join(workDir, TERMINAL_HISTORY_SEED_FILENAME);
+  const scriptPath = path.join(homeDir, TERMINAL_HISTORY_SYNC_SCRIPT_FILENAME);
+  const seedPath = path.join(homeDir, TERMINAL_HISTORY_SEED_FILENAME);
 
-  await writeFile(scriptPath, buildTerminalHistorySyncScript(TERMINAL_HISTORY_SEED_FILENAME), 'utf8');
+  await writeFile(scriptPath, buildTerminalHistorySyncScript(seedPath), 'utf8');
   await writeFile(seedPath, buildPersistedTerminalHistorySeed(expectedContent), 'utf8');
 
   const restore = await runNodeScript(scriptPath, ['restore'], {
