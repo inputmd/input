@@ -498,6 +498,10 @@ export function TerminalPanel({
     primary: false,
     secondary: false,
   });
+  const shellExitedByPaneRef = useRef<Record<PaneId, boolean>>({
+    primary: false,
+    secondary: false,
+  });
   const [resettingShell, setResettingShell] = useState(false);
   const [restartingWebContainer, setRestartingWebContainer] = useState(false);
   const onImportDiffRef = useRef(onImportDiff);
@@ -563,6 +567,10 @@ export function TerminalPanel({
     [getPreferredPaneId],
   );
 
+  const setShellExited = useCallback((paneId: PaneId, exited: boolean) => {
+    shellExitedByPaneRef.current[paneId] = exited;
+  }, []);
+
   const hideResetBanner = useCallback(() => {
     if (resetBannerTimerRef.current !== null) {
       window.clearTimeout(resetBannerTimerRef.current);
@@ -592,38 +600,42 @@ export function TerminalPanel({
     }, TERMINAL_RESET_BANNER_DURATION_MS);
   }, []);
 
-  const releasePaneShellSession = useCallback((paneId: PaneId, options?: { invalidate?: boolean }) => {
-    const runtime = paneRuntimesRef.current[paneId];
-    if (options?.invalidate) {
-      runtime.shellSessionId += 1;
-    }
-    const shell = runtime.shell;
-    runtime.shell = null;
-    const shellWriter = runtime.shellWriter;
-    runtime.shellWriter = null;
-    setShellReadyByPane((current) => ({ ...current, [paneId]: false }));
-    if (shell) {
-      try {
-        shell.kill();
-      } catch {
-        // ignore
+  const releasePaneShellSession = useCallback(
+    (paneId: PaneId, options?: { invalidate?: boolean }) => {
+      const runtime = paneRuntimesRef.current[paneId];
+      setShellExited(paneId, false);
+      if (options?.invalidate) {
+        runtime.shellSessionId += 1;
       }
-    }
-    if (shellWriter) {
-      try {
-        void shellWriter.close().catch(() => {
+      const shell = runtime.shell;
+      runtime.shell = null;
+      const shellWriter = runtime.shellWriter;
+      runtime.shellWriter = null;
+      setShellReadyByPane((current) => ({ ...current, [paneId]: false }));
+      if (shell) {
+        try {
+          shell.kill();
+        } catch {
           // ignore
-        });
-      } catch {
-        // ignore
+        }
       }
-      try {
-        shellWriter.releaseLock();
-      } catch {
-        // ignore
+      if (shellWriter) {
+        try {
+          void shellWriter.close().catch(() => {
+            // ignore
+          });
+        } catch {
+          // ignore
+        }
+        try {
+          shellWriter.releaseLock();
+        } catch {
+          // ignore
+        }
       }
-    }
-  }, []);
+    },
+    [setShellExited],
+  );
 
   const releaseAllPaneShellSessions = useCallback(
     (options?: { invalidate?: boolean }) => {
@@ -877,6 +889,7 @@ export function TerminalPanel({
 
       runtime.shell = spawnedShell;
       runtime.shellWriter = spawnedShell.input.getWriter();
+      setShellExited(paneId, false);
 
       try {
         spawnedShell.resize({ cols: terminal.cols, rows: terminal.rows });
@@ -924,7 +937,7 @@ export function TerminalPanel({
         resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
         try {
           terminal.writeln(
-            `[terminal] Shell exited${typeof exitCode === 'number' ? ` (code ${exitCode})` : ''}. Press Ctrl-C twice to restart.`,
+            `Shell exited${typeof exitCode === 'number' ? ` (code ${exitCode})` : ''}. Press Ctrl-C twice to restart.`,
           );
         } catch {
           // ignore
@@ -933,19 +946,30 @@ export function TerminalPanel({
 
       setShellReadyByPane((current) => ({ ...current, [paneId]: true }));
     },
-    [flushManagedSync, releasePaneShellSession],
+    [flushManagedSync, hideResetBanner, releasePaneShellSession, setShellExited],
   );
 
   const handleResetHotkey = useCallback(
     (paneId: PaneId, key: ResetKey): boolean => {
       const now = Date.now();
       const current = resetWarningStateRef.current;
+      const shellExited = shellExitedByPaneRef.current[paneId];
+      if (shellExited && key !== 'ctrl-c') {
+        return false;
+      }
       const windowMs = current.stage >= 2 ? TERMINAL_RESET_BANNER_DURATION_MS : CTRL_C_RESET_WINDOW_MS;
       const withinWindow = current.paneId === paneId && current.key === key && now - current.at <= windowMs;
 
       if (!withinWindow) {
         resetWarningStateRef.current = { paneId, key, stage: 1, at: now };
         return false;
+      }
+
+      if (shellExited) {
+        hideResetBanner();
+        resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
+        void restartShellRef.current?.(paneId);
+        return true;
       }
 
       if (current.stage < 2) {
