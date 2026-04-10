@@ -203,12 +203,46 @@
   position: relative;
 }
 
-.sidebar-floating-action {
-  padding: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+.sidebar-footer {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--toolbar-bg) 72%, transparent), var(--toolbar-bg) 44%),
     var(--toolbar-bg);
+}
+
+.sidebar-staged-changes {
+  width: 100%;
+  display: block;
+  padding: 8px 12px 7px;
+  border-top: 1px solid color-mix(in srgb, var(--warning-color) 42%, var(--border));
+  border-bottom: 1px solid color-mix(in srgb, var(--warning-color) 42%, var(--border));
+  background: color-mix(in srgb, var(--warning-color) 12%, var(--toolbar-bg));
+  cursor: pointer;
+  border-left: 0;
+  border-right: 0;
+  border-radius: 0;
+  appearance: none;
+}
+
+.sidebar-staged-changes-text {
+  display: block;
+  margin: 0;
+  color: color-mix(in srgb, var(--warning-color) 88%, var(--text));
+  font-size: 13px;
+  font-weight: 400;
+  text-align: center;
+}
+
+button.sidebar-staged-changes:hover {
+  background: color-mix(in srgb, var(--warning-color) 16%, var(--toolbar-bg));
+}
+
+button.sidebar-staged-changes:focus-visible {
+  outline: 1px solid var(--warning-color);
+  outline-offset: -1px;
+}
+
+.sidebar-floating-action {
+  padding: 12px;
 }
 
 .sidebar-daily-note-btn {

@@ -155,6 +155,7 @@ import {
 import { buildReaderAiSelectedChange } from './reader_ai_selectors';
 import type { ReaderAiTranscriptItem } from './reader_ai_transcript';
 import {
+  buildRepoWorkspaceChangedFileDetails,
   buildRepoWorkspaceIdentity,
   buildRepoWorkspaceTextSavePlan,
   useRepoEditorBinding,
@@ -1554,6 +1555,63 @@ export function App() {
       clearMarkdownLinkPreviewCache();
     });
   }, [clearMarkdownLinkPreviewCache]);
+
+  const repoWorkspaceSaveStatus = useMemo(() => {
+    if (repoAccessMode !== 'installed') return null;
+    const repoScratchTargetPath = activeScratchFile?.backend === 'repo' ? activeScratchFile.filePath : null;
+    let draftFile: {
+      currentPath: string | null;
+      targetPath: string;
+      currentContent: string;
+      currentSavedContent: string | null;
+    } | null = null;
+    if (activeView === 'edit' && editingBackend === 'repo') {
+      if (currentRepoDocPath !== null) {
+        draftFile = {
+          currentPath: currentRepoDocPath,
+          targetPath: currentRepoDocPath,
+          currentContent: editContent,
+          currentSavedContent: currentDocumentSavedContent,
+        };
+      } else if (repoScratchTargetPath !== null && editContent.trim().length > 0) {
+        draftFile = {
+          currentPath: null,
+          targetPath: repoScratchTargetPath,
+          currentContent: editContent,
+          currentSavedContent: currentDocumentSavedContent,
+        };
+      }
+    }
+
+    const workspaceSavePlan = buildRepoWorkspaceTextSavePlan({
+      overlayFiles,
+      deletedBaseFiles,
+      renamedBaseFiles,
+      draftFile,
+      findBaseRepoSidebarFile,
+      resolveRepoBasePath,
+    });
+    const changedFiles = buildRepoWorkspaceChangedFileDetails(workspaceSavePlan.mutation, terminalBaseFiles);
+    if (changedFiles.length === 0) return null;
+    return {
+      stagedChangeCount: changedFiles.length,
+      changedFiles,
+    };
+  }, [
+    activeScratchFile,
+    activeView,
+    currentDocumentSavedContent,
+    currentRepoDocPath,
+    deletedBaseFiles,
+    editContent,
+    editingBackend,
+    findBaseRepoSidebarFile,
+    overlayFiles,
+    renamedBaseFiles,
+    repoAccessMode,
+    resolveRepoBasePath,
+    terminalBaseFiles,
+  ]);
 
   const saveStatusText = useMemo(() => {
     if (isScratchDocument) return UNSAVED_STATUS_TEXT;
@@ -5974,6 +6032,18 @@ export function App() {
     terminalVisible,
   ]);
 
+  const onSaveStagedChanges = useCallback(async () => {
+    if (!repoWorkspaceSaveStatus?.stagedChangeCount) return;
+    const confirmed = await showConfirm(
+      `Save ${repoWorkspaceSaveStatus.stagedChangeCount} unsaved change${repoWorkspaceSaveStatus.stagedChangeCount === 1 ? '' : 's'}?`,
+      {
+        confirmLabel: 'Save',
+      },
+    );
+    if (!confirmed) return;
+    await onSave();
+  }, [onSave, repoWorkspaceSaveStatus, showConfirm]);
+
   const onSaveAndExit = useCallback(async () => {
     if (repoAccessMode === 'installed' && activeView === 'content' && (hasOverlayChanges || terminalVisible)) {
       await saveInstalledRepoWorkspaceFromContentView();
@@ -8145,6 +8215,9 @@ export function App() {
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
   const repoSidebarBinding = useRepoSidebarBinding({
     workspace: repoWorkspace,
+    stagedChangeCount: repoWorkspaceSaveStatus?.stagedChangeCount ?? 0,
+    stagedChangeFiles: repoWorkspaceSaveStatus?.changedFiles ?? null,
+    onSaveStagedChanges,
     hasOpenFile: currentRepoDocPath !== null || currentFileName !== null,
     fileFilter: sidebarFileFilter,
     onFileFilterChange: setSidebarFileFilter,
@@ -8842,6 +8915,7 @@ export function App() {
         onSave={onSave}
         onSaveAndExit={onSaveAndExit}
         saveStatusText={saveStatusText}
+        saveStatusTooltipFiles={null}
         saveStatusPlain={isScratchDocument || Boolean(postSaveVerification)}
         saveStatusSpinner={postSaveVerification?.status === 'verifying'}
         saveStatusTone={saveStatusTone}

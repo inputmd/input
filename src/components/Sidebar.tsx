@@ -1,5 +1,6 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   CalendarDays,
   ChevronDown,
@@ -18,6 +19,7 @@ import {
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
+import type { RepoWorkspaceChangedFileDetail } from '../repo_workspace/commit';
 import { loadSidebarCollapsedFoldersState, persistSidebarCollapsedFolders } from '../sidebar_state';
 
 export interface SidebarFile {
@@ -34,6 +36,9 @@ export type SidebarFileFilter = 'markdown' | 'text' | 'all';
 export interface SidebarProps {
   workspaceKey: string;
   files: SidebarFile[];
+  stagedChangeCount?: number;
+  stagedChangeFiles?: RepoWorkspaceChangedFileDetail[] | null;
+  onSaveStagedChanges?: () => void | Promise<void>;
   hasOpenFile?: boolean;
   markdownFileCount: number;
   textFileCount: number;
@@ -375,6 +380,9 @@ function IndentGuides({ depth }: { depth: number }) {
 export function Sidebar({
   workspaceKey,
   files,
+  stagedChangeCount = 0,
+  stagedChangeFiles = null,
+  onSaveStagedChanges,
   hasOpenFile = false,
   markdownFileCount,
   textFileCount,
@@ -415,6 +423,7 @@ export function Sidebar({
   const [draggingExternalFile, setDraggingExternalFile] = useState(false);
   const [dropFolderPath, setDropFolderPath] = useState<string | null>(null);
   const [movingTarget, setMovingTarget] = useState<RenameTarget>(null);
+  const [stagedChangesTooltipOpen, setStagedChangesTooltipOpen] = useState(false);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -422,6 +431,7 @@ export function Sidebar({
   const renameInFlightRef = useRef(false);
   const cancelCreateOnBlurRef = useRef(false);
   const cancelRenameOnBlurRef = useRef(false);
+  const stagedChangesTooltipCloseTimeoutRef = useRef<number | null>(null);
 
   const tree = useMemo(() => buildTree(files), [files]);
   const folderPaths = useMemo(() => {
@@ -431,6 +441,8 @@ export function Sidebar({
   }, [tree]);
   const defaultCollapsedPaths = useMemo(() => defaultCollapsedFolderPaths(folderPaths), [folderPaths]);
   const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
+  const stagedChangesText =
+    stagedChangeCount > 0 ? `${stagedChangeCount} unsaved change${stagedChangeCount === 1 ? '' : 's'}` : null;
   const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
   const initialCollapsedFoldersState = useMemo(
     () => loadSidebarCollapsedFoldersState(workspaceKey, defaultCollapsedPaths, activeAncestors),
@@ -450,6 +462,41 @@ export function Sidebar({
     for (const [index, node] of visibleNodes.entries()) map.set(node.path, index);
     return map;
   }, [visibleNodes]);
+
+  useEffect(() => {
+    return () => {
+      if (stagedChangesTooltipCloseTimeoutRef.current !== null) {
+        window.clearTimeout(stagedChangesTooltipCloseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if ((stagedChangeFiles?.length ?? 0) > 0) return;
+    if (stagedChangesTooltipCloseTimeoutRef.current !== null) {
+      window.clearTimeout(stagedChangesTooltipCloseTimeoutRef.current);
+      stagedChangesTooltipCloseTimeoutRef.current = null;
+    }
+    setStagedChangesTooltipOpen(false);
+  }, [stagedChangeFiles]);
+
+  const openStagedChangesTooltip = (): void => {
+    if (stagedChangesTooltipCloseTimeoutRef.current !== null) {
+      window.clearTimeout(stagedChangesTooltipCloseTimeoutRef.current);
+      stagedChangesTooltipCloseTimeoutRef.current = null;
+    }
+    setStagedChangesTooltipOpen(true);
+  };
+
+  const closeStagedChangesTooltipSoon = (): void => {
+    if (stagedChangesTooltipCloseTimeoutRef.current !== null) {
+      window.clearTimeout(stagedChangesTooltipCloseTimeoutRef.current);
+    }
+    stagedChangesTooltipCloseTimeoutRef.current = window.setTimeout(() => {
+      stagedChangesTooltipCloseTimeoutRef.current = null;
+      setStagedChangesTooltipOpen(false);
+    }, 120);
+  };
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const [createContextPath, setCreateContextPath] = useState<string | null>(null);
   const [createAtRoot, setCreateAtRoot] = useState(false);
@@ -1401,12 +1448,82 @@ export function Sidebar({
         {!readOnly && creatingNew && createParentPath === '' && renderCreateRow(0)}
         {draggingExternalFile && <div class="sidebar-upload-drop-overlay">Drop to upload</div>}
       </div>
-      {showDailyNoteAction ? (
-        <div class="sidebar-floating-action">
-          <button type="button" class="sidebar-daily-note-btn" onClick={() => void onOpenDailyNote()}>
-            <CalendarDays size={14} className="sidebar-daily-note-btn-icon" aria-hidden="true" />
-            <span>Open daily note</span>
-          </button>
+      {stagedChangesText || showDailyNoteAction ? (
+        <div class="sidebar-footer">
+          {stagedChangesText ? (
+            onSaveStagedChanges ? (
+              (stagedChangeFiles?.length ?? 0) > 0 ? (
+                <Tooltip.Provider delayDuration={150}>
+                  <Tooltip.Root open={stagedChangesTooltipOpen} onOpenChange={setStagedChangesTooltipOpen}>
+                    <Tooltip.Trigger asChild>
+                      <button
+                        type="button"
+                        class="sidebar-staged-changes"
+                        aria-label={`Save ${stagedChangesText}`}
+                        onClick={() => void onSaveStagedChanges()}
+                        onMouseEnter={openStagedChangesTooltip}
+                        onMouseLeave={closeStagedChangesTooltipSoon}
+                      >
+                        <span class="sidebar-staged-changes-text">{stagedChangesText}</span>
+                      </button>
+                    </Tooltip.Trigger>
+                    <Tooltip.Portal>
+                      <Tooltip.Content
+                        class="toolbar-save-status-tooltip"
+                        side="right"
+                        align="center"
+                        sideOffset={8}
+                        onMouseEnter={openStagedChangesTooltip}
+                        onMouseLeave={closeStagedChangesTooltipSoon}
+                      >
+                        <div class="toolbar-save-status-tooltip-list" role="list" aria-label="Changed files">
+                          {stagedChangeFiles!.map((file, index) => (
+                            <div
+                              key={`${index}:${file.label}`}
+                              class="toolbar-save-status-tooltip-item"
+                              role="listitem"
+                            >
+                              <span class="toolbar-save-status-tooltip-path">{file.label}</span>
+                              {file.binary ? (
+                                <span class="toolbar-save-status-tooltip-binary">binary</span>
+                              ) : (
+                                <span class="toolbar-save-status-tooltip-stats">
+                                  <span class="toolbar-save-status-tooltip-added">+{file.added}</span>
+                                  <span class="toolbar-save-status-tooltip-removed">-{file.removed}</span>
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <Tooltip.Arrow class="toolbar-save-status-tooltip-arrow" />
+                      </Tooltip.Content>
+                    </Tooltip.Portal>
+                  </Tooltip.Root>
+                </Tooltip.Provider>
+              ) : (
+                <button
+                  type="button"
+                  class="sidebar-staged-changes"
+                  aria-label={`Save ${stagedChangesText}`}
+                  onClick={() => void onSaveStagedChanges()}
+                >
+                  <span class="sidebar-staged-changes-text">{stagedChangesText}</span>
+                </button>
+              )
+            ) : (
+              <section class="sidebar-staged-changes" aria-label="Unsaved changes" role="status" aria-live="polite">
+                <p class="sidebar-staged-changes-text">{stagedChangesText}</p>
+              </section>
+            )
+          ) : null}
+          {showDailyNoteAction ? (
+            <div class="sidebar-floating-action">
+              <button type="button" class="sidebar-daily-note-btn" onClick={() => void onOpenDailyNote()}>
+                <CalendarDays size={14} className="sidebar-daily-note-btn-icon" aria-hidden="true" />
+                <span>Open daily note</span>
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </aside>

@@ -1,6 +1,9 @@
 import test from 'ava';
 import type { RepoDocFile } from '../../src/document_store.ts';
-import { buildRepoWorkspaceTextSavePlan } from '../../src/repo_workspace/commit.ts';
+import {
+  buildRepoWorkspaceChangedFileDetails,
+  buildRepoWorkspaceTextSavePlan,
+} from '../../src/repo_workspace/commit.ts';
 import {
   applyRepoWorkspaceMutationsToDocFiles,
   applyRepoWorkspaceMutationsToTerminalFiles,
@@ -87,6 +90,50 @@ test('buildRepoWorkspaceTextSavePlan degrades rename plus edit into delete plus 
   });
   t.is(plan.changeCount, 2);
   t.deepEqual(plan.touchedFiles, [{ path: 'docs/renamed.md', content: 'changed' }]);
+});
+
+test('buildRepoWorkspaceChangedFileDetails returns sorted tooltip entries with line stats', (t) => {
+  t.deepEqual(
+    buildRepoWorkspaceChangedFileDetails(
+      {
+        message: 'Apply 4 workspace changes',
+        deletes: ['docs/z.md'],
+        renames: [{ from: 'docs/a.md', to: 'docs/renamed.md' }],
+        creates: [{ path: 'docs/new.md', content: 'new-file\n' }],
+        updates: [{ path: 'docs/b.md', content: 'updated\nline\n' }],
+      },
+      {
+        'docs/a.md': 'original\n',
+        'docs/b.md': 'before\n',
+        'docs/z.md': 'gone\nline\n',
+      },
+    ),
+    [
+      { label: 'docs/a.md -> docs/renamed.md', added: 0, removed: 0, binary: false },
+      { label: 'docs/b.md', added: 2, removed: 1, binary: false },
+      { label: 'docs/new.md', added: 1, removed: 0, binary: false },
+      { label: 'docs/z.md', added: 0, removed: 2, binary: false },
+    ],
+  );
+});
+
+test('buildRepoWorkspaceChangedFileDetails marks unknown base content as binary', (t) => {
+  t.deepEqual(
+    buildRepoWorkspaceChangedFileDetails(
+      {
+        message: 'Apply 4 workspace changes',
+        deletes: ['docs/z.md'],
+        renames: [{ from: 'docs/a.md', to: 'docs/renamed.md' }],
+        updates: [{ path: 'docs/b.md', content: 'updated' }],
+      },
+      {},
+    ),
+    [
+      { label: 'docs/a.md -> docs/renamed.md', added: 0, removed: 0, binary: true },
+      { label: 'docs/b.md', added: 0, removed: 0, binary: true },
+      { label: 'docs/z.md', added: 0, removed: 0, binary: true },
+    ],
+  );
 });
 
 test('buildRepoWorkspaceTextSavePlan keeps delete plus recreate at the same path', (t) => {

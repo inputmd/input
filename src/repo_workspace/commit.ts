@@ -1,3 +1,4 @@
+import { diffLines } from 'diff';
 import type { RepoDocFile } from '../document_store.ts';
 import type { RepoBatchCreateFile, RepoBatchMutation, RepoBatchRename, RepoBatchUpdateFile } from '../github_app.ts';
 import { fileNameFromPath } from '../path_utils.ts';
@@ -7,6 +8,13 @@ export interface RepoWorkspaceTextSavePlan {
   mutation: RepoBatchMutation;
   changeCount: number;
   touchedFiles: Array<{ path: string; content: string }>;
+}
+
+export interface RepoWorkspaceChangedFileDetail {
+  added: number;
+  binary: boolean;
+  label: string;
+  removed: number;
 }
 
 interface BuildRepoWorkspaceTextSavePlanArgs {
@@ -43,6 +51,72 @@ function buildRepoWorkspaceTextSaveMessage(
     return `Update ${updates[0]!.path}`;
   }
   return `Apply ${changeCount} workspace changes`;
+}
+
+function lineCount(text: string): number {
+  if (!text) return 0;
+  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+}
+
+function summarizeLineChanges(before: string, after: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const part of diffLines(before, after)) {
+    if (part.added) {
+      added += lineCount(part.value);
+      continue;
+    }
+    if (part.removed) {
+      removed += lineCount(part.value);
+    }
+  }
+  return { added, removed };
+}
+
+export function buildRepoWorkspaceChangedFileDetails(
+  mutation: RepoBatchMutation,
+  baseFiles: Record<string, string>,
+): RepoWorkspaceChangedFileDetail[] {
+  const details: RepoWorkspaceChangedFileDetail[] = [];
+
+  for (const path of mutation.deletes ?? []) {
+    const baseContent = baseFiles[path];
+    details.push(
+      typeof baseContent === 'string'
+        ? { label: path, added: 0, removed: lineCount(baseContent), binary: false }
+        : { label: path, added: 0, removed: 0, binary: true },
+    );
+  }
+
+  for (const rename of mutation.renames ?? []) {
+    const baseContent = baseFiles[rename.from];
+    details.push({
+      label: `${rename.from} -> ${rename.to}`,
+      added: 0,
+      removed: 0,
+      binary: typeof baseContent !== 'string',
+    });
+  }
+
+  for (const file of mutation.creates ?? []) {
+    details.push({
+      label: file.path,
+      added: lineCount(file.content),
+      removed: 0,
+      binary: false,
+    });
+  }
+
+  for (const file of mutation.updates ?? []) {
+    const baseContent = baseFiles[file.path];
+    details.push(
+      typeof baseContent === 'string'
+        ? { label: file.path, binary: false, ...summarizeLineChanges(baseContent, file.content) }
+        : { label: file.path, added: 0, removed: 0, binary: true },
+    );
+  }
+
+  return details.sort((a, b) => a.label.localeCompare(b.label));
 }
 
 export function buildRepoWorkspaceTextSavePlan({

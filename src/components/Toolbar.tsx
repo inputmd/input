@@ -24,6 +24,7 @@ import type { InstallationRepo, LinkedInstallation, RepoFileShareLink } from '..
 import { type GitHubRateLimitSnapshot, readStoredGitHubRateLimitSnapshot } from '../github_rate_limit';
 import { isEditableShortcutTarget, matchesControlShortcut } from '../keyboard_shortcuts';
 import type { ReaderAiModel } from '../reader_ai';
+import type { RepoWorkspaceChangedFileDetail } from '../repo_workspace/commit';
 import { routePath } from '../routing';
 import { ReaderAiModelSelector } from './ReaderAiModelSelector';
 
@@ -194,6 +195,7 @@ interface ToolbarProps {
   onSave: () => void;
   onSaveAndExit: () => void;
   saveStatusText?: string | null;
+  saveStatusTooltipFiles?: RepoWorkspaceChangedFileDetail[] | null;
   saveStatusPlain?: boolean;
   saveStatusSpinner?: boolean;
   saveStatusTone?: 'pending' | 'warning';
@@ -290,6 +292,7 @@ export function Toolbar({
   onSave,
   onSaveAndExit,
   saveStatusText = null,
+  saveStatusTooltipFiles = null,
   saveStatusPlain = false,
   saveStatusSpinner = false,
   saveStatusTone = 'pending',
@@ -326,10 +329,12 @@ export function Toolbar({
   };
   const [authorMenuOpen, setAuthorMenuOpen] = useState(false);
   const [collaboratorsTooltipOpen, setCollaboratorsTooltipOpen] = useState(false);
+  const [saveStatusTooltipOpen, setSaveStatusTooltipOpen] = useState(false);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [repoMenuOpen, setRepoMenuOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const collaboratorsTooltipCloseTimeoutRef = useRef<number | null>(null);
+  const saveStatusTooltipCloseTimeoutRef = useRef<number | null>(null);
   const isHomeDraft = view === 'edit' && draftMode;
   const showHomeOnlyActions = isHomeDraft && !user;
   const showGitHubApp = !!user;
@@ -374,8 +379,20 @@ export function Toolbar({
       if (collaboratorsTooltipCloseTimeoutRef.current !== null) {
         window.clearTimeout(collaboratorsTooltipCloseTimeoutRef.current);
       }
+      if (saveStatusTooltipCloseTimeoutRef.current !== null) {
+        window.clearTimeout(saveStatusTooltipCloseTimeoutRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if ((saveStatusTooltipFiles?.length ?? 0) > 0) return;
+    if (saveStatusTooltipCloseTimeoutRef.current !== null) {
+      window.clearTimeout(saveStatusTooltipCloseTimeoutRef.current);
+      saveStatusTooltipCloseTimeoutRef.current = null;
+    }
+    setSaveStatusTooltipOpen(false);
+  }, [saveStatusTooltipFiles]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -410,6 +427,24 @@ export function Toolbar({
     collaboratorsTooltipCloseTimeoutRef.current = window.setTimeout(() => {
       collaboratorsTooltipCloseTimeoutRef.current = null;
       setCollaboratorsTooltipOpen(false);
+    }, 120);
+  };
+
+  const openSaveStatusTooltip = (): void => {
+    if (saveStatusTooltipCloseTimeoutRef.current !== null) {
+      window.clearTimeout(saveStatusTooltipCloseTimeoutRef.current);
+      saveStatusTooltipCloseTimeoutRef.current = null;
+    }
+    setSaveStatusTooltipOpen(true);
+  };
+
+  const closeSaveStatusTooltipSoon = (): void => {
+    if (saveStatusTooltipCloseTimeoutRef.current !== null) {
+      window.clearTimeout(saveStatusTooltipCloseTimeoutRef.current);
+    }
+    saveStatusTooltipCloseTimeoutRef.current = window.setTimeout(() => {
+      saveStatusTooltipCloseTimeoutRef.current = null;
+      setSaveStatusTooltipOpen(false);
     }, 120);
   };
 
@@ -995,14 +1030,60 @@ export function Toolbar({
       <div class="toolbar-right">
         <div class="action-buttons">
           {saveStatusText ? (
-            <div
-              class={`toolbar-save-status${saveStatusTone === 'warning' ? ' toolbar-save-status--warning' : ''}${saveStatusPlain ? ' toolbar-save-status--plain' : ''}`}
-              role="status"
-              aria-live="polite"
-            >
-              <span>{saveStatusText}</span>
-              {saveStatusSpinner ? <span class="toolbar-spinner" aria-hidden="true" /> : null}
-            </div>
+            (saveStatusTooltipFiles?.length ?? 0) > 0 ? (
+              <Tooltip.Provider delayDuration={150}>
+                <Tooltip.Root open={saveStatusTooltipOpen} onOpenChange={setSaveStatusTooltipOpen}>
+                  <Tooltip.Trigger asChild>
+                    <div
+                      class={`toolbar-save-status toolbar-save-status--with-tooltip${saveStatusTone === 'warning' ? ' toolbar-save-status--warning' : ''}${saveStatusPlain ? ' toolbar-save-status--plain' : ''}`}
+                      role="status"
+                      aria-live="polite"
+                      onMouseEnter={openSaveStatusTooltip}
+                      onMouseLeave={closeSaveStatusTooltipSoon}
+                    >
+                      <span>{saveStatusText}</span>
+                      {saveStatusSpinner ? <span class="toolbar-spinner" aria-hidden="true" /> : null}
+                    </div>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      class="toolbar-save-status-tooltip"
+                      side="bottom"
+                      align="center"
+                      sideOffset={8}
+                      onMouseEnter={openSaveStatusTooltip}
+                      onMouseLeave={closeSaveStatusTooltipSoon}
+                    >
+                      <div class="toolbar-save-status-tooltip-list" role="list" aria-label="Changed files">
+                        {saveStatusTooltipFiles!.map((file, index) => (
+                          <div key={`${index}:${file.label}`} class="toolbar-save-status-tooltip-item" role="listitem">
+                            <span class="toolbar-save-status-tooltip-path">{file.label}</span>
+                            {file.binary ? (
+                              <span class="toolbar-save-status-tooltip-binary">binary</span>
+                            ) : (
+                              <span class="toolbar-save-status-tooltip-stats">
+                                <span class="toolbar-save-status-tooltip-added">+{file.added}</span>
+                                <span class="toolbar-save-status-tooltip-removed">-{file.removed}</span>
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <Tooltip.Arrow class="toolbar-save-status-tooltip-arrow" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              </Tooltip.Provider>
+            ) : (
+              <div
+                class={`toolbar-save-status${saveStatusTone === 'warning' ? ' toolbar-save-status--warning' : ''}${saveStatusPlain ? ' toolbar-save-status--plain' : ''}`}
+                role="status"
+                aria-live="polite"
+              >
+                <span>{saveStatusText}</span>
+                {saveStatusSpinner ? <span class="toolbar-spinner" aria-hidden="true" /> : null}
+              </div>
+            )
           ) : null}
           {showGoToWorkspace && (
             <button type="button" onClick={onGoToWorkspace}>

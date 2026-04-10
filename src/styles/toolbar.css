@@ -340,6 +340,10 @@
   white-space: nowrap;
 }
 
+.toolbar-save-status--with-tooltip {
+  cursor: default;
+}
+
 .toolbar-save-status--plain {
   min-height: auto;
   padding: 0;
@@ -360,6 +364,64 @@
 
 [data-theme="light"] .toolbar-save-status--warning {
   color: color-mix(in srgb, var(--text) 57%, #d29922 43%);
+}
+
+.toolbar-save-status-tooltip {
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, var(--text-secondary) 22%);
+  background: var(--toolbar-bg);
+  color: var(--text);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.24);
+  z-index: 130;
+}
+
+.toolbar-save-status-tooltip-arrow {
+  fill: var(--toolbar-bg);
+}
+
+.toolbar-save-status-tooltip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.toolbar-save-status-tooltip-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.toolbar-save-status-tooltip-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toolbar-save-status-tooltip-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.toolbar-save-status-tooltip-added {
+  color: #3fb950;
+}
+
+.toolbar-save-status-tooltip-removed {
+  color: #f85149;
+}
+
+.toolbar-save-status-tooltip-binary {
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .author-menu-trigger {
