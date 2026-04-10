@@ -4,7 +4,7 @@ import type { Terminal as GhosttyTerminal } from 'ghostty-web';
 import { Power } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils.ts';
-import { shouldBypassTerminalMetaShortcut } from '../keyboard_shortcuts.ts';
+import { matchesControlShortcut, shouldBypassTerminalMetaShortcut } from '../keyboard_shortcuts.ts';
 import { isLikelyBinaryBytes } from '../path_utils.ts';
 import {
   buildTerminalImportDiff,
@@ -58,6 +58,7 @@ export interface TerminalPanelProps {
    * This should only be enabled while the editor buffer is still clean.
    */
   includeActiveEditPathInImports?: boolean;
+  onToggleVisibilityShortcut?: () => void | Promise<void>;
   onImportDiff?: (args: {
     workspaceKey: string;
     diff: TerminalImportDiff;
@@ -419,6 +420,7 @@ export function TerminalPanel({
   baseFiles,
   liveFile,
   includeActiveEditPathInImports = false,
+  onToggleVisibilityShortcut,
   onImportDiff,
   registerImportHandler,
 }: TerminalPanelProps) {
@@ -1194,13 +1196,18 @@ export function TerminalPanel({
         });
 
         // Let browser shortcuts (Cmd+R, Cmd+L, Cmd+T, etc.) bypass the
-        // terminal. Ghostty's textarea listener encodes Cmd-modified keys and
+        // terminal. Ghostty's textarea listener encodes modified keys and
         // calls preventDefault, swallowing them. We install a capturing
-        // listener on the panel container that runs first, and stopPropagation
-        // (without preventDefault) so the browser default still fires while
-        // ghostty never sees the event. Cmd+C / Cmd+V keep ghostty's clipboard
-        // handling, and Cmd+K is allowed through to the terminal.
+        // listener on the panel container that runs first. Meta shortcuts are
+        // allowed through to the browser, while Ctrl+T is rerouted to the app
+        // terminal toggle so it works even with focus inside ghostty.
         const onMetaKeyDown = (event: KeyboardEvent) => {
+          if (matchesControlShortcut(event, 't')) {
+            event.preventDefault();
+            event.stopPropagation();
+            void onToggleVisibilityShortcut?.();
+            return;
+          }
           if (!shouldBypassTerminalMetaShortcut(event)) return;
           event.stopPropagation();
         };
@@ -1308,10 +1315,25 @@ export function TerminalPanel({
     captureTerminalHistory,
     flushPersistedTerminalHistory,
     initializeWebContainerSession,
+    onToggleVisibilityShortcut,
     releaseHistorySyncSession,
     releaseHostBridgeSession,
     releaseShellSession,
   ]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    const frameId = window.requestAnimationFrame(() => {
+      try {
+        terminal.focus();
+      } catch {
+        // ignore
+      }
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [visible]);
 
   // Sync structural changes immediately: base snapshot updates, active file
   // path switches, and leaving edit mode. This avoids whole-tree work on each

@@ -8462,6 +8462,7 @@ export function App() {
     activeEditPath: currentGistId ? currentFileName : currentRepoDocPath,
     editContent,
     includeActiveEditPathInImports: activeView === 'edit' && !hasUserTypedUnsavedChanges,
+    onToggleVisibilityShortcut: onToggleTerminal,
     onImportDiff: applyTerminalImportDiff,
     registerImportHandler: registerTerminalImportHandler,
   });

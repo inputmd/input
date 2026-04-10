@@ -36,6 +36,7 @@ interface UseRepoTerminalBindingArgs {
   activeEditPath: string | null;
   editContent: string;
   includeActiveEditPathInImports?: boolean;
+  onToggleVisibilityShortcut?: () => void | Promise<void>;
   onImportDiff?: (args: {
     workspaceKey: string;
     diff: TerminalImportDiff;
@@ -69,6 +70,7 @@ export function useRepoTerminalBinding({
   activeEditPath,
   editContent,
   includeActiveEditPathInImports = false,
+  onToggleVisibilityShortcut,
   onImportDiff,
   registerImportHandler,
 }: UseRepoTerminalBindingArgs): RepoTerminalBinding {
@@ -170,6 +172,7 @@ export function useRepoTerminalBinding({
         baseFiles,
         liveFile,
         includeActiveEditPathInImports,
+        onToggleVisibilityShortcut,
         onImportDiff,
         registerImportHandler,
       },
@@ -179,6 +182,7 @@ export function useRepoTerminalBinding({
       baseFiles,
       includeActiveEditPathInImports,
       liveFile,
+      onToggleVisibilityShortcut,
       onImportDiff,
       registerImportHandler,
       visible,
