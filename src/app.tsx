@@ -3286,6 +3286,7 @@ export function App() {
                 setEditingBackend(null);
                 setCurrentDocumentSavedContent(null);
                 clearRenderedContent();
+                setContentLoadPending(false);
                 replaceRepoSnapshot(allFiles, { invalidateTerminal: false });
                 setViewPhase(null);
                 return;
