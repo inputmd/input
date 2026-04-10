@@ -198,6 +198,15 @@ function joinHomePath(homeDir: string, fileName: string): string {
   return `${homeDir.replace(/\/+$/, '')}/${fileName}`;
 }
 
+function logPersistedHomePaths(
+  level: 'log' | 'info',
+  message: string,
+  entries: Array<{ path: string; content: string }>,
+): void {
+  const paths = entries.map((entry) => entry.path).sort((left, right) => left.localeCompare(right));
+  console[level](message, paths);
+}
+
 async function resolveWebContainerHomeDirectory(wc: WebContainer): Promise<string> {
   const process = await wc.spawn('node', ['-p', 'process.env.HOME']);
   const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
@@ -309,6 +318,7 @@ async function restorePersistedHomeForWorkspace(
   if (exitCode !== 0) {
     throw new Error(`node persisted home restore exited with code ${exitCode}; output=${JSON.stringify(output)}`);
   }
+  logPersistedHomePaths('log', '[terminal] restored persisted home entries into terminal session', entries);
 }
 
 async function readPersistedHomeEntriesForWorkspace(
@@ -726,6 +736,7 @@ export function TerminalPanel({
     if (pendingEntries === null) return;
     pendingPersistedHomeEntriesRef.current = null;
     await persistPersistedHomeEntries(workspaceKeyRef.current, pendingEntries);
+    logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', pendingEntries);
   }, []);
 
   const persistPersistedHomeStateImmediately = useCallback(
@@ -736,6 +747,7 @@ export function TerminalPanel({
       }
       pendingPersistedHomeEntriesRef.current = null;
       await persistPersistedHomeEntries(workspaceKeyRef.current, entries);
+      logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', entries);
     },
     [],
   );
@@ -750,9 +762,14 @@ export function TerminalPanel({
       const nextEntries = pendingPersistedHomeEntriesRef.current;
       if (nextEntries === null) return;
       pendingPersistedHomeEntriesRef.current = null;
-      void persistPersistedHomeEntries(workspaceKeyRef.current, nextEntries).catch((err) => {
-        console.error('[terminal] failed to persist managed home state', err);
-      });
+      void persistPersistedHomeEntries(workspaceKeyRef.current, nextEntries).then(
+        () => {
+          logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', nextEntries);
+        },
+        (err) => {
+          console.error('[terminal] failed to persist managed home state', err);
+        },
+      );
     }, PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS);
   }, []);
 

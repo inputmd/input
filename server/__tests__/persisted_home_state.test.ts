@@ -53,6 +53,10 @@ test('persisted home sync script restores and snapshots managed home files', asy
 
   const entries = [
     { path: '.claude.json', content: '{\n  "theme": "dark"\n}\n' },
+    { path: '.claude/.config.json', content: '{\n  "theme": "dark"\n}\n' },
+    { path: '.claude/.credentials.json', content: '{\n  "accessToken": "secret"\n}\n' },
+    { path: '.claude/cache/model-a.bin', content: 'cached bytes\n' },
+    { path: '.claude/projects/worktree-a.json', content: '{\n  "cwd": "/tmp/worktree-a"\n}\n' },
     { path: '.claude/sessions/a.txt', content: 'first transcript\n' },
     { path: '.claude/sessions/nested/b.txt', content: 'second transcript\n' },
     { path: '.jsh_history', content: 'npm test\ngit status\n' },
@@ -62,9 +66,15 @@ test('persisted home sync script restores and snapshots managed home files', asy
 
   await writeFile(scriptPath, buildPersistedHomeSyncScript(seedPath), 'utf8');
   await writeFile(seedPath, buildPersistedHomeSeed(entries), 'utf8');
+  await mkdir(path.join(homeDir, '.claude', 'cache'), { recursive: true });
+  await mkdir(path.join(homeDir, '.claude', 'projects'), { recursive: true });
   await mkdir(path.join(homeDir, '.claude', 'sessions'), { recursive: true });
   await writeFile(path.join(homeDir, '.jsh_history'), 'stale history\n', 'utf8');
+  await writeFile(path.join(homeDir, '.claude', '.config.json'), 'stale nested config\n', 'utf8');
+  await writeFile(path.join(homeDir, '.claude', '.credentials.json'), 'stale credentials\n', 'utf8');
   await writeFile(path.join(homeDir, '.claude.json'), 'stale config\n', 'utf8');
+  await writeFile(path.join(homeDir, '.claude', 'cache', 'stale.bin'), 'stale cache\n', 'utf8');
+  await writeFile(path.join(homeDir, '.claude', 'projects', 'stale.json'), 'stale project\n', 'utf8');
   await writeFile(path.join(homeDir, '.claude', 'sessions', 'stale.txt'), 'stale transcript\n', 'utf8');
 
   const restore = await runNodeScript(scriptPath, ['restore'], {
@@ -72,10 +82,16 @@ test('persisted home sync script restores and snapshots managed home files', asy
     env: { HOME: homeDir },
   });
   t.is(restore.code, 0, restore.stderr);
-  t.is(await readFile(path.join(homeDir, '.jsh_history'), 'utf8'), entries[3]?.content);
+  t.is(await readFile(path.join(homeDir, '.jsh_history'), 'utf8'), entries[7]?.content);
+  t.is(await readFile(path.join(homeDir, '.claude', '.config.json'), 'utf8'), entries[1]?.content);
+  t.is(await readFile(path.join(homeDir, '.claude', '.credentials.json'), 'utf8'), entries[2]?.content);
   t.is(await readFile(path.join(homeDir, '.claude.json'), 'utf8'), entries[0]?.content);
-  t.is(await readFile(path.join(homeDir, '.claude', 'sessions', 'a.txt'), 'utf8'), entries[1]?.content);
-  t.is(await readFile(path.join(homeDir, '.claude', 'sessions', 'nested', 'b.txt'), 'utf8'), entries[2]?.content);
+  t.is(await readFile(path.join(homeDir, '.claude', 'cache', 'model-a.bin'), 'utf8'), entries[3]?.content);
+  t.is(await readFile(path.join(homeDir, '.claude', 'projects', 'worktree-a.json'), 'utf8'), entries[4]?.content);
+  t.is(await readFile(path.join(homeDir, '.claude', 'sessions', 'a.txt'), 'utf8'), entries[5]?.content);
+  t.is(await readFile(path.join(homeDir, '.claude', 'sessions', 'nested', 'b.txt'), 'utf8'), entries[6]?.content);
+  await t.throwsAsync(stat(path.join(homeDir, '.claude', 'cache', 'stale.bin')));
+  await t.throwsAsync(stat(path.join(homeDir, '.claude', 'projects', 'stale.json')));
   await t.throwsAsync(stat(path.join(homeDir, '.claude', 'sessions', 'stale.txt')));
 
   const snapshot = await runNodeScript(scriptPath, ['snapshot'], {

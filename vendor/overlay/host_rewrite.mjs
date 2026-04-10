@@ -5,7 +5,8 @@ const originalHttpRequest = http.request;
 const originalHttpsRequest = https.request;
 
 export const DEFAULT_HOST_BRIDGE_URL = 'http://127.0.0.1:4318';
-export const REWRITE_HOSTS = ['api.anthropic.com', 'downloads.claude.ai', 'platform.claude.com'];
+export const REWRITE_HOSTS = ['api.anthropic.com', 'downloads.claude.ai', 'mcp-proxy.anthropic.com', 'platform.claude.com'];
+export const SWALLOW_HOST_PATTERNS = ['*.logs.*.datadoghq.com'];
 
 function isPlainObject(value) {
   return Object.prototype.toString.call(value) === '[object Object]';
@@ -58,6 +59,14 @@ function buildRequestUrlFromOptions(options) {
   }
 }
 
+function hostnameMatchesPattern(hostname, pattern) {
+  if (!hostname || !pattern) return false;
+  const escapedPattern = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^.]+');
+  return new RegExp(`^${escapedPattern}$`, 'i').test(hostname);
+}
+
 export function normalizeHttpsRequestUrl(primary, secondary) {
   if (primary instanceof URL) return primary;
   if (typeof primary === 'string') {
@@ -80,6 +89,10 @@ export function resolveHostBridgeBaseUrl(rawBaseUrl = process.env.INPUT_HOST_BRI
 
 export function shouldRewriteHostBridgeUrl(url) {
   return url instanceof URL && REWRITE_HOSTS.includes(url.hostname);
+}
+
+export function shouldSwallowHostBridgeUrl(url) {
+  return url instanceof URL && SWALLOW_HOST_PATTERNS.some((pattern) => hostnameMatchesPattern(url.hostname, pattern));
 }
 
 export function buildHostBridgeProxyUrl(url, rawBaseUrl = process.env.INPUT_HOST_BRIDGE_URL) {
@@ -154,6 +167,22 @@ https.request = function (...args) {
 const originalFetch = globalThis.fetch;
 if (originalFetch) {
   globalThis.fetch = function (input, init) {
+    let requestUrl = null;
+    try {
+      requestUrl =
+        typeof input === 'string'
+          ? new URL(input)
+          : input instanceof URL
+            ? input
+            : input && input.url
+              ? new URL(input.url)
+              : null;
+    } catch {
+      requestUrl = null;
+    }
+    if (shouldSwallowHostBridgeUrl(requestUrl)) {
+      return Promise.resolve(new Response(null, { status: 204, statusText: 'No Content' }));
+    }
     const bridgeUrl = rewriteFetchInput(input);
     if (!bridgeUrl) {
       return originalFetch.call(this, input, init);

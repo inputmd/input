@@ -18,7 +18,13 @@ test('host rewrite overlay exposes the upstream hosts rewritten through the loca
   const { module, restore } = await loadHostRewriteOverlayModule();
   t.teardown(restore);
 
-  t.deepEqual(module.REWRITE_HOSTS, ['api.anthropic.com', 'downloads.claude.ai', 'platform.claude.com']);
+  t.deepEqual(module.REWRITE_HOSTS, [
+    'api.anthropic.com',
+    'downloads.claude.ai',
+    'mcp-proxy.anthropic.com',
+    'platform.claude.com',
+  ]);
+  t.deepEqual(module.SWALLOW_HOST_PATTERNS, ['*.logs.*.datadoghq.com']);
 });
 
 test('host rewrite overlay builds the local host bridge URL for matching upstream requests', async (t) => {
@@ -96,6 +102,14 @@ test('host rewrite overlay leaves unrelated requests unchanged', async (t) => {
 
   t.is(patchedArgs[0], options);
   t.false(module.shouldRewriteHostBridgeUrl(new URL('https://example.com/v1/messages')));
+});
+
+test('host rewrite overlay swallows datadog logs hosts', async (t) => {
+  const { module, restore } = await loadHostRewriteOverlayModule();
+  t.teardown(restore);
+
+  t.true(module.shouldSwallowHostBridgeUrl(new URL('https://http-intake.logs.us5.datadoghq.com/api/v2/logs')));
+  t.false(module.shouldSwallowHostBridgeUrl(new URL('https://datadoghq.com/api/v2/logs')));
 });
 
 test('host rewrite overlay rewrites downloads host requests through the local bridge URL', async (t) => {

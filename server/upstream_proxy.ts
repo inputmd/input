@@ -5,6 +5,7 @@ import { ClientError } from './errors.ts';
 export const UPSTREAM_PROXY_ALLOWED_HOSTS = new Set([
   'api.anthropic.com',
   'downloads.claude.ai',
+  'mcp-proxy.anthropic.com',
   'platform.claude.com',
 ]);
 const UPSTREAM_PROXY_SESSION_TTL_MS = 30 * 60 * 1000;

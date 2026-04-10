@@ -11,7 +11,10 @@ import {
 } from '../upstream_proxy.ts';
 
 test('upstream proxy helper exposes the allowed upstream hosts', (t) => {
-  t.deepEqual([...UPSTREAM_PROXY_ALLOWED_HOSTS], ['api.anthropic.com', 'downloads.claude.ai', 'platform.claude.com']);
+  t.deepEqual(
+    [...UPSTREAM_PROXY_ALLOWED_HOSTS],
+    ['api.anthropic.com', 'downloads.claude.ai', 'mcp-proxy.anthropic.com', 'platform.claude.com'],
+  );
 });
 
 test('upstream proxy helper builds the upstream URL from the proxy pathname', (t) => {

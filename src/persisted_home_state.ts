@@ -32,7 +32,11 @@ interface PersistedHomeRecord {
 
 export const PERSISTED_HOME_TARGETS: readonly PersistedHomeTarget[] = [
   { id: 'jsh-history', kind: 'file', homePath: '.jsh_history' },
+  { id: 'claude-config-dir-config', kind: 'file', homePath: '.claude/.config.json' },
+  { id: 'claude-cache', kind: 'directory', homePath: '.claude/cache' },
+  { id: 'claude-credentials', kind: 'file', homePath: '.claude/.credentials.json' },
   { id: 'claude-config', kind: 'file', homePath: '.claude.json' },
+  { id: 'claude-projects', kind: 'directory', homePath: '.claude/projects' },
   { id: 'claude-sessions', kind: 'directory', homePath: '.claude/sessions' },
 ];
 
