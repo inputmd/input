@@ -2246,6 +2246,14 @@
   padding-top: 10px;
 }
 
+.terminal-panel__surface[contenteditable="true"] {
+  caret-color: transparent;
+}
+
+.terminal-panel__surface > textarea {
+  caret-color: transparent;
+}
+
 .terminal-panel__overlay-controls {
   position: absolute;
   right: 12px;
