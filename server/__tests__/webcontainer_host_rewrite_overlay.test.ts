@@ -1,11 +1,11 @@
 import https from 'node:https';
 import test from 'ava';
 
-async function loadCorsOverlayModule() {
+async function loadHostRewriteOverlayModule() {
   const originalHttpsRequest = https.request;
-  const url = new URL('../../vendor/overlay/cors.mjs', import.meta.url);
+  const url = new URL('../../vendor/overlay/host_rewrite.mjs', import.meta.url);
   url.searchParams.set('test', `${Date.now()}-${Math.random()}`);
-  const module = (await import(url.href)) as typeof import('../../vendor/overlay/cors.mjs');
+  const module = (await import(url.href)) as typeof import('../../vendor/overlay/host_rewrite.mjs');
   return {
     module,
     restore() {
@@ -14,15 +14,15 @@ async function loadCorsOverlayModule() {
   };
 }
 
-test('cors overlay exposes the upstream hosts rewritten through the local bridge', async (t) => {
-  const { module, restore } = await loadCorsOverlayModule();
+test('host rewrite overlay exposes the upstream hosts rewritten through the local bridge', async (t) => {
+  const { module, restore } = await loadHostRewriteOverlayModule();
   t.teardown(restore);
 
   t.deepEqual(module.REWRITE_HOSTS, ['api.anthropic.com', 'downloads.claude.ai', 'platform.claude.com']);
 });
 
-test('cors overlay builds the local host bridge URL for matching upstream requests', async (t) => {
-  const { module, restore } = await loadCorsOverlayModule();
+test('host rewrite overlay builds the local host bridge URL for matching upstream requests', async (t) => {
+  const { module, restore } = await loadHostRewriteOverlayModule();
   t.teardown(restore);
 
   const nextUrl = module.buildHostBridgeProxyUrl(
@@ -33,8 +33,8 @@ test('cors overlay builds the local host bridge URL for matching upstream reques
   t.is(nextUrl.toString(), 'http://127.0.0.1:4318/proxy/api.anthropic.com/v1/messages?beta=true');
 });
 
-test('cors overlay rewrites https.request(url, callback) to the local bridge URL', async (t) => {
-  const { module, restore } = await loadCorsOverlayModule();
+test('host rewrite overlay rewrites https.request(url, callback) to the local bridge URL', async (t) => {
+  const { module, restore } = await loadHostRewriteOverlayModule();
   t.teardown(restore);
 
   const callback = () => {};
@@ -48,8 +48,8 @@ test('cors overlay rewrites https.request(url, callback) to the local bridge URL
   t.is(patchedArgs[1], callback);
 });
 
-test('cors overlay rewrites https.request(options) without mutating input options', async (t) => {
-  const { module, restore } = await loadCorsOverlayModule();
+test('host rewrite overlay rewrites https.request(options) without mutating input options', async (t) => {
+  const { module, restore } = await loadHostRewriteOverlayModule();
   t.teardown(restore);
 
   const options = {
@@ -87,8 +87,8 @@ test('cors overlay rewrites https.request(options) without mutating input option
   });
 });
 
-test('cors overlay leaves unrelated requests unchanged', async (t) => {
-  const { module, restore } = await loadCorsOverlayModule();
+test('host rewrite overlay leaves unrelated requests unchanged', async (t) => {
+  const { module, restore } = await loadHostRewriteOverlayModule();
   t.teardown(restore);
 
   const options = { hostname: 'example.com', path: '/v1/messages' };
@@ -98,8 +98,8 @@ test('cors overlay leaves unrelated requests unchanged', async (t) => {
   t.false(module.shouldRewriteHostBridgeUrl(new URL('https://example.com/v1/messages')));
 });
 
-test('cors overlay rewrites downloads host requests through the local bridge URL', async (t) => {
-  const { module, restore } = await loadCorsOverlayModule();
+test('host rewrite overlay rewrites downloads host requests through the local bridge URL', async (t) => {
+  const { module, restore } = await loadHostRewriteOverlayModule();
   t.teardown(restore);
 
   const nextUrl = module.rewriteFetchInput(

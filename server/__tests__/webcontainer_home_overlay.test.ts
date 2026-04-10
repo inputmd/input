@@ -153,8 +153,8 @@ test('buildWebContainerHomeOverlayArchive packages overlay files and preserves e
   await mkdir(path.join(overlayDir, '.local/bin'), { recursive: true });
   await mkdir(path.join(overlayDir, path.dirname(longPath)), { recursive: true });
   await writeFile(path.join(overlayDir, '.jshrc'), 'export PATH="$HOME/.local/bin:$PATH"\n', 'utf8');
-  await writeFile(path.join(overlayDir, 'cors.mjs'), 'export {};\n', 'utf8');
-  await writeFile(path.join(overlayDir, 'host_bridge_daemon.mjs'), 'export {};\n', 'utf8');
+  await writeFile(path.join(overlayDir, 'host_rewrite.mjs'), 'export {};\n', 'utf8');
+  await writeFile(path.join(overlayDir, 'host_bridge.mjs'), 'export {};\n', 'utf8');
   await writeFile(path.join(overlayDir, '.local/bin/tool'), '#!/usr/bin/env node\n', 'utf8');
   await chmod(path.join(overlayDir, '.local/bin/tool'), 0o755);
   await symlink('../lib/tool', path.join(overlayDir, '.local/bin/tool-link'));
@@ -165,8 +165,8 @@ test('buildWebContainerHomeOverlayArchive packages overlay files and preserves e
   const entries = await listTarEntries(archive);
 
   t.true(entries.has('.jshrc'));
-  t.true(entries.has('cors.mjs'));
-  t.true(entries.has('host_bridge_daemon.mjs'));
+  t.true(entries.has('host_rewrite.mjs'));
+  t.true(entries.has('host_bridge.mjs'));
   t.true(entries.has('.local/bin/tool'));
   t.true(entries.has('.local/bin/tool-link'));
   t.true(entries.has(longPath));

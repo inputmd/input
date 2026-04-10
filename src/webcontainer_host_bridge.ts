@@ -140,7 +140,7 @@ export async function startWebContainerHostBridge({
 }: StartWebContainerHostBridgeOptions): Promise<WebContainerHostBridgeSession> {
   const proxySessionId = crypto.randomUUID();
   const homeDir = await resolveWebContainerHomeDirectory(wc);
-  const daemonPath = `${homeDir.replace(/\/$/, '')}/host_bridge_daemon.mjs`;
+  const daemonPath = `${homeDir.replace(/\/$/, '')}/host_bridge.mjs`;
   const daemon = (await wc.spawn('node', [daemonPath], {
     env: {
       INPUT_HOST_BRIDGE_PORT: String(HOST_BRIDGE_PORT),
@@ -374,7 +374,7 @@ export async function startWebContainerHostBridge({
   return {
     env: {
       INPUT_HOST_BRIDGE_URL: HOST_BRIDGE_DEFAULT_URL,
-      NODE_OPTIONS: `--require=${homeDir.replace(/\/$/, '')}/cors.mjs`,
+      NODE_OPTIONS: `--require=${homeDir.replace(/\/$/, '')}/host_rewrite.mjs`,
     },
     stop,
   };

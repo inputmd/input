@@ -897,10 +897,6 @@ export function TerminalPanel({
         // some versions don't support resize before first write
       }
 
-      if (options?.announceReady) {
-        terminal.write('Shell spawned.\r\n');
-      }
-
       void spawnedShell.output
         .pipeTo(
           new WritableStream({
@@ -1147,7 +1143,7 @@ export function TerminalPanel({
         }
       }
       if (options?.announceRestart) {
-        terminal.write('Restarting WebContainer...\r\n');
+        terminal.write('Restarting...\r\n');
       }
 
       if (options?.importBeforeReboot && previousWc) {
@@ -1167,13 +1163,13 @@ export function TerminalPanel({
         teardownWebContainer(previousWc);
       }
 
-      terminal.write('Booting WebContainer...\r\n');
+      terminal.write('Booting...\r\n');
       const wc = await bootWebContainer(apiKey, workdirName);
       if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
         return;
       }
 
-      terminal.write('Mounting workspace files...\r\n');
+      terminal.write(`Mounting /home/${workdirName}...\r\n`);
       await clearWorkdir(wc);
       if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
         return;
@@ -1212,6 +1208,7 @@ export function TerminalPanel({
       }
 
       try {
+        terminal.write('Starting networking...\r\n');
         hostBridgeRef.current = await startWebContainerHostBridge({
           onLog(message) {
             console.error(message);
@@ -1230,7 +1227,6 @@ export function TerminalPanel({
         );
       }
 
-      terminal.write('Spawning jsh...\r\n');
       for (const [index, paneId] of visiblePaneIdsRef.current.entries()) {
         await spawnShellSession(paneId, { announceReady: index === 0 });
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
