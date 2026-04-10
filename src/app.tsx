@@ -154,7 +154,12 @@ import {
 } from './reader_ai_host_adapter';
 import { buildReaderAiSelectedChange } from './reader_ai_selectors';
 import type { ReaderAiTranscriptItem } from './reader_ai_transcript';
-import { renameSelectedRepoFilePath, renameSelectedRepoFolderPath } from './repo_selection.ts';
+import {
+  renameSelectedRepoFilePath,
+  renameSelectedRepoFolderPath,
+  shouldKeepRepoSelectionEmpty,
+  withKeepRepoSelectionEmpty,
+} from './repo_selection.ts';
 import {
   buildRepoWorkspaceChangedFileDetails,
   buildRepoWorkspaceIdentity,
@@ -576,7 +581,7 @@ function viewFromRoute(route: Route): ActiveView {
     case 'workspaces':
       return 'workspaces';
     case 'repodocuments':
-      return isSubdomainMode() ? 'content' : 'workspaces';
+      return 'content';
     case 'repofile':
     case 'sharefile':
     case 'gist':
@@ -1516,7 +1521,12 @@ export function App() {
     ],
   );
   const isContentRoute = useCallback((nextRoute: Route) => {
-    return nextRoute.name === 'gist' || nextRoute.name === 'repofile' || nextRoute.name === 'sharefile';
+    return (
+      nextRoute.name === 'gist' ||
+      nextRoute.name === 'repodocuments' ||
+      nextRoute.name === 'repofile' ||
+      nextRoute.name === 'sharefile'
+    );
   }, []);
 
   const clearRenderedContent = useCallback(() => {
@@ -3257,9 +3267,29 @@ export function App() {
             Boolean(isAuthenticated && instId) &&
             selectedRepoFullName !== null &&
             selectedRepoFullName.toLowerCase() === repoFullName.toLowerCase();
+          const keepSelectionEmpty = shouldKeepRepoSelectionEmpty(routeState);
           setViewPhase('loading');
           try {
             if (useInstalledRepo && instId) {
+              if (keepSelectionEmpty) {
+                const allFiles = await loadRepoAllFiles(instId, repoFullName);
+                setRepoAccessMode('installed');
+                setPublicRepoRef(null);
+                setSharedRepoInstallationId(null);
+                setCurrentGistId(null);
+                setGistFiles(null);
+                currentRepoDocPathRef.current = null;
+                currentFileNameRef.current = null;
+                setCurrentRepoDocPath(null);
+                setCurrentRepoDocSha(null);
+                setCurrentFileName(null);
+                setEditingBackend(null);
+                setCurrentDocumentSavedContent(null);
+                clearRenderedContent();
+                replaceRepoSnapshot(allFiles, { invalidateTerminal: false });
+                setViewPhase(null);
+                return;
+              }
               const mdFiles = await loadRepoMarkdownFiles(instId, repoFullName);
               if (mdFiles.length > 0) {
                 setRepoAccessMode('installed');
@@ -3719,11 +3749,14 @@ export function App() {
       setCurrentDocumentSavedContent,
       setHasUnsavedChanges,
       activeInstalledRepoInstallationId,
+      clearRenderedContent,
       beginExternalEditSession,
       canApplyExternalEditSession,
+      loadRepoAllFiles,
       shouldHydrateLocalDraftForRoute,
       resetRepoState,
       replaceRepoMarkdownFiles,
+      replaceRepoSnapshot,
     ],
   );
 
@@ -6179,6 +6212,42 @@ export function App() {
     setSidebarVisibilityOverride((prev) => (prev === false ? false : null));
   }, [isDesktopWidth]);
 
+  const clearCurrentInstalledRepoFileSelection = useCallback(
+    (options?: { replace?: boolean }) => {
+      currentRepoDocPathRef.current = null;
+      currentFileNameRef.current = null;
+      setHasUnsavedChanges(false);
+      setHasUserTypedUnsavedChanges(false);
+      setCurrentRepoDocPath(null);
+      setCurrentRepoDocSha(null);
+      setCurrentFileName(null);
+      setEditingBackend(null);
+      setEditTitle('');
+      setNextEditContent('', { origin: 'appEdits' });
+      setCurrentDocumentSavedContent(null);
+      clearRenderedContent();
+      setViewPhase(null);
+      if (selectedRepoRef) {
+        navigate(routePath.repoDocuments(selectedRepoRef.owner, selectedRepoRef.repo), {
+          ...(options?.replace ? { replace: true } : {}),
+          state: withKeepRepoSelectionEmpty(routeState),
+        });
+        return;
+      }
+      navigate(routePath.workspaces(), options?.replace ? { replace: true, state: null } : { state: null });
+    },
+    [
+      clearRenderedContent,
+      navigate,
+      routeState,
+      selectedRepoRef,
+      setCurrentDocumentSavedContent,
+      setHasUnsavedChanges,
+      setHasUserTypedUnsavedChanges,
+      setNextEditContent,
+    ],
+  );
+
   const handleSelectFile = useCallback(
     async (filePath: string) => {
       if (activeView === 'edit' && readerAiNavigationLocked) {
@@ -6230,6 +6299,10 @@ export function App() {
     if (editingBackend === 'gist' && currentGistId && currentFileName === null) {
       clearPersistedNewGistFileDraft(currentGistId);
     }
+    if (repoAccessMode === 'installed') {
+      clearCurrentInstalledRepoFileSelection();
+      return;
+    }
     setHasUnsavedChanges(false);
     setCurrentRepoDocPath(null);
     setCurrentRepoDocSha(null);
@@ -6237,11 +6310,13 @@ export function App() {
     setEditingBackend(null);
     setEditTitle('');
     setNextEditContent('', { origin: 'appEdits' });
+    setCurrentDocumentSavedContent(null);
     clearRenderedContent();
     setViewPhase(null);
   }, [
     activeView,
     clearRenderedContent,
+    clearCurrentInstalledRepoFileSelection,
     currentFileName,
     currentRepoDocPath,
     discardCurrentDocumentChanges,
@@ -6251,7 +6326,9 @@ export function App() {
     showConfirm,
     editingBackend,
     currentGistId,
+    repoAccessMode,
     setNextEditContent,
+    setCurrentDocumentSavedContent,
     showFailureToast,
     setHasUnsavedChanges,
   ]);
@@ -6920,23 +6997,6 @@ export function App() {
     user,
   ]);
 
-  const navigateAfterRemovingRepoPaths = useCallback(
-    async (removedPaths: string[]) => {
-      if (!selectedRepoRef) {
-        navigate(routePath.workspaces());
-        return;
-      }
-      const removedPathSet = new Set(removedPaths);
-      const remainingPath = getRepoSidebarPaths().find((path) => !removedPathSet.has(path));
-      if (remainingPath) {
-        navigate(routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, remainingPath), { state: null });
-        return;
-      }
-      await openInstalledRepo(buildRepoFullName(selectedRepoRef.owner, selectedRepoRef.repo));
-    },
-    [getRepoSidebarPaths, navigate, openInstalledRepo, selectedRepoRef],
-  );
-
   const handleDeleteFile = useCallback(
     async (filePath: string) => {
       if (
@@ -6971,7 +7031,7 @@ export function App() {
           }
           const deletedCurrent = currentRepoDocPath === filePath;
           if (deletedCurrent) {
-            await navigateAfterRemovingRepoPaths([filePath]);
+            clearCurrentInstalledRepoFileSelection();
           }
         }
       } catch (err) {
@@ -6987,13 +7047,13 @@ export function App() {
       getActiveDocumentStore,
       currentFileName,
       findRepoSidebarFile,
+      clearCurrentInstalledRepoFileSelection,
       clearRepoOverlayFile,
       clearRepoRenamedBaseFile,
       currentRepoDocPath,
       currentGistId,
       handleSessionExpired,
       navigate,
-      navigateAfterRemovingRepoPaths,
       resolveRepoBasePath,
       showAlert,
       showConfirm,
@@ -7064,7 +7124,7 @@ export function App() {
           completedCount = targetPaths.length;
           const deletedCurrent = currentRepoDocPath ? targetPaths.includes(currentRepoDocPath) : false;
           if (deletedCurrent) {
-            await navigateAfterRemovingRepoPaths(targetPaths);
+            clearCurrentInstalledRepoFileSelection();
           }
         }
         dismissToast(deleteToastId);
@@ -7097,12 +7157,12 @@ export function App() {
       showConfirm,
       currentFileName,
       currentRepoDocPath,
+      clearCurrentInstalledRepoFileSelection,
       clearRepoDeletedBaseFiles,
       clearRepoOverlayFiles,
       clearRepoRenamedBaseFiles,
       handleSessionExpired,
       navigate,
-      navigateAfterRemovingRepoPaths,
       resolveRepoBasePath,
       showAlert,
       dismissToast,
