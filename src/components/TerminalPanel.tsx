@@ -726,6 +726,18 @@ export function TerminalPanel({
     await persistPersistedHomeEntries(workspaceKeyRef.current, pendingEntries);
   }, []);
 
+  const persistPersistedHomeStateImmediately = useCallback(
+    async (entries: Array<{ path: string; content: string }>) => {
+      if (persistedHomePersistTimerRef.current !== null) {
+        window.clearTimeout(persistedHomePersistTimerRef.current);
+        persistedHomePersistTimerRef.current = null;
+      }
+      pendingPersistedHomeEntriesRef.current = null;
+      await persistPersistedHomeEntries(workspaceKeyRef.current, entries);
+    },
+    [],
+  );
+
   const schedulePersistedHomeState = useCallback((entries: Array<{ path: string; content: string }>) => {
     pendingPersistedHomeEntriesRef.current = entries;
     if (persistedHomePersistTimerRef.current !== null) {
@@ -756,18 +768,22 @@ export function TerminalPanel({
   }, []);
 
   const capturePersistedHomeState = useCallback(
-    async (wc: WebContainer | null): Promise<void> => {
+    async (wc: WebContainer | null, options?: { immediate?: boolean }): Promise<void> => {
       if (!wc) return;
       const scriptPath = persistedHomeScriptPathRef.current;
       if (!scriptPath) return;
       try {
         const entries = await readPersistedHomeEntriesForWorkspace(wc, scriptPath);
+        if (options?.immediate) {
+          await persistPersistedHomeStateImmediately(entries);
+          return;
+        }
         schedulePersistedHomeState(entries);
       } catch (err) {
         console.error('[terminal] failed to capture managed home state', err);
       }
     },
-    [schedulePersistedHomeState],
+    [persistPersistedHomeStateImmediately, schedulePersistedHomeState],
   );
 
   const startPersistedHomeSync = useCallback(
@@ -1234,7 +1250,7 @@ export function TerminalPanel({
       }
 
       if (previousWc) {
-        await capturePersistedHomeState(previousWc);
+        await capturePersistedHomeState(previousWc, { immediate: true });
       }
 
       if (options?.forceReboot) {
@@ -1645,7 +1661,7 @@ export function TerminalPanel({
       unmountedRef.current = true;
       const currentWc = wcRef.current;
       if (currentWc) {
-        void capturePersistedHomeState(currentWc).finally(() => {
+        void capturePersistedHomeState(currentWc, { immediate: true }).finally(() => {
           void flushPersistedHomeState();
         });
       } else {
@@ -1690,13 +1706,20 @@ export function TerminalPanel({
 
   useEffect(() => {
     const handlePageHide = () => {
+      const currentWc = wcRef.current;
+      if (currentWc) {
+        void capturePersistedHomeState(currentWc, { immediate: true }).finally(() => {
+          void flushPersistedHomeState();
+        });
+        return;
+      }
       void flushPersistedHomeState();
     };
     window.addEventListener('pagehide', handlePageHide);
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
     };
-  }, [flushPersistedHomeState]);
+  }, [capturePersistedHomeState, flushPersistedHomeState]);
 
   const activeShellReady = shellReadyByPane[activePaneId];
   const activeShellSessionId = paneRuntimesRef.current[activePaneId].shellSessionId;
