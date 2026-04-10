@@ -154,6 +154,7 @@ import {
 } from './reader_ai_host_adapter';
 import { buildReaderAiSelectedChange } from './reader_ai_selectors';
 import type { ReaderAiTranscriptItem } from './reader_ai_transcript';
+import { renameSelectedRepoFilePath, renameSelectedRepoFolderPath } from './repo_selection.ts';
 import {
   buildRepoWorkspaceChangedFileDetails,
   buildRepoWorkspaceIdentity,
@@ -7144,12 +7145,19 @@ export function App() {
             }
             applyRepoOverlayRenames(renames);
           }
-          if (currentRepoDocPathRef.current === oldPath) {
+          const nextCurrentRepoPath = renameSelectedRepoFilePath(currentRepoDocPathRef.current, oldPath, newPath);
+          if (nextCurrentRepoPath !== currentRepoDocPathRef.current) {
+            currentRepoDocPathRef.current = nextCurrentRepoPath;
+            currentFileNameRef.current = nextCurrentRepoPath;
+            setCurrentRepoDocPath(nextCurrentRepoPath);
+            setCurrentFileName(nextCurrentRepoPath);
+          }
+          if (nextCurrentRepoPath !== null) {
             if (selectedRepoRef) {
               navigate(
-                activeView === 'edit' && isEditableTextFilePath(newPath)
-                  ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, newPath)
-                  : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, newPath),
+                activeView === 'edit' && isEditableTextFilePath(nextCurrentRepoPath)
+                  ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, nextCurrentRepoPath)
+                  : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, nextCurrentRepoPath),
               );
             } else {
               navigate(routePath.workspaces());
@@ -7292,20 +7300,19 @@ export function App() {
           }
           applyRepoOverlayRenames(renames);
           completedCount = paths.length;
-          if (currentRepoDocPathRef.current && isPathInFolder(currentRepoDocPathRef.current, oldPath)) {
+          const nextCurrentRepoPath = renameSelectedRepoFolderPath(currentRepoDocPathRef.current, oldPath, newPath);
+          if (nextCurrentRepoPath !== currentRepoDocPathRef.current) {
+            currentRepoDocPathRef.current = nextCurrentRepoPath;
+            currentFileNameRef.current = nextCurrentRepoPath;
+            setCurrentRepoDocPath(nextCurrentRepoPath);
+            setCurrentFileName(nextCurrentRepoPath);
+          }
+          if (nextCurrentRepoPath) {
             if (selectedRepoRef) {
               navigate(
                 activeView === 'edit'
-                  ? routePath.repoEdit(
-                      selectedRepoRef.owner,
-                      selectedRepoRef.repo,
-                      renamePathWithNewFolder(currentRepoDocPathRef.current, oldPath, newPath),
-                    )
-                  : routePath.repoFile(
-                      selectedRepoRef.owner,
-                      selectedRepoRef.repo,
-                      renamePathWithNewFolder(currentRepoDocPathRef.current, oldPath, newPath),
-                    ),
+                  ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, nextCurrentRepoPath)
+                  : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, nextCurrentRepoPath),
               );
             } else {
               navigate(routePath.workspaces());
