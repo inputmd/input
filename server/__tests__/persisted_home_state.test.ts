@@ -9,6 +9,8 @@ import {
   normalizePersistedHomePath,
   PERSISTED_HOME_SEED_FILENAME,
   PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
+  partitionPersistedHomeEntriesByScope,
+  resolvePersistedHomeScopeForPath,
 } from '../../src/persisted_home_state.ts';
 
 async function runNodeScript(
@@ -188,4 +190,34 @@ test('normalizePersistedHomePath rejects absolute and parent paths', (t) => {
   t.throws(() => normalizePersistedHomePath('/tmp/file'), { message: /relative to \$HOME/ });
   t.throws(() => normalizePersistedHomePath('../file'), { message: /stay inside \$HOME/ });
   t.is(normalizePersistedHomePath('.claude/sessions/nested/file.txt'), '.claude/sessions/nested/file.txt');
+});
+
+test('persisted home target scope separates global claude config from workspace session data', (t) => {
+  t.is(resolvePersistedHomeScopeForPath('.claude/.config.json'), 'global');
+  t.is(resolvePersistedHomeScopeForPath('.claude/.credentials.json'), 'global');
+  t.is(resolvePersistedHomeScopeForPath('.claude.json'), 'global');
+  t.is(resolvePersistedHomeScopeForPath('.pi/agent/settings.json'), 'global');
+  t.is(resolvePersistedHomeScopeForPath('.claude/sessions/example.jsonl'), 'workspace');
+  t.is(resolvePersistedHomeScopeForPath('.claude/projects/example.json'), 'workspace');
+
+  t.deepEqual(
+    partitionPersistedHomeEntriesByScope([
+      { path: '.claude.json', content: 'global-config\n' },
+      { path: '.claude/.credentials.json', content: 'credentials\n' },
+      { path: '.pi/agent/settings.json', content: 'settings\n' },
+      { path: '.claude/sessions/example.jsonl', content: 'session\n' },
+      { path: '.claude/projects/example.json', content: 'project\n' },
+    ]),
+    {
+      globalEntries: [
+        { path: '.claude.json', content: 'global-config\n' },
+        { path: '.claude/.credentials.json', content: 'credentials\n' },
+        { path: '.pi/agent/settings.json', content: 'settings\n' },
+      ],
+      workspaceEntries: [
+        { path: '.claude/projects/example.json', content: 'project\n' },
+        { path: '.claude/sessions/example.jsonl', content: 'session\n' },
+      ],
+    },
+  );
 });
