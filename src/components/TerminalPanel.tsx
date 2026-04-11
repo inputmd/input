@@ -26,6 +26,7 @@ import {
 } from '../webcontainer_home_overlay.ts';
 import { startWebContainerHostBridge, type WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
 import { useDialogs } from './DialogProvider';
+import { consumeTerminalPixelWheelDelta } from './terminal_wheel.ts';
 
 // Ctrl-C/Ctrl-\ don't reliably interrupt processes inside WebContainer
 // (upstream bug). As a workaround, a second press warns that a third press
@@ -1111,13 +1112,15 @@ export function TerminalPanel({
       runtime.terminal = terminal;
       terminal.open(container);
       fitTerminal(terminal, container);
+      let pixelWheelRemainder = 0;
 
       terminal.attachCustomWheelEventHandler((event) => {
         if (event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) return false;
         const charHeight = terminal.renderer?.charHeight ?? 20;
-        const lines = (event.deltaY / charHeight) * 2;
-        if (lines !== 0) {
-          terminal.scrollLines(lines);
+        const nextScroll = consumeTerminalPixelWheelDelta(pixelWheelRemainder, event.deltaY, charHeight);
+        pixelWheelRemainder = nextScroll.remainder;
+        if (nextScroll.lines !== 0) {
+          terminal.scrollLines(nextScroll.lines);
         }
         return true;
       });
