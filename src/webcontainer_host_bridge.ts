@@ -51,6 +51,10 @@ interface StartWebContainerHostBridgeOptions {
   wc: WebContainer;
 }
 
+function trimTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
   for (let index = 0; index < bytes.length; index += 0x8000) {
@@ -117,17 +121,42 @@ async function readProcessStdout(process: SpawnedProcessLike): Promise<string> {
   return result;
 }
 
-async function resolveWebContainerHomeDirectory(wc: WebContainer): Promise<string> {
-  const process = (await wc.spawn('node', ['-p', 'process.env.HOME'])) as SpawnedProcessLike;
+async function resolveWebContainerEnvValue(wc: WebContainer, name: string): Promise<string> {
+  const process = (await wc.spawn('node', [
+    '-e',
+    'process.stdout.write(process.env[process.argv[1]] || "")',
+    name,
+  ])) as SpawnedProcessLike;
   const [output, exitCode] = await Promise.all([readProcessStdout(process), process.exit]);
   if (exitCode !== 0) {
-    throw new Error(`node -p process.env.HOME exited with code ${exitCode}`);
+    throw new Error(`node env lookup for ${name} exited with code ${exitCode}`);
   }
-  const homeDir = output.trim();
+  return output.trim();
+}
+
+async function resolveWebContainerHomeDirectory(wc: WebContainer): Promise<string> {
+  const homeDir = await resolveWebContainerEnvValue(wc, 'HOME');
   if (!homeDir) {
     throw new Error('WebContainer HOME is empty');
   }
   return homeDir;
+}
+
+export function buildWebContainerSpawnEnv(homeDir: string, currentPath: string): Record<string, string> {
+  const normalizedHomeDir = trimTrailingSlashes(homeDir);
+  const localBinDir = `${normalizedHomeDir}/.local/bin`;
+  const pathEntries = currentPath
+    .split(':')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const normalizedLocalBinDir = trimTrailingSlashes(localBinDir);
+  const hasLocalBinDir = pathEntries.some((entry) => trimTrailingSlashes(entry) === normalizedLocalBinDir);
+
+  return {
+    INPUT_HOST_BRIDGE_URL: HOST_BRIDGE_DEFAULT_URL,
+    NODE_OPTIONS: `--require=${normalizedHomeDir}/host_rewrite.mjs`,
+    PATH: hasLocalBinDir ? currentPath : [localBinDir, currentPath].filter(Boolean).join(':'),
+  };
 }
 
 function createProxyFetchUrl(targetHost: string, path: string): string {
@@ -140,7 +169,8 @@ export async function startWebContainerHostBridge({
 }: StartWebContainerHostBridgeOptions): Promise<WebContainerHostBridgeSession> {
   const proxySessionId = crypto.randomUUID();
   const homeDir = await resolveWebContainerHomeDirectory(wc);
-  const daemonPath = `${homeDir.replace(/\/$/, '')}/host_bridge.mjs`;
+  const currentPath = await resolveWebContainerEnvValue(wc, 'PATH');
+  const daemonPath = `${trimTrailingSlashes(homeDir)}/host_bridge.mjs`;
   const daemon = (await wc.spawn('node', [daemonPath], {
     env: {
       INPUT_HOST_BRIDGE_PORT: String(HOST_BRIDGE_PORT),
@@ -372,10 +402,7 @@ export async function startWebContainerHostBridge({
   };
 
   return {
-    env: {
-      INPUT_HOST_BRIDGE_URL: HOST_BRIDGE_DEFAULT_URL,
-      NODE_OPTIONS: `--require=${homeDir.replace(/\/$/, '')}/host_rewrite.mjs`,
-    },
+    env: buildWebContainerSpawnEnv(homeDir, currentPath),
     stop,
   };
 }
