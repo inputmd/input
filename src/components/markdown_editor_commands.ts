@@ -1,5 +1,6 @@
 import { isolateHistory } from '@codemirror/commands';
 import { markdownLanguage } from '@codemirror/lang-markdown';
+import { ensureSyntaxTree } from '@codemirror/language';
 import { EditorSelection, type EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { matchPromptListLine, parsePromptListBlock } from '../prompt_list_syntax.ts';
@@ -336,14 +337,26 @@ function findPromptListBlockAt(
   return null;
 }
 
+function ensureMarkdownSyntax(state: EditorState, pos: number): void {
+  const boundedPos = Math.max(0, Math.min(state.doc.length, pos));
+  ensureSyntaxTree(state, Math.min(state.doc.length, boundedPos + 1), 25);
+}
+
+function isMarkdownActive(state: EditorState, pos: number): boolean {
+  ensureMarkdownSyntax(state, pos);
+  return markdownLanguage.isActiveAt(state, pos, -1) || markdownLanguage.isActiveAt(state, pos, 1);
+}
+
 export function insertNewlineContinueLooseListItem(view: EditorView): boolean {
   const { state } = view;
   const range = state.selection.main;
   if (!range.empty) return false;
-  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
-    return false;
 
   const line = state.doc.lineAt(range.from);
+  // Let CodeMirror's default markdown Enter behavior handle line-end list
+  // continuation so a second Enter can exit nested items consistently.
+  if (range.from === line.to) return false;
+  if (!isMarkdownActive(state, range.from)) return false;
   if (!/\S/.test(line.text)) return false;
 
   const context = getMarkdownListContext(state, range.from);
@@ -400,11 +413,7 @@ export function insertNewlineExitLooseNestedListItem(view: EditorView): boolean 
   if (line.number <= 1) return false;
 
   const previousLine = state.doc.line(line.number - 1);
-  const inMarkdown =
-    markdownLanguage.isActiveAt(state, range.from, -1) ||
-    markdownLanguage.isActiveAt(state, range.from, 1) ||
-    markdownLanguage.isActiveAt(state, previousLine.to, -1) ||
-    markdownLanguage.isActiveAt(state, previousLine.to, 1);
+  const inMarkdown = isMarkdownActive(state, range.from) || isMarkdownActive(state, previousLine.to);
   if (!inMarkdown) return false;
   if (!/\S/.test(previousLine.text)) return false;
 
@@ -433,8 +442,7 @@ export function insertNewlineExitBlockquote(view: EditorView): boolean {
   const { state } = view;
   const range = state.selection.main;
   if (!range.empty) return false;
-  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
-    return false;
+  if (!isMarkdownActive(state, range.from)) return false;
 
   const line = state.doc.lineAt(range.from);
   if (range.from !== line.to) return false;
@@ -464,8 +472,7 @@ export function insertNewlineExitBlockquote(view: EditorView): boolean {
 export function getPromptListRequest(state: EditorState): PromptListRequest | null {
   const range = state.selection.main;
   if (!range.empty) return null;
-  if (!markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
-    return null;
+  if (!isMarkdownActive(state, range.from)) return null;
 
   const line = state.doc.lineAt(range.from);
   if (range.from !== line.to) return null;
