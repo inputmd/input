@@ -2,12 +2,41 @@ import type http from 'node:http';
 import { UPSTREAM_PROXY_SESSION_HEADER, UPSTREAM_PROXY_USER_AGENT_HEADER } from '../shared/upstream_proxy.ts';
 import { ClientError } from './errors.ts';
 
+// Hosts used by Pi's built-in provider registry and OAuth flows that need to be
+// routed through the local upstream proxy from inside WebContainers.
 export const UPSTREAM_PROXY_ALLOWED_HOSTS = new Set([
+  'accounts.google.com',
+  'ai-gateway.vercel.sh',
   'api.anthropic.com',
+  'api.cerebras.ai',
+  'api.github.com',
+  'api.groq.com',
+  'api.individual.githubcopilot.com',
+  'api.kimi.com',
+  'api.minimax.io',
+  'api.minimaxi.com',
+  'api.mistral.ai',
+  'api.openai.com',
+  'api.x.ai',
+  'api.z.ai',
+  'auth.openai.com',
+  'autopush-cloudcode-pa.sandbox.googleapis.com',
+  'chatgpt.com',
+  'claude.ai',
+  'cloudcode-pa.googleapis.com',
+  'daily-cloudcode-pa.sandbox.googleapis.com',
   'downloads.claude.ai',
+  'generativelanguage.googleapis.com',
+  'github.com',
   'mcp-proxy.anthropic.com',
+  'opencode.ai',
+  'oauth2.googleapis.com',
+  'openrouter.ai',
   'platform.claude.com',
+  'router.huggingface.co',
+  'www.googleapis.com',
 ]);
+export const UPSTREAM_PROXY_ALLOWED_HOST_PATTERNS = ['*.openai.azure.com', '*-aiplatform.googleapis.com'];
 const UPSTREAM_PROXY_SESSION_TTL_MS = 30 * 60 * 1000;
 
 export const UPSTREAM_PROXY_STRIPPED_REQUEST_HEADERS = new Set([
@@ -67,8 +96,19 @@ const upstreamProxyCookieJars = new Map<string, Map<string, UpstreamProxySession
 function normalizeProxyTargetHost(rawHost: string): string {
   const normalized = rawHost.trim().toLowerCase();
   if (!normalized) throw new ClientError('Missing upstream host segment', 400);
-  if (!UPSTREAM_PROXY_ALLOWED_HOSTS.has(normalized)) throw new ClientError('Upstream host not allowed', 403);
+  if (!isAllowedUpstreamProxyHost(normalized)) throw new ClientError('Upstream host not allowed', 403);
   return normalized;
+}
+
+function hostnameMatchesPattern(hostname: string, pattern: string): boolean {
+  if (!hostname || !pattern) return false;
+  const escapedPattern = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^.]+');
+  return new RegExp(`^${escapedPattern}$`, 'i').test(hostname);
+}
+
+function isAllowedUpstreamProxyHost(hostname: string): boolean {
+  if (UPSTREAM_PROXY_ALLOWED_HOSTS.has(hostname)) return true;
+  return UPSTREAM_PROXY_ALLOWED_HOST_PATTERNS.some((pattern) => hostnameMatchesPattern(hostname, pattern));
 }
 
 function normalizeProxySessionId(rawSessionId: string | string[] | undefined): string | null {

@@ -7,20 +7,61 @@ import {
   getUpstreamProxyForwardedUserAgent,
   getUpstreamProxySessionId,
   storeUpstreamProxyResponseCookies,
+  UPSTREAM_PROXY_ALLOWED_HOST_PATTERNS,
   UPSTREAM_PROXY_ALLOWED_HOSTS,
 } from '../upstream_proxy.ts';
 
 test('upstream proxy helper exposes the allowed upstream hosts', (t) => {
   t.deepEqual(
     [...UPSTREAM_PROXY_ALLOWED_HOSTS],
-    ['api.anthropic.com', 'downloads.claude.ai', 'mcp-proxy.anthropic.com', 'platform.claude.com'],
+    [
+      'accounts.google.com',
+      'ai-gateway.vercel.sh',
+      'api.anthropic.com',
+      'api.cerebras.ai',
+      'api.github.com',
+      'api.groq.com',
+      'api.individual.githubcopilot.com',
+      'api.kimi.com',
+      'api.minimax.io',
+      'api.minimaxi.com',
+      'api.mistral.ai',
+      'api.openai.com',
+      'api.x.ai',
+      'api.z.ai',
+      'auth.openai.com',
+      'autopush-cloudcode-pa.sandbox.googleapis.com',
+      'chatgpt.com',
+      'claude.ai',
+      'cloudcode-pa.googleapis.com',
+      'daily-cloudcode-pa.sandbox.googleapis.com',
+      'downloads.claude.ai',
+      'generativelanguage.googleapis.com',
+      'github.com',
+      'mcp-proxy.anthropic.com',
+      'opencode.ai',
+      'oauth2.googleapis.com',
+      'openrouter.ai',
+      'platform.claude.com',
+      'router.huggingface.co',
+      'www.googleapis.com',
+    ],
   );
+  t.deepEqual(UPSTREAM_PROXY_ALLOWED_HOST_PATTERNS, ['*.openai.azure.com', '*-aiplatform.googleapis.com']);
 });
 
 test('upstream proxy helper builds the upstream URL from the proxy pathname', (t) => {
   const upstream = buildUpstreamProxyUrl('/api/upstream-proxy/api.anthropic.com/v1/messages', '?beta=true');
 
   t.is(upstream.toString(), 'https://api.anthropic.com/v1/messages?beta=true');
+});
+
+test('upstream proxy helper allows configured wildcard provider hosts', (t) => {
+  const azureUpstream = buildUpstreamProxyUrl('/api/upstream-proxy/my-resource.openai.azure.com/openai/v1/responses');
+  t.is(azureUpstream.toString(), 'https://my-resource.openai.azure.com/openai/v1/responses');
+
+  const vertexUpstream = buildUpstreamProxyUrl('/api/upstream-proxy/us-central1-aiplatform.googleapis.com/v1/projects');
+  t.is(vertexUpstream.toString(), 'https://us-central1-aiplatform.googleapis.com/v1/projects');
 });
 
 test('upstream proxy helper strips hop-by-hop and local-only request headers', (t) => {

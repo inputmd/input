@@ -5,7 +5,39 @@ const originalHttpRequest = http.request;
 const originalHttpsRequest = https.request;
 
 export const DEFAULT_HOST_BRIDGE_URL = 'http://127.0.0.1:4318';
-export const REWRITE_HOSTS = ['api.anthropic.com', 'downloads.claude.ai', 'mcp-proxy.anthropic.com', 'platform.claude.com'];
+export const REWRITE_HOSTS = [
+  'accounts.google.com',
+  'ai-gateway.vercel.sh',
+  'api.anthropic.com',
+  'api.cerebras.ai',
+  'api.github.com',
+  'api.groq.com',
+  'api.individual.githubcopilot.com',
+  'api.kimi.com',
+  'api.minimax.io',
+  'api.minimaxi.com',
+  'api.mistral.ai',
+  'api.openai.com',
+  'api.x.ai',
+  'api.z.ai',
+  'auth.openai.com',
+  'autopush-cloudcode-pa.sandbox.googleapis.com',
+  'chatgpt.com',
+  'claude.ai',
+  'cloudcode-pa.googleapis.com',
+  'daily-cloudcode-pa.sandbox.googleapis.com',
+  'downloads.claude.ai',
+  'generativelanguage.googleapis.com',
+  'github.com',
+  'mcp-proxy.anthropic.com',
+  'opencode.ai',
+  'oauth2.googleapis.com',
+  'openrouter.ai',
+  'platform.claude.com',
+  'router.huggingface.co',
+  'www.googleapis.com',
+];
+export const REWRITE_HOST_PATTERNS = ['*.openai.azure.com', '*-aiplatform.googleapis.com'];
 export const SWALLOW_HOST_PATTERNS = ['*.logs.*.datadoghq.com'];
 
 function isPlainObject(value) {
@@ -88,7 +120,11 @@ export function resolveHostBridgeBaseUrl(rawBaseUrl = process.env.INPUT_HOST_BRI
 }
 
 export function shouldRewriteHostBridgeUrl(url) {
-  return url instanceof URL && REWRITE_HOSTS.includes(url.hostname);
+  return (
+    url instanceof URL &&
+    (REWRITE_HOSTS.includes(url.hostname) ||
+      REWRITE_HOST_PATTERNS.some((pattern) => hostnameMatchesPattern(url.hostname, pattern)))
+  );
 }
 
 export function shouldSwallowHostBridgeUrl(url) {

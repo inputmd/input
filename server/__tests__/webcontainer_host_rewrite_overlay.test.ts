@@ -19,11 +19,38 @@ test('host rewrite overlay exposes the upstream hosts rewritten through the loca
   t.teardown(restore);
 
   t.deepEqual(module.REWRITE_HOSTS, [
+    'accounts.google.com',
+    'ai-gateway.vercel.sh',
     'api.anthropic.com',
+    'api.cerebras.ai',
+    'api.github.com',
+    'api.groq.com',
+    'api.individual.githubcopilot.com',
+    'api.kimi.com',
+    'api.minimax.io',
+    'api.minimaxi.com',
+    'api.mistral.ai',
+    'api.openai.com',
+    'api.x.ai',
+    'api.z.ai',
+    'auth.openai.com',
+    'autopush-cloudcode-pa.sandbox.googleapis.com',
+    'chatgpt.com',
+    'claude.ai',
+    'cloudcode-pa.googleapis.com',
+    'daily-cloudcode-pa.sandbox.googleapis.com',
     'downloads.claude.ai',
+    'generativelanguage.googleapis.com',
+    'github.com',
     'mcp-proxy.anthropic.com',
+    'opencode.ai',
+    'oauth2.googleapis.com',
+    'openrouter.ai',
     'platform.claude.com',
+    'router.huggingface.co',
+    'www.googleapis.com',
   ]);
+  t.deepEqual(module.REWRITE_HOST_PATTERNS, ['*.openai.azure.com', '*-aiplatform.googleapis.com']);
   t.deepEqual(module.SWALLOW_HOST_PATTERNS, ['*.logs.*.datadoghq.com']);
 });
 
@@ -102,6 +129,15 @@ test('host rewrite overlay leaves unrelated requests unchanged', async (t) => {
 
   t.is(patchedArgs[0], options);
   t.false(module.shouldRewriteHostBridgeUrl(new URL('https://example.com/v1/messages')));
+});
+
+test('host rewrite overlay matches configured wildcard provider hosts', async (t) => {
+  const { module, restore } = await loadHostRewriteOverlayModule();
+  t.teardown(restore);
+
+  t.true(module.shouldRewriteHostBridgeUrl(new URL('https://workspace.openai.azure.com/openai/v1/responses')));
+  t.true(module.shouldRewriteHostBridgeUrl(new URL('https://us-central1-aiplatform.googleapis.com/v1/projects/test')));
+  t.false(module.shouldRewriteHostBridgeUrl(new URL('https://openai.azure.com/openai/v1/responses')));
 });
 
 test('host rewrite overlay swallows datadog logs hosts', async (t) => {
