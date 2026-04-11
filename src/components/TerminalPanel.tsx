@@ -12,6 +12,7 @@ import {
   loadPersistedHomeEntries,
   PERSISTED_HOME_SEED_FILENAME,
   PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
+  type PersistedHomeEntry,
   persistPersistedHomeEntries,
 } from '../persisted_home_state.ts';
 import {
@@ -199,11 +200,7 @@ function joinHomePath(homeDir: string, fileName: string): string {
   return `${homeDir.replace(/\/+$/, '')}/${fileName}`;
 }
 
-function logPersistedHomePaths(
-  level: 'log' | 'info',
-  message: string,
-  entries: Array<{ path: string; content: string }>,
-): void {
+function logPersistedHomePaths(level: 'log' | 'info', message: string, entries: PersistedHomeEntry[]): void {
   const paths = entries.map((entry) => entry.path).sort((left, right) => left.localeCompare(right));
   console[level](message, paths);
 }
@@ -325,7 +322,7 @@ async function restorePersistedHomeForWorkspace(
 async function readPersistedHomeEntriesForWorkspace(
   wc: WebContainer,
   scriptPath: string,
-): Promise<Array<{ path: string; content: string }>> {
+): Promise<PersistedHomeEntry[]> {
   const reader = await wc.spawn('node', [scriptPath, 'snapshot']);
   const [output, exitCode] = await Promise.all([readStreamFully(reader.output), reader.exit]);
   if (exitCode !== 0) {
@@ -342,8 +339,9 @@ async function readPersistedHomeEntriesForWorkspace(
     if (!entry || typeof entry !== 'object') return [];
     const path = (entry as { path?: unknown }).path;
     const content = (entry as { content?: unknown }).content;
+    const mtime = (entry as { mtime?: unknown }).mtime;
     if (typeof path !== 'string' || typeof content !== 'string') return [];
-    return [{ path, content }];
+    return [{ path, content, mtime: typeof mtime === 'number' && Number.isFinite(mtime) ? Math.trunc(mtime) : null }];
   });
 }
 
@@ -548,7 +546,7 @@ export function TerminalPanel({
   const persistedHomeSyncProcessIdRef = useRef(0);
   const persistedHomeSyncOutputBufferRef = useRef('');
   const persistedHomePersistTimerRef = useRef<number | null>(null);
-  const pendingPersistedHomeEntriesRef = useRef<Array<{ path: string; content: string }> | null>(null);
+  const pendingPersistedHomeEntriesRef = useRef<PersistedHomeEntry[] | null>(null);
   const webContainerSessionIdRef = useRef(0);
   const restartInFlightRef = useRef<Promise<void> | null>(null);
   const restartWebContainerInFlightRef = useRef<Promise<void> | null>(null);
@@ -740,20 +738,17 @@ export function TerminalPanel({
     logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', pendingEntries);
   }, []);
 
-  const persistPersistedHomeStateImmediately = useCallback(
-    async (entries: Array<{ path: string; content: string }>) => {
-      if (persistedHomePersistTimerRef.current !== null) {
-        window.clearTimeout(persistedHomePersistTimerRef.current);
-        persistedHomePersistTimerRef.current = null;
-      }
-      pendingPersistedHomeEntriesRef.current = null;
-      await persistPersistedHomeEntries(workspaceKeyRef.current, entries);
-      logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', entries);
-    },
-    [],
-  );
+  const persistPersistedHomeStateImmediately = useCallback(async (entries: PersistedHomeEntry[]) => {
+    if (persistedHomePersistTimerRef.current !== null) {
+      window.clearTimeout(persistedHomePersistTimerRef.current);
+      persistedHomePersistTimerRef.current = null;
+    }
+    pendingPersistedHomeEntriesRef.current = null;
+    await persistPersistedHomeEntries(workspaceKeyRef.current, entries);
+    logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', entries);
+  }, []);
 
-  const schedulePersistedHomeState = useCallback((entries: Array<{ path: string; content: string }>) => {
+  const schedulePersistedHomeState = useCallback((entries: PersistedHomeEntry[]) => {
     pendingPersistedHomeEntriesRef.current = entries;
     if (persistedHomePersistTimerRef.current !== null) {
       window.clearTimeout(persistedHomePersistTimerRef.current);
@@ -847,8 +842,15 @@ export function TerminalPanel({
                     if (!entry || typeof entry !== 'object') return [];
                     const path = (entry as { path?: unknown }).path;
                     const content = (entry as { content?: unknown }).content;
+                    const mtime = (entry as { mtime?: unknown }).mtime;
                     if (typeof path !== 'string' || typeof content !== 'string') return [];
-                    return [{ path, content }];
+                    return [
+                      {
+                        path,
+                        content,
+                        mtime: typeof mtime === 'number' && Number.isFinite(mtime) ? Math.trunc(mtime) : null,
+                      },
+                    ];
                   });
                   schedulePersistedHomeState(entries);
                 } catch (err) {

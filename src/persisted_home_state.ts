@@ -2,7 +2,7 @@ export const PERSISTED_HOME_SYNC_SCRIPT_FILENAME = '.input-persisted-home-sync.c
 export const PERSISTED_HOME_SEED_FILENAME = '.input-persisted-home-seed.json';
 
 const PERSISTED_HOME_DB_NAME = 'input_persisted_home_v1';
-const PERSISTED_HOME_DB_VERSION = 1;
+const PERSISTED_HOME_DB_VERSION = 2;
 const PERSISTED_HOME_ENTRY_STORE = 'entries';
 const PERSISTED_HOME_WORKSPACE_INDEX = 'byWorkspaceKey';
 const PERSISTED_HOME_SCAN_INTERVAL_MS = 500;
@@ -20,10 +20,11 @@ export interface PersistedHomeTarget {
 export interface PersistedHomeEntry {
   path: string;
   content: string;
+  mtime: number | null;
 }
 
 interface PersistedHomeSeedSnapshot {
-  version: 1;
+  version: 2;
   entries: PersistedHomeEntry[];
 }
 
@@ -31,6 +32,7 @@ interface PersistedHomeRecord {
   workspaceKey: string;
   homePath: string;
   content: string;
+  mtime: number | null;
   updatedAt: number;
 }
 
@@ -139,19 +141,26 @@ export function resolvePersistedHomeScopeForPath(
   return target?.scope ?? null;
 }
 
+function normalizePersistedHomeMtime(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  return Math.trunc(value);
+}
+
 function normalizePersistedHomeEntries(
   entries: readonly PersistedHomeEntry[],
   targets: readonly PersistedHomeTarget[] = PERSISTED_HOME_TARGETS,
 ): PersistedHomeEntry[] {
-  const normalizedByPath = new Map<string, string>();
+  const normalizedByPath = new Map<string, PersistedHomeEntry>();
   for (const entry of entries) {
     const path = normalizePersistedHomePath(entry.path);
     if (!isPersistedHomePathManaged(path, targets)) continue;
-    normalizedByPath.set(path, typeof entry.content === 'string' ? entry.content : String(entry.content));
+    normalizedByPath.set(path, {
+      path,
+      content: typeof entry.content === 'string' ? entry.content : String(entry.content),
+      mtime: normalizePersistedHomeMtime(entry.mtime),
+    });
   }
-  return [...normalizedByPath.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([path, content]) => ({ path, content }));
+  return [...normalizedByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
 export function partitionPersistedHomeEntriesByScope(
@@ -252,6 +261,7 @@ export async function persistPersistedHomeEntries(
         workspaceKey: PERSISTED_HOME_GLOBAL_WORKSPACE_KEY,
         homePath: entry.path,
         content: entry.content,
+        mtime: entry.mtime,
         updatedAt,
       } satisfies PersistedHomeRecord);
     }
@@ -262,6 +272,7 @@ export async function persistPersistedHomeEntries(
           workspaceKey: normalizedWorkspaceKey,
           homePath: entry.path,
           content: entry.content,
+          mtime: entry.mtime,
           updatedAt,
         } satisfies PersistedHomeRecord);
       }
@@ -290,26 +301,26 @@ export async function loadPersistedHomeEntries(workspaceKey: string): Promise<Pe
     const workspaceEntries = (workspaceRecords as PersistedHomeRecord[]).map((record) => ({
       path: record.homePath,
       content: record.content,
+      mtime: normalizePersistedHomeMtime(record.mtime),
     }));
     const globalEntries = (globalRecords as PersistedHomeRecord[]).map((record) => ({
       path: record.homePath,
       content: record.content,
+      mtime: normalizePersistedHomeMtime(record.mtime),
     }));
     const partitionedWorkspaceEntries = partitionPersistedHomeEntriesByScope(workspaceEntries);
     const partitionedGlobalEntries = partitionPersistedHomeEntriesByScope(globalEntries);
-    const mergedEntriesByPath = new Map<string, string>();
+    const mergedEntriesByPath = new Map<string, PersistedHomeEntry>();
     for (const entry of partitionedWorkspaceEntries.workspaceEntries) {
-      mergedEntriesByPath.set(entry.path, entry.content);
+      mergedEntriesByPath.set(entry.path, entry);
     }
     for (const entry of partitionedWorkspaceEntries.globalEntries) {
-      mergedEntriesByPath.set(entry.path, entry.content);
+      mergedEntriesByPath.set(entry.path, entry);
     }
     for (const entry of partitionedGlobalEntries.globalEntries) {
-      mergedEntriesByPath.set(entry.path, entry.content);
+      mergedEntriesByPath.set(entry.path, entry);
     }
-    return [...mergedEntriesByPath.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([path, content]) => ({ path, content }));
+    return [...mergedEntriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
   } finally {
     database.close();
   }
@@ -317,7 +328,7 @@ export async function loadPersistedHomeEntries(workspaceKey: string): Promise<Pe
 
 export function buildPersistedHomeSeed(entries: readonly PersistedHomeEntry[]): string {
   const snapshot: PersistedHomeSeedSnapshot = {
-    version: 1,
+    version: 2,
     entries: normalizePersistedHomeEntries(entries),
   };
   return JSON.stringify(snapshot);
@@ -362,15 +373,16 @@ export function buildPersistedHomeSyncScript(
     '  try {',
     "    const raw = fs.readFileSync(seedPath, 'utf8');",
     '    const parsed = JSON.parse(raw);',
-    '    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.entries)) return [];',
+    '    if (!parsed || parsed.version !== 2 || !Array.isArray(parsed.entries)) return [];',
     '    const entriesByPath = new Map();',
     '    for (const entry of parsed.entries) {',
     "      if (!entry || typeof entry.path !== 'string' || typeof entry.content !== 'string') continue;",
     '      const relativePath = normalizePath(entry.path);',
     '      if (!isManagedPath(relativePath)) continue;',
-    '      entriesByPath.set(relativePath, entry.content);',
+    '      const mtime = typeof entry.mtime === "number" && Number.isFinite(entry.mtime) && entry.mtime >= 0 ? Math.trunc(entry.mtime) : null;',
+    '      entriesByPath.set(relativePath, { path: relativePath, content: entry.content, mtime });',
     '    }',
-    '    return sortEntries(Array.from(entriesByPath, ([path, content]) => ({ path, content })));',
+    '    return sortEntries(Array.from(entriesByPath.values()));',
     '  } catch {',
     '    return [];',
     '  }',
@@ -391,7 +403,9 @@ export function buildPersistedHomeSyncScript(
     '      continue;',
     '    }',
     '    if (!entry.isFile()) continue;',
-    "    entries.push({ path: normalizePath(relativeChildPath), content: fs.readFileSync(absoluteChildPath, 'utf8') });",
+    '    const stats = fs.statSync(absoluteChildPath);',
+    '    const mtime = Number.isFinite(stats.mtimeMs) && stats.mtimeMs >= 0 ? Math.trunc(stats.mtimeMs) : null;',
+    "    entries.push({ path: normalizePath(relativeChildPath), content: fs.readFileSync(absoluteChildPath, 'utf8'), mtime });",
     '  }',
     '}',
     'function collectEntries() {',
@@ -400,8 +414,10 @@ export function buildPersistedHomeSyncScript(
     '    const targetPath = path.join(home, target.homePath);',
     "    if (target.kind === 'file') {",
     '      try {',
-    '        if (!fs.statSync(targetPath).isFile()) continue;',
-    "        entries.push({ path: target.homePath, content: fs.readFileSync(targetPath, 'utf8') });",
+    '        const stats = fs.statSync(targetPath);',
+    '        if (!stats.isFile()) continue;',
+    '        const mtime = Number.isFinite(stats.mtimeMs) && stats.mtimeMs >= 0 ? Math.trunc(stats.mtimeMs) : null;',
+    "        entries.push({ path: target.homePath, content: fs.readFileSync(targetPath, 'utf8'), mtime });",
     '      } catch {}',
     '      continue;',
     '    }',
@@ -422,6 +438,10 @@ export function buildPersistedHomeSyncScript(
     '    const absolutePath = path.join(home, entry.path);',
     '    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });',
     "    fs.writeFileSync(absolutePath, entry.content, 'utf8');",
+    '    if (typeof entry.mtime === "number" && Number.isFinite(entry.mtime) && entry.mtime >= 0) {',
+    '      const stampedTime = new Date(entry.mtime);',
+    '      fs.utimesSync(absolutePath, stampedTime, stampedTime);',
+    '    }',
     '  }',
     '}',
     "if (mode === 'restore') {",

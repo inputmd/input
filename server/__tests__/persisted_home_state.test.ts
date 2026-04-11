@@ -48,6 +48,7 @@ async function runNodeScript(
 test('persisted home sync script restores and snapshots managed home files', async (t) => {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), 'input-persisted-home-home-'));
   const workDir = await mkdtemp(path.join(os.tmpdir(), 'input-persisted-home-work-'));
+  const baseMtime = 1_712_345_678_000;
   t.teardown(async () => {
     await rm(homeDir, { force: true, recursive: true });
     await rm(workDir, { force: true, recursive: true });
@@ -72,8 +73,9 @@ test('persisted home sync script restores and snapshots managed home files', asy
     { path: '.pi/agent/sessions/nested/pi-branch.jsonl', content: '{"type":"assistant"}\n' },
     { path: '.pi/agent/themes/contrast.json', content: '{\n  "meta": { "name": "contrast" }\n}\n' },
     { path: '.jsh_history', content: 'npm test\ngit status\n' },
-  ];
+  ].map((entry, index) => ({ ...entry, mtime: baseMtime + index * 1_000 }));
   const entryByPath = new Map(entries.map((entry) => [entry.path, entry.content]));
+  const mtimeByPath = new Map(entries.map((entry) => [entry.path, entry.mtime]));
   const scriptPath = path.join(homeDir, PERSISTED_HOME_SYNC_SCRIPT_FILENAME);
   const seedPath = path.join(homeDir, PERSISTED_HOME_SEED_FILENAME);
 
@@ -166,6 +168,19 @@ test('persisted home sync script restores and snapshots managed home files', asy
     await readFile(path.join(homeDir, '.pi', 'agent', 'themes', 'contrast.json'), 'utf8'),
     entryByPath.get('.pi/agent/themes/contrast.json'),
   );
+  t.is(Math.trunc((await stat(path.join(homeDir, '.claude.json'))).mtimeMs), mtimeByPath.get('.claude.json'));
+  t.is(
+    Math.trunc((await stat(path.join(homeDir, '.claude', '.config.json'))).mtimeMs),
+    mtimeByPath.get('.claude/.config.json'),
+  );
+  t.is(
+    Math.trunc((await stat(path.join(homeDir, '.claude', 'sessions', 'a.txt'))).mtimeMs),
+    mtimeByPath.get('.claude/sessions/a.txt'),
+  );
+  t.is(
+    Math.trunc((await stat(path.join(homeDir, '.pi', 'agent', 'settings.json'))).mtimeMs),
+    mtimeByPath.get('.pi/agent/settings.json'),
+  );
   await t.throwsAsync(stat(path.join(homeDir, '.claude', 'cache', 'stale.bin')));
   await t.throwsAsync(stat(path.join(homeDir, '.claude', 'projects', 'stale.json')));
   await t.throwsAsync(stat(path.join(homeDir, '.claude', 'sessions', 'stale.txt')));
@@ -202,21 +217,21 @@ test('persisted home target scope separates global claude config from workspace 
 
   t.deepEqual(
     partitionPersistedHomeEntriesByScope([
-      { path: '.claude.json', content: 'global-config\n' },
-      { path: '.claude/.credentials.json', content: 'credentials\n' },
-      { path: '.pi/agent/settings.json', content: 'settings\n' },
-      { path: '.claude/sessions/example.jsonl', content: 'session\n' },
-      { path: '.claude/projects/example.json', content: 'project\n' },
+      { path: '.claude.json', content: 'global-config\n', mtime: null },
+      { path: '.claude/.credentials.json', content: 'credentials\n', mtime: 2 },
+      { path: '.pi/agent/settings.json', content: 'settings\n', mtime: 3 },
+      { path: '.claude/sessions/example.jsonl', content: 'session\n', mtime: 4 },
+      { path: '.claude/projects/example.json', content: 'project\n', mtime: 5 },
     ]),
     {
       globalEntries: [
-        { path: '.claude.json', content: 'global-config\n' },
-        { path: '.claude/.credentials.json', content: 'credentials\n' },
-        { path: '.pi/agent/settings.json', content: 'settings\n' },
+        { path: '.claude.json', content: 'global-config\n', mtime: null },
+        { path: '.claude/.credentials.json', content: 'credentials\n', mtime: 2 },
+        { path: '.pi/agent/settings.json', content: 'settings\n', mtime: 3 },
       ],
       workspaceEntries: [
-        { path: '.claude/projects/example.json', content: 'project\n' },
-        { path: '.claude/sessions/example.jsonl', content: 'session\n' },
+        { path: '.claude/projects/example.json', content: 'project\n', mtime: 5 },
+        { path: '.claude/sessions/example.jsonl', content: 'session\n', mtime: 4 },
       ],
     },
   );
