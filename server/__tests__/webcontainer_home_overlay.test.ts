@@ -216,7 +216,7 @@ test('buildWebContainerHomeOverlayProvisionScript provisions files, symlinks, mo
       type: 'symlink',
     },
   ]);
-  await writeFile(path.join(workDir, 'overlay.tar'), archive);
+  await writeFile(path.join(homeDir, 'overlay.tar'), archive);
 
   await runNodeScript(buildWebContainerHomeOverlayProvisionScript('overlay.tar'), {
     cwd: workDir,
@@ -251,7 +251,7 @@ test('buildWebContainerHomeOverlayProvisionScript rejects paths outside the home
       contents: new TextEncoder().encode('nope\n'),
     },
   ]);
-  await writeFile(path.join(workDir, 'overlay.tar'), archive);
+  await writeFile(path.join(homeDir, 'overlay.tar'), archive);
 
   const error = await t.throwsAsync(
     runNodeScript(buildWebContainerHomeOverlayProvisionScript('overlay.tar'), {
@@ -277,7 +277,7 @@ test('buildWebContainerHomeOverlayProvisionScript rejects symlink targets that e
       type: 'symlink',
     },
   ]);
-  await writeFile(path.join(workDir, 'overlay.tar'), archive);
+  await writeFile(path.join(homeDir, 'overlay.tar'), archive);
 
   const error = await t.throwsAsync(
     runNodeScript(buildWebContainerHomeOverlayProvisionScript('overlay.tar'), {

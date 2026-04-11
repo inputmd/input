@@ -27,11 +27,20 @@ const TERMINAL_IMPORT_IGNORED_SEGMENTS = new Set([
   'coverage',
 ]);
 
+const TERMINAL_IMPORT_IGNORED_FILENAMES = new Set([
+  '.input-home-overlay-provision.cjs',
+  '.input-home-overlay.tar',
+  '.input-persisted-home-sync.cjs',
+  '.input-persisted-home-seed.json',
+  '.input-webcontainer-home-overlay.json',
+]);
+
 export function shouldImportTerminalPath(path: string): boolean {
   const normalized = path.trim().replace(/^\/+|\/+$/g, '');
   if (!normalized) return false;
   const segments = normalized.split('/').filter(Boolean);
   if (segments.length === 0) return false;
+  if (segments.some((segment) => TERMINAL_IMPORT_IGNORED_FILENAMES.has(segment))) return false;
   return !segments.some((segment) => TERMINAL_IMPORT_IGNORED_SEGMENTS.has(segment));
 }
 

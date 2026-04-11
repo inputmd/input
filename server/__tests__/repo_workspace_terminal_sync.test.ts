@@ -9,6 +9,11 @@ test('shouldImportTerminalPath skips common generated directories', (t) => {
   t.false(shouldImportTerminalPath('node_modules/react/index.js'));
   t.false(shouldImportTerminalPath('.git/config'));
   t.false(shouldImportTerminalPath('dist/app.js'));
+  t.false(shouldImportTerminalPath('.input-home-overlay-provision.cjs'));
+  t.false(shouldImportTerminalPath('.input-home-overlay.tar'));
+  t.false(shouldImportTerminalPath('.input-persisted-home-sync.cjs'));
+  t.false(shouldImportTerminalPath('.input-persisted-home-seed.json'));
+  t.false(shouldImportTerminalPath('.input-webcontainer-home-overlay.json'));
   t.true(shouldImportTerminalPath('src/app.tsx'));
   t.true(shouldImportTerminalPath('.github/workflows/ci.yml'));
 });

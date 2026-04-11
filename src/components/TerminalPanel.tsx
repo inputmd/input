@@ -218,8 +218,7 @@ async function resolveWebContainerHomeDirectory(wc: WebContainer): Promise<strin
   return homeDir;
 }
 
-function encodeBase64(content: string): string {
-  const bytes = new TextEncoder().encode(content);
+function encodeBase64Bytes(bytes: Uint8Array): string {
   let binary = '';
   for (let index = 0; index < bytes.length; index += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
@@ -228,6 +227,10 @@ function encodeBase64(content: string): string {
 }
 
 async function writeContainerFile(wc: WebContainer, filePath: string, content: string): Promise<void> {
+  await writeContainerBytesFile(wc, filePath, new TextEncoder().encode(content));
+}
+
+async function writeContainerBytesFile(wc: WebContainer, filePath: string, content: Uint8Array): Promise<void> {
   const process = await wc.spawn('node', [
     '-e',
     [
@@ -236,16 +239,32 @@ async function writeContainerFile(wc: WebContainer, filePath: string, content: s
       "const targetPath = process.argv[1] || '';",
       "const encodedContent = process.argv[2] || '';",
       "if (!targetPath) throw new Error('Missing target path');",
-      "const content = Buffer.from(encodedContent, 'base64').toString('utf8');",
       'fs.mkdirSync(path.dirname(targetPath), { recursive: true });',
-      "fs.writeFileSync(targetPath, content, 'utf8');",
+      'fs.writeFileSync(targetPath, Buffer.from(encodedContent, "base64"));',
     ].join(' '),
     filePath,
-    encodeBase64(content),
+    encodeBase64Bytes(content),
   ]);
   const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
   if (exitCode !== 0) {
     throw new Error(`node write helper exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+  }
+}
+
+async function removeContainerAbsolutePath(wc: WebContainer, filePath: string): Promise<void> {
+  const process = await wc.spawn('node', [
+    '-e',
+    [
+      "const fs = require('fs');",
+      "const targetPath = process.argv[1] || '';",
+      "if (!targetPath) throw new Error('Missing target path');",
+      'fs.rmSync(targetPath, { force: true, recursive: true });',
+    ].join(' '),
+    filePath,
+  ]);
+  const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
+  if (exitCode !== 0) {
+    throw new Error(`node remove helper exited with code ${exitCode}; output=${JSON.stringify(output)}`);
   }
 }
 
@@ -272,24 +291,29 @@ async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBu
 }
 
 async function provisionHomeOverlay(wc: WebContainer): Promise<void> {
-  const archive = await fetchWebContainerHomeOverlayArchive();
+  const [archive, homeDir] = await Promise.all([
+    fetchWebContainerHomeOverlayArchive(),
+    resolveWebContainerHomeDirectory(wc),
+  ]);
+  const archivePath = joinHomePath(homeDir, HOME_OVERLAY_ARCHIVE_FILENAME);
+  const provisionScriptPath = joinHomePath(homeDir, HOME_OVERLAY_PROVISION_FILENAME);
   const provisionScript = buildWebContainerHomeOverlayProvisionScript(HOME_OVERLAY_ARCHIVE_FILENAME);
-  await wc.fs.writeFile(HOME_OVERLAY_ARCHIVE_FILENAME, archive);
-  await wc.fs.writeFile(HOME_OVERLAY_PROVISION_FILENAME, provisionScript);
+  await writeContainerBytesFile(wc, archivePath, archive);
+  await writeContainerFile(wc, provisionScriptPath, provisionScript);
   try {
-    const provision = await wc.spawn('node', [HOME_OVERLAY_PROVISION_FILENAME]);
+    const provision = await wc.spawn('node', [provisionScriptPath]);
     const [output, exitCode] = await Promise.all([readStreamFully(provision.output), provision.exit]);
     if (exitCode !== 0) {
       throw new Error(`node overlay provision exited with code ${exitCode}; output=${JSON.stringify(output)}`);
     }
   } finally {
     try {
-      await wc.fs.rm(HOME_OVERLAY_PROVISION_FILENAME, { force: true });
+      await removeContainerAbsolutePath(wc, provisionScriptPath);
     } catch {
       // best-effort cleanup
     }
     try {
-      await wc.fs.rm(HOME_OVERLAY_ARCHIVE_FILENAME, { force: true });
+      await removeContainerAbsolutePath(wc, archivePath);
     } catch {
       // best-effort cleanup
     }
