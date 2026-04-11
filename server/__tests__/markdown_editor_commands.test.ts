@@ -289,6 +289,13 @@ test('insertNewlineContinueLooseListItem ignores tight lists', (t) => {
   t.false(insertNewlineContinueLooseListItem(view));
 });
 
+test('insertNewlineContinueLooseListItem defers to default handling at line end', (t) => {
+  const doc = '- a\n  - b';
+  const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
+
+  t.false(insertNewlineContinueLooseListItem(view));
+});
+
 test('insertNewlineExitLooseNestedListItem exits one nesting level from a blank nested loose-list line', (t) => {
   const doc = '- a\n\n  - b\n  ';
   const view = makeMockView(doc, EditorSelection.cursor(doc.length), [markdown({ base: markdownLanguage })]);
