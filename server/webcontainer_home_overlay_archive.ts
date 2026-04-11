@@ -143,7 +143,7 @@ export async function writeWebContainerHomeOverlayArchiveResponse(res: http.Serv
   res.writeHead(200, {
     'Content-Type': 'application/x-tar',
     'Content-Length': String(archive.byteLength),
-    'Cache-Control': 'private, no-store',
+    'Cache-Control': 'private, max-age=3600',
   });
   res.end(Buffer.from(archive));
 }
