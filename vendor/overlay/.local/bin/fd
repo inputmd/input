@@ -1,0 +1,13 @@
+#!/usr/bin/env node
+'use strict';
+
+try {
+  const { runFd } = require('../lib/input-file-search.cjs');
+  process.exitCode = runFd(process.argv.slice(2), {
+    stderr: process.stderr,
+    stdout: process.stdout,
+  });
+} catch (err) {
+  process.stderr.write(`fd: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+  process.exitCode = 1;
+}
