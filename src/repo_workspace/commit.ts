@@ -21,12 +21,6 @@ interface BuildRepoWorkspaceTextSavePlanArgs {
   overlayFiles: RepoWorkspaceOverlayFile[];
   deletedBaseFiles: RepoWorkspaceDeletedFile[];
   renamedBaseFiles: RepoWorkspaceRenamedFile[];
-  draftFile?: {
-    currentPath: string | null;
-    targetPath: string;
-    currentContent: string;
-    currentSavedContent: string | null;
-  } | null;
   findBaseRepoSidebarFile: (path: string) => RepoDocFile | undefined;
   resolveRepoBasePath: (path: string) => string | null;
 }
@@ -123,25 +117,10 @@ export function buildRepoWorkspaceTextSavePlan({
   overlayFiles,
   deletedBaseFiles,
   renamedBaseFiles,
-  draftFile = null,
   findBaseRepoSidebarFile,
   resolveRepoBasePath,
 }: BuildRepoWorkspaceTextSavePlanArgs): RepoWorkspaceTextSavePlan {
   const pendingTextChangesByPath = new Map(overlayFiles.map((file) => [file.path, file.content]));
-  if (draftFile) {
-    if (draftFile.currentPath === null) {
-      pendingTextChangesByPath.set(draftFile.targetPath, draftFile.currentContent);
-    } else {
-      const basePath = resolveRepoBasePath(draftFile.currentPath);
-      if (!basePath) {
-        pendingTextChangesByPath.set(draftFile.currentPath, draftFile.currentContent);
-      } else if (draftFile.currentContent !== draftFile.currentSavedContent) {
-        pendingTextChangesByPath.set(draftFile.currentPath, draftFile.currentContent);
-      } else {
-        pendingTextChangesByPath.delete(draftFile.currentPath);
-      }
-    }
-  }
 
   const deletePaths = new Set(deletedBaseFiles.map((file) => file.path));
   const renameTargetsBySource = new Map(

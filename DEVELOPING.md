@@ -218,3 +218,74 @@ bypass per-IP rate limits.
 
 `www`, `api`, `app`, `mail`, `ftp`, `admin`, `blog`, `docs`, `status`,
 `cdn`, `staging`, and `dev` are reserved and bypass subdomain routing.
+
+## File persistence architecture
+
+For installed repos, file state flows through several layers between GitHub
+and the UI. This section documents how data moves, where it lives, and what
+mutates it.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            GitHub                                       │
+│                                                                         │
+│   Git Data API (GraphQL)              Contents API (REST)               │
+│   ─────────────────────               ───────────────────               │
+│   applyRepoBatchMutationAtomic        putRepoFile (single-file)         │
+│   - batch creates/updates/deletes     - create or update one file       │
+│     in one atomic commit              - works on empty repos            │
+│   - requires existing default branch  - returns { sha, path }           │
+│                                                                         │
+│   getRepoTree ──────────────────┐  getRepoContents ───────┐             │
+│   (full tree listing)           │  (single file body)     │             │
+│                                 │                         │             │
+│   getRepoTarball ─────────┐     │                         │             │
+│   (archive of all files)  │     │                         │             │
+└───────────────────────────│─────│─────────────────────────│─────────────┘
+                            │     │                         │
+                            v     v                         v
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Client State (useRepoWorkspace)                      │
+│                                                                         │
+│   repoSidebarFiles  ◄──── replaceRepoSnapshot(files)                    │
+│   ─────────────────       Source of truth for what is committed on      │
+│                           GitHub; the UI reads this as the base repo    │
+│                           tree before any terminal overlay is applied.  │
+│                                                                         │
+│   terminalBaseFiles ◄──── replaceTerminalBaseSnapshot(key, files)       │
+│   ─────────────────       Baseline snapshot synced into the terminal;   │
+│                           diffs are computed against this state to      │
+│                           detect terminal-made changes.                 │
+│                                                                         │
+│   overlayFilesByPath ◄──── applyTerminalImportDiffToWorkspace           │
+│   deletedBaseFilesByPath   (called every 3s by TerminalPanel auto-      │
+│   renamedBaseFilesByFrom   import + on pane switch/toggle)              │
+│   ──────────────────────                                                │
+│   Terminal overlay plus pending deletes and renames. This is the        │
+│   staged workspace layer that sits on top of the committed repo tree    │
+│   and is cleared after commit or discard.                               │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+           │                  │                   │                   │
+           v                  v                   v                   v
+┌──────────────────┐ ┌────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+│     Sidebar      │ │     Editor     │ │   Content View   │ │  Terminal Panel  │
+│                  │ │                │ │                  │ │                  │
+│ Builds the file  │ │ Holds the live │ │ Renders parsed   │ │ WebContainer FS  │
+│ list from the    │ │ buffer and the │ │ markdown from    │ │ runs separately  │
+│ effective repo   │ │ last saved     │ │ committed repo   │ │ from the editor. │
+│ tree plus route  │ │ document       │ │ content.         │ │                  │
+│ state.           │ │ content.       │ │                  │ │ Diffs actual FS  │
+│                  │ │                │ │ Post-save        │ │ against the      │
+│ Shows terminal   │ │ Save writes    │ │ verification     │ │ terminal base    │
+│ overlay state.   │ │ directly via   │ │ delays reloads   │ │ snapshot and     │
+│                  │ │ GitHub APIs.   │ │ until sha        │ │ imports changes  │
+│ Rename/delete    │ │ It does not    │ │ catches up.      │ │ into overlay.    │
+│ call GitHub      │ │ flush the      │ │                  │ │                  │
+│ directly.        │ │ terminal       │ │                  │ │ On discard,      │
+│                  │ │ overlay.       │ │                  │ │ overlay is       │
+│ Commit/Discard   │ │                │ │                  │ │ absorbed into    │
+│ acts on terminal │ │                │ │                  │ │ the base         │
+│ overlay only.    │ │                │ │                  │ │ snapshot.        │
+└──────────────────┘ └────────────────┘ └──────────────────┘ └──────────────────┘
+```

@@ -148,14 +148,47 @@ export function useRepoWorkspace({
     [deletedBaseFiles, overlayFiles, renamedBaseFiles, repoMarkdownFiles],
   );
   const sidebarSourceFiles = useMemo(() => {
-    return buildRepoWorkspaceSidebarSourceFiles({
+    const sourceFiles = buildRepoWorkspaceSidebarSourceFiles({
       gistFiles,
       currentFileName,
       repoSidebarFiles: effectiveRepoSidebarFiles,
       currentRepoDocPath,
       scratchSidebarPath,
     });
-  }, [currentFileName, currentRepoDocPath, effectiveRepoSidebarFiles, gistFiles, scratchSidebarPath]);
+    if (gistFiles) return sourceFiles;
+
+    const overlayPaths = new Set(overlayFiles.map((file) => file.path));
+    const basePaths = new Set(repoSidebarFiles.map((file) => file.path));
+    const renamedBasePathByTarget = new Map(renamedBaseFiles.map((file) => [file.to, file.from]));
+
+    return sourceFiles.map((file) => {
+      if (file.virtual) return file;
+      if (overlayPaths.has(file.path)) {
+        return {
+          ...file,
+          changeState: (basePaths.has(file.path) || renamedBasePathByTarget.has(file.path) ? 'modified' : 'new') as
+            | 'modified'
+            | 'new',
+        };
+      }
+      if (renamedBasePathByTarget.has(file.path)) {
+        return {
+          ...file,
+          changeState: 'modified' as const,
+        };
+      }
+      return file;
+    });
+  }, [
+    currentFileName,
+    currentRepoDocPath,
+    effectiveRepoSidebarFiles,
+    gistFiles,
+    overlayFiles,
+    renamedBaseFiles,
+    repoSidebarFiles,
+    scratchSidebarPath,
+  ]);
 
   const sidebarFiles = useMemo(() => {
     return filterRepoWorkspaceSidebarFiles(sidebarSourceFiles, sidebarFileFilter);
@@ -283,7 +316,16 @@ export function useRepoWorkspace({
     },
     [],
   );
+  // When an overlay entry is cleared, its content is automatically absorbed
+  // into the terminal base snapshot so the auto-import diff doesn't re-stage
+  // the file from the WebContainer (which still has it).
   const clearRepoOverlayFile = useCallback((path: string) => {
+    const entry = overlayFilesRef.current.find((f) => f.path === path);
+    if (entry) {
+      setTerminalBaseSnapshot((snapshot) =>
+        snapshot ? { ...snapshot, files: setRepoTerminalBaseFile(snapshot.files, path, entry.content) } : snapshot,
+      );
+    }
     setOverlayFilesByPath((current) => {
       if (!(path in current)) return current;
       const next = { ...current };
@@ -293,6 +335,20 @@ export function useRepoWorkspace({
   }, []);
   const clearRepoOverlayFiles = useCallback((paths: string[]) => {
     if (paths.length === 0) return;
+    const currentOverlay = overlayFilesRef.current;
+    setTerminalBaseSnapshot((snapshot) => {
+      if (!snapshot) return snapshot;
+      let files = snapshot.files;
+      let changed = false;
+      for (const path of paths) {
+        const entry = currentOverlay.find((f) => f.path === path);
+        if (entry) {
+          files = setRepoTerminalBaseFile(files, path, entry.content);
+          changed = true;
+        }
+      }
+      return changed ? { ...snapshot, files } : snapshot;
+    });
     setOverlayFilesByPath((current) => {
       let next: Record<string, { content: string; source: 'editor' | 'sidebar' | 'terminal' | 'reader_ai' }> | null =
         null;
@@ -371,6 +427,17 @@ export function useRepoWorkspace({
     });
   }, []);
   const clearAllRepoOverlayFiles = useCallback(() => {
+    const currentOverlay = overlayFilesRef.current;
+    if (currentOverlay.length > 0) {
+      setTerminalBaseSnapshot((snapshot) => {
+        if (!snapshot) return snapshot;
+        let files = snapshot.files;
+        for (const entry of currentOverlay) {
+          files = setRepoTerminalBaseFile(files, entry.path, entry.content);
+        }
+        return { ...snapshot, files };
+      });
+    }
     setOverlayFilesByPath((current) => (Object.keys(current).length === 0 ? current : {}));
   }, []);
   const getWorkspaceChangesSnapshot = useCallback(
@@ -421,6 +488,25 @@ export function useRepoWorkspace({
     [],
   );
   const clearAllRepoWorkspaceChanges = useCallback(() => {
+    // Absorb overlay state into the terminal base snapshot so the auto-import
+    // diff sees managed == actual and produces no new entries.
+    const currentOverlay = overlayFilesRef.current;
+    const currentDeleted = deletedBaseFilesRef.current;
+    if (currentOverlay.length > 0 || currentDeleted.length > 0) {
+      setTerminalBaseSnapshot((snapshot) => {
+        if (!snapshot) return snapshot;
+        let files = snapshot.files;
+        // Overlay upserts: the WebContainer has these files — accept them.
+        for (const entry of currentOverlay) {
+          files = setRepoTerminalBaseFile(files, entry.path, entry.content);
+        }
+        // Deleted base files: the WebContainer no longer has them — remove.
+        for (const entry of currentDeleted) {
+          files = removeRepoTerminalBaseFile(files, entry.path);
+        }
+        return { ...snapshot, files };
+      });
+    }
     overlayFilesRef.current = [];
     deletedBaseFilesRef.current = [];
     renamedBaseFilesRef.current = [];
