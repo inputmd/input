@@ -232,6 +232,7 @@ async function readStreamFully(stream: ReadableStream<string>): Promise<string> 
   return result;
 }
 
+const ANSI_ESCAPE_SEQUENCE_RE = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const HOME_OVERLAY_ARCHIVE_FILENAME = '.input-home-overlay.tar';
 const HOME_OVERLAY_PROVISION_FILENAME = '.input-home-overlay-provision.cjs';
 const PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS = 250;
@@ -251,6 +252,26 @@ interface TerminalBootPerfStage {
   error?: string;
   stage: string;
   status: 'error' | 'ok';
+}
+
+function normalizeTerminalProcessOutput(output: string): string {
+  return output.replace(ANSI_ESCAPE_SEQUENCE_RE, '').replace(/\r\n?/g, '\n').trim();
+}
+
+function buildNodeHelperExitError(label: string, exitCode: number, output: string): Error {
+  const normalizedOutput = normalizeTerminalProcessOutput(output);
+  return new Error(
+    normalizedOutput
+      ? `${label} exited with code ${exitCode}\n${normalizedOutput}`
+      : `${label} exited with code ${exitCode}`,
+  );
+}
+
+function formatTerminalBootError(prefix: string, err: unknown): string {
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  const normalizedMessage = normalizeTerminalProcessOutput(rawMessage) || 'Unknown error';
+  const [firstLine, ...restLines] = normalizedMessage.split('\n');
+  return `${[`${prefix}: ${firstLine}`, ...restLines.map((line) => `  ${line}`)].join('\r\n')}\r\n`;
 }
 
 function joinHomePath(homeDir: string, fileName: string): string {
@@ -380,7 +401,7 @@ async function writeContainerBytesFile(wc: WebContainer, filePath: string, conte
   ]);
   const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
   if (exitCode !== 0) {
-    throw new Error(`node write helper exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+    throw buildNodeHelperExitError('node write helper', exitCode, output);
   }
 }
 
@@ -397,7 +418,7 @@ async function removeContainerAbsolutePath(wc: WebContainer, filePath: string): 
   ]);
   const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
   if (exitCode !== 0) {
-    throw new Error(`node remove helper exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+    throw buildNodeHelperExitError('node remove helper', exitCode, output);
   }
 }
 
@@ -453,7 +474,7 @@ async function provisionHomeOverlay(
         const provision = await wc.spawn('node', [provisionScriptPath]);
         const [output, exitCode] = await Promise.all([readStreamFully(provision.output), provision.exit]);
         if (exitCode !== 0) {
-          throw new Error(`node overlay provision exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+          throw buildNodeHelperExitError('node overlay provision', exitCode, output);
         }
       },
       {
@@ -507,7 +528,7 @@ async function restorePersistedHomeForWorkspace(
       const restore = await wc.spawn('node', [scriptPath, 'restore']);
       const [output, exitCode] = await Promise.all([readStreamFully(restore.output), restore.exit]);
       if (exitCode !== 0) {
-        throw new Error(`node persisted home restore exited with code ${exitCode}; output=${JSON.stringify(output)}`);
+        throw buildNodeHelperExitError('node persisted home restore', exitCode, output);
       }
     },
     {
@@ -1554,9 +1575,7 @@ export function TerminalPanel({
           bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
         } catch (err) {
           console.error('[terminal] failed to provision home overlay', err);
-          terminal.write(
-            `[terminal] failed to provision home overlay: ${err instanceof Error ? err.message : String(err)}\r\n`,
-          );
+          terminal.write(formatTerminalBootError('[terminal] failed to provision home overlay', err));
         }
 
         try {
@@ -1578,9 +1597,7 @@ export function TerminalPanel({
         } catch (err) {
           persistedHomeScriptPathRef.current = null;
           console.error('[terminal] failed to restore managed home state', err);
-          terminal.write(
-            `[terminal] failed to restore managed home state: ${err instanceof Error ? err.message : String(err)}\r\n`,
-          );
+          terminal.write(formatTerminalBootError('[terminal] failed to restore managed home state', err));
         }
 
         try {
