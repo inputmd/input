@@ -12,6 +12,7 @@
     "deploy": "fly deploy",
     "lint": "biome check --config-path . src server vite.config.ts",
     "lint:fix": "biome check --config-path . --fix src server vite.config.ts",
+    "prune:pi-overlay": "node scripts/prune_pi_overlay.mjs",
     "test": "ava"
   },
   "ava": {
