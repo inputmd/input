@@ -175,12 +175,28 @@ async function ensureCodexAppServer(
   const child = spawn('codex', ['app-server', '--listen', appServerUrl], {
     stdio: 'inherit',
   });
+  const startupFailure = new Promise<never>((_, reject) => {
+    child.once('error', (error) => {
+      reject(error instanceof Error ? error : new Error('Failed to start Codex app-server'));
+    });
+    child.once('exit', (code, signal) => {
+      reject(
+        new Error(
+          `Codex app-server exited before becoming ready${code !== null ? ` (code ${code})` : ''}${signal ? ` (signal ${signal})` : ''}`,
+        ),
+      );
+    });
+  });
 
   try {
-    await waitForCodexAppServerReady(appServerUrl);
+    await Promise.race([waitForCodexAppServerReady(appServerUrl), startupFailure]);
     return child;
   } catch (error) {
-    child.kill('SIGTERM');
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      // ignore cleanup errors
+    }
     throw error;
   }
 }
@@ -418,17 +434,22 @@ export async function createCodexBridgeServer(options: CreateCodexBridgeServerOp
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const managed = await createCodexBridgeServer();
-  managed.server.listen(DEFAULT_CODEX_BRIDGE_PORT, '127.0.0.1', () => {
-    console.log(`Codex bridge listening on http://127.0.0.1:${DEFAULT_CODEX_BRIDGE_PORT}`);
-    console.log(`[codex-bridge] app-server=${DEFAULT_CODEX_APP_SERVER_URL}`);
-  });
+  try {
+    const managed = await createCodexBridgeServer();
+    managed.server.listen(DEFAULT_CODEX_BRIDGE_PORT, '127.0.0.1', () => {
+      console.log(`Codex bridge listening on http://127.0.0.1:${DEFAULT_CODEX_BRIDGE_PORT}`);
+      console.log(`[codex-bridge] app-server=${DEFAULT_CODEX_APP_SERVER_URL}`);
+    });
 
-  const shutdown = () => {
-    managed.closeManagedResources();
-    managed.server.close();
-  };
+    const shutdown = () => {
+      managed.closeManagedResources();
+      managed.server.close();
+    };
 
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+  } catch (error) {
+    console.error('Failed to start Codex bridge:', error);
+    process.exit(1);
+  }
 }

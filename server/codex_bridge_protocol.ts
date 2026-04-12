@@ -215,35 +215,65 @@ class CodexRpcSession {
     this.url = url;
   }
 
+  private asSessionError(error: unknown, fallback: string): Error {
+    return error instanceof Error ? error : new Error(fallback);
+  }
+
+  private failSession(error: Error): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.ws = null;
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+  }
+
   async connect(signal?: AbortSignal): Promise<void> {
     if (this.ws) return;
 
     await new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(this.url);
       this.ws = ws;
+      let settled = false;
+
+      const rejectConnection = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        this.failSession(error);
+        reject(error);
+      };
 
       const onAbort = () => {
         ws.close();
-        reject(new DOMException('Aborted', 'AbortError'));
+        rejectConnection(new DOMException('Aborted', 'AbortError'));
       };
 
       signal?.addEventListener('abort', onAbort, { once: true });
 
       ws.once('open', () => {
+        if (settled) return;
+        settled = true;
         signal?.removeEventListener('abort', onAbort);
         resolve();
       });
 
-      ws.once('error', (error) => {
-        signal?.removeEventListener('abort', onAbort);
-        reject(error instanceof Error ? error : new Error('Failed to connect to Codex app-server'));
+      ws.on('error', (error) => {
+        const sessionError = this.asSessionError(error, 'Codex app-server connection failed');
+        if (!settled) {
+          rejectConnection(sessionError);
+          return;
+        }
+        this.failSession(sessionError);
       });
 
       ws.on('message', (buf) => this.handleMessage(String(buf)));
       ws.on('close', () => {
-        this.closed = true;
-        for (const pending of this.pending.values()) pending.reject(new Error('Codex app-server connection closed'));
-        this.pending.clear();
+        const sessionError = new Error('Codex app-server connection closed');
+        if (!settled) {
+          rejectConnection(sessionError);
+          return;
+        }
+        this.failSession(sessionError);
       });
     });
   }
@@ -287,8 +317,9 @@ class CodexRpcSession {
 
   close(): void {
     if (!this.ws || this.closed) return;
-    this.closed = true;
-    this.ws.close();
+    const ws = this.ws;
+    this.failSession(new Error('Codex app-server connection closed'));
+    ws.close();
   }
 
   private handleMessage(raw: string): void {
@@ -299,32 +330,44 @@ class CodexRpcSession {
       return;
     }
 
-    if (isObject(message) && isJsonRpcId((message as { id?: unknown }).id)) {
-      if (typeof (message as { method?: unknown }).method === 'string') {
-        this.respondToServerRequest(message as JsonRpcRequest);
+    try {
+      if (isObject(message) && isJsonRpcId((message as { id?: unknown }).id)) {
+        if (typeof (message as { method?: unknown }).method === 'string') {
+          this.respondToServerRequest(message as JsonRpcRequest);
+          return;
+        }
+        const response = message as JsonRpcResponse;
+        const pending = this.pending.get(response.id);
+        if (!pending) return;
+        this.pending.delete(response.id);
+        const error = readResponseError(response);
+        if (error) {
+          pending.reject(error);
+          return;
+        }
+        pending.resolve(response.result);
         return;
       }
-      const response = message as JsonRpcResponse;
-      const pending = this.pending.get(response.id);
-      if (!pending) return;
-      this.pending.delete(response.id);
-      const error = readResponseError(response);
-      if (error) {
-        pending.reject(error);
-        return;
-      }
-      pending.resolve(response.result);
-      return;
-    }
 
-    if (isObject(message) && typeof (message as JsonRpcNotification).method === 'string') {
-      this.onNotification?.(message as JsonRpcNotification);
+      if (isObject(message) && typeof (message as JsonRpcNotification).method === 'string') {
+        this.onNotification?.(message as JsonRpcNotification);
+      }
+    } catch (error) {
+      const sessionError = this.asSessionError(error, 'Codex app-server message handling failed');
+      this.failSession(sessionError);
     }
   }
 
   private respondToServerRequest(request: JsonRpcRequest): void {
     if (!this.ws) return;
     const result = defaultServerRequestResult(request.method);
-    this.ws.send(JSON.stringify({ id: request.id, result }));
+    try {
+      this.ws.send(JSON.stringify({ id: request.id, result }), (error) => {
+        if (!error) return;
+        this.failSession(this.asSessionError(error, 'Failed to respond to Codex app-server request'));
+      });
+    } catch (error) {
+      this.failSession(this.asSessionError(error, 'Failed to respond to Codex app-server request'));
+    }
   }
 }

@@ -673,11 +673,15 @@ export function consumeOAuthState(state: string): string | null {
 
 export function startSessionCleanup(): void {
   setInterval(() => {
-    const now = Date.now();
-    deleteExpiredSessionsStmt.run(now);
-    deleteExpiredRepoFileShareLinksStmt.run(now);
-    for (const [state, rec] of oauthStates) {
-      if (rec.expiresAtMs <= now) oauthStates.delete(state);
+    try {
+      const now = Date.now();
+      deleteExpiredSessionsStmt.run(now);
+      deleteExpiredRepoFileShareLinksStmt.run(now);
+      for (const [state, rec] of oauthStates) {
+        if (rec.expiresAtMs <= now) oauthStates.delete(state);
+      }
+    } catch (error) {
+      console.error('[session] cleanup failed:', error);
     }
   }, 60_000).unref();
 }
