@@ -75,11 +75,25 @@ export interface TerminalPanelProps {
 
 type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
 
-// Cache the WebContainer boot promise so we only ever boot once per page.
-// WebContainer.boot() throws if called more than once.
-let webContainerBootPromise: Promise<WebContainer> | null = null;
-let webContainerBootWorkdirName: string | null = null;
-let ghosttyInitPromise: Promise<void> | null = null;
+interface TerminalPanelGlobalState {
+  ghosttyInitPromise: Promise<void> | null;
+  webContainerBootPromise: Promise<WebContainer> | null;
+  webContainerBootWorkdirName: string | null;
+}
+
+type TerminalPanelGlobalThis = typeof globalThis & {
+  __inputTerminalPanelGlobalState__?: TerminalPanelGlobalState;
+};
+
+function getTerminalPanelGlobalState(): TerminalPanelGlobalState {
+  const root = globalThis as TerminalPanelGlobalThis;
+  root.__inputTerminalPanelGlobalState__ ??= {
+    ghosttyInitPromise: null,
+    webContainerBootPromise: null,
+    webContainerBootWorkdirName: null,
+  };
+  return root.__inputTerminalPanelGlobalState__;
+}
 
 function terminalDownloadName(path: string, workdirName: string): string {
   const normalized = path.replace(/^\/+|\/+$/g, '');
@@ -107,19 +121,22 @@ function isLocalhostHostname(): boolean {
 }
 
 async function bootWebContainer(apiKey: string | undefined, workdirName: string): Promise<WebContainer> {
-  if (webContainerBootPromise && webContainerBootWorkdirName === workdirName) return webContainerBootPromise;
-  if (webContainerBootPromise && webContainerBootWorkdirName !== workdirName) {
+  const globalState = getTerminalPanelGlobalState();
+  if (globalState.webContainerBootPromise && globalState.webContainerBootWorkdirName === workdirName) {
+    return globalState.webContainerBootPromise;
+  }
+  if (globalState.webContainerBootPromise && globalState.webContainerBootWorkdirName !== workdirName) {
     try {
-      const wc = await webContainerBootPromise;
+      const wc = await globalState.webContainerBootPromise;
       wc.teardown();
     } catch {
       // ignore boot/teardown failures and attempt a clean reboot below
     } finally {
-      webContainerBootPromise = null;
-      webContainerBootWorkdirName = null;
+      globalState.webContainerBootPromise = null;
+      globalState.webContainerBootWorkdirName = null;
     }
   }
-  webContainerBootPromise = (async () => {
+  globalState.webContainerBootPromise = (async () => {
     const { WebContainer, configureAPIKey } = await import('@webcontainer/api');
     // The WebContainer dashboard checks the Referer against its allowed-sites
     // list when configureAPIKey() is set, and it does not accept localhost.
@@ -129,12 +146,12 @@ async function bootWebContainer(apiKey: string | undefined, workdirName: string)
     }
     return WebContainer.boot({ coep: 'credentialless', workdirName });
   })();
-  webContainerBootWorkdirName = workdirName;
+  globalState.webContainerBootWorkdirName = workdirName;
   try {
-    return await webContainerBootPromise;
+    return await globalState.webContainerBootPromise;
   } catch (err) {
-    webContainerBootPromise = null;
-    webContainerBootWorkdirName = null;
+    globalState.webContainerBootPromise = null;
+    globalState.webContainerBootWorkdirName = null;
     throw err;
   }
 }
@@ -599,13 +616,14 @@ async function snapshotTerminalTextFiles(
 
 async function loadGhosttyWeb() {
   const module = await import('ghostty-web');
-  if (!ghosttyInitPromise) {
-    ghosttyInitPromise = module.init().catch((err) => {
-      ghosttyInitPromise = null;
+  const globalState = getTerminalPanelGlobalState();
+  if (!globalState.ghosttyInitPromise) {
+    globalState.ghosttyInitPromise = module.init().catch((err) => {
+      globalState.ghosttyInitPromise = null;
       throw err;
     });
   }
-  await ghosttyInitPromise;
+  await globalState.ghosttyInitPromise;
   return module;
 }
 
@@ -1028,9 +1046,10 @@ export function TerminalPanel({
   );
 
   const teardownWebContainer = useCallback((wc: WebContainer | null) => {
+    const globalState = getTerminalPanelGlobalState();
     if (!wc) {
-      webContainerBootPromise = null;
-      webContainerBootWorkdirName = null;
+      globalState.webContainerBootPromise = null;
+      globalState.webContainerBootWorkdirName = null;
       return;
     }
     try {
@@ -1041,8 +1060,8 @@ export function TerminalPanel({
       if (wcRef.current === wc) {
         wcRef.current = null;
       }
-      webContainerBootPromise = null;
-      webContainerBootWorkdirName = null;
+      globalState.webContainerBootPromise = null;
+      globalState.webContainerBootWorkdirName = null;
     }
   }, []);
 
