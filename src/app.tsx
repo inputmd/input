@@ -346,7 +346,7 @@ function repoNewDraftKey(
   installationId: string,
   repoFullName: string,
   path: string,
-  field: 'title' | 'content',
+  field: 'title' | 'content' | 'filename',
 ): string {
   return `${REPO_NEW_DRAFT_KEY_PREFIX}:${installationId}:${repoFullName}:${path}:${field}`;
 }
@@ -602,6 +602,7 @@ interface PendingDraftRestoreState {
 interface PendingForkDraftState {
   title: string;
   content: string;
+  filename?: string;
 }
 
 type CommitResult =
@@ -653,8 +654,9 @@ function parsePendingForkDraftState(state: unknown): PendingForkDraftState | nul
   if (!forkDraft || typeof forkDraft !== 'object') return null;
   const title = (forkDraft as { title?: unknown }).title;
   const content = (forkDraft as { content?: unknown }).content;
+  const filename = (forkDraft as { filename?: unknown }).filename;
   if (typeof title !== 'string' || typeof content !== 'string') return null;
-  return { title, content };
+  return { title, content, ...(typeof filename === 'string' ? { filename } : {}) };
 }
 
 function parseScratchReturnPathState(state: unknown): string | null {
@@ -978,6 +980,26 @@ export function App() {
     }
     return null;
   }, [route]);
+  const activeRepoNewDraftFilename = useMemo(() => {
+    if (editingBackend !== 'repo' || route.name !== 'reponew' || currentRepoDocPath !== null) return null;
+    const pendingForkDraft = parsePendingForkDraftState(routeState);
+    const pendingFilename = sanitizeScratchFileNameInput(pendingForkDraft?.filename ?? '');
+    if (pendingFilename) return pendingFilename;
+
+    const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+    const owner = safeDecodeURIComponent(route.params.owner);
+    const repo = safeDecodeURIComponent(route.params.repo);
+    const draftPath = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
+    const repoName = buildRepoFullName(owner, repo);
+    if (!instId || !repoName || !draftPath) return DEFAULT_SCRATCH_FILENAME;
+
+    try {
+      const storedFilename = localStorage.getItem(repoNewDraftKey(instId, repoName, draftPath, 'filename')) ?? '';
+      return sanitizeScratchFileNameInput(storedFilename) || DEFAULT_SCRATCH_FILENAME;
+    } catch {
+      return DEFAULT_SCRATCH_FILENAME;
+    }
+  }, [activeInstalledRepoInstallationId, currentRepoDocPath, editingBackend, route, routeState]);
   const activeScratchFile = useMemo(
     () =>
       resolveActiveScratchFile({
@@ -987,9 +1009,10 @@ export function App() {
         currentRepoDocPath,
         currentGistId,
         currentFileName,
+        repoDraftFilename: activeRepoNewDraftFilename,
         unsavedFileLabel: UNSAVED_FILE_LABEL,
       }),
-    [currentFileName, currentGistId, currentRepoDocPath, editingBackend, route, routeState],
+    [activeRepoNewDraftFilename, currentFileName, currentGistId, currentRepoDocPath, editingBackend, route, routeState],
   );
   const scratchSidebarPath = activeScratchFile?.filePath ?? null;
   const workspaceIdentity = useMemo(
@@ -1667,7 +1690,11 @@ export function App() {
     const path = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
     localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'title'), editTitle);
     localStorage.setItem(repoNewDraftKey(instId, repoName, path, 'content'), editContentRef.current);
-  }, [route, editingBackend, currentRepoDocPath, activeInstalledRepoInstallationId, editTitle]);
+    localStorage.setItem(
+      repoNewDraftKey(instId, repoName, path, 'filename'),
+      activeScratchFile?.backend === 'repo' ? activeScratchFile.filename : DEFAULT_SCRATCH_FILENAME,
+    );
+  }, [route, editingBackend, currentRepoDocPath, activeInstalledRepoInstallationId, editTitle, activeScratchFile]);
 
   const startGitHubSignIn = useCallback(
     (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
@@ -5290,12 +5317,14 @@ export function App() {
       const title = (options?.title ?? editTitle).trim() || DEFAULT_NEW_FILENAME;
       const content = options?.content ?? editContentRef.current;
       const inferredScratchFilename = inferScratchFileNameFromContent(content, browserLocales);
+      const preferredScratchFilename =
+        activeScratchFile?.filename || inferredScratchFilename || DEFAULT_SCRATCH_FILENAME;
       let scratchFilename: string | null = null;
 
       if (editingBackend === 'repo' && currentRepoDocPath === null) {
         const folderPath = activeScratchFile?.backend === 'repo' ? activeScratchFile.parentPath : '';
         scratchFilename = await requestScratchFileName(
-          inferredScratchFilename || DEFAULT_SCRATCH_FILENAME,
+          preferredScratchFilename,
           new Set(getRepoSidebarPaths()),
           folderPath,
         );
@@ -5304,7 +5333,7 @@ export function App() {
         const gistScratchDraft = activeScratchFile?.backend === 'gist' ? activeScratchFile.draft : null;
         if (currentGistId) {
           scratchFilename = await requestScratchFileName(
-            inferredScratchFilename || gistScratchDraft?.filename || DEFAULT_SCRATCH_FILENAME,
+            preferredScratchFilename,
             new Set(Object.keys(gistFiles ?? {})),
             gistScratchDraft?.parentPath || '',
           );
@@ -5316,7 +5345,7 @@ export function App() {
             parentPath: gistScratchDraft?.parentPath || '',
           });
         } else {
-          scratchFilename = await requestScratchFileName(inferredScratchFilename || DEFAULT_SCRATCH_FILENAME);
+          scratchFilename = await requestScratchFileName(preferredScratchFilename);
           if (!scratchFilename) return null;
         }
       }
@@ -5521,6 +5550,7 @@ export function App() {
           if (draftPath) {
             localStorage.removeItem(repoNewDraftKey(instId, repoName, draftPath, 'title'));
             localStorage.removeItem(repoNewDraftKey(instId, repoName, draftPath, 'content'));
+            localStorage.removeItem(repoNewDraftKey(instId, repoName, draftPath, 'filename'));
           }
           setCurrentRepoDocPath(createdFile.path);
           setCurrentRepoDocSha(createdFile.sha || null);
@@ -6347,16 +6377,60 @@ export function App() {
     async (parentPath: string) => {
       const normalizedParentPath = parentPath.replace(/^\/+|\/+$/g, '');
       const returnToPath = window.location.pathname.replace(/^\/+/, '') || routePath.home();
-      if (
+      const editingRepoScratch =
         activeView === 'edit' &&
-        ((editingBackend === 'repo' &&
-          currentRepoDocPath === null &&
-          route.name === 'reponew' &&
-          selectedRepoRef !== null &&
-          selectedRepoRef.owner === safeDecodeURIComponent(route.params.owner) &&
-          selectedRepoRef.repo === safeDecodeURIComponent(route.params.repo)) ||
-          (editingBackend === 'gist' && currentFileName === null && currentGistId !== null && route.name === 'edit'))
-      ) {
+        editingBackend === 'repo' &&
+        currentRepoDocPath === null &&
+        route.name === 'reponew' &&
+        selectedRepoRef !== null &&
+        selectedRepoRef.owner === safeDecodeURIComponent(route.params.owner) &&
+        selectedRepoRef.repo === safeDecodeURIComponent(route.params.repo);
+      const editingGistScratch =
+        activeView === 'edit' &&
+        editingBackend === 'gist' &&
+        currentFileName === null &&
+        currentGistId !== null &&
+        route.name === 'edit';
+      if (editingRepoScratch || editingGistScratch) {
+        if (editingRepoScratch && selectedRepoRef) {
+          const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+          const repoName = selectedRepo ?? buildRepoFullName(selectedRepoRef.owner, selectedRepoRef.repo);
+          const draftPath = resolveRepoNewDraftPath(route) ?? DEFAULT_NEW_FILENAME;
+          if (instId && repoName) {
+            localStorage.setItem(repoNewDraftKey(instId, repoName, draftPath, 'filename'), DEFAULT_SCRATCH_FILENAME);
+          }
+          navigate(routePath.repoNew(selectedRepoRef.owner, selectedRepoRef.repo, draftPath), {
+            replace: true,
+            state: {
+              returnToPath,
+              forkDraft: {
+                title: editTitle || UNSAVED_FILE_LABEL,
+                content: editContentRef.current,
+                filename: DEFAULT_SCRATCH_FILENAME,
+              },
+            },
+          });
+        } else if (editingGistScratch && currentGistId) {
+          const parentPathForScratch =
+            activeScratchFile?.backend === 'gist' ? activeScratchFile.parentPath : normalizedParentPath;
+          writePersistedNewGistFileDraft(currentGistId, {
+            title: editTitle || UNSAVED_FILE_LABEL,
+            content: editContentRef.current,
+            filename: DEFAULT_SCRATCH_FILENAME,
+            parentPath: parentPathForScratch,
+          });
+          navigate(routePath.gistEdit(currentGistId), {
+            replace: true,
+            state: {
+              returnToPath,
+              newGistFile: {
+                title: editTitle || UNSAVED_FILE_LABEL,
+                filename: DEFAULT_SCRATCH_FILENAME,
+                parentPath: parentPathForScratch,
+              },
+            },
+          });
+        }
         focusEditorSoon();
         return;
       }
@@ -6407,14 +6481,27 @@ export function App() {
       }
 
       const draftPath = normalizedParentPath ? `${normalizedParentPath}/${DEFAULT_NEW_FILENAME}` : DEFAULT_NEW_FILENAME;
+      const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+      const repoName = selectedRepo ?? buildRepoFullName(selectedRepoRef.owner, selectedRepoRef.repo);
+      if (instId && repoName) {
+        localStorage.setItem(repoNewDraftKey(instId, repoName, draftPath, 'filename'), DEFAULT_SCRATCH_FILENAME);
+      }
       navigate(routePath.repoNew(selectedRepoRef.owner, selectedRepoRef.repo, draftPath), {
         state: {
           returnToPath,
+          forkDraft: {
+            title: UNSAVED_FILE_LABEL,
+            content: '',
+            filename: DEFAULT_SCRATCH_FILENAME,
+          },
         },
       });
     },
     [
+      activeInstalledRepoInstallationId,
+      activeScratchFile,
       activeView,
+      editTitle,
       editingBackend,
       currentRepoDocPath,
       route,
@@ -6423,6 +6510,7 @@ export function App() {
       hasCurrentEditorUnsavedChanges,
       currentFileName,
       currentGistId,
+      selectedRepo,
       selectedRepoRef,
       navigate,
       showConfirm,
@@ -6447,6 +6535,7 @@ export function App() {
     const openRepoDailyScratch = (repoName: string, instId: string) => {
       localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'title'), UNSAVED_FILE_LABEL);
       localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'content'), dailyNoteContent);
+      localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'filename'), dailyNotePath);
       setDraftMode(false);
       setRepoAccessMode('installed');
       setPublicRepoRef(null);
@@ -6465,7 +6554,7 @@ export function App() {
       writePersistedNewGistFileDraft(gistId, {
         title: UNSAVED_FILE_LABEL,
         content: dailyNoteContent,
-        filename: DEFAULT_SCRATCH_FILENAME,
+        filename: dailyNotePath,
         parentPath: '',
       });
       setDraftMode(false);
@@ -6495,15 +6584,64 @@ export function App() {
       return;
     }
 
-    const currentScratchFileName = inferScratchFileNameFromContent(editContentRef.current, browserLocales);
-    if (
-      activeView === 'edit' &&
-      isScratchDocument &&
-      activeScratchFile?.parentPath === '' &&
-      currentScratchFileName === dailyNotePath
-    ) {
-      focusEditorSoon();
-      return;
+    if (activeView === 'edit' && isScratchDocument && activeScratchFile?.parentPath === '') {
+      if (activeScratchFile.filename === dailyNotePath) {
+        focusEditorSoon();
+        return;
+      }
+
+      if (activeScratchFile.backend === 'gist' && activeScratchFile.gistId) {
+        const nextDraft = {
+          ...(activeScratchFile.draft ?? {
+            title: UNSAVED_FILE_LABEL,
+            content: editContentRef.current,
+            filename: activeScratchFile.filename,
+            parentPath: '',
+          }),
+          title: editTitle || activeScratchFile.draft?.title || UNSAVED_FILE_LABEL,
+          content: editContentRef.current,
+          filename: dailyNotePath,
+          parentPath: '',
+        };
+        writePersistedNewGistFileDraft(activeScratchFile.gistId, nextDraft);
+        navigate(routePath.gistEdit(activeScratchFile.gistId), {
+          replace: true,
+          state: {
+            returnToPath: parseScratchReturnPathState(routeState),
+            newGistFile: {
+              title: nextDraft.title,
+              filename: nextDraft.filename,
+              parentPath: nextDraft.parentPath,
+            },
+          },
+        });
+        focusEditorSoon();
+        return;
+      }
+
+      if (activeScratchFile.backend === 'repo' && selectedRepoRef) {
+        const instId = activeInstalledRepoInstallationId ?? getInstallationId();
+        const repoName = selectedRepo ?? buildRepoFullName(selectedRepoRef.owner, selectedRepoRef.repo);
+        const draftPath = activeScratchFile.draftPath;
+        if (instId && repoName && draftPath) {
+          localStorage.setItem(repoNewDraftKey(instId, repoName, draftPath, 'title'), editTitle || UNSAVED_FILE_LABEL);
+          localStorage.setItem(repoNewDraftKey(instId, repoName, draftPath, 'content'), editContentRef.current);
+          localStorage.setItem(repoNewDraftKey(instId, repoName, draftPath, 'filename'), dailyNotePath);
+        }
+        navigate(routePath.repoNew(selectedRepoRef.owner, selectedRepoRef.repo, draftPath), {
+          replace: true,
+          state: {
+            returnToPath: parseScratchReturnPathState(routeState),
+            forkDraft: {
+              title: editTitle || UNSAVED_FILE_LABEL,
+              content: editContentRef.current,
+              filename: dailyNotePath,
+            },
+          },
+        });
+        focusEditorSoon();
+        return;
+      }
     }
 
     if (isSidebarReadOnly) {
@@ -6561,14 +6699,14 @@ export function App() {
       writePersistedNewGistFileDraft(currentGistId, {
         title: UNSAVED_FILE_LABEL,
         content: dailyNoteContent,
-        filename: DEFAULT_SCRATCH_FILENAME,
+        filename: dailyNotePath,
         parentPath: '',
       });
       navigate(routePath.gistEdit(currentGistId), {
         state: {
           newGistFile: {
             title: UNSAVED_FILE_LABEL,
-            filename: DEFAULT_SCRATCH_FILENAME,
+            filename: dailyNotePath,
             parentPath: '',
           },
           returnToPath,
@@ -6587,12 +6725,14 @@ export function App() {
     if (instId && repoName) {
       localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'title'), UNSAVED_FILE_LABEL);
       localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'content'), dailyNoteContent);
+      localStorage.setItem(repoNewDraftKey(instId, repoName, DEFAULT_NEW_FILENAME, 'filename'), dailyNotePath);
     }
     navigate(routePath.repoNew(selectedRepoRef.owner, selectedRepoRef.repo, DEFAULT_NEW_FILENAME), {
       state: {
         forkDraft: {
           title: UNSAVED_FILE_LABEL,
           content: dailyNoteContent,
+          filename: dailyNotePath,
         },
         returnToPath,
       },
@@ -6607,6 +6747,7 @@ export function App() {
     currentGistId,
     currentRepoDocPath,
     discardCurrentDocumentChanges,
+    editTitle,
     focusEditorSoon,
     gistFiles,
     handleSelectFile,
@@ -6618,6 +6759,7 @@ export function App() {
     readerAiNavigationLocked,
     hasRepoSidebarPath,
     route,
+    routeState,
     selectedRepo,
     selectedRepoRef,
     setCurrentDocumentSavedContent,
@@ -7439,9 +7581,14 @@ export function App() {
           try {
             localStorage.setItem(repoNewDraftKey(instId, repoName, nextDraftPath, 'title'), editTitle);
             localStorage.setItem(repoNewDraftKey(instId, repoName, nextDraftPath, 'content'), editContentRef.current);
+            localStorage.setItem(
+              repoNewDraftKey(instId, repoName, nextDraftPath, 'filename'),
+              activeScratchFile.filename,
+            );
             if (currentDraftPath !== nextDraftPath) {
               localStorage.removeItem(repoNewDraftKey(instId, repoName, currentDraftPath, 'title'));
               localStorage.removeItem(repoNewDraftKey(instId, repoName, currentDraftPath, 'content'));
+              localStorage.removeItem(repoNewDraftKey(instId, repoName, currentDraftPath, 'filename'));
             }
           } catch {
             // Best effort only; the in-memory draft remains active.

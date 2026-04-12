@@ -244,17 +244,20 @@ export function resolveActiveScratchFile(options: {
   currentRepoDocPath: string | null;
   currentGistId: string | null;
   currentFileName: string | null;
+  repoDraftFilename?: string | null;
   unsavedFileLabel?: string;
 }): ActiveScratchFile | null {
   if (options.editingBackend === 'repo' && options.route.name === 'reponew' && options.currentRepoDocPath === null) {
     const draftPath = resolveRepoNewDraftPath(options.route);
     if (!draftPath) return null;
+    const parentPath = parentFolderPath(draftPath);
+    const filename = sanitizeScratchFileNameInput(options.repoDraftFilename ?? '') || DEFAULT_SCRATCH_FILENAME;
     return {
       backend: 'repo',
       draftPath,
-      filePath: resolveRepoNewFilePath(options.route, DEFAULT_SCRATCH_FILENAME, { literal: true }),
-      parentPath: parentFolderPath(draftPath),
-      filename: DEFAULT_SCRATCH_FILENAME,
+      filePath: buildScratchFilePath(parentPath, filename),
+      parentPath,
+      filename,
     };
   }
 
