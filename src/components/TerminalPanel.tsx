@@ -53,6 +53,12 @@ export interface TerminalPanelProps {
    */
   baseFiles: Record<string, string>;
   /**
+   * Whether `baseFiles` is ready to be treated as authoritative. This prevents
+   * transient snapshot gaps (for example during hot reload) from being
+   * interpreted as mass deletions.
+   */
+  baseFilesReady: boolean;
+  /**
    * Active unsaved editor buffer overlaid on top of `baseFiles`. This stays
    * one-way (app → terminal) and is synced as a single debounced file write.
    */
@@ -77,6 +83,7 @@ type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
 
 interface TerminalPanelGlobalState {
   ghosttyInitPromise: Promise<void> | null;
+  lastHotReloadAt: number;
   webContainerBootPromise: Promise<WebContainer> | null;
   webContainerBootWorkdirName: string | null;
 }
@@ -89,10 +96,23 @@ function getTerminalPanelGlobalState(): TerminalPanelGlobalState {
   const root = globalThis as TerminalPanelGlobalThis;
   root.__inputTerminalPanelGlobalState__ ??= {
     ghosttyInitPromise: null,
+    lastHotReloadAt: 0,
     webContainerBootPromise: null,
     webContainerBootWorkdirName: null,
   };
   return root.__inputTerminalPanelGlobalState__;
+}
+
+const HOT_RELOAD_UNMOUNT_IMPORT_GUARD_WINDOW_MS = 2000;
+
+function didRecentHotReload(): boolean {
+  return Date.now() - getTerminalPanelGlobalState().lastHotReloadAt <= HOT_RELOAD_UNMOUNT_IMPORT_GUARD_WINDOW_MS;
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    getTerminalPanelGlobalState().lastHotReloadAt = Date.now();
+  });
 }
 
 function terminalDownloadName(path: string, workdirName: string): string {
@@ -692,6 +712,7 @@ export function TerminalPanel({
   workdirName,
   apiKey,
   baseFiles,
+  baseFilesReady,
   liveFile,
   includeActiveEditPathInImports = false,
   onToggleVisibilityShortcut,
@@ -732,6 +753,8 @@ export function TerminalPanel({
   const lastWrittenRef = useRef<Map<string, string>>(new Map());
   const baseFilesRef = useRef(baseFiles);
   baseFilesRef.current = baseFiles;
+  const baseFilesReadyRef = useRef(baseFilesReady);
+  baseFilesReadyRef.current = baseFilesReady;
   const liveFilePath = liveFile?.path ?? null;
   const liveFileContent = liveFile?.content ?? null;
   const liveFilePathRef = useRef<string | null>(liveFilePath);
@@ -1105,7 +1128,7 @@ export function TerminalPanel({
       if (importInFlightRef.current) return importInFlightRef.current;
       const pendingImport = (async (): Promise<TerminalImportDiff | null> => {
         const wc = wcRef.current;
-        if (!wc || !onImportDiffRef.current) return null;
+        if (!wc || !baseFilesReadyRef.current || !onImportDiffRef.current) return null;
         await flushManagedSync();
         const managedFiles = buildManagedFiles(
           baseFilesRef.current,
@@ -1500,7 +1523,7 @@ export function TerminalPanel({
         wcRef.current = wc;
 
         try {
-          terminal.write('Provisioning home overlay...\r\n');
+          terminal.write('Mounting installed applications...\r\n');
           const overlayResult = await provisionHomeOverlay(wc, bootPerf);
           bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
         } catch (err) {
@@ -1767,7 +1790,7 @@ export function TerminalPanel({
   }, [importTerminalDiff, registerImportHandler]);
 
   useEffect(() => {
-    if (!fsReady) return;
+    if (!fsReady || !baseFilesReady) return;
     const intervalId = window.setInterval(() => {
       void importTerminalDiff({ silent: true }).catch((err) => {
         console.error('[terminal] background import failed', err);
@@ -1776,7 +1799,7 @@ export function TerminalPanel({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fsReady, importTerminalDiff]);
+  }, [baseFilesReady, fsReady, importTerminalDiff]);
 
   useEffect(() => {
     if (!splitOpen) {
@@ -1786,7 +1809,7 @@ export function TerminalPanel({
   }, [disposePaneRuntime, singlePaneId, splitOpen]);
 
   useEffect(() => {
-    if (!visible || startedRef.current) return;
+    if (!visible || startedRef.current || !baseFilesReady) return;
     if (!apiKey && !isLocalhostHostname()) {
       setError('VITE_WEBCONTAINERS_API_KEY is not set.');
       return;
@@ -1811,7 +1834,7 @@ export function TerminalPanel({
         startedRef.current = false;
       }
     })();
-  }, [apiKey, ensurePaneSurface, initializeWebContainerSession, visible]);
+  }, [apiKey, baseFilesReady, ensurePaneSurface, initializeWebContainerSession, visible]);
 
   useEffect(() => {
     if (!visible || !startedRef.current) return;
@@ -1849,7 +1872,7 @@ export function TerminalPanel({
   }, [fitPane, focusPane, visible, visiblePaneIds]);
 
   useEffect(() => {
-    if (!fsReady) return;
+    if (!fsReady || !baseFilesReady) return;
     const wc = wcRef.current;
     if (!wc) return;
     const previous = lastWrittenRef.current;
@@ -1882,7 +1905,7 @@ export function TerminalPanel({
         }
       }
     });
-  }, [baseFiles, liveFilePath, fsReady]);
+  }, [baseFiles, liveFilePath, fsReady, baseFilesReady]);
 
   useEffect(() => {
     if (!fsReady || liveFilePath === null || liveFileContent === null) return;
@@ -1915,6 +1938,7 @@ export function TerminalPanel({
   useEffect(() => {
     return () => {
       unmountedRef.current = true;
+      const skipImportOnUnmount = didRecentHotReload();
       const currentWc = wcRef.current;
       if (currentWc) {
         void capturePersistedHomeState(currentWc, { immediate: true }).finally(() => {
@@ -1923,9 +1947,11 @@ export function TerminalPanel({
       } else {
         void flushPersistedHomeState();
       }
-      void importTerminalDiff({ silent: true }).catch((err) => {
-        console.error('[terminal] import on unmount failed', err);
-      });
+      if (!skipImportOnUnmount) {
+        void importTerminalDiff({ silent: true }).catch((err) => {
+          console.error('[terminal] import on unmount failed', err);
+        });
+      }
       if (liveSyncTimerRef.current !== null) {
         window.clearTimeout(liveSyncTimerRef.current);
         liveSyncTimerRef.current = null;

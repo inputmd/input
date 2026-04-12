@@ -146,6 +146,12 @@ export function useRepoTerminalBinding({
     terminalBaseSnapshotKey,
   ]);
 
+  const baseFilesReady = useMemo(() => {
+    if (!mounted) return false;
+    if (currentGistId) return gistFiles !== null;
+    return terminalBaseSnapshotKey === cacheKey;
+  }, [cacheKey, currentGistId, gistFiles, mounted, terminalBaseSnapshotKey]);
+
   const liveFile = useMemo(() => {
     if (!mounted || !editing || !activeEditPath) return null;
     return { path: activeEditPath, content: editContent };
@@ -170,6 +176,7 @@ export function useRepoTerminalBinding({
         workdirName,
         apiKey,
         baseFiles,
+        baseFilesReady,
         liveFile,
         includeActiveEditPathInImports,
         onToggleVisibilityShortcut,
@@ -180,6 +187,7 @@ export function useRepoTerminalBinding({
     [
       apiKey,
       baseFiles,
+      baseFilesReady,
       includeActiveEditPathInImports,
       liveFile,
       onToggleVisibilityShortcut,
