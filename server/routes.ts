@@ -3441,7 +3441,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
 // ── Repo tarball download (bulk file fetch for AI repo mode) ──
 
-const REPO_TARBALL_MAX_FILES = 100;
+const REPO_TARBALL_MAX_FILES = 2000;
 const REPO_TARBALL_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 const REPO_TARBALL_TIMEOUT_MS = 30_000;
 
