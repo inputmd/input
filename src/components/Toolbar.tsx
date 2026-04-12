@@ -7,6 +7,7 @@ import {
   CodeXml,
   ExternalLink,
   Eye,
+  EyeOff,
   GitBranch,
   Globe,
   Link2,
@@ -1207,12 +1208,12 @@ export function Toolbar({
               {showPreviewToggle ? (
                 <button
                   type="button"
-                  class={`preview-toggle-btn${previewVisible ? '' : ' preview-toggle-btn-off'}`}
+                  class={`preview-toggle-btn preview-toggle-btn-preview${previewVisible ? '' : ' preview-toggle-btn-off'}`}
                   title={previewToggleLabel}
                   aria-label={previewToggleLabel}
                   onClick={onTogglePreview}
                 >
-                  <Eye size={16} />
+                  {previewVisible ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               ) : null}
               {showAiToggle ? (
@@ -1253,7 +1254,7 @@ export function Toolbar({
         {showTerminalToggle && !user ? (
           <button
             type="button"
-            class={`preview-toggle-btn toolbar-terminal-trigger toolbar-terminal-toggle${terminalVisible ? '' : ' preview-toggle-btn-off'}`}
+            class={`preview-toggle-btn toolbar-terminal-trigger toolbar-terminal-toggle toolbar-terminal-toggle-icon${terminalVisible ? '' : ' preview-toggle-btn-off'}`}
             title="Toggle terminal"
             aria-label="Toggle terminal"
             onClick={onToggleTerminal}

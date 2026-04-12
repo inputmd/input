@@ -759,6 +759,11 @@
   color: var(--text-secondary);
 }
 
+.preview-toggle-btn-preview.preview-toggle-btn-off,
+.toolbar-terminal-toggle-icon.preview-toggle-btn-off {
+  color: var(--btn-text);
+}
+
 .toolbar-ai-toggle.preview-toggle-btn-off {
   color: var(--btn-text);
 }

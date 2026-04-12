@@ -832,7 +832,13 @@ export function Sidebar({
   const filterControl = (
     <DropdownMenu.Root onOpenChange={blurOnClose}>
       <DropdownMenu.Trigger asChild>
-        <button type="button" class="sidebar-filter-trigger" title={filterLabel} aria-label="Sidebar file filter" style={{ position: 'relative', left: '-2px' }}>
+        <button
+          type="button"
+          class="sidebar-filter-trigger"
+          title={filterLabel}
+          aria-label="Sidebar file filter"
+          style={{ position: 'relative', left: '-2px' }}
+        >
           <ChevronDown size={12} class="sidebar-filter-trigger-icon" aria-hidden="true" />
           {filterLabel}
         </button>
@@ -1369,10 +1375,7 @@ export function Sidebar({
                   {showDailyNoteAction ? (
                     <>
                       <DropdownMenu.Separator class="sidebar-context-menu-separator" />
-                      <DropdownMenu.Item
-                        class="sidebar-filter-menu-item"
-                        onSelect={() => void onOpenDailyNote()}
-                      >
+                      <DropdownMenu.Item class="sidebar-filter-menu-item" onSelect={() => void onOpenDailyNote()}>
                         Open daily note
                       </DropdownMenu.Item>
                     </>

@@ -280,6 +280,7 @@ interface ReaderAiModelEntry {
  */
 const FEATURED_MODEL_PATTERNS = ['nemotron 3 nano', 'nemotron 3 super', 'trinity mini'];
 const HIDDEN_FREE_MODEL_PATTERNS = ['llama 3 3 70b instruct', 'gpt oss 120b', 'qwen3 next 80b a3b instruct'];
+const FREE_MODEL_PARAM_FILTER_ALLOWLIST_PREFIXES = ['z-ai/glm', 'minimax/minimax'];
 
 const OPENROUTER_PAID_MODELS: ReaderAiModelEntry[] = [
   {
@@ -851,8 +852,13 @@ async function fetchReaderAiModelsUncached(
       if (!id.endsWith(':free')) continue;
       const supportedParams = Array.isArray(entry.supported_parameters) ? entry.supported_parameters : [];
       if (!supportedParams.includes('tools')) continue;
+      const allowlistedForParamFilter = FREE_MODEL_PARAM_FILTER_ALLOWLIST_PREFIXES.some((prefix) =>
+        id.trim().toLowerCase().startsWith(prefix),
+      );
       const paramsBillions = modelParamsEstimateBillions(entry);
-      if (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B) continue;
+      if (!allowlistedForParamFilter && (paramsBillions === null || paramsBillions < READER_AI_MIN_MODEL_PARAMS_B)) {
+        continue;
+      }
       const rawCtx = typeof entry.context_length === 'number' ? entry.context_length : 0;
       const context_length = Number.isFinite(rawCtx) && rawCtx > 0 ? rawCtx : 0;
       const normalizedId = normalizeReaderAiModelText(id);
