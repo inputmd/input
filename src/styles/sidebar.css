@@ -244,25 +244,6 @@
   padding-right: 2px;
 }
 
-.sidebar-floating-action {
-  padding: 12px;
-}
-
-.sidebar-daily-note-btn {
-  width: 100%;
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding-left: 2px;
-  padding-right: 2px;
-}
-
-.sidebar-daily-note-btn-icon {
-  flex: none;
-}
-
 .sidebar-files-disabled {
   display: flex;
   align-items: center;

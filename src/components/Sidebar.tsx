@@ -2,7 +2,6 @@ import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
-  CalendarDays,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -833,7 +832,7 @@ export function Sidebar({
   const filterControl = (
     <DropdownMenu.Root onOpenChange={blurOnClose}>
       <DropdownMenu.Trigger asChild>
-        <button type="button" class="sidebar-filter-trigger" title={filterLabel} aria-label="Sidebar file filter">
+        <button type="button" class="sidebar-filter-trigger" title={filterLabel} aria-label="Sidebar file filter" style={{ position: 'relative', left: '-2px' }}>
           <ChevronDown size={12} class="sidebar-filter-trigger-icon" aria-hidden="true" />
           {filterLabel}
         </button>
@@ -1367,6 +1366,17 @@ export function Sidebar({
                   >
                     Add directory
                   </DropdownMenu.Item>
+                  {showDailyNoteAction ? (
+                    <>
+                      <DropdownMenu.Separator class="sidebar-context-menu-separator" />
+                      <DropdownMenu.Item
+                        class="sidebar-filter-menu-item"
+                        onSelect={() => void onOpenDailyNote()}
+                      >
+                        Open daily note
+                      </DropdownMenu.Item>
+                    </>
+                  ) : null}
                   <DropdownMenu.Separator class="sidebar-context-menu-separator" />
                   <DropdownMenu.Item
                     class="sidebar-filter-menu-item"
@@ -1527,14 +1537,6 @@ export function Sidebar({
                   Discard
                 </button>
               ) : null}
-            </div>
-          ) : null}
-          {showDailyNoteAction && !stagedChangesText ? (
-            <div class="sidebar-floating-action">
-              <button type="button" class="sidebar-daily-note-btn" onClick={() => void onOpenDailyNote()}>
-                <CalendarDays size={14} className="sidebar-daily-note-btn-icon" aria-hidden="true" />
-                <span>Open daily note</span>
-              </button>
             </div>
           ) : null}
         </div>
