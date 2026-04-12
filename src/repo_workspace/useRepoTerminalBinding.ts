@@ -1,8 +1,11 @@
-import { useEffect, useMemo } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
+import { ApiError } from '../api_error';
 import type { GistFile } from '../github';
+import type { LinkedInstallation } from '../github_app';
 import { getPublicRepoTarball, getRepoTarball } from '../github_app';
 import type { PublicRepoRef } from '../wiki_links';
 import { applyRepoWorkspaceMutationsToTerminalFiles, buildGistTerminalBaseFiles } from './helpers';
+import { resolvePersistedHomeTrustAccess } from './persisted_home_trust.ts';
 import type { TerminalImportDiff, TerminalImportOptions } from './terminal_sync.ts';
 import { buildTerminalWorkdirName } from './terminal_workdir.ts';
 import type {
@@ -21,11 +24,15 @@ interface UseRepoTerminalBindingArgs {
   enabled: boolean;
   apiKey: string | undefined;
   currentGistId: string | null;
+  currentGistOwnerLogin: string | null;
   gistFiles: Record<string, GistFile> | null;
   repoAccessMode: RepoAccessMode;
   selectedRepo: string | null;
   activeInstalledRepoInstallationId: string | null;
   publicRepoRef: PublicRepoRef | null;
+  currentRouteRepoRef: PublicRepoRef | null;
+  userLogin: string | null;
+  linkedInstallations: LinkedInstallation[];
   terminalBaseFiles: Record<string, string>;
   terminalBaseSnapshotKey: string | null;
   overlayFiles: RepoWorkspaceOverlayFile[];
@@ -55,11 +62,15 @@ export function useRepoTerminalBinding({
   enabled,
   apiKey,
   currentGistId,
+  currentGistOwnerLogin,
   gistFiles,
   repoAccessMode,
   selectedRepo,
   activeInstalledRepoInstallationId,
   publicRepoRef,
+  currentRouteRepoRef,
+  userLogin,
+  linkedInstallations,
   terminalBaseFiles,
   terminalBaseSnapshotKey,
   overlayFiles,
@@ -75,13 +86,73 @@ export function useRepoTerminalBinding({
   registerImportHandler,
 }: UseRepoTerminalBindingArgs): RepoTerminalBinding {
   const cacheKey = `${workspaceKey}:${snapshotVersion}`;
+  const [baseFilesLoadError, setBaseFilesLoadError] = useState<string | null>(null);
+  const workspaceChangesPersisted = repoAccessMode === 'installed';
+
+  const workdirName = useMemo(
+    () =>
+      buildTerminalWorkdirName({
+        currentGistId,
+        repoAccessMode,
+        selectedRepo,
+        publicRepoRef,
+      }),
+    [currentGistId, publicRepoRef, repoAccessMode, selectedRepo],
+  );
+
+  const persistedHomeTrustAccess = useMemo(
+    () =>
+      resolvePersistedHomeTrustAccess({
+        currentGistId,
+        currentGistOwnerLogin,
+        currentRouteRepoRef,
+        linkedInstallations,
+        publicRepoRef,
+        repoAccessMode,
+        selectedRepo,
+        userLogin,
+        workspaceKey,
+      }),
+    [
+      currentGistId,
+      currentGistOwnerLogin,
+      currentRouteRepoRef,
+      linkedInstallations,
+      publicRepoRef,
+      repoAccessMode,
+      selectedRepo,
+      userLogin,
+      workspaceKey,
+    ],
+  );
+
+  const workspaceChangesNotice = useMemo(() => {
+    if (workspaceChangesPersisted) return null;
+    if (repoAccessMode === 'public' && publicRepoRef) {
+      return `Changes in this terminal won't be saved to ${publicRepoRef.owner}/${publicRepoRef.repo}. Download files or clone this repo to keep your work.`;
+    }
+    if (repoAccessMode === 'shared' && currentRouteRepoRef) {
+      return `Changes in this terminal won't be saved to ${currentRouteRepoRef.owner}/${currentRouteRepoRef.repo}. Download files or clone this repo to keep your work.`;
+    }
+    if (currentGistId) {
+      return "Changes in this terminal won't be saved to this gist. Download files to keep your work.";
+    }
+    return "Changes in this terminal won't be saved here. Download files to keep your work.";
+  }, [currentGistId, currentRouteRepoRef, publicRepoRef, repoAccessMode, workspaceChangesPersisted]);
 
   useEffect(() => {
     if (!enabled) return;
     if (!mounted) return;
-    if (currentGistId) return;
-    if (terminalBaseSnapshotKey === cacheKey) return;
+    if (currentGistId) {
+      setBaseFilesLoadError(null);
+      return;
+    }
+    if (terminalBaseSnapshotKey === cacheKey) {
+      setBaseFilesLoadError(null);
+      return;
+    }
     let cancelled = false;
+    setBaseFilesLoadError(null);
     void (async () => {
       try {
         let files: Record<string, string> | null = null;
@@ -102,8 +173,12 @@ export function useRepoTerminalBinding({
         }
         if (cancelled || files === null) return;
         replaceTerminalBaseSnapshot(cacheKey, files);
+        setBaseFilesLoadError(null);
       } catch (err) {
+        if (cancelled) return;
         console.error('[terminal] failed to fetch repo tarball', err);
+        const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err);
+        setBaseFilesLoadError(`[terminal] failed to fetch repo tarball: ${message}`);
       }
     })();
     return () => {
@@ -157,17 +232,6 @@ export function useRepoTerminalBinding({
     return { path: activeEditPath, content: editContent };
   }, [activeEditPath, editContent, editing, mounted]);
 
-  const workdirName = useMemo(
-    () =>
-      buildTerminalWorkdirName({
-        currentGistId,
-        repoAccessMode,
-        selectedRepo,
-        publicRepoRef,
-      }),
-    [currentGistId, publicRepoRef, repoAccessMode, selectedRepo],
-  );
-
   return useMemo(
     () => ({
       props: {
@@ -177,23 +241,32 @@ export function useRepoTerminalBinding({
         apiKey,
         baseFiles,
         baseFilesReady,
+        baseFilesLoadError,
         liveFile,
+        workspaceChangesPersisted,
+        workspaceChangesNotice,
+        persistedHomeTrustPrompt: persistedHomeTrustAccess.prompt,
+        showPersistedHomeTrustConfiguration: persistedHomeTrustAccess.canConfigure,
         includeActiveEditPathInImports,
         onToggleVisibilityShortcut,
-        onImportDiff,
-        registerImportHandler,
+        onImportDiff: workspaceChangesPersisted ? onImportDiff : undefined,
+        registerImportHandler: workspaceChangesPersisted ? registerImportHandler : undefined,
       },
     }),
     [
       apiKey,
       baseFiles,
+      baseFilesLoadError,
       baseFilesReady,
       includeActiveEditPathInImports,
       liveFile,
       onToggleVisibilityShortcut,
       onImportDiff,
+      persistedHomeTrustAccess,
       registerImportHandler,
       visible,
+      workspaceChangesNotice,
+      workspaceChangesPersisted,
       workdirName,
       workspaceKey,
     ],

@@ -9,14 +9,17 @@ import { isLikelyBinaryBytes } from '../path_utils.ts';
 import {
   buildPersistedHomeSeed,
   buildPersistedHomeSyncScript,
-  inspectPersistedHomeEntries,
   loadPersistedHomeEntries,
+  logPersistedHomePaths,
   PERSISTED_HOME_SEED_FILENAME,
   PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
   type PersistedHomeEntry,
-  type PersistedHomeInspectionSnapshot,
-  persistPersistedHomeEntries,
 } from '../persisted_home_state.ts';
+import {
+  type PersistedHomeTransitionReason,
+  type PersistedHomeTrustPrompt,
+  resolvePersistedHomeSessionTransition,
+} from '../repo_workspace/persisted_home_trust.ts';
 import {
   buildTerminalImportDiff,
   shouldImportTerminalPath,
@@ -31,6 +34,7 @@ import { startWebContainerHostBridge, type WebContainerHostBridgeSession } from 
 import { useDialogs } from './DialogProvider';
 import { TerminalPersistenceDialog } from './TerminalPersistenceDialog.tsx';
 import { consumeTerminalPixelWheelDelta } from './terminal_wheel.ts';
+import { useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
 
 // Ctrl-C/Ctrl-\ don't reliably interrupt processes inside WebContainer
 // (upstream bug). As a workaround, a second press warns that a third press
@@ -50,6 +54,9 @@ export interface TerminalPanelProps {
   workspaceKey: string;
   workdirName: string;
   apiKey: string | undefined;
+  baseFilesLoadError?: string | null;
+  workspaceChangesPersisted?: boolean;
+  workspaceChangesNotice?: string | null;
   /**
    * Stable workspace snapshot mirrored into the WebContainer FS on mount and
    * when non-editor state changes.
@@ -66,6 +73,8 @@ export interface TerminalPanelProps {
    * one-way (app → terminal) and is synced as a single debounced file write.
    */
   liveFile: TerminalLiveFile | null;
+  persistedHomeTrustPrompt?: PersistedHomeTrustPrompt | null;
+  showPersistedHomeTrustConfiguration?: boolean;
   /**
    * When true, terminal imports may include changes to the active editor file.
    * This should only be enabled while the editor buffer is still clean.
@@ -235,7 +244,6 @@ async function readStreamFully(stream: ReadableStream<string>): Promise<string> 
 const ANSI_ESCAPE_SEQUENCE_RE = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const HOME_OVERLAY_ARCHIVE_FILENAME = '.input-home-overlay.tar';
 const HOME_OVERLAY_PROVISION_FILENAME = '.input-home-overlay-provision.cjs';
-const PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS = 250;
 
 type TerminalBootPerfValue = boolean | null | number | string;
 type TerminalBootPerfDetails = Record<string, TerminalBootPerfValue>;
@@ -276,11 +284,6 @@ function formatTerminalBootError(prefix: string, err: unknown): string {
 
 function joinHomePath(homeDir: string, fileName: string): string {
   return `${homeDir.replace(/\/+$/, '')}/${fileName}`;
-}
-
-function logPersistedHomePaths(level: 'log' | 'info', message: string, entries: PersistedHomeEntry[]): void {
-  const paths = entries.map((entry) => entry.path).sort((left, right) => left.localeCompare(right));
-  console[level](message, paths);
 }
 
 function bootPerfNow(): number {
@@ -508,13 +511,16 @@ async function restorePersistedHomeForWorkspace(
   workspaceKey: string,
   homeDir: string,
   scriptPath: string,
-  bootPerf?: TerminalBootPerfLogger,
+  options?: { includePersistedHome?: boolean; bootPerf?: TerminalBootPerfLogger },
 ): Promise<{ entryCount: number }> {
-  const entries = await measureBootStage(bootPerf, 'persistedHome.loadEntries', () =>
-    loadPersistedHomeEntries(workspaceKey),
-  );
+  const entries =
+    options?.includePersistedHome === false
+      ? []
+      : await measureBootStage(options?.bootPerf, 'persistedHome.loadEntries', () =>
+          loadPersistedHomeEntries(workspaceKey),
+        );
   await measureBootStage(
-    bootPerf,
+    options?.bootPerf,
     'persistedHome.writeSeedFile',
     () => writeContainerFile(wc, joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME), buildPersistedHomeSeed(entries)),
     {
@@ -522,7 +528,7 @@ async function restorePersistedHomeForWorkspace(
     },
   );
   await measureBootStage(
-    bootPerf,
+    options?.bootPerf,
     'persistedHome.restoreEntries',
     async () => {
       const restore = await wc.spawn('node', [scriptPath, 'restore']);
@@ -735,9 +741,14 @@ export function TerminalPanel({
   workspaceKey,
   workdirName,
   apiKey,
+  baseFilesLoadError = null,
+  workspaceChangesPersisted = true,
+  workspaceChangesNotice = null,
   baseFiles,
   baseFilesReady,
   liveFile,
+  persistedHomeTrustPrompt = null,
+  showPersistedHomeTrustConfiguration = false,
   includeActiveEditPathInImports = false,
   onToggleVisibilityShortcut,
   onImportDiff,
@@ -762,13 +773,9 @@ export function TerminalPanel({
     },
   });
   const [error, setError] = useState<string | null>(null);
+  const [hostBridgeError, setHostBridgeError] = useState(false);
   const startedRef = useRef(false);
   const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
-  const persistedHomeSyncRef = useRef<SpawnedShell | null>(null);
-  const persistedHomeSyncProcessIdRef = useRef(0);
-  const persistedHomeSyncOutputBufferRef = useRef('');
-  const persistedHomePersistTimerRef = useRef<number | null>(null);
-  const pendingPersistedHomeEntriesRef = useRef<PersistedHomeEntry[] | null>(null);
   const webContainerSessionIdRef = useRef(0);
   const restartInFlightRef = useRef<Promise<void> | null>(null);
   const restartWebContainerInFlightRef = useRef<Promise<void> | null>(null);
@@ -777,6 +784,8 @@ export function TerminalPanel({
   const lastWrittenRef = useRef<Map<string, string>>(new Map());
   const baseFilesRef = useRef(baseFiles);
   baseFilesRef.current = baseFiles;
+  const baseFilesLoadErrorRef = useRef(baseFilesLoadError);
+  baseFilesLoadErrorRef.current = baseFilesLoadError;
   const baseFilesReadyRef = useRef(baseFilesReady);
   baseFilesReadyRef.current = baseFilesReady;
   const liveFilePath = liveFile?.path ?? null;
@@ -800,17 +809,10 @@ export function TerminalPanel({
   });
   const [resettingShell, setResettingShell] = useState(false);
   const [restartingWebContainer, setRestartingWebContainer] = useState(false);
-  const [persistenceDialogOpen, setPersistenceDialogOpen] = useState(false);
-  const [persistenceDialogLoading, setPersistenceDialogLoading] = useState(false);
-  const [persistenceDialogError, setPersistenceDialogError] = useState<string | null>(null);
-  const [persistenceDialogSnapshot, setPersistenceDialogSnapshot] = useState<PersistedHomeInspectionSnapshot | null>(
-    null,
-  );
   const onImportDiffRef = useRef(onImportDiff);
   onImportDiffRef.current = onImportDiff;
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
-  const persistedHomeScriptPathRef = useRef<string | null>(null);
   const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
   const [downloadingPath, setDownloadingPath] = useState(false);
   const { showAlert, showPrompt } = useDialogs();
@@ -831,6 +833,9 @@ export function TerminalPanel({
   const restartShellRef = useRef<((paneId?: PaneId, options?: { clearTerminal?: boolean }) => Promise<void>) | null>(
     null,
   );
+  const restartWebContainerRef = useRef<
+    ((options?: { reason?: PersistedHomeTransitionReason }) => Promise<void>) | null
+  >(null);
   const [singlePaneId, setSinglePaneId] = useState<PaneId>('primary');
   const [splitOpen, setSplitOpen] = useState(false);
   const [activePaneId, setActivePaneId] = useState<PaneId>('primary');
@@ -844,10 +849,25 @@ export function TerminalPanel({
   );
   const visiblePaneIdsRef = useRef<PaneId[]>(visiblePaneIds);
   visiblePaneIdsRef.current = visiblePaneIds;
+  const lastBaseFilesLoadErrorRef = useRef<string | null>(null);
 
   const getPreferredPaneId = useCallback((): PaneId => {
     if (visiblePaneIdsRef.current.includes(activePaneIdRef.current)) return activePaneIdRef.current;
     return visiblePaneIdsRef.current[0] ?? 'primary';
+  }, []);
+
+  const renderBaseFilesLoadError = useCallback((paneId: PaneId): void => {
+    const message = baseFilesLoadErrorRef.current;
+    if (!message) {
+      lastBaseFilesLoadErrorRef.current = null;
+      return;
+    }
+    if (lastBaseFilesLoadErrorRef.current === message) return;
+    const terminal = paneRuntimesRef.current[paneId].terminal;
+    if (!terminal) return;
+    terminal.reset();
+    terminal.write(`${message}\r\n`);
+    lastBaseFilesLoadErrorRef.current = message;
   }, []);
 
   const fitPane = useCallback((paneId: PaneId) => {
@@ -871,6 +891,37 @@ export function TerminalPanel({
     },
     [getPreferredPaneId],
   );
+
+  const {
+    capturePersistedHomeState,
+    closePersistenceDialog,
+    closePersistedHomePrompt,
+    credentialSyncEnabled,
+    disposePersistedHomePrompt,
+    flushPersistedHomeState,
+    getPersistedHomeActiveSessionMode,
+    openPersistenceDialog,
+    openPersistedHomeReconfigurePrompt,
+    persistenceDialogError,
+    persistenceDialogLoading,
+    persistenceDialogOpen,
+    persistenceDialogSnapshot,
+    persistedHomePromptState,
+    releasePersistedHomeSyncSession,
+    resolvePersistedHomeMode,
+    setPersistedHomeActiveSessionMode,
+    setPersistedHomeScriptPath,
+    settlePersistedHomePrompt,
+    startPersistedHomeSync,
+  } = useTerminalPersistedHome({
+    focusPane,
+    persistedHomeTrustPrompt,
+    readPersistedHomeEntriesForWorkspace,
+    restartWebContainerRef,
+    unmountedRef,
+    wcRef,
+    workspaceKeyRef,
+  });
 
   const setShellExited = useCallback((paneId: PaneId, exited: boolean) => {
     shellExitedByPaneRef.current[paneId] = exited;
@@ -955,166 +1006,6 @@ export function TerminalPanel({
     hostBridgeRef.current = null;
     hostBridge?.stop();
   }, []);
-
-  const flushPersistedHomeState = useCallback(async () => {
-    if (persistedHomePersistTimerRef.current !== null) {
-      window.clearTimeout(persistedHomePersistTimerRef.current);
-      persistedHomePersistTimerRef.current = null;
-    }
-    const pendingEntries = pendingPersistedHomeEntriesRef.current;
-    if (pendingEntries === null) return;
-    pendingPersistedHomeEntriesRef.current = null;
-    await persistPersistedHomeEntries(workspaceKeyRef.current, pendingEntries);
-    logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', pendingEntries);
-  }, []);
-
-  const persistPersistedHomeStateImmediately = useCallback(async (entries: PersistedHomeEntry[]) => {
-    if (persistedHomePersistTimerRef.current !== null) {
-      window.clearTimeout(persistedHomePersistTimerRef.current);
-      persistedHomePersistTimerRef.current = null;
-    }
-    pendingPersistedHomeEntriesRef.current = null;
-    await persistPersistedHomeEntries(workspaceKeyRef.current, entries);
-    logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', entries);
-  }, []);
-
-  const schedulePersistedHomeState = useCallback((entries: PersistedHomeEntry[]) => {
-    pendingPersistedHomeEntriesRef.current = entries;
-    if (persistedHomePersistTimerRef.current !== null) {
-      window.clearTimeout(persistedHomePersistTimerRef.current);
-    }
-    persistedHomePersistTimerRef.current = window.setTimeout(() => {
-      persistedHomePersistTimerRef.current = null;
-      const nextEntries = pendingPersistedHomeEntriesRef.current;
-      if (nextEntries === null) return;
-      pendingPersistedHomeEntriesRef.current = null;
-      void persistPersistedHomeEntries(workspaceKeyRef.current, nextEntries).then(
-        () => {
-          logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', nextEntries);
-        },
-        (err) => {
-          console.error('[terminal] failed to persist managed home state', err);
-        },
-      );
-    }, PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS);
-  }, []);
-
-  const releasePersistedHomeSyncSession = useCallback(() => {
-    persistedHomeSyncProcessIdRef.current += 1;
-    persistedHomeSyncOutputBufferRef.current = '';
-    const process = persistedHomeSyncRef.current;
-    persistedHomeSyncRef.current = null;
-    if (!process) return;
-    try {
-      process.kill();
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const openPersistenceDialog = useCallback(async () => {
-    setPersistenceDialogOpen(true);
-    setPersistenceDialogLoading(true);
-    setPersistenceDialogError(null);
-    try {
-      const snapshot = await inspectPersistedHomeEntries(workspaceKeyRef.current);
-      setPersistenceDialogSnapshot(snapshot);
-    } catch (err) {
-      setPersistenceDialogError(err instanceof Error ? err.message : 'Failed to inspect terminal persistence');
-    } finally {
-      setPersistenceDialogLoading(false);
-    }
-  }, []);
-
-  const closePersistenceDialog = useCallback(() => {
-    setPersistenceDialogOpen(false);
-  }, []);
-
-  const capturePersistedHomeState = useCallback(
-    async (wc: WebContainer | null, options?: { immediate?: boolean }): Promise<void> => {
-      if (!wc) return;
-      const scriptPath = persistedHomeScriptPathRef.current;
-      if (!scriptPath) return;
-      try {
-        const entries = await readPersistedHomeEntriesForWorkspace(wc, scriptPath);
-        if (options?.immediate) {
-          await persistPersistedHomeStateImmediately(entries);
-          return;
-        }
-        schedulePersistedHomeState(entries);
-      } catch (err) {
-        console.error('[terminal] failed to capture managed home state', err);
-      }
-    },
-    [persistPersistedHomeStateImmediately, schedulePersistedHomeState],
-  );
-
-  const startPersistedHomeSync = useCallback(
-    async (wc: WebContainer): Promise<void> => {
-      releasePersistedHomeSyncSession();
-      const scriptPath = persistedHomeScriptPathRef.current;
-      if (!scriptPath) return;
-      const processId = persistedHomeSyncProcessIdRef.current + 1;
-      persistedHomeSyncProcessIdRef.current = processId;
-      persistedHomeSyncOutputBufferRef.current = '';
-
-      const watcher = await wc.spawn('node', [scriptPath, 'watch']);
-      if (unmountedRef.current || wcRef.current !== wc || persistedHomeSyncProcessIdRef.current !== processId) {
-        try {
-          watcher.kill();
-        } catch {
-          // ignore
-        }
-        return;
-      }
-
-      persistedHomeSyncRef.current = watcher;
-      void watcher.output
-        .pipeTo(
-          new WritableStream({
-            write: (chunk) => {
-              if (persistedHomeSyncProcessIdRef.current !== processId) return;
-              persistedHomeSyncOutputBufferRef.current += chunk;
-              while (true) {
-                const newlineIndex = persistedHomeSyncOutputBufferRef.current.indexOf('\n');
-                if (newlineIndex === -1) break;
-                const line = persistedHomeSyncOutputBufferRef.current.slice(0, newlineIndex).trim();
-                persistedHomeSyncOutputBufferRef.current = persistedHomeSyncOutputBufferRef.current.slice(
-                  newlineIndex + 1,
-                );
-                if (!line) continue;
-                try {
-                  const parsed = JSON.parse(line) as { type?: string; entries?: unknown };
-                  if (parsed.type !== 'snapshot' || !Array.isArray(parsed.entries)) continue;
-                  const entries = parsed.entries.flatMap((entry) => {
-                    if (!entry || typeof entry !== 'object') return [];
-                    const path = (entry as { path?: unknown }).path;
-                    const content = (entry as { content?: unknown }).content;
-                    const mtime = (entry as { mtime?: unknown }).mtime;
-                    if (typeof path !== 'string' || typeof content !== 'string') return [];
-                    return [
-                      {
-                        path,
-                        content,
-                        mtime: typeof mtime === 'number' && Number.isFinite(mtime) ? Math.trunc(mtime) : null,
-                      },
-                    ];
-                  });
-                  schedulePersistedHomeState(entries);
-                } catch (err) {
-                  console.error('[terminal] failed to parse managed home state event', err);
-                }
-              }
-            },
-          }),
-        )
-        .catch((err) => {
-          if (persistedHomeSyncProcessIdRef.current !== processId) return;
-          console.error('[terminal] managed home state watcher closed', err);
-        });
-    },
-    [releasePersistedHomeSyncSession, schedulePersistedHomeState],
-  );
 
   const teardownWebContainer = useCallback((wc: WebContainer | null) => {
     const globalState = getTerminalPanelGlobalState();
@@ -1363,6 +1254,7 @@ export function TerminalPanel({
       runtime.terminal = terminal;
       terminal.open(container);
       fitTerminal(terminal, container);
+      renderBaseFilesLoadError(paneId);
       let pixelWheelRemainder = 0;
 
       terminal.attachCustomWheelEventHandler((event) => {
@@ -1473,7 +1365,7 @@ export function TerminalPanel({
         terminal.dispose();
       };
     },
-    [fitPane, handleResetHotkey, onToggleVisibilityShortcut],
+    [fitPane, handleResetHotkey, onToggleVisibilityShortcut, renderBaseFilesLoadError],
   );
 
   const initializeWebContainerSession = useCallback(
@@ -1482,6 +1374,7 @@ export function TerminalPanel({
       importBeforeReboot?: boolean;
       clearTerminal?: boolean;
       announceRestart?: boolean;
+      persistedHomeTransitionReason?: PersistedHomeTransitionReason;
     }): Promise<void> => {
       const logPaneId = getPreferredPaneId();
       const terminal = paneRuntimesRef.current[logPaneId].terminal;
@@ -1490,10 +1383,30 @@ export function TerminalPanel({
       }
       const bootPerf = createTerminalBootPerfLogger(workspaceKeyRef.current, workdirName);
       let bootStatus: 'cancelled' | 'error' | 'ok' = 'ok';
-
-      const previousWc = wcRef.current;
+      // Snapshot the workspace key before any async work so that the previous
+      // session's state is persisted under its own key, not the (potentially
+      // different) key that workspaceKeyRef points to after a render.
+      const previousWorkspaceKey = workspaceKeyRef.current;
+      // Claim the session counter before the potentially-blocking trust prompt
+      // so that any concurrent invocation will see the updated counter and the
+      // stale session can be detected after the await.
       const sessionId = webContainerSessionIdRef.current + 1;
       webContainerSessionIdRef.current = sessionId;
+      const configuredPersistedHomeMode = await resolvePersistedHomeMode();
+      if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
+        bootStatus = 'cancelled';
+        return;
+      }
+      const persistedHomeTransition = resolvePersistedHomeSessionTransition({
+        activeSessionMode: getPersistedHomeActiveSessionMode(),
+        configuredMode: configuredPersistedHomeMode,
+        reason: options?.persistedHomeTransitionReason,
+      });
+      // TODO: Split this into separate controls/copy for persisted config restore
+      // and browser-auth-backed proxying. "Credential sync" currently gates both.
+      const includeCredentialSync = persistedHomeTransition.includeCredentialSync;
+
+      const previousWc = wcRef.current;
       restartInFlightRef.current = null;
       releasePersistedHomeSyncSession();
       releaseHostBridgeSession();
@@ -1519,16 +1432,21 @@ export function TerminalPanel({
         }
       }
 
-      if (previousWc) {
-        await capturePersistedHomeState(previousWc, { immediate: true });
+      if (previousWc && persistedHomeTransition.captureActiveSessionState) {
+        await capturePersistedHomeState(previousWc, {
+          immediate: true,
+          allowPersist: true,
+          targetWorkspaceKey: previousWorkspaceKey,
+        });
       }
+      setPersistedHomeActiveSessionMode(null);
 
       if (options?.forceReboot) {
         teardownWebContainer(previousWc);
       }
 
       try {
-        terminal.write('Booting WebContainer...\r\n');
+        terminal.write('Booting container...\r\n');
         const wc = await bootPerf.measure('bootWebContainer', () => bootWebContainer(apiKey, workdirName));
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
@@ -1583,43 +1501,55 @@ export function TerminalPanel({
           const homeDir = await bootPerf.measure('persistedHome.resolveHomeDirectory', () =>
             resolveWebContainerHomeDirectory(wc),
           );
-          persistedHomeScriptPathRef.current = await bootPerf.measure('persistedHome.writeSupportScript', () =>
+          const persistedHomeScriptPath = await bootPerf.measure('persistedHome.writeSupportScript', () =>
             preparePersistedHomeSupportFiles(wc, homeDir),
           );
+          setPersistedHomeScriptPath(persistedHomeScriptPath);
           const persistedHomeResult = await restorePersistedHomeForWorkspace(
             wc,
             workspaceKeyRef.current,
             homeDir,
-            persistedHomeScriptPathRef.current,
-            bootPerf,
+            persistedHomeScriptPath,
+            {
+              includePersistedHome: includeCredentialSync,
+              bootPerf,
+            },
           );
           bootPerf.record('persistedHome.summary', 0, { entry_count: persistedHomeResult.entryCount });
         } catch (err) {
-          persistedHomeScriptPathRef.current = null;
+          setPersistedHomeScriptPath(null);
           console.error('[terminal] failed to restore managed home state', err);
           terminal.write(formatTerminalBootError('[terminal] failed to restore managed home state', err));
         }
+        setPersistedHomeActiveSessionMode(persistedHomeTransition.nextSessionMode);
 
-        try {
-          terminal.write('Starting networking...\r\n');
-          hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
-            startWebContainerHostBridge({
-              onLog(message) {
-                console.error(message);
-                try {
-                  terminal.write(`${message}\r\n`);
-                } catch {
-                  // ignore
-                }
-              },
-              wc,
-            }),
-          );
-        } catch (err) {
-          console.error('[terminal] failed to start host bridge', err);
-          terminal.write(
-            `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
-          );
+        if (includeCredentialSync) {
+          try {
+            terminal.write('Starting networking...\r\n');
+            hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
+              startWebContainerHostBridge({
+                onLog(message) {
+                  console.error(message);
+                  try {
+                    terminal.write(`${message}\r\n`);
+                  } catch {
+                    // ignore
+                  }
+                },
+                wc,
+              }),
+            );
+            setHostBridgeError(false);
+          } catch (err) {
+            console.error('[terminal] failed to start host bridge', err);
+            terminal.write(
+              `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
+            );
+            setHostBridgeError(true);
+          }
+        } else {
+          setHostBridgeError(false);
+          terminal.write('Credential sync disabled.\r\n');
         }
 
         await bootPerf.measure(
@@ -1666,11 +1596,15 @@ export function TerminalPanel({
       apiKey,
       capturePersistedHomeState,
       focusPane,
+      getPersistedHomeActiveSessionMode,
       getPreferredPaneId,
       importTerminalDiff,
       releaseAllPaneShellSessions,
       releaseHostBridgeSession,
       releasePersistedHomeSyncSession,
+      resolvePersistedHomeMode,
+      setPersistedHomeActiveSessionMode,
+      setPersistedHomeScriptPath,
       spawnShellSession,
       startPersistedHomeSync,
       teardownWebContainer,
@@ -1728,49 +1662,72 @@ export function TerminalPanel({
   );
   restartShellRef.current = restartShell;
 
-  const restartWebContainer = useCallback(async (): Promise<void> => {
-    if (restartWebContainerInFlightRef.current) {
-      return await restartWebContainerInFlightRef.current;
-    }
+  const restartWebContainer = useCallback(
+    async (options?: { reason?: PersistedHomeTransitionReason }): Promise<void> => {
+      if (restartWebContainerInFlightRef.current) {
+        return await restartWebContainerInFlightRef.current;
+      }
 
-    const pendingRestart = (async () => {
-      if (!paneRuntimesRef.current[getPreferredPaneId()].terminal || unmountedRef.current) return;
+      // Eagerly invalidate any in-flight boot so its next stale-session check
+      // detects that a restart was requested and bails out.
+      webContainerSessionIdRef.current += 1;
 
-      hideResetBanner();
-      resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
-      setRestartingWebContainer(true);
-      try {
-        await initializeWebContainerSession({
-          clearTerminal: true,
-          forceReboot: true,
-          importBeforeReboot: true,
-          announceRestart: true,
-        });
-      } catch (err) {
-        console.error('[terminal] webcontainer restart failed', err);
-        const terminal = paneRuntimesRef.current[getPreferredPaneId()].terminal;
-        const message = err instanceof Error ? err.message : String(err);
-        if (terminal) {
-          try {
-            terminal.writeln(`[terminal] failed to restart WebContainer: ${message}`);
-          } catch {
-            // ignore
+      const pendingRestart = (async () => {
+        if (!paneRuntimesRef.current[getPreferredPaneId()].terminal || unmountedRef.current) return;
+
+        hideResetBanner();
+        resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
+        setRestartingWebContainer(true);
+        try {
+          await initializeWebContainerSession({
+            clearTerminal: true,
+            forceReboot: true,
+            importBeforeReboot: true,
+            announceRestart: true,
+            persistedHomeTransitionReason: options?.reason,
+          });
+        } catch (err) {
+          console.error('[terminal] webcontainer restart failed', err);
+          const terminal = paneRuntimesRef.current[getPreferredPaneId()].terminal;
+          const message = err instanceof Error ? err.message : String(err);
+          if (terminal) {
+            try {
+              terminal.writeln(`[terminal] failed to restart WebContainer: ${message}`);
+            } catch {
+              // ignore
+            }
           }
+        } finally {
+          setRestartingWebContainer(false);
         }
-      } finally {
-        setRestartingWebContainer(false);
-      }
-    })();
+      })();
 
-    restartWebContainerInFlightRef.current = pendingRestart;
-    try {
-      await pendingRestart;
-    } finally {
-      if (restartWebContainerInFlightRef.current === pendingRestart) {
-        restartWebContainerInFlightRef.current = null;
+      restartWebContainerInFlightRef.current = pendingRestart;
+      try {
+        await pendingRestart;
+      } finally {
+        if (restartWebContainerInFlightRef.current === pendingRestart) {
+          restartWebContainerInFlightRef.current = null;
+        }
       }
-    }
-  }, [getPreferredPaneId, hideResetBanner, initializeWebContainerSession]);
+    },
+    [getPreferredPaneId, hideResetBanner, initializeWebContainerSession],
+  );
+  restartWebContainerRef.current = restartWebContainer;
+
+  useEffect(() => {
+    if (persistedHomePromptState?.mode !== 'reconfigure') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closePersistedHomePrompt();
+      focusPane();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [closePersistedHomePrompt, focusPane, persistedHomePromptState?.mode]);
 
   const downloadFromWebContainer = useCallback(async (): Promise<void> => {
     const wc = wcRef.current;
@@ -1849,6 +1806,25 @@ export function TerminalPanel({
       setShellReadyByPane((current) => ({ ...current, [otherPaneId(singlePaneId)]: false }));
     }
   }, [disposePaneRuntime, singlePaneId, splitOpen]);
+
+  useEffect(() => {
+    if (!visible || !baseFilesLoadError) {
+      if (!baseFilesLoadError) {
+        lastBaseFilesLoadErrorRef.current = null;
+      }
+      return;
+    }
+    if (lastBaseFilesLoadErrorRef.current === baseFilesLoadError) return;
+    let cancelled = false;
+    void (async () => {
+      await ensurePaneSurface(singlePaneIdRef.current);
+      if (cancelled || unmountedRef.current) return;
+      renderBaseFilesLoadError(singlePaneIdRef.current);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseFilesLoadError, ensurePaneSurface, renderBaseFilesLoadError, visible]);
 
   useEffect(() => {
     if (!visible || startedRef.current || !baseFilesReady) return;
@@ -1982,12 +1958,18 @@ export function TerminalPanel({
       unmountedRef.current = true;
       const skipImportOnUnmount = didRecentHotReload();
       const currentWc = wcRef.current;
-      if (currentWc) {
-        void capturePersistedHomeState(currentWc, { immediate: true }).finally(() => {
-          void flushPersistedHomeState();
-        });
+      const allowPersistedHomeCapture = getPersistedHomeActiveSessionMode() === 'include';
+      if (currentWc && allowPersistedHomeCapture) {
+        // Pin the workspace key before the async capture — the ref can drift
+        // after unmount if the parent re-renders with a new workspace.
+        const targetWorkspaceKey = workspaceKeyRef.current;
+        void capturePersistedHomeState(currentWc, { immediate: true, allowPersist: true, targetWorkspaceKey }).finally(
+          () => {
+            void flushPersistedHomeState({ force: true });
+          },
+        );
       } else {
-        void flushPersistedHomeState();
+        void flushPersistedHomeState({ force: true });
       }
       if (!skipImportOnUnmount) {
         void importTerminalDiff({ silent: true }).catch((err) => {
@@ -2005,6 +1987,8 @@ export function TerminalPanel({
       restartInFlightRef.current = null;
       restartWebContainerInFlightRef.current = null;
       webContainerSessionIdRef.current += 1;
+      setPersistedHomeActiveSessionMode(null);
+      disposePersistedHomePrompt();
       releasePersistedHomeSyncSession();
       releaseHostBridgeSession();
       releaseAllPaneShellSessions({ invalidate: true });
@@ -2021,23 +2005,27 @@ export function TerminalPanel({
     };
   }, [
     capturePersistedHomeState,
+    disposePersistedHomePrompt,
     flushPersistedHomeState,
+    getPersistedHomeActiveSessionMode,
     importTerminalDiff,
     releaseAllPaneShellSessions,
     releasePersistedHomeSyncSession,
     releaseHostBridgeSession,
+    setPersistedHomeActiveSessionMode,
   ]);
 
   useEffect(() => {
     const handlePageHide = () => {
       const currentWc = wcRef.current;
       if (currentWc) {
-        void capturePersistedHomeState(currentWc, { immediate: true }).finally(() => {
-          void flushPersistedHomeState();
+        const targetWorkspaceKey = workspaceKeyRef.current;
+        void capturePersistedHomeState(currentWc, { immediate: true, targetWorkspaceKey }).finally(() => {
+          void flushPersistedHomeState({ force: true });
         });
         return;
       }
-      void flushPersistedHomeState();
+      void flushPersistedHomeState({ force: true });
     };
     window.addEventListener('pagehide', handlePageHide);
     return () => {
@@ -2070,6 +2058,11 @@ export function TerminalPanel({
       ) : (
         <>
           <div class={`terminal-panel__stack${splitOpen ? ' terminal-panel__stack--split' : ''}`}>
+            {!workspaceChangesPersisted && workspaceChangesNotice ? (
+              <div class="terminal-panel__notice" role="status" aria-live="polite">
+                {workspaceChangesNotice}
+              </div>
+            ) : null}
             {visiblePaneIds.map((paneId, index) => (
               <div
                 key={paneId}
@@ -2092,6 +2085,68 @@ export function TerminalPanel({
                 ) : null}
               </div>
             ))}
+            {persistedHomePromptState ? (
+              <div
+                class="terminal-panel__trust-prompt"
+                role="dialog"
+                aria-modal={persistedHomePromptState.mode === 'boot' ? 'true' : 'false'}
+                aria-labelledby="terminal-trust-title"
+                onClick={(event) => {
+                  if (persistedHomePromptState.mode !== 'reconfigure') return;
+                  if (event.target !== event.currentTarget) return;
+                  closePersistedHomePrompt();
+                  focusPane();
+                }}
+              >
+                <div class="terminal-panel__trust-prompt-card">
+                  <h2 id="terminal-trust-title" class="terminal-panel__trust-prompt-title">
+                    {persistedHomePromptState.title}
+                  </h2>
+                  <p class="terminal-panel__trust-prompt-message">{persistedHomePromptState.message}</p>
+                  {persistedHomePromptState.note ? (
+                    <p class="terminal-panel__trust-prompt-note">{persistedHomePromptState.note}</p>
+                  ) : null}
+                  <div class="terminal-panel__trust-prompt-actions">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        settlePersistedHomePrompt(false);
+                      }}
+                    >
+                      Disable credential sync
+                    </button>
+                    <button
+                      type="button"
+                      class="button-warning"
+                      onClick={() => {
+                        settlePersistedHomePrompt(true);
+                      }}
+                    >
+                      Trust this {persistedHomePromptState.target}, enable credential sync
+                    </button>
+                  </div>
+                  {persistedHomePromptState.mode === 'boot' ? (
+                    <span
+                      class="terminal-panel__trust-prompt-link"
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => {
+                        settlePersistedHomePrompt(false, { persistDecision: false });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        settlePersistedHomePrompt(false, { persistDecision: false });
+                      }}
+                    >
+                      Ask again later
+                    </span>
+                  ) : (
+                    <p class="terminal-panel__trust-prompt-note">This will restart running terminals.</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
           <div class="terminal-panel__overlay-controls">
             <DropdownMenu.Root onOpenChange={blurOnClose}>
@@ -2107,13 +2162,33 @@ export function TerminalPanel({
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
+                  <DropdownMenu.Label class="terminal-panel__menu-status">
+                    Credential sync:{' '}
+                    {credentialSyncEnabled === null
+                      ? '...'
+                      : credentialSyncEnabled
+                        ? hostBridgeError
+                          ? 'error'
+                          : 'on'
+                        : 'off'}
+                  </DropdownMenu.Label>
+                  {showPersistedHomeTrustConfiguration ? (
+                    <DropdownMenu.Item
+                      class="terminal-panel__menu-item"
+                      onSelect={() => {
+                        openPersistedHomeReconfigurePrompt();
+                      }}
+                    >
+                      Configure credential sync
+                    </DropdownMenu.Item>
+                  ) : null}
                   <DropdownMenu.Item
                     class="terminal-panel__menu-item"
                     onSelect={() => {
                       void openPersistenceDialog();
                     }}
                   >
-                    Inspect config files
+                    Inspect credentials
                   </DropdownMenu.Item>
                   <DropdownMenu.Item
                     class="terminal-panel__menu-item"
@@ -2122,7 +2197,7 @@ export function TerminalPanel({
                       void downloadFromWebContainer();
                     }}
                   >
-                    Download...
+                    Download file...
                   </DropdownMenu.Item>
                   <DropdownMenu.Separator class="terminal-panel__menu-separator" />
                   {!splitOpen ? (
@@ -2142,7 +2217,7 @@ export function TerminalPanel({
                           closeSplitPane('top');
                         }}
                       >
-                        Close top
+                        Close top terminal
                       </DropdownMenu.Item>
                       <DropdownMenu.Item
                         class="terminal-panel__menu-item"
@@ -2151,7 +2226,7 @@ export function TerminalPanel({
                           closeSplitPane('bottom');
                         }}
                       >
-                        Close bottom
+                        Close bottom terminal
                       </DropdownMenu.Item>
                     </>
                   )}

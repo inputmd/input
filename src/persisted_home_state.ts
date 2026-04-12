@@ -225,9 +225,10 @@ async function openPersistedHomeDatabase(): Promise<IDBDatabase | null> {
   return await runRequest(request);
 }
 
-async function clearPersistedHomeScopeEntries(store: IDBObjectStore, scopeKey: string): Promise<void> {
+async function collectScopeHomePaths(store: IDBObjectStore, scopeKey: string): Promise<Set<string>> {
   const index = store.index(PERSISTED_HOME_WORKSPACE_INDEX);
   const keyCursorRequest = index.openKeyCursor(IDBKeyRange.only(scopeKey));
+  const paths = new Set<string>();
   await new Promise<void>((resolve, reject) => {
     keyCursorRequest.addEventListener('success', () => {
       const cursor = keyCursorRequest.result;
@@ -235,13 +236,15 @@ async function clearPersistedHomeScopeEntries(store: IDBObjectStore, scopeKey: s
         resolve();
         return;
       }
-      store.delete(cursor.primaryKey);
+      const primaryKey = cursor.primaryKey as [string, string];
+      paths.add(primaryKey[1]);
       cursor.continue();
     });
     keyCursorRequest.addEventListener('error', () => {
       reject(keyCursorRequest.error ?? new Error('IndexedDB cursor request failed.'));
     });
   });
+  return paths;
 }
 
 export async function persistPersistedHomeEntries(
@@ -258,11 +261,11 @@ export async function persistPersistedHomeEntries(
   try {
     const transaction = database.transaction(PERSISTED_HOME_ENTRY_STORE, 'readwrite');
     const store = transaction.objectStore(PERSISTED_HOME_ENTRY_STORE);
-    await clearPersistedHomeScopeEntries(store, PERSISTED_HOME_GLOBAL_WORKSPACE_KEY);
-    if (normalizedWorkspaceKey) {
-      await clearPersistedHomeScopeEntries(store, normalizedWorkspaceKey);
-    }
 
+    // Upsert global entries present in the snapshot. Global entries are shared
+    // across all workspaces, so we only upsert — never prune — because a
+    // single workspace's snapshot is not authoritative for the full set of
+    // global entries (other workspaces may have written different global files).
     for (const entry of globalEntries) {
       store.put({
         workspaceKey: PERSISTED_HOME_GLOBAL_WORKSPACE_KEY,
@@ -273,8 +276,12 @@ export async function persistPersistedHomeEntries(
       } satisfies PersistedHomeRecord);
     }
 
+    // Upsert workspace entries and remove stale ones.
     if (normalizedWorkspaceKey) {
+      const existingWorkspacePaths = await collectScopeHomePaths(store, normalizedWorkspaceKey);
+      const nextWorkspacePaths = new Set<string>();
       for (const entry of workspaceEntries) {
+        nextWorkspacePaths.add(entry.path);
         store.put({
           workspaceKey: normalizedWorkspaceKey,
           homePath: entry.path,
@@ -282,6 +289,11 @@ export async function persistPersistedHomeEntries(
           mtime: entry.mtime,
           updatedAt,
         } satisfies PersistedHomeRecord);
+      }
+      for (const stalePath of existingWorkspacePaths) {
+        if (!nextWorkspacePaths.has(stalePath)) {
+          store.delete([normalizedWorkspaceKey, stalePath]);
+        }
       }
     }
 
@@ -468,6 +480,12 @@ export function buildPersistedHomeSyncScript(
     '    }',
     '    if (!entry.isFile()) continue;',
     '    const stats = fs.statSync(absoluteChildPath);',
+    '    if (stats.size > 0) {',
+    '      const probe = Buffer.alloc(Math.min(512, stats.size));',
+    '      const fd = fs.openSync(absoluteChildPath, "r");',
+    '      try { fs.readSync(fd, probe, 0, probe.length, 0); } finally { fs.closeSync(fd); }',
+    '      if (probe.includes(0)) continue;',
+    '    }',
     '    const mtime = Number.isFinite(stats.mtimeMs) && stats.mtimeMs >= 0 ? Math.trunc(stats.mtimeMs) : null;',
     "    entries.push({ path: normalizePath(relativeChildPath), content: fs.readFileSync(absoluteChildPath, 'utf8'), mtime });",
     '  }',
@@ -539,4 +557,9 @@ export function buildPersistedHomeSyncScript(
     "  throw new Error('Unknown persisted home mode: ' + mode);",
     '}',
   ].join(' ');
+}
+
+export function logPersistedHomePaths(level: 'log' | 'info', message: string, entries: PersistedHomeEntry[]): void {
+  const paths = entries.map((entry) => entry.path).sort((left, right) => left.localeCompare(right));
+  console[level](message, paths);
 }

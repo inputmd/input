@@ -9,7 +9,7 @@ const API_BASE = '/api/github';
 const GISTS_CACHE_CHANNEL = 'input_cache_sync_v1';
 
 function cloneGistList(value: GistSummary[]): GistSummary[] {
-  return value.map((gist) => ({ ...gist, files: { ...gist.files } }));
+  return value.map((gist) => ({ ...gist, owner: gist.owner ? { ...gist.owner } : null, files: { ...gist.files } }));
 }
 
 function cloneGistDetail(value: GistDetail): GistDetail {
@@ -17,7 +17,7 @@ function cloneGistDetail(value: GistDetail): GistDetail {
   for (const [name, file] of Object.entries(value.files)) {
     files[name] = { ...file };
   }
-  return { ...value, files };
+  return { ...value, owner: value.owner ? { ...value.owner } : null, files };
 }
 
 const gistListCache = new SyncedCache<GistSummary[]>({
@@ -70,6 +70,7 @@ export interface GistSummary {
   created_at: string;
   updated_at: string;
   public: boolean;
+  owner: { login: string | null } | null;
   files: Record<string, { filename: string; size: number }>;
 }
 
@@ -77,6 +78,7 @@ export interface GistDetail {
   id: string;
   description: string | null;
   public: boolean;
+  owner: { login: string | null } | null;
   files: Record<string, GistFile>;
   created_at: string;
   updated_at: string;

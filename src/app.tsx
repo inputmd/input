@@ -818,6 +818,7 @@ export function App() {
   const [inlinePromptProtectedRange, setInlinePromptProtectedRange] = useState<EditorProtectedRange | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentGistId, setCurrentGistId] = useState<string | null>(null);
+  const [currentGistOwnerLogin, setCurrentGistOwnerLogin] = useState<string | null>(null);
   const [currentGistCreatedAt, setCurrentGistCreatedAt] = useState<string | null>(null);
   const [currentGistUpdatedAt, setCurrentGistUpdatedAt] = useState<string | null>(null);
   const [currentRepoDocPath, setCurrentRepoDocPath] = useState<string | null>(null);
@@ -2600,6 +2601,7 @@ export function App() {
           const data = await res.json();
           const files = data.files as Record<string, GistFile>;
           setGistFiles(files);
+          setCurrentGistOwnerLogin(typeof data.owner?.login === 'string' ? data.owner.login : null);
           setCurrentGistCreatedAt(typeof data.created_at === 'string' ? data.created_at : null);
           setCurrentGistUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null);
           setCurrentGistId(id);
@@ -2651,6 +2653,7 @@ export function App() {
 
         const gist = await getGist(id);
         setGistFiles(gist.files);
+        setCurrentGistOwnerLogin(typeof gist.owner?.login === 'string' ? gist.owner.login : null);
         setCurrentGistCreatedAt(gist.created_at);
         setCurrentGistUpdatedAt(gist.updated_at);
         setCurrentGistId(gist.id);
@@ -3497,6 +3500,7 @@ export function App() {
               }
               if (gist) {
                 setGistFiles(gist.files);
+                setCurrentGistOwnerLogin(typeof gist.owner?.login === 'string' ? gist.owner.login : null);
                 setCurrentGistCreatedAt(gist.created_at);
                 setCurrentGistUpdatedAt(gist.updated_at);
               }
@@ -3604,6 +3608,7 @@ export function App() {
               return;
             }
             setGistFiles(gist.files);
+            setCurrentGistOwnerLogin(typeof gist.owner?.login === 'string' ? gist.owner.login : null);
             setCurrentGistCreatedAt(gist.created_at);
             setCurrentGistUpdatedAt(gist.updated_at);
 
@@ -3649,6 +3654,7 @@ export function App() {
 
             setEditingBackend('gist');
             setCurrentGistId(gist.id);
+            setCurrentGistOwnerLogin(typeof gist.owner?.login === 'string' ? gist.owner.login : null);
             setCurrentFileName(file.filename);
             setCurrentRepoDocPath(null);
             setCurrentRepoDocSha(null);
@@ -3855,6 +3861,7 @@ export function App() {
 
   useEffect(() => {
     if (currentGistId !== null) return;
+    setCurrentGistOwnerLogin(null);
     setCurrentGistCreatedAt(null);
     setCurrentGistUpdatedAt(null);
   }, [currentGistId]);
@@ -5617,6 +5624,7 @@ export function App() {
             markGistRecentlyCreated(user?.login ?? null, gist);
           }
           setCurrentGistId(gist.id);
+          setCurrentGistOwnerLogin(typeof gist.owner?.login === 'string' ? gist.owner.login : null);
           setCurrentFileName(filename);
           setGistFiles(gist.files);
           setCurrentGistCreatedAt(gist.created_at);
@@ -6562,6 +6570,7 @@ export function App() {
       setPublicRepoRef(null);
       setEditingBackend('gist');
       setCurrentGistId(gistId);
+      setCurrentGistOwnerLogin(null);
       setCurrentRepoDocPath(null);
       setCurrentRepoDocSha(null);
       setCurrentFileName(null);
@@ -8718,11 +8727,15 @@ export function App() {
     enabled: showTerminalToggle,
     apiKey: import.meta.env.VITE_WEBCONTAINERS_API_KEY as string | undefined,
     currentGistId,
+    currentGistOwnerLogin,
     gistFiles,
     repoAccessMode,
     selectedRepo,
     activeInstalledRepoInstallationId,
     publicRepoRef,
+    currentRouteRepoRef,
+    userLogin: user?.login ?? null,
+    linkedInstallations,
     terminalBaseFiles,
     terminalBaseSnapshotKey,
     overlayFiles,

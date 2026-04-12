@@ -48,6 +48,7 @@ function gistDetailToSummary(gist: GistDetail): GistSummary {
     created_at: gist.created_at,
     updated_at: gist.updated_at,
     public: gist.public,
+    owner: gist.owner ? { ...gist.owner } : null,
     files,
   };
 }

@@ -397,8 +397,15 @@ button.dialog-action-warning {
 
 button.button-warning:hover,
 button.dialog-action-warning:hover {
-  border-color: color-mix(in srgb, var(--warning-color) 78%, transparent);
-  background: color-mix(in srgb, var(--warning-color) 22%, var(--toolbar-bg));
+  border-color: color-mix(in srgb, var(--warning-color) 84%, transparent);
+  background: color-mix(in srgb, var(--warning-color) 28%, var(--toolbar-bg));
+  color: var(--warning-color);
+}
+
+button.button-warning:active,
+button.dialog-action-warning:active {
+  border-color: color-mix(in srgb, var(--warning-color) 88%, transparent);
+  background: color-mix(in srgb, var(--warning-color) 34%, var(--toolbar-bg));
   color: var(--warning-color);
 }
 
