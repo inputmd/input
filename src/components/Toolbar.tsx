@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  GitBranch,
   Globe,
   Link2,
   Lock,
@@ -357,7 +356,6 @@ export function Toolbar({
   const showAiModelSelector = showAiToggle;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
-  const showHeaderForkRepoButton = showForkRepo && view !== 'edit' && view !== 'workspaces';
   const sidebarToggleLabel = `${sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'} (${sidebarShortcutLabel})`;
   const previewToggleLabel = `${previewVisible ? 'Hide preview' : 'Show preview'} (${previewShortcutLabel})`;
   const readerAiToggleLabel = `${aiVisible ? 'Hide Reader AI' : 'Show Reader AI'} (${readerAiShortcutLabel})`;
@@ -577,18 +575,6 @@ export function Toolbar({
               <DropdownMenu.Separator class="user-menu-separator" />
             </>
           ) : null}
-          {showForkRepo && !showHeaderForkRepoButton ? (
-            <DropdownMenu.Item
-              class="author-menu-item toolbar-mobile-only"
-              onSelect={(event: Event) => {
-                runAuthorMenuAction(event, () => {
-                  onForkRepo?.();
-                });
-              }}
-            >
-              Fork this document
-            </DropdownMenu.Item>
-          ) : null}
           {showViewSource ? (
             <DropdownMenu.Item
               class="author-menu-item"
@@ -619,6 +605,7 @@ export function Toolbar({
               Open in input.md <ExternalLink size={14} className="author-menu-item-icon" aria-hidden="true" />
             </DropdownMenu.Item>
           ) : null}
+          {showGoToLine ? <DropdownMenu.Separator class="user-menu-separator" /> : null}
           {showGoToLine ? (
             <DropdownMenu.Item
               class="author-menu-item"
@@ -629,6 +616,19 @@ export function Toolbar({
               }}
             >
               Go to line...
+            </DropdownMenu.Item>
+          ) : null}
+          {showForkRepo || showCompactCommits ? <DropdownMenu.Separator class="user-menu-separator" /> : null}
+          {showForkRepo ? (
+            <DropdownMenu.Item
+              class="author-menu-item"
+              onSelect={(event: Event) => {
+                runAuthorMenuAction(event, () => {
+                  onForkRepo?.();
+                });
+              }}
+            >
+              Clone this file
             </DropdownMenu.Item>
           ) : null}
           {showCompactCommits ? (
@@ -1112,19 +1112,6 @@ export function Toolbar({
               )}
             </button>
           )}
-          {showHeaderForkRepoButton ? (
-            <button
-              type="button"
-              class="author-menu-trigger toolbar-desktop-only toolbar-fork-trigger"
-              aria-label="Fork this document"
-              title="Fork this document"
-              onClick={() => {
-                onForkRepo?.();
-              }}
-            >
-              <GitBranch size={16} aria-hidden="true" />
-            </button>
-          ) : null}
           {showActionsMenu && view !== 'edit' && view !== 'workspaces' && authorMenu}
           {editUrl && (
             <a href={editUrl} target="_blank" rel="noopener noreferrer" class="edit-on-input-link">
