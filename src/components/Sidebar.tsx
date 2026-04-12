@@ -15,11 +15,19 @@ import {
   MoreVertical,
   Plus,
 } from 'lucide-react';
-import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import type { RepoWorkspaceChangedFileDetail } from '../repo_workspace/commit';
 import { loadSidebarCollapsedFoldersState, persistSidebarCollapsedFolders } from '../sidebar_state';
+import {
+  buildDirectoryTree,
+  collectDirectoryTreeFolderPaths,
+  DIRECTORY_TREE_CHEVRON_SIZE,
+  DIRECTORY_TREE_INDENT_PX,
+  DirectoryTree,
+  type DirectoryTreeFileNode,
+  type DirectoryTreeFolderNode,
+} from './DirectoryTree';
 
 export interface SidebarFile {
   path: string;
@@ -69,25 +77,12 @@ export interface SidebarProps {
   onUploadFile?: (file: globalThis.File, targetFolderPath: string) => void | Promise<void>;
 }
 
-interface SidebarFileNode {
-  kind: 'file';
-  path: string;
-  name: string;
-  active: boolean;
-  editable: boolean;
-  deemphasized: boolean;
-  changeState?: 'new' | 'modified';
-  virtual: boolean;
-  size?: number;
-}
+type SidebarFileNode = DirectoryTreeFileNode<SidebarFile>;
 
-interface SidebarFolderNode {
-  kind: 'folder';
-  path: string;
-  name: string;
+interface SidebarFolderNode extends Omit<DirectoryTreeFolderNode<SidebarFile>, 'children'> {
+  children: SidebarTreeNode[];
   deemphasized: boolean;
   hasActiveDescendant: boolean;
-  children: SidebarTreeNode[];
 }
 
 type SidebarTreeNode = SidebarFileNode | SidebarFolderNode;
@@ -103,9 +98,7 @@ type SidebarVisibleNode = {
   collapsed: boolean;
 };
 
-const INDENT_PX = 16;
 const ICON_SIZE = 15;
-const CHEVRON_SIZE = 14;
 
 function getFileIcon(name: string, size?: number) {
   if (size === 0) return File;
@@ -182,87 +175,70 @@ function isKeepMarkerPath(path: string): boolean {
   return /(?:^|\/)\.keep$/i.test(path);
 }
 
-function sortNodes(nodes: SidebarTreeNode[]): void {
-  nodes.sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-  for (const node of nodes) {
-    if (node.kind === 'folder') sortNodes(node.children);
-  }
-}
-
 function buildTree(files: SidebarFile[]): SidebarFolderNode {
-  const root: SidebarFolderNode = {
-    kind: 'folder',
-    path: '',
-    name: '',
-    deemphasized: false,
-    hasActiveDescendant: false,
-    children: [],
-  };
-  const folderMap = new Map<string, SidebarFolderNode>();
-  folderMap.set('', root);
-  const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
+  const genericRoot = buildDirectoryTree(files, { shouldIncludeFile: (file) => !isKeepMarkerPath(file.path) });
 
-  for (const file of sortedFiles) {
-    const parts = file.path.split('/').filter(Boolean);
-    if (parts.length === 0) continue;
-    let parent = root;
-    let currentPath = '';
-    const ancestors: SidebarFolderNode[] = [];
-
-    for (let i = 0; i < parts.length - 1; i++) {
-      const segment = parts[i];
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-      let folder = folderMap.get(currentPath);
-      if (!folder) {
-        folder = {
-          kind: 'folder',
-          path: currentPath,
-          name: segment,
-          deemphasized: isHiddenFolderPath(currentPath),
-          hasActiveDescendant: false,
-          children: [],
-        };
-        folderMap.set(currentPath, folder);
-        parent.children.push(folder);
-      }
-      ancestors.push(folder);
-      parent = folder;
-    }
-
-    if (file.active) {
-      for (const folder of ancestors) {
-        folder.hasActiveDescendant = true;
-      }
-    }
-
-    if (isKeepMarkerPath(file.path)) continue;
-
-    parent.children.push({
-      kind: 'file',
-      path: file.path,
-      name: parts[parts.length - 1],
-      active: file.active,
-      editable: file.editable,
-      deemphasized: file.deemphasized || isHiddenFolderPath(file.path),
-      changeState: file.changeState,
-      virtual: file.virtual === true,
-      size: file.size,
+  const annotateFolders = (folder: DirectoryTreeFolderNode<SidebarFile>): SidebarFolderNode => {
+    const children: SidebarTreeNode[] = folder.children.map((child) => {
+      if (child.kind === 'folder') return annotateFolders(child);
+      return child;
     });
-  }
+    const hasActiveDescendant = children.some((child) =>
+      child.kind === 'folder' ? child.hasActiveDescendant : child.entry.active,
+    );
+    return {
+      ...folder,
+      children,
+      deemphasized: folder.path ? isHiddenFolderPath(folder.path) : false,
+      hasActiveDescendant,
+    };
+  };
 
-  sortNodes(root.children);
-  return root;
+  return annotateFolders(genericRoot);
 }
 
 function collectFolderPaths(node: SidebarFolderNode, out: Set<string>): void {
-  for (const child of node.children) {
-    if (child.kind !== 'folder') continue;
-    out.add(child.path);
-    collectFolderPaths(child, out);
+  collectDirectoryTreeFolderPaths(node, out);
+}
+
+function isSidebarFileDeemphasized(file: SidebarFile): boolean {
+  return file.deemphasized || isHiddenFolderPath(file.path);
+}
+
+function flattenVisibleTree(
+  nodes: SidebarTreeNode[],
+  collapsedFolders: Record<string, true>,
+  depth = 0,
+  parentPath: string | null = null,
+): SidebarVisibleNode[] {
+  const visible: SidebarVisibleNode[] = [];
+  for (const node of nodes) {
+    if (node.kind === 'folder') {
+      const collapsed = Boolean(collapsedFolders[node.path]);
+      const hasChildren = node.children.length > 0;
+      visible.push({
+        kind: 'folder',
+        path: node.path,
+        parentPath,
+        depth,
+        hasChildren,
+        collapsed,
+      });
+      if (!collapsed && hasChildren) {
+        visible.push(...flattenVisibleTree(node.children, collapsedFolders, depth + 1, node.path));
+      }
+      continue;
+    }
+    visible.push({
+      kind: 'file',
+      path: node.path,
+      parentPath,
+      depth,
+      hasChildren: false,
+      collapsed: false,
+    });
   }
+  return visible;
 }
 
 function folderAncestors(path: string): string[] {
@@ -333,48 +309,17 @@ function hasExplicitFileExtension(name: string): boolean {
   return /\.[^./\s]+$/.test(name);
 }
 
-function flattenVisibleTree(
-  nodes: SidebarTreeNode[],
-  collapsedFolders: Record<string, true>,
-  depth = 0,
-  parentPath: string | null = null,
-): SidebarVisibleNode[] {
-  const visible: SidebarVisibleNode[] = [];
-  for (const node of nodes) {
-    if (node.kind === 'folder') {
-      const collapsed = Boolean(collapsedFolders[node.path]);
-      const hasChildren = node.children.length > 0;
-      visible.push({
-        kind: 'folder',
-        path: node.path,
-        parentPath,
-        depth,
-        hasChildren,
-        collapsed,
-      });
-      if (!collapsed && hasChildren) {
-        visible.push(...flattenVisibleTree(node.children, collapsedFolders, depth + 1, node.path));
-      }
-      continue;
-    }
-    visible.push({
-      kind: 'file',
-      path: node.path,
-      parentPath,
-      depth,
-      hasChildren: false,
-      collapsed: false,
-    });
-  }
-  return visible;
-}
-
 function IndentGuides({ depth }: { depth: number }) {
   if (depth === 0) return null;
   const guides = [];
   for (let i = 0; i < depth; i++) {
     guides.push(
-      <span key={i} class="sidebar-indent-guide" style={{ left: `${14.5 + i * INDENT_PX}px` }} aria-hidden="true" />,
+      <span
+        key={i}
+        class="sidebar-indent-guide"
+        style={{ left: `${14.5 + i * DIRECTORY_TREE_INDENT_PX}px` }}
+        aria-hidden="true"
+      />,
     );
   }
   return <>{guides}</>;
@@ -942,8 +887,7 @@ export function Sidebar({
     onClearSelection?.();
   };
 
-  const renderFolderRow = (folder: SidebarFolderNode, depth: number) => {
-    const collapsed = Boolean(collapsedFolders[folder.path]);
+  const renderFolderRow = (folder: SidebarFolderNode, depth: number, collapsed: boolean) => {
     const isRenaming = renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
     const isRenamePending = renamingInFlightTarget?.kind === 'folder' && renamingInFlightTarget.path === folder.path;
     const isMoving = movingTarget?.kind === 'folder' && movingTarget.path === folder.path;
@@ -963,7 +907,7 @@ export function Sidebar({
         aria-selected={folder.hasActiveDescendant || undefined}
         draggable={!readOnly && !isRenaming && !isRenamePending && !isMoving}
         data-folder-path={folder.path}
-        style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
+        style={{ paddingLeft: `${8 + depth * DIRECTORY_TREE_INDENT_PX}px` }}
         onClick={() => toggleFolder(folder.path)}
         onFocus={() => {
           setCreateAtRoot(false);
@@ -1027,7 +971,7 @@ export function Sidebar({
       >
         <IndentGuides depth={depth} />
         <span class={`sidebar-folder-caret${collapsed ? '' : ' open'}`} aria-hidden="true">
-          <ChevronRight size={CHEVRON_SIZE} />
+          <ChevronRight size={DIRECTORY_TREE_CHEVRON_SIZE} />
         </span>
         {isRenamePending || isMoving ? (
           <span class="sidebar-rename-spinner" aria-hidden="true" />
@@ -1067,11 +1011,11 @@ export function Sidebar({
 
     const showViewOnlyContext = readOnly && canViewOnGitHub;
     if (readOnly && !showViewOnlyContext) {
-      return <div key={`folder:${folder.path}`}>{folderRow}</div>;
+      return folderRow;
     }
 
     return (
-      <ContextMenu.Root key={`folder:${folder.path}`}>
+      <ContextMenu.Root>
         <ContextMenu.Trigger asChild>{folderRow}</ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start" collisionPadding={8}>
@@ -1119,26 +1063,29 @@ export function Sidebar({
   };
 
   const renderFileRow = (file: SidebarFileNode, depth: number) => {
+    const entry = file.entry;
     const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
     const isRenamePending = renamingInFlightTarget?.kind === 'file' && renamingInFlightTarget.path === file.path;
     const isMoving = movingTarget?.kind === 'file' && movingTarget.path === file.path;
-    const FileIcon = getFileIcon(file.name, file.size);
+    const FileIcon = getFileIcon(file.name, entry.size);
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     const fileRow = (
       <div
-        class={`sidebar-file${file.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${file.deemphasized ? ' sidebar-file-deemphasized' : ''}${file.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${file.changeState ? ` sidebar-file-${file.changeState}` : ''}${draggingItem?.kind === 'file' && draggingItem.path === file.path ? ' dragging' : ''}`}
+        class={`sidebar-file${entry.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${isSidebarFileDeemphasized(entry) ? ' sidebar-file-deemphasized' : ''}${entry.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${entry.changeState ? ` sidebar-file-${entry.changeState}` : ''}${draggingItem?.kind === 'file' && draggingItem.path === file.path ? ' dragging' : ''}`}
         ref={(el) => {
           rowRefs.current[file.path] = el;
         }}
         tabIndex={focusedPath === file.path ? 0 : -1}
         role="treeitem"
         aria-level={depth + 1}
-        aria-selected={file.active}
-        aria-current={file.active ? 'true' : undefined}
-        draggable={!readOnly && file.editable && !isRenaming && !isRenamePending && !isMoving}
-        style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
+        aria-selected={entry.active}
+        aria-current={entry.active ? 'true' : undefined}
+        draggable={!readOnly && entry.editable && !isRenaming && !isRenamePending && !isMoving}
+        style={{
+          paddingLeft: `${8 + depth * DIRECTORY_TREE_INDENT_PX + DIRECTORY_TREE_CHEVRON_SIZE + 6 + rootNoFolderOffset}px`,
+        }}
         onClick={() => {
-          if (!file.active && !file.virtual) onSelectFile(file.path);
+          if (!entry.active && !entry.virtual) onSelectFile(file.path);
         }}
         onFocus={() => {
           setCreateAtRoot(false);
@@ -1146,10 +1093,10 @@ export function Sidebar({
           setCreateContextPath(file.path);
         }}
         onDblClick={() => {
-          if (!readOnly && file.editable && !file.virtual) void startRename({ kind: 'file', path: file.path });
+          if (!readOnly && entry.editable && !entry.virtual) void startRename({ kind: 'file', path: file.path });
         }}
         onDragStart={(e) => {
-          if (readOnly || !file.editable || isRenaming) {
+          if (readOnly || !entry.editable || isRenaming) {
             e.preventDefault();
             return;
           }
@@ -1165,8 +1112,8 @@ export function Sidebar({
           if (isRenaming) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            if (!file.active && !file.virtual) onSelectFile(file.path);
-          } else if (!readOnly && file.editable && !file.virtual && e.key === 'F2') {
+            if (!entry.active && !entry.virtual) onSelectFile(file.path);
+          } else if (!readOnly && entry.editable && !entry.virtual && e.key === 'F2') {
             e.preventDefault();
             void startRename({ kind: 'file', path: file.path });
           }
@@ -1209,14 +1156,14 @@ export function Sidebar({
       </div>
     );
 
-    const showFileModifyActions = !readOnly && !file.virtual;
+    const showFileModifyActions = !readOnly && !entry.virtual;
     const showViewOnlyContext = readOnly && canViewOnGitHub;
     if (!showFileModifyActions && !showViewOnlyContext) {
-      return <div key={`file:${file.path}`}>{fileRow}</div>;
+      return fileRow;
     }
 
     return (
-      <ContextMenu.Root key={`file:${file.path}`}>
+      <ContextMenu.Root>
         <ContextMenu.Trigger asChild>{fileRow}</ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start" collisionPadding={8}>
@@ -1250,33 +1197,14 @@ export function Sidebar({
     );
   };
 
-  const renderNodes = (nodes: SidebarTreeNode[], depth: number): ComponentChildren =>
-    nodes.map((node) => {
-      if (node.kind === 'folder') {
-        const collapsed = Boolean(collapsedFolders[node.path]);
-        return (
-          <div key={`tree:${node.path}`}>
-            {renderFolderRow(node, depth)}
-            {collapsed ? null : (
-              <div class="sidebar-folder-children" role="group">
-                <div class="sidebar-folder-children-inner">
-                  {renderNodes(node.children, depth + 1)}
-                  {creatingNew && createParentPath === node.path && renderCreateRow(depth + 1)}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      }
-      return renderFileRow(node, depth);
-    });
-
   const renderCreateRow = (depth: number) => {
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     return (
       <div
         class="sidebar-file renaming"
-        style={{ paddingLeft: `${8 + depth * INDENT_PX + CHEVRON_SIZE + 6 + rootNoFolderOffset}px` }}
+        style={{
+          paddingLeft: `${8 + depth * DIRECTORY_TREE_INDENT_PX + DIRECTORY_TREE_CHEVRON_SIZE + 6 + rootNoFolderOffset}px`,
+        }}
       >
         <IndentGuides depth={depth} />
         {createKind === 'directory' ? (
@@ -1445,7 +1373,20 @@ export function Sidebar({
           void handleDropToFolder(e, '');
         }}
       >
-        {renderNodes(tree.children, 0)}
+        <DirectoryTree
+          nodes={tree.children}
+          isFolderCollapsed={(folder) => Boolean(collapsedFolders[folder.path])}
+          renderFolder={(folder, depth, collapsed) => renderFolderRow(folder as SidebarFolderNode, depth, collapsed)}
+          renderFile={renderFileRow}
+          renderFolderChildren={(_folder, _depth, children) => (
+            <div class="sidebar-folder-children" role="group">
+              <div class="sidebar-folder-children-inner">{children}</div>
+            </div>
+          )}
+          renderAfterChildren={(folder, depth) =>
+            creatingNew && createParentPath === folder.path ? renderCreateRow(depth) : null
+          }
+        />
         {files.length === 0 && !creatingNew ? (
           <div class="sidebar-empty-state">
             <p class="sidebar-empty-message">No files</p>

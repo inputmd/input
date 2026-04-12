@@ -9,10 +9,12 @@ import { isLikelyBinaryBytes } from '../path_utils.ts';
 import {
   buildPersistedHomeSeed,
   buildPersistedHomeSyncScript,
+  inspectPersistedHomeEntries,
   loadPersistedHomeEntries,
   PERSISTED_HOME_SEED_FILENAME,
   PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
   type PersistedHomeEntry,
+  type PersistedHomeInspectionSnapshot,
   persistPersistedHomeEntries,
 } from '../persisted_home_state.ts';
 import {
@@ -27,6 +29,7 @@ import {
 } from '../webcontainer_home_overlay.ts';
 import { startWebContainerHostBridge, type WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
 import { useDialogs } from './DialogProvider';
+import { TerminalPersistenceDialog } from './TerminalPersistenceDialog.tsx';
 import { consumeTerminalPixelWheelDelta } from './terminal_wheel.ts';
 
 // Ctrl-C/Ctrl-\ don't reliably interrupt processes inside WebContainer
@@ -776,6 +779,12 @@ export function TerminalPanel({
   });
   const [resettingShell, setResettingShell] = useState(false);
   const [restartingWebContainer, setRestartingWebContainer] = useState(false);
+  const [persistenceDialogOpen, setPersistenceDialogOpen] = useState(false);
+  const [persistenceDialogLoading, setPersistenceDialogLoading] = useState(false);
+  const [persistenceDialogError, setPersistenceDialogError] = useState<string | null>(null);
+  const [persistenceDialogSnapshot, setPersistenceDialogSnapshot] = useState<PersistedHomeInspectionSnapshot | null>(
+    null,
+  );
   const onImportDiffRef = useRef(onImportDiff);
   onImportDiffRef.current = onImportDiff;
   const workspaceKeyRef = useRef(workspaceKey);
@@ -980,6 +989,24 @@ export function TerminalPanel({
     } catch {
       // ignore
     }
+  }, []);
+
+  const openPersistenceDialog = useCallback(async () => {
+    setPersistenceDialogOpen(true);
+    setPersistenceDialogLoading(true);
+    setPersistenceDialogError(null);
+    try {
+      const snapshot = await inspectPersistedHomeEntries(workspaceKeyRef.current);
+      setPersistenceDialogSnapshot(snapshot);
+    } catch (err) {
+      setPersistenceDialogError(err instanceof Error ? err.message : 'Failed to inspect terminal persistence');
+    } finally {
+      setPersistenceDialogLoading(false);
+    }
+  }, []);
+
+  const closePersistenceDialog = useCallback(() => {
+    setPersistenceDialogOpen(false);
   }, []);
 
   const capturePersistedHomeState = useCallback(
@@ -1487,7 +1514,6 @@ export function TerminalPanel({
           return;
         }
 
-        terminal.write('Clearing workspace...\r\n');
         await bootPerf.measure('clearWorkspace', () => clearWorkdir(wc));
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
@@ -1506,7 +1532,7 @@ export function TerminalPanel({
           managed_file_count: initialFileCount,
         });
 
-        terminal.write(`Mounting workspace files into /home/${workdirName}...\r\n`);
+        terminal.write('Mounting workspace files...\r\n');
         try {
           await bootPerf.measure('mountWorkspace', () => wc.mount(initialTree), {
             managed_file_count: initialFileCount,
@@ -1523,7 +1549,7 @@ export function TerminalPanel({
         wcRef.current = wc;
 
         try {
-          terminal.write('Mounting installed applications...\r\n');
+          terminal.write('Mounting binaries...\r\n');
           const overlayResult = await provisionHomeOverlay(wc, bootPerf);
           bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
         } catch (err) {
@@ -1534,7 +1560,7 @@ export function TerminalPanel({
         }
 
         try {
-          terminal.write('Restoring persisted home...\r\n');
+          terminal.write('Restoring config files...\r\n');
           const homeDir = await bootPerf.measure('persistedHome.resolveHomeDirectory', () =>
             resolveWebContainerHomeDirectory(wc),
           );
@@ -1579,7 +1605,6 @@ export function TerminalPanel({
           );
         }
 
-        terminal.write('Starting shell...\r\n');
         await bootPerf.measure(
           'spawnShellSessions',
           async () => {
@@ -2067,6 +2092,14 @@ export function TerminalPanel({
                 <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
                   <DropdownMenu.Item
                     class="terminal-panel__menu-item"
+                    onSelect={() => {
+                      void openPersistenceDialog();
+                    }}
+                  >
+                    Inspect config files
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    class="terminal-panel__menu-item"
                     disabled={!canDownloadFromWebContainer}
                     onSelect={() => {
                       void downloadFromWebContainer();
@@ -2128,6 +2161,13 @@ export function TerminalPanel({
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           </div>
+          <TerminalPersistenceDialog
+            open={persistenceDialogOpen}
+            loading={persistenceDialogLoading}
+            error={persistenceDialogError}
+            snapshot={persistenceDialogSnapshot}
+            onClose={closePersistenceDialog}
+          />
         </>
       )}
     </aside>

@@ -23,6 +23,13 @@ export interface PersistedHomeEntry {
   mtime: number | null;
 }
 
+export interface PersistedHomeInspectionSnapshot {
+  normalizedWorkspaceKey: string | null;
+  globalEntries: PersistedHomeEntry[];
+  workspaceEntries: PersistedHomeEntry[];
+  effectiveEntries: PersistedHomeEntry[];
+}
+
 interface PersistedHomeSeedSnapshot {
   version: 2;
   entries: PersistedHomeEntry[];
@@ -321,6 +328,63 @@ export async function loadPersistedHomeEntries(workspaceKey: string): Promise<Pe
       mergedEntriesByPath.set(entry.path, entry);
     }
     return [...mergedEntriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+  } finally {
+    database.close();
+  }
+}
+
+export async function inspectPersistedHomeEntries(workspaceKey: string): Promise<PersistedHomeInspectionSnapshot> {
+  const normalizedWorkspaceKey = normalizeWorkspaceKey(workspaceKey);
+  const database = await openPersistedHomeDatabase();
+  if (!database) {
+    return {
+      normalizedWorkspaceKey,
+      globalEntries: [],
+      workspaceEntries: [],
+      effectiveEntries: [],
+    };
+  }
+
+  try {
+    const transaction = database.transaction(PERSISTED_HOME_ENTRY_STORE, 'readonly');
+    const store = transaction.objectStore(PERSISTED_HOME_ENTRY_STORE);
+    const index = store.index(PERSISTED_HOME_WORKSPACE_INDEX);
+    const globalRecordsPromise = runRequest(index.getAll(IDBKeyRange.only(PERSISTED_HOME_GLOBAL_WORKSPACE_KEY)));
+    const workspaceRecordsPromise = normalizedWorkspaceKey
+      ? runRequest(index.getAll(IDBKeyRange.only(normalizedWorkspaceKey)))
+      : Promise.resolve([]);
+    const [workspaceRecords, globalRecords] = await Promise.all([workspaceRecordsPromise, globalRecordsPromise]);
+    await waitForTransaction(transaction);
+
+    const workspaceEntries = partitionPersistedHomeEntriesByScope(
+      (workspaceRecords as PersistedHomeRecord[]).map((record) => ({
+        path: record.homePath,
+        content: record.content,
+        mtime: normalizePersistedHomeMtime(record.mtime),
+      })),
+    ).workspaceEntries;
+    const globalEntries = partitionPersistedHomeEntriesByScope(
+      (globalRecords as PersistedHomeRecord[]).map((record) => ({
+        path: record.homePath,
+        content: record.content,
+        mtime: normalizePersistedHomeMtime(record.mtime),
+      })),
+    ).globalEntries;
+
+    const effectiveEntriesByPath = new Map<string, PersistedHomeEntry>();
+    for (const entry of workspaceEntries) {
+      effectiveEntriesByPath.set(entry.path, entry);
+    }
+    for (const entry of globalEntries) {
+      effectiveEntriesByPath.set(entry.path, entry);
+    }
+
+    return {
+      normalizedWorkspaceKey,
+      globalEntries,
+      workspaceEntries,
+      effectiveEntries: [...effectiveEntriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path)),
+    };
   } finally {
     database.close();
   }
