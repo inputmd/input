@@ -29,6 +29,7 @@ import {
   atomicForceUpdateGitHubRef,
   createAppJwt,
   encodePathPreserveSlashes,
+  type GitHubBranchState,
   getGitHubRepositoryBranchState,
   getRepoInstallationId,
   githubFetchWithInstallationToken,
@@ -1945,6 +1946,45 @@ async function handleGetPublicTree(ctx: RouteContext): Promise<void> {
   });
 }
 
+async function bootstrapEmptyRepo(installationId: string, owner: string, repo: string): Promise<GitHubBranchState> {
+  const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+
+  // Create an empty tree (no files).
+  const treeRes = await githubFetchWithInstallationToken(installationId, `${repoPath}/git/trees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tree: [] }),
+  });
+  const treeData = (await treeRes.json().catch(() => null)) as { sha?: string } | null;
+  if (!treeRes.ok || typeof treeData?.sha !== 'string') {
+    throw new ClientError('Failed to bootstrap empty repository: could not create tree', 502);
+  }
+
+  // Create an initial commit with no parents.
+  const commitRes = await githubFetchWithInstallationToken(installationId, `${repoPath}/git/commits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'Initial commit', tree: treeData.sha, parents: [] }),
+  });
+  const commitData = (await commitRes.json().catch(() => null)) as { sha?: string } | null;
+  if (!commitRes.ok || typeof commitData?.sha !== 'string') {
+    throw new ClientError('Failed to bootstrap empty repository: could not create commit', 502);
+  }
+
+  // Create the default branch ref pointing to the initial commit.
+  const refRes = await githubFetchWithInstallationToken(installationId, `${repoPath}/git/refs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ref: 'refs/heads/main', sha: commitData.sha }),
+  });
+  if (!refRes.ok) {
+    throw new ClientError('Failed to bootstrap empty repository: could not create branch ref', 502);
+  }
+
+  // Re-fetch now that the branch exists.
+  return getGitHubRepositoryBranchState(installationId, owner, repo);
+}
+
 async function fetchRepositoryBranchState(
   installationId: string,
   owner: string,
@@ -1956,7 +1996,20 @@ async function fetchRepositoryBranchState(
   baseTreeSha: string;
   tree: GitTreeEntry[];
 }> {
-  const branchState = await getGitHubRepositoryBranchState(installationId, owner, repo);
+  let branchState: GitHubBranchState;
+  try {
+    branchState = await getGitHubRepositoryBranchState(installationId, owner, repo);
+  } catch (err) {
+    if (
+      err instanceof ClientError &&
+      err.statusCode === 502 &&
+      err.message === 'Failed to load repository branch state'
+    ) {
+      branchState = await bootstrapEmptyRepo(installationId, owner, repo);
+    } else {
+      throw err;
+    }
+  }
   const treePath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branchState.baseTreeSha)}?recursive=1`;
   const treeRes = await githubFetchWithInstallationToken(installationId, treePath);
   const treeData = (await treeRes.json().catch(() => null)) as {
