@@ -152,7 +152,7 @@
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.24),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
-  z-index: 30;
+  z-index: 80;
 }
 
 .reader-ai-model-menu-item {

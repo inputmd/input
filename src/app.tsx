@@ -6010,7 +6010,7 @@ export function App() {
   const onSaveStagedChanges = useCallback(async () => {
     if (!repoWorkspaceSaveStatus?.stagedChangeCount) return;
     const confirmed = await showConfirm(
-      `Save ${repoWorkspaceSaveStatus.stagedChangeCount} unsaved change${repoWorkspaceSaveStatus.stagedChangeCount === 1 ? '' : 's'}?`,
+      `Commit ${repoWorkspaceSaveStatus.stagedChangeCount} unsaved change${repoWorkspaceSaveStatus.stagedChangeCount === 1 ? '' : 's'}?`,
       {
         confirmLabel: 'Save',
       },
