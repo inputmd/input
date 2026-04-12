@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { GITHUB_FETCH_TIMEOUT_MS } from './config';
 import { ClientError } from './errors';
+import { composeTimeoutSignal } from './fetch_timeout.ts';
 import { base64url, requireEnv } from './http_helpers';
 import type { TokenCacheRecord } from './types';
 
@@ -198,7 +199,7 @@ export async function githubFetchWithInstallationToken(
       'X-GitHub-Api-Version': '2022-11-28',
       ...((init.headers as Record<string, string>) ?? {}),
     },
-    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    signal: composeTimeoutSignal(init.signal, GITHUB_FETCH_TIMEOUT_MS),
   });
 
   if (!res.ok) {

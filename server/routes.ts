@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
-import { createGunzip } from 'node:zlib';
-import tar from 'tar-stream';
 import { normalizeLlmOutputText } from '../shared/llm_text_normalization.ts';
 import { formatSseComment, formatSseEvent } from '../shared/sse.ts';
 import { canGitHubUserEditMarkdownDocument, validateEditorsPreserved } from '../src/document_permissions.ts';
@@ -24,6 +22,7 @@ import {
 } from './config.ts';
 import { stripCriticMarkupComments } from './criticmarkup.js';
 import { ClientError } from './errors.ts';
+import { composeTimeoutSignal } from './fetch_timeout.ts';
 import { getGistCacheEntry, isFresh, markRevalidated, setGistCacheEntry } from './gist_cache.ts';
 import {
   atomicForceUpdateGitHubRef,
@@ -67,6 +66,7 @@ import {
   summarizeReaderAiToolResult,
 } from './reader_ai_tools.ts';
 import { createOrReuseRepoFileShareLink, listRepoFileShareLinkResponses } from './repo_file_share_links.ts';
+import { extractTarball } from './repo_tarball.ts';
 import {
   clearRememberedInstallationForUser,
   consumeOAuthState,
@@ -562,7 +562,7 @@ async function githubFetchWithUserToken(session: Session, path: string, init: Re
   const ghRes = await fetch(`https://api.github.com${path}`, {
     ...init,
     headers,
-    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    signal: composeTimeoutSignal(init.signal, GITHUB_FETCH_TIMEOUT_MS),
   });
   return ghRes;
 }
@@ -955,7 +955,7 @@ async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<
   const authedRes = await fetch(`https://api.github.com${path}`, {
     ...init,
     headers,
-    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    signal: composeTimeoutSignal(init.signal, GITHUB_FETCH_TIMEOUT_MS),
   });
 
   if (!GITHUB_TOKEN) return authedRes;
@@ -969,7 +969,7 @@ async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<
   return fetch(`https://api.github.com${path}`, {
     ...init,
     headers: retryHeaders,
-    signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    signal: composeTimeoutSignal(init.signal, GITHUB_FETCH_TIMEOUT_MS),
   });
 }
 
@@ -3505,98 +3505,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
 // ── Repo tarball download (bulk file fetch for AI repo mode) ──
 
-const REPO_TARBALL_MAX_FILES = 2000;
-const REPO_TARBALL_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 const REPO_TARBALL_TIMEOUT_MS = 30_000;
-
-interface TarballFile {
-  path: string;
-  content: string;
-  size: number;
-}
-
-async function extractTarball(stream: ReadableStream<Uint8Array>): Promise<TarballFile[]> {
-  const files: TarballFile[] = [];
-  const extract = tar.extract();
-  const gunzip = createGunzip();
-
-  return new Promise((resolve, reject) => {
-    extract.on('entry', (header, entryStream, next) => {
-      if (header.type !== 'file') {
-        entryStream.resume();
-        next();
-        return;
-      }
-      // Tarball paths are prefixed with <owner>-<repo>-<sha>/
-      const rawPath = header.name;
-      const slashIndex = rawPath.indexOf('/');
-      const path = slashIndex >= 0 ? rawPath.slice(slashIndex + 1) : rawPath;
-      if (!path) {
-        entryStream.resume();
-        next();
-        return;
-      }
-
-      const size = header.size ?? 0;
-      if (size > REPO_TARBALL_MAX_FILE_SIZE) {
-        entryStream.resume();
-        next();
-        return;
-      }
-
-      const chunks: Buffer[] = [];
-      entryStream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      entryStream.on('end', () => {
-        const buf = Buffer.concat(chunks);
-        // Skip binary files — check for null bytes in the first 8KB
-        const preview = buf.subarray(0, 8192);
-        if (preview.includes(0)) {
-          next();
-          return;
-        }
-        files.push({ path, content: buf.toString('utf8'), size: buf.length });
-        if (files.length > REPO_TARBALL_MAX_FILES) {
-          extract.destroy(new Error('too_many_files'));
-          return;
-        }
-        next();
-      });
-      entryStream.on('error', next);
-    });
-
-    extract.on('finish', () => resolve(files));
-    extract.on('error', (err) => {
-      if (err.message === 'too_many_files') {
-        reject(new ClientError(`Repository has more than ${REPO_TARBALL_MAX_FILES} text files`, 400));
-      } else {
-        reject(err);
-      }
-    });
-
-    // Pipe ReadableStream → Node stream → gunzip → tar extract
-    const nodeStream = readableStreamToNodeStream(stream);
-    nodeStream.pipe(gunzip).pipe(extract);
-    gunzip.on('error', (err) => reject(new ClientError(`Failed to decompress tarball: ${err.message}`, 502)));
-  });
-}
-
-function readableStreamToNodeStream(webStream: ReadableStream<Uint8Array>): Readable {
-  const reader = webStream.getReader();
-  return new Readable({
-    async read() {
-      try {
-        const { value, done } = await reader.read();
-        if (done) {
-          this.push(null);
-        } else {
-          this.push(Buffer.from(value));
-        }
-      } catch (err) {
-        this.destroy(err instanceof Error ? err : new Error(String(err)));
-      }
-    },
-  });
-}
 
 async function handleRepoTarball(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
