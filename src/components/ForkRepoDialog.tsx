@@ -48,7 +48,7 @@ export function ForkRepoDialog({
   }, [repoGroups, selectedInstallationId, selectedRepoFullName]);
   const description =
     targetKind === 'repo'
-      ? "Choose a repo to open a new file with this document's contents."
+      ? "Choose a repo to create a new file with this document's contents."
       : "Create a new gist draft with this document's contents.";
   const confirmDisabled = submitting || (targetKind === 'repo' && !selectedRepoFullName);
 
@@ -74,7 +74,7 @@ export function ForkRepoDialog({
             setRepoMenuOpen(false);
           }}
         >
-          <DialogPrimitive.Title class="dialog-title">Fork this document</DialogPrimitive.Title>
+          <DialogPrimitive.Title class="dialog-title">Clone this file</DialogPrimitive.Title>
           <DialogPrimitive.Description class="dialog-message">{description}</DialogPrimitive.Description>
           <div class="fork-repo-targets" role="group" aria-label="Fork target">
             {canTargetRepo ? (
@@ -99,7 +99,7 @@ export function ForkRepoDialog({
                 onSelectTargetKind('gist');
               }}
             >
-              Gist
+              New Gist
             </button>
           </div>
           {targetKind === 'repo' ? (
@@ -153,7 +153,7 @@ export function ForkRepoDialog({
               onClick={onConfirm}
               disabled={confirmDisabled}
             >
-              Fork
+              Clone
             </button>
           </div>
         </DialogPrimitive.Content>
