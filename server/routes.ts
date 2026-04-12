@@ -238,6 +238,62 @@ async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): P
   }
 }
 
+async function pipeWebResponseBodyToNodeResponse(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  upstream: Response,
+  options?: {
+    abortController?: AbortController;
+    logLabel?: string;
+  },
+): Promise<void> {
+  const onClientAborted = () => options?.abortController?.abort();
+  const onResponseClose = () => {
+    if (!res.writableEnded) {
+      options?.abortController?.abort();
+    }
+  };
+  req.on('aborted', onClientAborted);
+  res.on('close', onResponseClose);
+
+  if (!upstream.body) {
+    req.off('aborted', onClientAborted);
+    res.off('close', onResponseClose);
+    if (!res.writableEnded) res.end();
+    return;
+  }
+
+  const reader = upstream.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || res.writableEnded) break;
+      const canContinue = res.write(value);
+      if (!canContinue) {
+        await new Promise<void>((resolve) => res.once('drain', () => resolve()));
+      }
+    }
+  } catch (err) {
+    if (!options?.abortController?.signal.aborted) {
+      console.error(`[${options?.logLabel ?? 'server-stream'}] stream error:`, err);
+    }
+  } finally {
+    req.off('aborted', onClientAborted);
+    res.off('close', onResponseClose);
+    try {
+      await reader.cancel();
+    } catch {
+      // ignore
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      // ignore
+    }
+    if (!res.writableEnded) res.end();
+  }
+}
+
 interface EditorShareRepoFileUpdateBody extends Record<string, unknown> {
   message?: unknown;
   content?: unknown;
@@ -1626,8 +1682,10 @@ async function handleGetRawContent(ctx: RouteContext): Promise<void> {
   if (!pathParam) throw new ClientError('path is required');
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+  const abortController = new AbortController();
   const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
     headers: { Accept: 'application/vnd.github.raw' },
+    signal: abortController.signal,
   });
   if (!ghRes.ok) {
     const message = await readGitHubErrorMessage(ghRes);
@@ -1639,8 +1697,10 @@ async function handleGetRawContent(ctx: RouteContext): Promise<void> {
   copyGitHubRateLimitHeaders(ctx.res, ghRes);
   ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
   ctx.res.setHeader('Cache-Control', 'private, max-age=300');
-  const body = Buffer.from(await ghRes.arrayBuffer());
-  ctx.res.end(body);
+  await pipeWebResponseBodyToNodeResponse(ctx.req, ctx.res, ghRes, {
+    abortController,
+    logLabel: 'github-raw',
+  });
 }
 
 async function handleGetPublicRepoContents(ctx: RouteContext): Promise<void> {
@@ -1678,8 +1738,10 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
   if (!pathParam) throw new ClientError('path is required');
 
   const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePathPreserveSlashes(pathParam)}`;
+  const abortController = new AbortController();
   const ghRes = await fetchPublicGitHub(ghPath, {
     headers: { Accept: 'application/vnd.github.raw' },
+    signal: abortController.signal,
   });
   if (!ghRes.ok) {
     const message = await readGitHubErrorMessage(ghRes);
@@ -1691,8 +1753,10 @@ async function handleGetPublicRepoRaw(ctx: RouteContext): Promise<void> {
   copyGitHubRateLimitHeaders(ctx.res, ghRes);
   ctx.res.setHeader('Content-Type', ghRes.headers.get('content-type') ?? 'application/octet-stream');
   ctx.res.setHeader('Cache-Control', 'public, max-age=300');
-  const body = Buffer.from(await ghRes.arrayBuffer());
-  ctx.res.end(body);
+  await pipeWebResponseBodyToNodeResponse(ctx.req, ctx.res, ghRes, {
+    abortController,
+    logLabel: 'github-public-raw',
+  });
 }
 
 type GitTreeEntry = { path: string; type: string; sha: string; size?: number; url?: string };
