@@ -34,6 +34,7 @@ import {
 import { startWebContainerHostBridge, type WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
 import { useDialogs } from './DialogProvider';
 import { TerminalPersistenceDialog } from './TerminalPersistenceDialog.tsx';
+import { resetTerminalSurface } from './terminal_surface_reset.ts';
 import { consumeTerminalPixelWheelDelta } from './terminal_wheel.ts';
 import { useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
 
@@ -876,7 +877,7 @@ export function TerminalPanel({
     if (lastBaseFilesLoadErrorRef.current === message) return;
     const terminal = paneRuntimesRef.current[paneId].terminal;
     if (!terminal) return;
-    terminal.reset();
+    resetTerminalSurface(terminal);
     terminal.write(`${message}\r\n`);
     lastBaseFilesLoadErrorRef.current = message;
   }, []);
@@ -1142,7 +1143,7 @@ export function TerminalPanel({
       releasePaneShellSession(paneId);
 
       if (options?.clearTerminal) {
-        terminal.reset();
+        resetTerminalSurface(terminal);
       }
 
       const spawnedShell = await wc.spawn('jsh', [], {
@@ -1241,13 +1242,13 @@ export function TerminalPanel({
       if (shellExited) {
         hideResetBanner();
         resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
-        void restartShellRef.current?.(paneId);
+        void restartShellRef.current?.(paneId, { clearTerminal: true });
         return true;
       }
 
       hideResetBanner();
       resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
-      void restartShellRef.current?.(paneId);
+      void restartShellRef.current?.(paneId, { clearTerminal: true });
       return true;
     },
     [hideResetBanner, showResetBanner],
@@ -1437,7 +1438,10 @@ export function TerminalPanel({
 
       if (options?.clearTerminal) {
         for (const paneId of visiblePaneIdsRef.current) {
-          paneRuntimesRef.current[paneId].terminal?.reset();
+          const paneTerminal = paneRuntimesRef.current[paneId].terminal;
+          if (paneTerminal) {
+            resetTerminalSurface(paneTerminal);
+          }
         }
       }
       if (options?.announceRestart) {
