@@ -645,7 +645,6 @@ export function Toolbar({
           ) : null}
           {showDraftActions ? (
             <>
-              <DropdownMenu.Separator class="user-menu-separator" />
               {/* Edit mode auto-restores the saved draft, so this restore action is only meaningful from view mode. */}
               {showRestoreDraft ? (
                 <DropdownMenu.Item

@@ -37,6 +37,9 @@ Also, `[username].input.md` automatically renders the public GitHub repo
 Input supports standard GFM plus several editor-specific extensions. See
 [SYNTAX.md](./SYNTAX.md) for the full reference.
 
+Strikethrough uses standard GFM `~~text~~` syntax. Single-tilde spans like
+`~text~` are left literal.
+
 For inline citations, you can use:
 
 ```md

@@ -709,7 +709,6 @@ const COLLAPSIBLE_INLINE_NODE_NAMES = new Set([
   'Link',
   'Emphasis',
   'StrongEmphasis',
-  'Subscript',
   'Strikethrough',
   'HighlightMarkup',
 ]);
@@ -804,22 +803,10 @@ function buildCollapsedInlineMarkdownDecorations(view: EditorView): DecorationSe
           return;
         }
 
-        if (node.name !== 'EmphasisMark' && node.name !== 'StrikethroughMark' && node.name !== 'SubscriptMark') return;
+        if (node.name !== 'EmphasisMark' && node.name !== 'StrikethroughMark') return;
         const selectionTouchesNode = selectionTouchesAncestorRange(view.state, node.node.parent);
         if (!selectionTouchesNode) {
           builder.add(node.from, node.to, Decoration.replace({}));
-        }
-        if (node.name === 'SubscriptMark') {
-          const parent = node.node.parent;
-          if (parent && parent.name === 'Subscript' && node.from === parent.from && parent.to - parent.from > 2) {
-            builder.add(
-              node.to,
-              parent.to - 1,
-              Decoration.mark({
-                class: 'cm-single-tilde-strikethrough',
-              }),
-            );
-          }
         }
       },
     });

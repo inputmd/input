@@ -2,6 +2,8 @@
 
 Input uses [marked](https://marked.js.org/) with GFM enabled, plus the custom extensions below. Standard features like headings, bold, italic, links, images, lists, blockquotes, fenced code blocks, tables, and strikethrough all work as expected.
 
+Strikethrough follows standard GFM syntax: use `~~text~~`. Single-tilde spans like `~text~` are left as literal text.
+
 ## Prompt Lists
 
 Conversational turn-taking lists using special markers:

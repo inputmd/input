@@ -230,7 +230,7 @@ test('markdown editor collapses strikethrough markers until the selection enters
   }
 });
 
-test('markdown editor treats single-tilde markup like strikethrough to match the renderer', (t) => {
+test('markdown editor leaves single-tilde markup literal', (t) => {
   const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
   const restore = installDomGlobals(dom);
 
@@ -245,16 +245,6 @@ test('markdown editor treats single-tilde markup like strikethrough to match the
       parent: document.getElementById('app')!,
     });
 
-    t.regex(view.dom.textContent ?? '', /Use strike here\./);
-    t.false((view.dom.textContent ?? '').includes('~strike~'));
-    t.truthy(view.dom.querySelector('.cm-single-tilde-strikethrough'));
-
-    const strikeFrom = doc.indexOf('strike');
-    view.dispatch({ selection: EditorSelection.cursor(strikeFrom + 1) });
-    t.regex(view.dom.textContent ?? '', /Use ~strike~ here\./);
-
-    const strikeEnd = doc.indexOf(' here.');
-    view.dispatch({ selection: EditorSelection.cursor(strikeEnd) });
     t.regex(view.dom.textContent ?? '', /Use ~strike~ here\./);
     view.destroy();
   } finally {
