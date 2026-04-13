@@ -45,6 +45,42 @@ const CTRL_C_RESET_WINDOW_MS = 1000;
 const CTRL_Z_NOTICE_WINDOW_MS = 1000;
 const TERMINAL_RESET_BANNER_DURATION_MS = 3000;
 
+type TerminalThemeMode = 'dark' | 'light';
+
+interface TerminalTheme {
+  background: string;
+  foreground: string;
+  cursor: string;
+  selectionBackground: string;
+  selectionForeground: string;
+}
+
+const TERMINAL_THEME_BY_MODE: Record<TerminalThemeMode, TerminalTheme> = {
+  dark: {
+    background: '#0b0b0b',
+    foreground: '#e6edf3',
+    cursor: '#e6edf3',
+    selectionBackground: '#1a4a32',
+    selectionForeground: '#eef5f0',
+  },
+  light: {
+    background: '#ffffff',
+    foreground: '#1f2328',
+    cursor: '#1f2328',
+    selectionBackground: '#2a7d4f',
+    selectionForeground: '#ffffff',
+  },
+};
+
+function getDocumentThemeMode(): TerminalThemeMode {
+  if (typeof document === 'undefined') return 'dark';
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+
+function getTerminalTheme(mode: TerminalThemeMode): TerminalTheme {
+  return { ...TERMINAL_THEME_BY_MODE[mode] };
+}
+
 export interface TerminalLiveFile {
   path: string;
   content: string;
@@ -789,6 +825,7 @@ export function TerminalPanel({
   });
   const [error, setError] = useState<string | null>(null);
   const [hostBridgeError, setHostBridgeError] = useState(false);
+  const [terminalThemeMode, setTerminalThemeMode] = useState<TerminalThemeMode>(() => getDocumentThemeMode());
   const startedRef = useRef(false);
   const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
   const webContainerSessionIdRef = useRef(0);
@@ -865,6 +902,29 @@ export function TerminalPanel({
   const visiblePaneIdsRef = useRef<PaneId[]>(visiblePaneIds);
   visiblePaneIdsRef.current = visiblePaneIds;
   const lastBaseFilesLoadErrorRef = useRef<string | null>(null);
+  const lastAppliedTerminalThemeModeRef = useRef<TerminalThemeMode>(terminalThemeMode);
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
+    const root = document.documentElement;
+    const syncThemeMode = () => {
+      setTerminalThemeMode((current) => {
+        const next = getDocumentThemeMode();
+        return current === next ? current : next;
+      });
+    };
+    syncThemeMode();
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
+          syncThemeMode();
+          break;
+        }
+      }
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
 
   const getPreferredPaneId = useCallback((): PaneId => {
     if (visiblePaneIdsRef.current.includes(activePaneIdRef.current)) return activePaneIdRef.current;
@@ -1274,12 +1334,7 @@ export function TerminalPanel({
         fontFamily: TERMINAL_FONT_FAMILY,
         fontSize: 14.5,
         ghostty,
-        theme: {
-          background: '#0b0b0b',
-          foreground: '#e6edf3',
-          selectionBackground: '#e6edf3',
-          selectionForeground: '#0b0b0b',
-        },
+        theme: getTerminalTheme(terminalThemeMode),
       });
       runtime.terminal = terminal;
       terminal.open(container);
@@ -1395,8 +1450,35 @@ export function TerminalPanel({
         terminal.dispose();
       };
     },
-    [fitPane, handleResetHotkey, onToggleVisibilityShortcut, renderBaseFilesLoadError],
+    [fitPane, handleResetHotkey, onToggleVisibilityShortcut, renderBaseFilesLoadError, terminalThemeMode],
   );
+
+  useEffect(() => {
+    const previousThemeMode = lastAppliedTerminalThemeModeRef.current;
+    lastAppliedTerminalThemeModeRef.current = terminalThemeMode;
+    if (previousThemeMode === terminalThemeMode || !startedRef.current) return;
+    let cancelled = false;
+    void (async () => {
+      for (const paneId of ['primary', 'secondary'] as const) {
+        const runtime = paneRuntimesRef.current[paneId];
+        const hadShell = Boolean(runtime.shell);
+        releasePaneShellSession(paneId, { invalidate: true });
+        runtime.disposeSurface?.();
+        runtime.disposeSurface = null;
+        if (!runtime.container) continue;
+        await ensurePaneSurface(paneId);
+        if (cancelled || unmountedRef.current) return;
+        fitPane(paneId);
+        if (!fsReady || !hadShell) continue;
+        await spawnShellSession(paneId, { clearTerminal: true });
+        if (cancelled || unmountedRef.current) return;
+      }
+      focusPane();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ensurePaneSurface, fitPane, focusPane, fsReady, releasePaneShellSession, spawnShellSession, terminalThemeMode]);
 
   const initializeWebContainerSession = useCallback(
     async (options?: {

@@ -2167,17 +2167,22 @@
 }
 
 .terminal-panel {
+  --terminal-panel-bg: #0b0b0b;
   position: fixed;
   top: var(--toolbar-height);
   right: 0;
   bottom: 0;
   width: var(--reader-ai-width, 360px);
   border-left: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
-  background: #0b0b0b;
+  background: var(--terminal-panel-bg);
   display: flex;
   flex-direction: column;
   min-height: 0;
   z-index: 15;
+}
+
+[data-theme="light"] .terminal-panel {
+  --terminal-panel-bg: #ffffff;
 }
 
 .terminal-backdrop {
@@ -2229,9 +2234,9 @@
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
   border-radius: 8px;
-  background: rgba(17, 17, 17, 0.92);
+  background: color-mix(in srgb, var(--terminal-panel-bg) 92%, transparent);
   background-clip: padding-box;
-  color: color-mix(in srgb, #f4f4f4 84%, transparent);
+  color: color-mix(in srgb, var(--text) 84%, transparent);
   font-size: 12px;
   line-height: 1.35;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
@@ -2247,8 +2252,8 @@
   padding: 8px 12px;
   border: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, #151515 88%, transparent);
-  color: #f4f4f4;
+  background: color-mix(in srgb, var(--terminal-panel-bg) 88%, transparent);
+  color: var(--text);
   font-size: 12px;
   line-height: 1.2;
   text-align: center;
@@ -2282,7 +2287,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: color-mix(in srgb, #050505 74%, transparent);
+  background: color-mix(in srgb, var(--terminal-panel-bg) 74%, transparent);
 }
 
 .terminal-panel__trust-prompt-card {
@@ -2293,7 +2298,7 @@
   padding: 16px;
   border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, #111 90%, var(--toolbar-bg));
+  background: color-mix(in srgb, var(--terminal-panel-bg) 90%, var(--toolbar-bg));
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.36);
   font-size: 15px;
 }
@@ -2302,14 +2307,14 @@
   margin: 0;
   font-size: 16px;
   line-height: 1.35;
-  color: #f6f6f6;
+  color: var(--text);
 }
 
 .terminal-panel__trust-prompt-message {
   margin: 2px 0 8px;
   font-size: 14px;
   line-height: 1.5;
-  color: color-mix(in srgb, #f2f2f2 78%, transparent);
+  color: color-mix(in srgb, var(--text) 78%, transparent);
 }
 
 .terminal-panel__trust-prompt-actions {
@@ -2474,7 +2479,7 @@
 
 .terminal-panel__error {
   padding: 16px;
-  color: #f4a3a3;
+  color: var(--error-color);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 15px;
   white-space: pre-wrap;
