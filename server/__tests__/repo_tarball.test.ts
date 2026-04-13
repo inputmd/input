@@ -84,3 +84,26 @@ test('extractTarball turns upstream stream timeouts into client errors', async (
   t.is(err?.message, 'Repository tarball download timed out');
   t.is(err?.statusCode, 504);
 });
+
+test('extractTarball rejects archives whose extracted text exceeds the total byte cap', async (t) => {
+  const archive = await buildTarArchive([
+    {
+      name: 'input-main/docs/a.md',
+      contents: new TextEncoder().encode('123456'),
+    },
+    {
+      name: 'input-main/docs/b.md',
+      contents: new TextEncoder().encode('abcdef'),
+    },
+  ]);
+
+  const err = await t.throwsAsync(
+    () => extractTarball(buildWebStream(gzipSync(Buffer.from(archive))), { maxTotalBytes: 10 }),
+    {
+      instanceOf: ClientError,
+    },
+  );
+
+  t.is(err?.message, 'Repository text content exceeds 10 bytes');
+  t.is(err?.statusCode, 400);
+});
