@@ -1010,6 +1010,12 @@ export function TerminalPanel({
           ? 'Credential sync error'
           : 'Credential sync on'
         : 'Credential sync off';
+  const credentialSyncMenuNote =
+    credentialSyncEnabled === null
+      ? 'Credential sync status is still loading.'
+      : credentialSyncEnabled
+        ? 'Credentials and sessions are automatically synced to new terminals.'
+        : 'Credentials and sessions are not synced to new terminals.';
 
   const setShellExited = useCallback((paneId: PaneId, exited: boolean) => {
     shellExitedByPaneRef.current[paneId] = exited;
@@ -2289,6 +2295,7 @@ export function TerminalPanel({
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
+                  <DropdownMenu.Label class="terminal-panel__menu-note">{credentialSyncMenuNote}</DropdownMenu.Label>
                   <DropdownMenu.Item
                     class="terminal-panel__menu-item"
                     onSelect={() => {
@@ -2304,7 +2311,7 @@ export function TerminalPanel({
                         openPersistedHomeReconfigurePrompt();
                       }}
                     >
-                      Reset credential sync
+                      Configure credential sync
                     </DropdownMenu.Item>
                   ) : null}
                 </DropdownMenu.Content>

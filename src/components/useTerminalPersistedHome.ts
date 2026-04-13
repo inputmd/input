@@ -286,7 +286,7 @@ export function useTerminalPersistedHome({
     persistedHomePromptResolverRef.current?.('exclude');
     persistedHomePromptResolverRef.current = () => {};
     setPersistedHomePromptState({
-      title: persistedHomeTrustPrompt.title,
+      title: 'Configure credential sync',
       message: persistedHomeTrustPrompt.message,
       mode: 'reconfigure',
       note: persistedHomeTrustPrompt.note,

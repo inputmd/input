@@ -2437,6 +2437,7 @@
 
 .terminal-panel__menu {
   min-width: 160px;
+  max-width: 210px;
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   border-radius: 5px;
@@ -2445,6 +2446,15 @@
     0 8px 24px rgba(0, 0, 0, 0.24),
     0 0 0 1px color-mix(in srgb, var(--border) 12%, transparent);
   z-index: 60;
+}
+
+.terminal-panel__menu-note {
+  padding: 4px 10px 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+  user-select: none;
 }
 
 .terminal-panel__menu-item {
