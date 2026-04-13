@@ -479,9 +479,20 @@ function accessibleReaderAiModels(models: ReaderAiModel[], authenticated: boolea
   return authenticated ? models : models.filter((model) => !isPaidReaderAiModel(model));
 }
 
-function lastPaidReaderAiModelId(models: ReaderAiModel[]): string {
-  const paidModels = models.filter(isPaidReaderAiModel);
-  return paidModels.at(-1)?.id ?? '';
+function isClaudeReaderAiModel(model: ReaderAiModel): boolean {
+  return `${model.id} ${model.name}`.trim().toLowerCase().includes('claude');
+}
+
+function defaultReaderAiModelId(models: ReaderAiModel[]): string {
+  return models.find(isClaudeReaderAiModel)?.id ?? models[0]?.id ?? '';
+}
+
+function preferredPaidReaderAiModelId(models: ReaderAiModel[]): string {
+  return (
+    models.find((model) => isPaidReaderAiModel(model) && isClaudeReaderAiModel(model))?.id ??
+    models.find(isPaidReaderAiModel)?.id ??
+    defaultReaderAiModelId(models)
+  );
 }
 
 function prioritizeReaderAiModels(models: ReaderAiModel[]): ReaderAiModel[] {
@@ -1234,7 +1245,7 @@ export function App() {
       const next = accessibleReaderAiModels(current, authenticated);
       setReaderAiSelectedModel((selected) => {
         if (selected && next.some((model) => model.id === selected)) return selected;
-        return next[0]?.id ?? '';
+        return defaultReaderAiModelId(next);
       });
       return next;
     });
@@ -4014,14 +4025,16 @@ export function App() {
     setReaderAiModelsError(null);
     try {
       const models = prioritizeReaderAiModels(await listReaderAiModels());
-      const preferredPaidModelId = preferPaidReaderAiModelOnNextLoadRef.current ? lastPaidReaderAiModelId(models) : '';
+      const preferredPaidModelId = preferPaidReaderAiModelOnNextLoadRef.current
+        ? preferredPaidReaderAiModelId(models)
+        : '';
       preferPaidReaderAiModelOnNextLoadRef.current = false;
       setReaderAiConfigured(true);
       setReaderAiModels(models);
       setReaderAiSelectedModel((current) => {
         if (preferredPaidModelId) return preferredPaidModelId;
         if (current && models.some((model) => model.id === current)) return current;
-        return models[0]?.id ?? '';
+        return defaultReaderAiModelId(models);
       });
     } catch (err) {
       setReaderAiModels([]);

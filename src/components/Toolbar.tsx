@@ -1238,7 +1238,7 @@ export function Toolbar({
             </div>
           </div>
         ) : null}
-        {showTerminalToggle && !user ? (
+        {showTerminalToggle ? (
           <button
             type="button"
             class={`preview-toggle-btn toolbar-terminal-trigger toolbar-terminal-toggle toolbar-terminal-toggle-icon${terminalVisible ? '' : ' preview-toggle-btn-off'}`}
@@ -1274,12 +1274,6 @@ export function Toolbar({
                 align="end"
                 onCloseAutoFocus={preventTriggerFocusRestore}
               >
-                {showTerminalToggle ? (
-                  <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTerminal()}>
-                    <span>{terminalVisible ? 'Hide Terminal' : 'Show Terminal'}</span>
-                    <span class="user-menu-item-shortcut">{terminalShortcutLabel}</span>
-                  </DropdownMenu.Item>
-                ) : null}
                 <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTheme()}>
                   <span>Toggle Theme</span>
                   <span class="user-menu-item-shortcut">{themeShortcutLabel}</span>
@@ -1288,6 +1282,12 @@ export function Toolbar({
                   <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleSidebar()}>
                     <span>{sidebarVisible ? 'Hide Files' : 'Show Files'}</span>
                     <span class="user-menu-item-shortcut">{sidebarShortcutLabel}</span>
+                  </DropdownMenu.Item>
+                ) : null}
+                {showTerminalToggle ? (
+                  <DropdownMenu.Item class="user-menu-item" onSelect={() => onToggleTerminal()}>
+                    <span>{terminalVisible ? 'Hide Terminal' : 'Show Terminal'}</span>
+                    <span class="user-menu-item-shortcut">{terminalShortcutLabel}</span>
                   </DropdownMenu.Item>
                 ) : null}
                 <DropdownMenu.Separator class="user-menu-separator" />

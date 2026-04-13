@@ -936,12 +936,12 @@ export function TerminalPanel({
 
   const credentialSyncStatusLabel =
     credentialSyncEnabled === null
-      ? 'Sync ...'
+      ? 'Sync loading...'
       : credentialSyncEnabled
         ? hostBridgeError
-          ? 'Sync error'
-          : 'Sync on'
-        : 'Sync off';
+          ? 'Credential sync error'
+          : 'Credential sync on'
+        : 'Credential sync off';
 
   const setShellExited = useCallback((paneId: PaneId, exited: boolean) => {
     shellExitedByPaneRef.current[paneId] = exited;
