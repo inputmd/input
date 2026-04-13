@@ -126,6 +126,13 @@ export function useRepoTerminalBinding({
     ],
   );
 
+  const requiresTerminalBaseSnapshot = useMemo(
+    () =>
+      (repoAccessMode === 'installed' && Boolean(selectedRepo) && Boolean(activeInstalledRepoInstallationId)) ||
+      (repoAccessMode === 'public' && Boolean(publicRepoRef)),
+    [activeInstalledRepoInstallationId, publicRepoRef, repoAccessMode, selectedRepo],
+  );
+
   const workspaceChangesNotice = useMemo(() => {
     if (workspaceChangesPersisted) return null;
     if (repoAccessMode === 'public' && publicRepoRef) {
@@ -137,13 +144,17 @@ export function useRepoTerminalBinding({
     if (currentGistId) {
       return "Changes in this terminal won't be saved to this gist. Download files to keep your work.";
     }
-    return "Changes in this terminal won't be saved here. Download files to keep your work.";
+    return "Changes in this terminal won't be saved. Download files to keep your work.";
   }, [currentGistId, currentRouteRepoRef, publicRepoRef, repoAccessMode, workspaceChangesPersisted]);
 
   useEffect(() => {
     if (!enabled) return;
     if (!mounted) return;
     if (currentGistId) {
+      setBaseFilesLoadError(null);
+      return;
+    }
+    if (!requiresTerminalBaseSnapshot) {
       setBaseFilesLoadError(null);
       return;
     }
@@ -191,6 +202,7 @@ export function useRepoTerminalBinding({
     mounted,
     publicRepoRef,
     repoAccessMode,
+    requiresTerminalBaseSnapshot,
     selectedRepo,
     terminalBaseSnapshotKey,
     cacheKey,
@@ -202,8 +214,9 @@ export function useRepoTerminalBinding({
     if (currentGistId && gistFiles) {
       return buildGistTerminalBaseFiles(gistFiles);
     }
-    if (terminalBaseSnapshotKey !== cacheKey) return {};
-    return applyRepoWorkspaceMutationsToTerminalFiles(terminalBaseFiles, {
+    const baseSnapshotFiles = terminalBaseSnapshotKey === cacheKey ? terminalBaseFiles : {};
+    if (terminalBaseSnapshotKey !== cacheKey && requiresTerminalBaseSnapshot) return {};
+    return applyRepoWorkspaceMutationsToTerminalFiles(baseSnapshotFiles, {
       overlayFiles: overlayFiles.filter((file) => file.path !== activeEditPath),
       deletedBaseFiles,
       renamedBaseFiles,
@@ -217,6 +230,7 @@ export function useRepoTerminalBinding({
     mounted,
     overlayFiles,
     renamedBaseFiles,
+    requiresTerminalBaseSnapshot,
     terminalBaseFiles,
     terminalBaseSnapshotKey,
   ]);
@@ -224,8 +238,9 @@ export function useRepoTerminalBinding({
   const baseFilesReady = useMemo(() => {
     if (!mounted) return false;
     if (currentGistId) return gistFiles !== null;
+    if (!requiresTerminalBaseSnapshot) return true;
     return terminalBaseSnapshotKey === cacheKey;
-  }, [cacheKey, currentGistId, gistFiles, mounted, terminalBaseSnapshotKey]);
+  }, [cacheKey, currentGistId, gistFiles, mounted, requiresTerminalBaseSnapshot, terminalBaseSnapshotKey]);
 
   const liveFile = useMemo(() => {
     if (!mounted || !editing || !activeEditPath) return null;

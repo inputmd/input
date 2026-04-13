@@ -28,15 +28,13 @@ export interface EditSessionViewProps
 const LOGGED_OUT_NEW_DOC_PREVIEW_DESCRIPTION = `
 ### Input
 
-Input is a tool for editing workspaces of Markdown files.
+A Markdown notebook and web terminal for language models.
 
-It supports live preview, sharing and collaboration, and \\[\\[wiki links\\]\\]. Your data is stored in [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/).
-
-It comes with an AI assistant, and several new ways to write with AI without leaving the editor.
+Supports live preview, sharing and collaboration, and \\[\\[wiki links\\]\\]. Your data is stored in [repos](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories) or [gists](https://gist.github.com/).
 
 You can also use Input as an alternative frontend for any public repo -- just replace github.com with input.md. Check out the source [here](https://input.md/inputmd/input).
 
-#### Inline AI Features
+#### Editor Features
 
 - Inline AI chat - start a line with ~, then press \`Enter\`
 - Branching completions - write your query in \\{braces}, press \`Tab\`
