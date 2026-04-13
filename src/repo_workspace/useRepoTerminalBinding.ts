@@ -33,6 +33,7 @@ interface UseRepoTerminalBindingArgs {
   currentRouteRepoRef: PublicRepoRef | null;
   userLogin: string | null;
   linkedInstallations: LinkedInstallation[];
+  linkedInstallationsLoaded: boolean;
   terminalBaseFiles: Record<string, string>;
   terminalBaseSnapshotKey: string | null;
   overlayFiles: RepoWorkspaceOverlayFile[];
@@ -71,6 +72,7 @@ export function useRepoTerminalBinding({
   currentRouteRepoRef,
   userLogin,
   linkedInstallations,
+  linkedInstallationsLoaded,
   terminalBaseFiles,
   terminalBaseSnapshotKey,
   overlayFiles,
@@ -107,6 +109,7 @@ export function useRepoTerminalBinding({
         currentGistOwnerLogin,
         currentRouteRepoRef,
         linkedInstallations,
+        linkedInstallationsLoaded,
         publicRepoRef,
         repoAccessMode,
         selectedRepo,
@@ -118,6 +121,7 @@ export function useRepoTerminalBinding({
       currentGistOwnerLogin,
       currentRouteRepoRef,
       linkedInstallations,
+      linkedInstallationsLoaded,
       publicRepoRef,
       repoAccessMode,
       selectedRepo,

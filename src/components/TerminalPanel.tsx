@@ -1034,16 +1034,18 @@ export function TerminalPanel({
     credentialSyncEnabled === null
       ? 'Sync loading...'
       : credentialSyncEnabled
-        ? hostBridgeError
-          ? 'Credential sync error'
-          : 'Credential sync on'
+        ? 'Credential sync on'
         : 'Credential sync off';
+  const networkingStatusLabel = hostBridgeError ? 'Networking error' : 'Networking on';
   const credentialSyncMenuNote =
     credentialSyncEnabled === null
       ? 'Credential sync status is still loading.'
       : credentialSyncEnabled
-        ? 'Credentials and sessions are automatically synced to new terminals.'
-        : 'Credentials and sessions are not synced to new terminals.';
+        ? 'Credential sync: on. Credentials and sessions are automatically synced to new terminals.'
+        : 'Credential sync: off. Credentials and sessions are not synced to new terminals.';
+  const networkingMenuNote = hostBridgeError
+    ? 'Terminal networking: error. Networking failed to start in this terminal.'
+    : 'Terminal networking: on. Networking remains available in this terminal.';
 
   const setShellExited = useCallback((paneId: PaneId, exited: boolean) => {
     shellExitedByPaneRef.current[paneId] = exited;
@@ -1552,9 +1554,8 @@ export function TerminalPanel({
         configuredMode: configuredPersistedHomeMode,
         reason: options?.persistedHomeTransitionReason,
       });
-      // TODO: Split this into separate controls/copy for persisted config restore
-      // and browser-auth-backed proxying. "Credential sync" currently gates both.
-      const includeCredentialSync = persistedHomeTransition.includeCredentialSync;
+      const includePersistedHomeSync = persistedHomeTransition.includePersistedHomeSync;
+      const enableNetworkingBridge = persistedHomeTransition.enableNetworkingBridge;
 
       const previousWc = wcRef.current;
       restartInFlightRef.current = null;
@@ -1664,7 +1665,7 @@ export function TerminalPanel({
             homeDir,
             persistedHomeScriptPath,
             {
-              includePersistedHome: includeCredentialSync,
+              includePersistedHome: includePersistedHomeSync,
               bootPerf,
             },
           );
@@ -1676,7 +1677,11 @@ export function TerminalPanel({
         }
         setPersistedHomeActiveSessionMode(persistedHomeTransition.nextSessionMode);
 
-        if (includeCredentialSync) {
+        if (!includePersistedHomeSync) {
+          terminal.write('Credential sync disabled.\r\n');
+        }
+
+        if (enableNetworkingBridge) {
           try {
             terminal.write('Starting networking...\r\n');
             hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
@@ -1702,7 +1707,7 @@ export function TerminalPanel({
           }
         } else {
           setHostBridgeError(false);
-          terminal.write('Credential sync disabled.\r\n');
+          terminal.write('Terminal networking disabled.\r\n');
         }
 
         await bootPerf.measure(
@@ -1869,7 +1874,7 @@ export function TerminalPanel({
   restartWebContainerRef.current = restartWebContainer;
 
   useEffect(() => {
-    if (persistedHomePromptState?.mode !== 'reconfigure') return;
+    if (!persistedHomePromptState) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
@@ -1880,7 +1885,7 @@ export function TerminalPanel({
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [closePersistedHomePrompt, focusPane, persistedHomePromptState?.mode]);
+  }, [closePersistedHomePrompt, focusPane, persistedHomePromptState]);
 
   const downloadFromWebContainer = useCallback(async (): Promise<void> => {
     const wc = wcRef.current;
@@ -2251,10 +2256,9 @@ export function TerminalPanel({
               <div
                 class="terminal-panel__trust-prompt"
                 role="dialog"
-                aria-modal={persistedHomePromptState.mode === 'boot' ? 'true' : 'false'}
+                aria-modal="false"
                 aria-labelledby="terminal-trust-title"
                 onClick={(event) => {
-                  if (persistedHomePromptState.mode !== 'reconfigure') return;
                   if (event.target !== event.currentTarget) return;
                   closePersistedHomePrompt();
                   focusPane();
@@ -2275,7 +2279,7 @@ export function TerminalPanel({
                         settlePersistedHomePrompt(false);
                       }}
                     >
-                      Disable credential sync
+                      Keep credential sync off
                     </button>
                     <button
                       type="button"
@@ -2287,25 +2291,7 @@ export function TerminalPanel({
                       Trust this {persistedHomePromptState.target}, enable credential sync
                     </button>
                   </div>
-                  {persistedHomePromptState.mode === 'boot' ? (
-                    <span
-                      class="terminal-panel__trust-prompt-link"
-                      role="link"
-                      tabIndex={0}
-                      onClick={() => {
-                        settlePersistedHomePrompt(false, { persistDecision: false });
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        settlePersistedHomePrompt(false, { persistDecision: false });
-                      }}
-                    >
-                      Ask again later
-                    </span>
-                  ) : (
-                    <p class="terminal-panel__trust-prompt-note">This will restart running terminals.</p>
-                  )}
+                  <p class="terminal-panel__trust-prompt-note">This will restart running terminals.</p>
                 </div>
               </div>
             ) : null}
@@ -2316,8 +2302,8 @@ export function TerminalPanel({
                 <button
                   type="button"
                   class="terminal-panel__credential-sync-trigger"
-                  aria-label={`${credentialSyncStatusLabel}. Credential sync actions`}
-                  title={`${credentialSyncStatusLabel}. Credential sync actions`}
+                  aria-label={`${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
+                  title={`${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
                 >
                   <Zap size={14} aria-hidden="true" />
                   <span>{credentialSyncStatusLabel}</span>
@@ -2326,6 +2312,8 @@ export function TerminalPanel({
               <DropdownMenu.Portal>
                 <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
                   <DropdownMenu.Label class="terminal-panel__menu-note">{credentialSyncMenuNote}</DropdownMenu.Label>
+                  <DropdownMenu.Label class="terminal-panel__menu-note">{networkingMenuNote}</DropdownMenu.Label>
+                  <DropdownMenu.Separator class="terminal-panel__menu-separator" />
                   <DropdownMenu.Item
                     class="terminal-panel__menu-item"
                     onSelect={() => {

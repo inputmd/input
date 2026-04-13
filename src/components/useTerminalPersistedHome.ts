@@ -25,7 +25,6 @@ interface RefValue<T> {
 
 export interface TerminalPersistedHomePromptState {
   message: string;
-  mode: 'boot' | 'reconfigure';
   note: string | null;
   storageKey: string;
   target: 'gist' | 'repo' | 'workspace';
@@ -67,11 +66,13 @@ export function useTerminalPersistedHome({
   const pendingPersistedHomeEntriesRef = useRef<{ entries: PersistedHomeEntry[]; workspaceKey: string } | null>(null);
   const persistedHomeScriptPathRef = useRef<string | null>(null);
   const persistedHomeActiveSessionModeRef = useRef<PersistedHomeMode | null>(null);
+  const persistedHomeTrustPromptRef = useRef<PersistedHomeTrustPrompt | null>(persistedHomeTrustPrompt);
+  const pendingTrustResolutionPromiseRef = useRef<Promise<void> | null>(null);
+  const pendingTrustResolutionResolveRef = useRef<(() => void) | null>(null);
   const [credentialSyncEnabled, setCredentialSyncEnabled] = useState<boolean | null>(null);
   const [persistedHomePromptState, setPersistedHomePromptState] = useState<TerminalPersistedHomePromptState | null>(
     null,
   );
-  const persistedHomePromptResolverRef = useRef<((mode: PersistedHomeMode) => void) | null>(null);
   const [persistenceDialogOpen, setPersistenceDialogOpen] = useState(false);
   const [persistenceDialogLoading, setPersistenceDialogLoading] = useState(false);
   const [persistenceDialogError, setPersistenceDialogError] = useState<string | null>(null);
@@ -82,6 +83,13 @@ export function useTerminalPersistedHome({
   const setPersistedHomeConfiguredMode = useCallback((mode: PersistedHomeMode) => {
     setCredentialSyncEnabled(mode === 'include');
   }, []);
+
+  useEffect(() => {
+    persistedHomeTrustPromptRef.current = persistedHomeTrustPrompt;
+    pendingTrustResolutionResolveRef.current?.();
+    pendingTrustResolutionResolveRef.current = null;
+    pendingTrustResolutionPromiseRef.current = null;
+  }, [persistedHomeTrustPrompt]);
 
   const setPersistedHomeScriptPath = useCallback((path: string | null) => {
     persistedHomeScriptPathRef.current = path;
@@ -205,34 +213,22 @@ export function useTerminalPersistedHome({
 
   const closePersistedHomePrompt = useCallback(() => {
     setPersistedHomePromptState(null);
-    const resolve = persistedHomePromptResolverRef.current;
-    persistedHomePromptResolverRef.current = null;
-    resolve?.('exclude');
   }, []);
 
   const disposePersistedHomePrompt = useCallback(() => {
     setPersistedHomePromptState(null);
-    const resolve = persistedHomePromptResolverRef.current;
-    persistedHomePromptResolverRef.current = null;
-    resolve?.('exclude');
   }, []);
 
   const settlePersistedHomePrompt = useCallback(
-    (restorePersistedHome: boolean, options?: { persistDecision?: boolean }) => {
-      const promptMode = persistedHomePromptState?.mode ?? 'boot';
+    (restorePersistedHome: boolean) => {
       // Use the storageKey captured at prompt creation time, not the current
       // prop, so that a workspace change between showing and settling the
       // prompt cannot redirect the trust decision to the wrong key.
       const promptStorageKey = persistedHomePromptState?.storageKey ?? null;
       const nextMode: PersistedHomeMode = restorePersistedHome ? 'include' : 'exclude';
       setPersistedHomePromptState(null);
-      const resolve = persistedHomePromptResolverRef.current;
-      persistedHomePromptResolverRef.current = null;
       focusPane();
-      if (!promptStorageKey) {
-        resolve?.('exclude');
-        return;
-      }
+      if (!promptStorageKey) return;
       setPersistedHomeConfiguredMode(nextMode);
       if (!restorePersistedHome) {
         if (persistedHomePersistTimerRef.current !== null) {
@@ -241,75 +237,54 @@ export function useTerminalPersistedHome({
         }
         pendingPersistedHomeEntriesRef.current = null;
       }
-      if (options?.persistDecision !== false) {
-        writePersistedHomeTrustDecision(promptStorageKey, nextMode);
-      }
-      resolve?.(nextMode);
-      if (promptMode === 'reconfigure') {
-        void restartWebContainerRef.current?.({ reason: 'reconfigure' });
-      }
+      writePersistedHomeTrustDecision(promptStorageKey, nextMode);
+      void restartWebContainerRef.current?.({ reason: 'reconfigure' });
     },
     [focusPane, persistedHomePromptState, restartWebContainerRef, setPersistedHomeConfiguredMode],
   );
 
-  const resolvePersistedHomeMode = useCallback(async (): Promise<PersistedHomeMode> => {
-    if (!persistedHomeTrustPrompt) {
-      setPersistedHomeConfiguredMode('exclude');
-      return 'exclude';
-    }
-    const storedDecision = readPersistedHomeTrustDecision(persistedHomeTrustPrompt.storageKey);
-    if (storedDecision) {
-      setPersistedHomeConfiguredMode(storedDecision);
-      return storedDecision;
-    }
-    if (!persistedHomeTrustPrompt.promptOnBoot) {
-      setPersistedHomeConfiguredMode(persistedHomeTrustPrompt.defaultMode);
-      return persistedHomeTrustPrompt.defaultMode;
-    }
-
-    return await new Promise<PersistedHomeMode>((resolve) => {
-      persistedHomePromptResolverRef.current = resolve;
-      setPersistedHomePromptState({
-        title: persistedHomeTrustPrompt.title,
-        message: persistedHomeTrustPrompt.message,
-        mode: 'boot',
-        note: persistedHomeTrustPrompt.note,
-        storageKey: persistedHomeTrustPrompt.storageKey,
-        target: persistedHomeTrustPrompt.target,
+  const waitForPersistedHomeTrustResolution = useCallback(async (): Promise<void> => {
+    if (persistedHomeTrustPromptRef.current?.trustResolved ?? true) return;
+    if (!pendingTrustResolutionPromiseRef.current) {
+      pendingTrustResolutionPromiseRef.current = new Promise<void>((resolve) => {
+        pendingTrustResolutionResolveRef.current = resolve;
       });
-    });
-  }, [persistedHomeTrustPrompt, setPersistedHomeConfiguredMode]);
+    }
+    await pendingTrustResolutionPromiseRef.current;
+  }, []);
+
+  const resolvePersistedHomeMode = useCallback(async (): Promise<PersistedHomeMode> => {
+    while (true) {
+      const trustPrompt = persistedHomeTrustPromptRef.current;
+      if (!trustPrompt) {
+        setPersistedHomeConfiguredMode('exclude');
+        return 'exclude';
+      }
+      const storedDecision = readPersistedHomeTrustDecision(trustPrompt.storageKey);
+      if (storedDecision) {
+        setPersistedHomeConfiguredMode(storedDecision);
+        return storedDecision;
+      }
+      if (!trustPrompt.trustResolved) {
+        setCredentialSyncEnabled(null);
+        await waitForPersistedHomeTrustResolution();
+        continue;
+      }
+      setPersistedHomeConfiguredMode(trustPrompt.defaultMode);
+      return trustPrompt.defaultMode;
+    }
+  }, [setPersistedHomeConfiguredMode, waitForPersistedHomeTrustResolution]);
 
   const openPersistedHomeReconfigurePrompt = useCallback(() => {
     if (!persistedHomeTrustPrompt) return;
-    // Resolve any pending boot prompt so the boot flow doesn't hang forever.
-    persistedHomePromptResolverRef.current?.('exclude');
-    persistedHomePromptResolverRef.current = () => {};
     setPersistedHomePromptState({
-      title: 'Configure credential sync',
+      title: persistedHomeTrustPrompt.title,
       message: persistedHomeTrustPrompt.message,
-      mode: 'reconfigure',
       note: persistedHomeTrustPrompt.note,
       storageKey: persistedHomeTrustPrompt.storageKey,
       target: persistedHomeTrustPrompt.target,
     });
   }, [persistedHomeTrustPrompt]);
-
-  // Auto-settle the boot prompt when the trust status changes (e.g.
-  // linkedInstallations finishes loading and the workspace is now trusted).
-  useEffect(() => {
-    if (
-      persistedHomePromptState?.mode === 'boot' &&
-      persistedHomeTrustPrompt &&
-      !persistedHomeTrustPrompt.promptOnBoot
-    ) {
-      const resolve = persistedHomePromptResolverRef.current;
-      persistedHomePromptResolverRef.current = null;
-      setPersistedHomePromptState(null);
-      setPersistedHomeConfiguredMode(persistedHomeTrustPrompt.defaultMode);
-      resolve?.(persistedHomeTrustPrompt.defaultMode);
-    }
-  }, [persistedHomeTrustPrompt, persistedHomePromptState?.mode, setPersistedHomeConfiguredMode]);
 
   const capturePersistedHomeState = useCallback(
     async (wc: WebContainer | null, options?: CapturePersistedHomeStateOptions): Promise<void> => {

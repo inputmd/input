@@ -13,7 +13,7 @@ export interface PersistedHomeTrustPrompt {
   message: string;
   note: string | null;
   defaultMode: PersistedHomeMode;
-  promptOnBoot: boolean;
+  trustResolved: boolean;
 }
 
 export interface PersistedHomeTrustAccess {
@@ -23,7 +23,8 @@ export interface PersistedHomeTrustAccess {
 
 export interface PersistedHomeSessionTransition {
   captureActiveSessionState: boolean;
-  includeCredentialSync: boolean;
+  includePersistedHomeSync: boolean;
+  enableNetworkingBridge: boolean;
   nextSessionMode: PersistedHomeMode;
 }
 
@@ -50,12 +51,12 @@ function buildPersistedHomeTrustStorageKey(args: {
 
 function buildPersistedHomeTrustMessage(target: 'gist' | 'repo' | 'workspace'): string {
   if (target === 'repo') {
-    return 'Is this a project that you trust? If so, trust this repo to use your credentials and past sessions in this terminal.';
+    return 'Trust this repo to sync your credentials and past sessions into this terminal.';
   }
   if (target === 'gist') {
-    return 'Is this a project that you trust? If so, trust this gist to use your credentials and past sessions in this terminal.';
+    return 'Trust this gist to sync your credentials and past sessions into this terminal.';
   }
-  return 'Is this a project that you trust? If so, trust this workspace to use your credentials and past sessions in this terminal.';
+  return 'Trust this workspace to sync your credentials and past sessions into this terminal.';
 }
 
 export function readPersistedHomeTrustDecision(storageKey: string): PersistedHomeMode | null {
@@ -86,7 +87,8 @@ export function resolvePersistedHomeSessionTransition(args: {
     args.activeSessionMode === 'include' && !(args.reason === 'reconfigure' && args.configuredMode === 'exclude');
   return {
     captureActiveSessionState,
-    includeCredentialSync: args.configuredMode === 'include',
+    includePersistedHomeSync: args.configuredMode === 'include',
+    enableNetworkingBridge: true,
     nextSessionMode: args.configuredMode,
   };
 }
@@ -96,6 +98,7 @@ export function resolvePersistedHomeTrustAccess(args: {
   currentGistOwnerLogin: string | null;
   currentRouteRepoRef: PublicRepoRef | null;
   linkedInstallations: LinkedInstallation[];
+  linkedInstallationsLoaded: boolean;
   publicRepoRef: PublicRepoRef | null;
   repoAccessMode: RepoAccessMode;
   selectedRepo: string | null;
@@ -129,11 +132,21 @@ export function resolvePersistedHomeTrustAccess(args: {
   const isTrusted = repoIsTrusted || gistIsTrusted || args.workspaceKey === 'workspace:none';
 
   const target: 'gist' | 'repo' | 'workspace' = repoRef ? 'repo' : args.currentGistId !== null ? 'gist' : 'workspace';
+  const trustResolved =
+    !normalizedUserLogin ||
+    args.workspaceKey === 'workspace:none' ||
+    (target === 'repo'
+      ? normalizedRepoOwner === null || normalizedRepoOwner === normalizedUserLogin || args.linkedInstallationsLoaded
+      : target === 'gist'
+        ? normalizedGistOwnerLogin === null ||
+          normalizedGistOwnerLogin === normalizedUserLogin ||
+          args.linkedInstallationsLoaded
+        : true);
   // When the workspace is untrusted and the user is authenticated but has no
   // linked installations, the installation list may still be loading. Show a
   // note so the user knows they can reconfigure later.
   const note =
-    !isTrusted && normalizedUserLogin && args.linkedInstallations.length === 0
+    !isTrusted && !trustResolved
       ? "If this workspace belongs to an organization you've installed Input on, your organization information may still be loading. You can reconfigure credential sync later from the terminal menu."
       : null;
   return {
@@ -146,11 +159,11 @@ export function resolvePersistedHomeTrustAccess(args: {
         workspaceKey: args.workspaceKey,
       }),
       target,
-      title: 'Safety check',
+      title: 'Configure credential sync',
       message: buildPersistedHomeTrustMessage(target),
       note,
       defaultMode: isTrusted ? 'include' : 'exclude',
-      promptOnBoot: !isTrusted,
+      trustResolved,
     },
   };
 }

@@ -10,6 +10,7 @@ test('trusted repos default credential sync on but remain configurable', (t) => 
     currentGistOwnerLogin: null,
     currentRouteRepoRef: null,
     linkedInstallations: [],
+    linkedInstallationsLoaded: true,
     publicRepoRef: null,
     repoAccessMode: 'installed',
     selectedRepo: 'raymond/input',
@@ -20,16 +21,18 @@ test('trusted repos default credential sync on but remain configurable', (t) => 
   t.true(result.canConfigure);
   t.truthy(result.prompt);
   t.is(result.prompt?.defaultMode, 'include');
-  t.false(result.prompt?.promptOnBoot ?? true);
+  t.true(result.prompt?.trustResolved ?? false);
+  t.false('promptOnBoot' in (result.prompt ?? {}));
   t.is(result.prompt?.storageKey, 'user:raymond:repo:raymond/input');
 });
 
-test('untrusted gists prompt before enabling credential sync', (t) => {
+test('untrusted gists default credential sync off without blocking terminal boot', (t) => {
   const result = resolvePersistedHomeTrustAccess({
     currentGistId: '123',
     currentGistOwnerLogin: 'someone-else',
     currentRouteRepoRef: null,
     linkedInstallations: [],
+    linkedInstallationsLoaded: true,
     publicRepoRef: null,
     repoAccessMode: null,
     selectedRepo: null,
@@ -40,7 +43,8 @@ test('untrusted gists prompt before enabling credential sync', (t) => {
   t.true(result.canConfigure);
   t.truthy(result.prompt);
   t.is(result.prompt?.defaultMode, 'exclude');
-  t.true(result.prompt?.promptOnBoot ?? false);
+  t.true(result.prompt?.trustResolved ?? false);
+  t.false('promptOnBoot' in (result.prompt ?? {}));
   t.regex(result.prompt?.message ?? '', /trust this gist/i);
   t.is(result.prompt?.storageKey, 'user:raymond:gist:123');
 });
@@ -52,16 +56,18 @@ test('re-enabling credential sync does not capture state from an excluded sessio
   });
 
   t.false(result.captureActiveSessionState);
-  t.true(result.includeCredentialSync);
+  t.true(result.includePersistedHomeSync);
+  t.true(result.enableNetworkingBridge);
   t.is(result.nextSessionMode, 'include');
 });
 
-test('untrusted public repos prompt before enabling credential sync', (t) => {
+test('untrusted public repos default credential sync off without blocking terminal boot', (t) => {
   const result = resolvePersistedHomeTrustAccess({
     currentGistId: null,
     currentGistOwnerLogin: null,
     currentRouteRepoRef: null,
     linkedInstallations: [],
+    linkedInstallationsLoaded: true,
     publicRepoRef: { owner: 'other-org', repo: 'their-project' },
     repoAccessMode: 'public',
     selectedRepo: null,
@@ -72,9 +78,49 @@ test('untrusted public repos prompt before enabling credential sync', (t) => {
   t.true(result.canConfigure);
   t.truthy(result.prompt);
   t.is(result.prompt?.defaultMode, 'exclude');
-  t.true(result.prompt?.promptOnBoot ?? false);
+  t.true(result.prompt?.trustResolved ?? false);
+  t.false('promptOnBoot' in (result.prompt ?? {}));
   t.regex(result.prompt?.message ?? '', /trust this repo/i);
   t.is(result.prompt?.storageKey, 'user:raymond:repo:other-org/their-project');
+});
+
+test('org repos stay pending until linked installations finish loading', (t) => {
+  const result = resolvePersistedHomeTrustAccess({
+    currentGistId: null,
+    currentGistOwnerLogin: null,
+    currentRouteRepoRef: null,
+    linkedInstallations: [],
+    linkedInstallationsLoaded: false,
+    publicRepoRef: { owner: 'other-org', repo: 'their-project' },
+    repoAccessMode: 'public',
+    selectedRepo: null,
+    userLogin: 'raymond',
+    workspaceKey: 'public:other-org/their-project',
+  });
+
+  t.truthy(result.prompt);
+  t.is(result.prompt?.defaultMode, 'exclude');
+  t.false(result.prompt?.trustResolved ?? true);
+  t.truthy(result.prompt?.note);
+});
+
+test('personal repos do not wait for linked installations to load', (t) => {
+  const result = resolvePersistedHomeTrustAccess({
+    currentGistId: null,
+    currentGistOwnerLogin: null,
+    currentRouteRepoRef: null,
+    linkedInstallations: [],
+    linkedInstallationsLoaded: false,
+    publicRepoRef: null,
+    repoAccessMode: 'installed',
+    selectedRepo: 'raymond/input',
+    userLogin: 'raymond',
+    workspaceKey: 'repo:raymond/input',
+  });
+
+  t.truthy(result.prompt);
+  t.is(result.prompt?.defaultMode, 'include');
+  t.true(result.prompt?.trustResolved ?? false);
 });
 
 test('anonymous sessions use a separate trust-decision storage scope', (t) => {
@@ -83,6 +129,7 @@ test('anonymous sessions use a separate trust-decision storage scope', (t) => {
     currentGistOwnerLogin: null,
     currentRouteRepoRef: null,
     linkedInstallations: [],
+    linkedInstallationsLoaded: true,
     publicRepoRef: { owner: 'other-org', repo: 'their-project' },
     repoAccessMode: 'public',
     selectedRepo: null,
@@ -100,7 +147,8 @@ test('standard include-to-exclude transitions still capture the active session s
   });
 
   t.true(result.captureActiveSessionState);
-  t.false(result.includeCredentialSync);
+  t.false(result.includePersistedHomeSync);
+  t.true(result.enableNetworkingBridge);
   t.is(result.nextSessionMode, 'exclude');
 });
 
@@ -112,7 +160,8 @@ test('disabling credential sync during reconfigure skips the final active-sessio
   });
 
   t.false(result.captureActiveSessionState);
-  t.false(result.includeCredentialSync);
+  t.false(result.includePersistedHomeSync);
+  t.true(result.enableNetworkingBridge);
   t.is(result.nextSessionMode, 'exclude');
 });
 
@@ -123,7 +172,8 @@ test('initial boot into trusted workspace does not attempt to capture non-existe
   });
 
   t.false(result.captureActiveSessionState);
-  t.true(result.includeCredentialSync);
+  t.true(result.includePersistedHomeSync);
+  t.true(result.enableNetworkingBridge);
   t.is(result.nextSessionMode, 'include');
 });
 
@@ -134,6 +184,7 @@ test('initial boot into untrusted workspace does not attempt to capture non-exis
   });
 
   t.false(result.captureActiveSessionState);
-  t.false(result.includeCredentialSync);
+  t.false(result.includePersistedHomeSync);
+  t.true(result.enableNetworkingBridge);
   t.is(result.nextSessionMode, 'exclude');
 });

@@ -715,6 +715,7 @@ export function App() {
 
   // --- Shared state ---
   const [user, setUser] = useState<GitHubUser | null>(null);
+  const [authSessionRestored, setAuthSessionRestored] = useState(false);
   const [installationId, setInstId] = useState<string | null>(getInstallationId());
   const [linkedInstallations, setLinkedInstallations] = useState<LinkedInstallation[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(getSelectedRepo()?.full_name ?? null);
@@ -2331,6 +2332,8 @@ export function App() {
       setUser(null);
       resetReaderAiModelsForAuth(false);
       return { authenticated: false, navigated: false };
+    } finally {
+      setAuthSessionRestored(true);
     }
   }, [applyInstallationSessionState, clearOAuthRedirectGuard, resetReaderAiModelsForAuth]);
 
@@ -8749,6 +8752,7 @@ export function App() {
     currentRouteRepoRef,
     userLogin: user?.login ?? null,
     linkedInstallations,
+    linkedInstallationsLoaded: authSessionRestored,
     terminalBaseFiles,
     terminalBaseSnapshotKey,
     overlayFiles,
