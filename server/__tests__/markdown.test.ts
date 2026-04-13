@@ -831,6 +831,38 @@ test('parseMarkdownToHtml preserves leading indentation after wrapped lines in l
   t.false(html.includes('<br>'));
 });
 
+test('parseMarkdownToHtml does not duplicate task list checkboxes when loose list items contain nested lists', (t) => {
+  const { html, checkboxCount } = withDom(() => {
+    const html = parseMarkdownToHtml(
+      [
+        '- Plain parent item',
+        '',
+        '- [ ] Parent task item',
+        '  - [ ] Nested task item',
+        '- [ ] Another parent task',
+        '  - Nested plain item',
+        '  - Another nested plain item',
+      ].join('\n'),
+    );
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    return {
+      html,
+      checkboxCount: wrapper.querySelectorAll('input[type="checkbox"]').length,
+    };
+  });
+
+  t.is(checkboxCount, 3);
+  t.false(html.includes('<input disabled="" type="checkbox"> <input disabled="" type="checkbox">'));
+});
+
+test('task list styles cover loose list items with paragraph-wrapped checkboxes', (t) => {
+  const css = readFileSync(new URL('../../src/styles/markdown.css', import.meta.url), 'utf8');
+
+  t.true(css.includes('.rendered-markdown li:has(> p > input[type="checkbox"]) {'));
+  t.true(css.includes('.rendered-markdown li:has(> p > input[type="checkbox"]) > p > input[type="checkbox"] {'));
+});
+
 test('parseMarkdownToHtml splits unordered lists at <!-- list-break --> sentinels', (t) => {
   const html = withDom(() => parseMarkdownToHtml('- a\n\n<!-- list-break -->\n\n- b\n'));
 
