@@ -138,12 +138,21 @@ async function getWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBuff
   return archivePromise;
 }
 
-export async function writeWebContainerHomeOverlayArchiveResponse(res: http.ServerResponse): Promise<void> {
+function isLocalhostStyleHost(host: string | undefined): boolean {
+  if (!host) return false;
+  const hostname = host.split(':')[0]?.toLowerCase() ?? '';
+  return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+export async function writeWebContainerHomeOverlayArchiveResponse(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
   const archive = await getWebContainerHomeOverlayArchive();
   res.writeHead(200, {
     'Content-Type': 'application/x-tar',
     'Content-Length': String(archive.byteLength),
-    'Cache-Control': 'private, max-age=3600',
+    'Cache-Control': isLocalhostStyleHost(req.headers.host) ? 'private, no-store' : 'private, max-age=900',
   });
   res.end(Buffer.from(archive));
 }

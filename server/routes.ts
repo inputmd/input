@@ -159,8 +159,8 @@ interface ShareRepoFileListQuery {
   path: string;
 }
 
-async function handleWebContainerHomeOverlayArchive({ res }: RouteContext): Promise<void> {
-  await writeWebContainerHomeOverlayArchiveResponse(res);
+async function handleWebContainerHomeOverlayArchive({ req, res }: RouteContext): Promise<void> {
+  await writeWebContainerHomeOverlayArchiveResponse(req, res);
 }
 
 async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): Promise<void> {

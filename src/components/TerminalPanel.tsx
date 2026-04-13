@@ -430,7 +430,10 @@ async function removeContainerAbsolutePath(wc: WebContainer, filePath: string): 
 }
 
 async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBuffer>> {
-  const response = await fetch(WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL, { credentials: 'same-origin' });
+  const response = await fetch(WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL, {
+    ...(isLocalhostHostname() ? { cache: 'no-store' as RequestCache } : {}),
+    credentials: 'same-origin',
+  });
   if (!response.ok) {
     throw new Error(`Failed to load WebContainer home overlay archive (${response.status})`);
   }
