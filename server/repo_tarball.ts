@@ -4,7 +4,7 @@ import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
 import { ClientError } from './errors.ts';
 
-const REPO_TARBALL_MAX_FILES = 2000;
+const REPO_TARBALL_MAX_FILES = 10000;
 const REPO_TARBALL_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 const REPO_TARBALL_MAX_TOTAL_BYTES = 100 * 1024 * 1024; // 100 MB
 
