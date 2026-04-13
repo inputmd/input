@@ -873,8 +873,7 @@
 }
 
 /* Strikethrough */
-.cm-editor .tok-strikethrough,
-.cm-editor .cm-single-tilde-strikethrough {
+.cm-editor .tok-strikethrough {
   color: var(--text-secondary);
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
