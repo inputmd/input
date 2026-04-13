@@ -641,6 +641,10 @@ function respondGitHubError(res: http.ServerResponse, ghRes: Response, fallbackM
 
 async function readGitHubErrorMessage(ghRes: Response, fallback = 'GitHub API error'): Promise<string> {
   const text = await ghRes.text().catch(() => '');
+  return parseGitHubErrorMessageText(text, fallback);
+}
+
+function parseGitHubErrorMessageText(text: string, fallback = 'GitHub API error'): string {
   if (!text) return fallback;
 
   try {
@@ -958,10 +962,17 @@ async function fetchPublicGitHub(path: string, init: RequestInit = {}): Promise<
     signal: composeTimeoutSignal(init.signal, GITHUB_FETCH_TIMEOUT_MS),
   });
 
-  if (!GITHUB_TOKEN) return authedRes;
+  if (!GITHUB_TOKEN || authedRes.ok || (authedRes.status !== 401 && authedRes.status !== 403)) return authedRes;
 
-  const retryMessage = await readGitHubErrorMessage(authedRes.clone(), '');
-  if (!isPublicPatPolicyFailure(authedRes.status, retryMessage)) return authedRes;
+  const retryBodyText = await authedRes.text().catch(() => '');
+  const retryMessage = parseGitHubErrorMessageText(retryBodyText, '');
+  if (!isPublicPatPolicyFailure(authedRes.status, retryMessage)) {
+    return new Response(retryBodyText, {
+      status: authedRes.status,
+      statusText: authedRes.statusText,
+      headers: authedRes.headers,
+    });
+  }
 
   const retryHeaders = { ...headers };
   delete retryHeaders.Authorization;
