@@ -15,6 +15,7 @@ import { applySecurityHeaders } from './security_headers';
 import { startSessionCleanup } from './session';
 import { serveIndexHtml, serveStatic } from './static_files';
 import { extractSubdomain } from './subdomain';
+import { startUpstreamProxyCookieJarCleanup } from './upstream_proxy';
 import { initWebContainerHomeOverlayArchive } from './webcontainer_home_overlay_archive';
 
 try {
@@ -43,6 +44,7 @@ startInstallationTokenCacheCleanup();
 startGistCacheCleanup();
 startRateLimitCleanup();
 startSessionCleanup();
+startUpstreamProxyCookieJarCleanup();
 
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   try {

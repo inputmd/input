@@ -1,6 +1,7 @@
 import type http from 'node:http';
-import { json } from './http_helpers';
-import type { RateLimitEntry } from './types';
+import { UPSTREAM_PROXY_RATE_LIMIT_AUTHENTICATED_MAX, UPSTREAM_PROXY_RATE_LIMIT_MAX } from './config.ts';
+import { json } from './http_helpers.ts';
+import type { RateLimitEntry } from './types.ts';
 
 const RATE_LIMIT_MAX = 100;
 const RATE_LIMIT_AUTHENTICATED_MAX = 500;
@@ -30,7 +31,7 @@ export function startRateLimitCleanup(): void {
 // connections and overwrites the header before forwarding to the app. If the
 // server were ever exposed directly to the internet without a trusted proxy,
 // clients could spoof this header to bypass rate limits.
-function getClientIp(req: http.IncomingMessage): string {
+export function getClientIp(req: http.IncomingMessage): string {
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string') {
     const first = forwarded.split(',')[0].trim();
@@ -39,19 +40,25 @@ function getClientIp(req: http.IncomingMessage): string {
   return req.socket.remoteAddress || 'unknown';
 }
 
-function setRateLimitHeaders(res: http.ServerResponse, max: number, remaining: number, resetAtMs: number): void {
-  res.setHeader('X-Input-RateLimit-Limit', String(max));
-  res.setHeader('X-Input-RateLimit-Remaining', String(Math.max(0, remaining)));
-  res.setHeader('X-Input-RateLimit-Reset', String(Math.floor(resetAtMs / 1000)));
+function setRateLimitHeaders(
+  res: http.ServerResponse,
+  max: number,
+  remaining: number,
+  resetAtMs: number,
+  headerPrefix = 'X-Input-RateLimit',
+): void {
+  res.setHeader(`${headerPrefix}-Limit`, String(max));
+  res.setHeader(`${headerPrefix}-Remaining`, String(Math.max(0, remaining)));
+  res.setHeader(`${headerPrefix}-Reset`, String(Math.floor(resetAtMs / 1000)));
 }
 
-function checkLimit(key: string, max: number, res: http.ServerResponse): boolean {
+function checkLimit(key: string, max: number, res: http.ServerResponse, headerPrefix = 'X-Input-RateLimit'): boolean {
   const now = Date.now();
   let entry = rateLimitWindows.get(key);
 
   if (!entry || now >= entry.resetAtMs) {
     if (!entry && rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES) {
-      setRateLimitHeaders(res, max, 0, now + RATE_LIMIT_WINDOW_MS);
+      setRateLimitHeaders(res, max, 0, now + RATE_LIMIT_WINDOW_MS, headerPrefix);
       json(res, 429, { error: 'Too many requests' });
       return false;
     }
@@ -62,13 +69,13 @@ function checkLimit(key: string, max: number, res: http.ServerResponse): boolean
   entry.count++;
   if (entry.count > max) {
     const retryAfter = Math.ceil((entry.resetAtMs - now) / 1000);
-    setRateLimitHeaders(res, max, 0, entry.resetAtMs);
+    setRateLimitHeaders(res, max, 0, entry.resetAtMs, headerPrefix);
     res.setHeader('Retry-After', String(retryAfter));
     json(res, 429, { error: 'Too many requests' });
     return false;
   }
 
-  setRateLimitHeaders(res, max, max - entry.count, entry.resetAtMs);
+  setRateLimitHeaders(res, max, max - entry.count, entry.resetAtMs, headerPrefix);
   return true;
 }
 
@@ -82,4 +89,25 @@ export function checkRateLimitAuthenticated(
   userId: number,
 ): boolean {
   return checkLimit(`user:${userId}`, RATE_LIMIT_AUTHENTICATED_MAX, res);
+}
+
+export function checkUpstreamProxyRateLimit(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  userId: number | null,
+): boolean {
+  if (userId !== null) {
+    return checkLimit(
+      `proxy:user:${userId}`,
+      UPSTREAM_PROXY_RATE_LIMIT_AUTHENTICATED_MAX,
+      res,
+      'X-Input-Upstream-Proxy-RateLimit',
+    );
+  }
+  return checkLimit(
+    `proxy:ip:${getClientIp(req)}`,
+    UPSTREAM_PROXY_RATE_LIMIT_MAX,
+    res,
+    'X-Input-Upstream-Proxy-RateLimit',
+  );
 }

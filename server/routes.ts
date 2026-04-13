@@ -19,6 +19,9 @@ import {
   READER_AI_TIMEOUT_MS,
   SHARE_TOKEN_SECRET,
   SHARE_TOKEN_TTL_SECONDS,
+  UPSTREAM_PROXY_MAX_REQUEST_BYTES,
+  UPSTREAM_PROXY_MAX_RESPONSE_BYTES,
+  UPSTREAM_PROXY_TIMEOUT_MS,
 } from './config.ts';
 import { stripCriticMarkupComments } from './criticmarkup.js';
 import { ClientError } from './errors.ts';
@@ -35,7 +38,7 @@ import {
   githubGraphqlWithInstallationToken,
 } from './github_client.ts';
 import { json, readJson, requireEnv, requireString } from './http_helpers.ts';
-import { checkRateLimit, checkRateLimitAuthenticated } from './rate_limit.ts';
+import { checkRateLimit, checkRateLimitAuthenticated, checkUpstreamProxyRateLimit } from './rate_limit.ts';
 import {
   canAccessReaderAiModel,
   getReaderAiModelSource,
@@ -86,10 +89,13 @@ import { verifyRepoFileShareToken } from './share_tokens.ts';
 import { stripManagedSubdomain } from './subdomain.ts';
 import type { Session, UserInstallation } from './types.ts';
 import {
+  acquireUpstreamProxyConcurrency,
+  assertUpstreamProxyContentLengthWithinLimit,
   attachUpstreamProxyCookies,
   buildUpstreamProxyRequestHeaders,
   buildUpstreamProxyUrl,
   copyUpstreamProxyResponseHeaders,
+  createUpstreamProxyBodyLimitTransform,
   getUpstreamProxyForwardedUserAgent,
   getUpstreamProxySessionId,
   storeUpstreamProxyResponseCookies,
@@ -158,10 +164,33 @@ async function handleWebContainerHomeOverlayArchive({ res }: RouteContext): Prom
 }
 
 async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): Promise<void> {
+  const session = getSession(req);
+  if (!checkUpstreamProxyRateLimit(req, res, session?.githubUserId ?? null)) return;
+
   const upstreamUrl = buildUpstreamProxyUrl(pathname, url.search);
   const method = req.method ?? 'GET';
   const hasBody = method !== 'GET' && method !== 'HEAD';
+  if (hasBody) {
+    assertUpstreamProxyContentLengthWithinLimit(
+      req.headers['content-length'],
+      UPSTREAM_PROXY_MAX_REQUEST_BYTES,
+      'request',
+    );
+  }
+
+  let releaseConcurrency: (() => void) | null = null;
+  try {
+    releaseConcurrency = acquireUpstreamProxyConcurrency(req, session?.githubUserId ?? null);
+  } catch (err) {
+    if (err instanceof ClientError && err.statusCode === 429) {
+      res.setHeader('Retry-After', '1');
+    }
+    throw err;
+  }
+
   const abortController = new AbortController();
+  const timeoutSignal = AbortSignal.timeout(UPSTREAM_PROXY_TIMEOUT_MS);
+  const upstreamSignal = AbortSignal.any([abortController.signal, timeoutSignal]);
   const onClientAborted = () => abortController.abort();
   const onResponseClose = () => {
     if (!res.writableEnded) {
@@ -178,63 +207,111 @@ async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): P
     upstreamHeaders.set('user-agent', forwardedUserAgent);
   }
 
-  let upstream: Response;
+  let requestBodyStream: ReturnType<typeof createUpstreamProxyBodyLimitTransform> | null = null;
+  let requestBodyError: Error | null = null;
   try {
     const fetchInit: RequestInit & { body?: unknown; duplex?: 'half' } = {
       headers: upstreamHeaders,
       method,
-      signal: abortController.signal,
+      signal: upstreamSignal,
     };
     if (hasBody) {
-      fetchInit.body = Readable.toWeb(req);
+      requestBodyStream = createUpstreamProxyBodyLimitTransform(UPSTREAM_PROXY_MAX_REQUEST_BYTES, 'request');
+      requestBodyStream.on('error', (err) => {
+        requestBodyError = err instanceof Error ? err : new Error(String(err));
+      });
+      fetchInit.body = Readable.toWeb(req.pipe(requestBodyStream));
       fetchInit.duplex = 'half';
     }
-    upstream = await fetch(upstreamUrl, fetchInit as RequestInit);
-  } catch (err) {
-    req.off('aborted', onClientAborted);
-    res.off('close', onResponseClose);
-    if (abortController.signal.aborted) {
-      if (!res.writableEnded) res.end();
+    const upstream = await fetch(upstreamUrl, fetchInit as RequestInit);
+    assertUpstreamProxyContentLengthWithinLimit(
+      upstream.headers.get('content-length'),
+      UPSTREAM_PROXY_MAX_RESPONSE_BYTES,
+      'response',
+    );
+    storeUpstreamProxyResponseCookies(proxySessionId, upstreamUrl.hostname, upstream.headers);
+
+    res.statusCode = upstream.status;
+    copyUpstreamProxyResponseHeaders(upstream, res);
+
+    if (!upstream.body) {
+      res.end();
       return;
     }
-    const message = err instanceof Error ? err.message : String(err);
-    throw new ClientError(`Upstream fetch failed: ${message}`, 502);
-  }
-  storeUpstreamProxyResponseCookies(proxySessionId, upstreamUrl.hostname, upstream.headers);
 
-  res.statusCode = upstream.status;
-  copyUpstreamProxyResponseHeaders(upstream, res);
-
-  if (!upstream.body) {
-    req.off('aborted', onClientAborted);
-    res.off('close', onResponseClose);
-    res.end();
-    return;
-  }
-
-  const reader = upstream.body.getReader();
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done || res.writableEnded) break;
-      const canContinue = res.write(value);
-      if (!canContinue) {
-        await new Promise<void>((resolve) => res.once('drain', () => resolve()));
+    const reader = upstream.body.getReader();
+    let responseBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done || res.writableEnded) break;
+        responseBytes += value.byteLength;
+        if (responseBytes > UPSTREAM_PROXY_MAX_RESPONSE_BYTES) {
+          throw new ClientError('Upstream proxy response body too large', 413);
+        }
+        const canContinue = res.write(value);
+        if (!canContinue) {
+          await new Promise<void>((resolve) => res.once('drain', () => resolve()));
+        }
       }
+    } catch (err) {
+      if (err instanceof ClientError) {
+        if (res.headersSent) {
+          res.destroy(err);
+          return;
+        }
+        throw err;
+      }
+      if (timeoutSignal.aborted && !abortController.signal.aborted) {
+        const timeoutError = new ClientError('Upstream proxy request timed out', 504);
+        if (res.headersSent) {
+          res.destroy(timeoutError);
+          return;
+        }
+        throw timeoutError;
+      }
+      if (abortController.signal.aborted) {
+        return;
+      }
+      if (!abortController.signal.aborted) {
+        console.error('[upstream-proxy] stream error:', err);
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        // ignore
+      }
+      try {
+        reader.releaseLock();
+      } catch {
+        // ignore
+      }
+      if (!res.writableEnded && !res.destroyed) res.end();
     }
   } catch (err) {
-    if (!abortController.signal.aborted) {
-      console.error('[upstream-proxy] stream error:', err);
+    const actualError = requestBodyError ?? err;
+    if (actualError instanceof ClientError) {
+      if (actualError.statusCode === 413 && res.headersSent && !res.writableEnded) {
+        res.destroy(actualError);
+        return;
+      }
+      throw actualError;
     }
+    if (timeoutSignal.aborted && !abortController.signal.aborted) {
+      throw new ClientError('Upstream proxy request timed out', 504);
+    }
+    if (abortController.signal.aborted) {
+      if (!res.writableEnded && !res.destroyed) res.end();
+      return;
+    }
+    const message = actualError instanceof Error ? actualError.message : String(actualError);
+    throw new ClientError(`Upstream fetch failed: ${message}`, 502);
   } finally {
     req.off('aborted', onClientAborted);
     res.off('close', onResponseClose);
-    try {
-      reader.releaseLock();
-    } catch {
-      // ignore
-    }
-    if (!res.writableEnded) res.end();
+    requestBodyStream?.destroy();
+    releaseConcurrency?.();
   }
 }
 

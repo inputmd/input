@@ -4,6 +4,11 @@ export const CLIENT_PORT = Number.isFinite(clientPort) && clientPort > 0 ? clien
 const appUrlRaw = process.env.APP_URL?.trim() ?? '';
 export const APP_URL = appUrlRaw ? appUrlRaw.replace(/\/+$/, '') : '';
 
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? '';
 export const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET ?? '';
 export const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
@@ -13,15 +18,38 @@ export const DATABASE_PATH = process.env.DATABASE_PATH ?? './.data/input.db';
 
 export const GITHUB_FETCH_TIMEOUT_MS = 15_000;
 export const READER_AI_TIMEOUT_MS = 360_000;
+export const UPSTREAM_PROXY_TIMEOUT_MS = parsePositiveIntEnv('UPSTREAM_PROXY_TIMEOUT_MS', 60_000);
+export const UPSTREAM_PROXY_MAX_REQUEST_BYTES = parsePositiveIntEnv(
+  'UPSTREAM_PROXY_MAX_REQUEST_BYTES',
+  5 * 1024 * 1024,
+);
+export const UPSTREAM_PROXY_MAX_RESPONSE_BYTES = parsePositiveIntEnv(
+  'UPSTREAM_PROXY_MAX_RESPONSE_BYTES',
+  20 * 1024 * 1024,
+);
+export const UPSTREAM_PROXY_MAX_CONCURRENT_ANON = parsePositiveIntEnv('UPSTREAM_PROXY_MAX_CONCURRENT_ANON', 2);
+export const UPSTREAM_PROXY_MAX_CONCURRENT_AUTH = parsePositiveIntEnv('UPSTREAM_PROXY_MAX_CONCURRENT_AUTH', 6);
+export const UPSTREAM_PROXY_RATE_LIMIT_MAX = parsePositiveIntEnv('UPSTREAM_PROXY_RATE_LIMIT_MAX', 20);
+export const UPSTREAM_PROXY_RATE_LIMIT_AUTHENTICATED_MAX = parsePositiveIntEnv(
+  'UPSTREAM_PROXY_RATE_LIMIT_AUTHENTICATED_MAX',
+  60,
+);
+export const UPSTREAM_PROXY_MAX_SESSIONS = parsePositiveIntEnv('UPSTREAM_PROXY_MAX_SESSIONS', 500);
+export const UPSTREAM_PROXY_MAX_HOSTS_PER_SESSION = parsePositiveIntEnv('UPSTREAM_PROXY_MAX_HOSTS_PER_SESSION', 8);
+export const UPSTREAM_PROXY_MAX_COOKIES_PER_HOST = parsePositiveIntEnv('UPSTREAM_PROXY_MAX_COOKIES_PER_HOST', 32);
+export const UPSTREAM_PROXY_MAX_COOKIE_BYTES_PER_SESSION = parsePositiveIntEnv(
+  'UPSTREAM_PROXY_MAX_COOKIE_BYTES_PER_SESSION',
+  64 * 1024,
+);
+export const UPSTREAM_PROXY_MAX_COOKIE_VALUE_BYTES = parsePositiveIntEnv('UPSTREAM_PROXY_MAX_COOKIE_VALUE_BYTES', 4096);
+export const UPSTREAM_PROXY_SESSION_ID_MAX_LENGTH = parsePositiveIntEnv('UPSTREAM_PROXY_SESSION_ID_MAX_LENGTH', 128);
 // Allow base64 payloads for file uploads (5 MB raw → ~6.7 MB base64 + JSON overhead).
 export const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8 MB
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 export const SHARE_TOKEN_SECRET = process.env.SHARE_TOKEN_SECRET ?? '';
 export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
 export const OPENROUTER_PAID_API_KEY = process.env.OPENROUTER_PAID_API_KEY ?? '';
-const shareTokenTtlSecondsRaw = Number.parseInt(process.env.SHARE_TOKEN_TTL_SECONDS ?? '604800', 10);
-export const SHARE_TOKEN_TTL_SECONDS =
-  Number.isFinite(shareTokenTtlSecondsRaw) && shareTokenTtlSecondsRaw > 0 ? shareTokenTtlSecondsRaw : 604800;
+export const SHARE_TOKEN_TTL_SECONDS = parsePositiveIntEnv('SHARE_TOKEN_TTL_SECONDS', 604800);
 
 const STATIC_ORIGINS = new Set(['https://input.md', `http://localhost:${CLIENT_PORT}`]);
 
