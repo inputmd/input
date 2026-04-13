@@ -135,6 +135,8 @@ interface TerminalPanelGlobalState {
   ghosttyLoadPromise: Promise<Ghostty> | null;
   ghosttyModulePromise: Promise<typeof import('ghostty-web')> | null;
   lastHotReloadAt: number;
+  webContainerApiModulePromise: Promise<typeof import('@webcontainer/api')> | null;
+  webContainerConfiguredApiKey: string | null;
   webContainerBootPromise: Promise<WebContainer> | null;
   webContainerBootWorkdirName: string | null;
 }
@@ -149,6 +151,8 @@ function getTerminalPanelGlobalState(): TerminalPanelGlobalState {
     ghosttyLoadPromise: null,
     ghosttyModulePromise: null,
     lastHotReloadAt: 0,
+    webContainerApiModulePromise: null,
+    webContainerConfiguredApiKey: null,
     webContainerBootPromise: null,
     webContainerBootWorkdirName: null,
   };
@@ -192,7 +196,38 @@ function isLocalhostHostname(): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
+async function loadWebContainerApi(): Promise<typeof import('@webcontainer/api')> {
+  const globalState = getTerminalPanelGlobalState();
+  if (!globalState.webContainerApiModulePromise) {
+    globalState.webContainerApiModulePromise = import('@webcontainer/api');
+  }
+  return await globalState.webContainerApiModulePromise;
+}
+
+async function ensureWebContainerApiConfigured(
+  apiKey: string | undefined,
+): Promise<typeof import('@webcontainer/api')> {
+  const webContainerApi = await loadWebContainerApi();
+  // The WebContainer dashboard checks the Referer against its allowed-sites
+  // list when configureAPIKey() is set, and it does not accept localhost.
+  // On localhost, boot unauthenticated — that path works without a key.
+  if (isLocalhostHostname()) {
+    return webContainerApi;
+  }
+  if (!apiKey) {
+    throw new Error('VITE_WEBCONTAINERS_API_KEY is not set.');
+  }
+  const globalState = getTerminalPanelGlobalState();
+  if (globalState.webContainerConfiguredApiKey === apiKey) {
+    return webContainerApi;
+  }
+  webContainerApi.configureAPIKey(apiKey);
+  globalState.webContainerConfiguredApiKey = apiKey;
+  return webContainerApi;
+}
+
 async function bootWebContainer(apiKey: string | undefined, workdirName: string): Promise<WebContainer> {
+  const { WebContainer } = await ensureWebContainerApiConfigured(apiKey);
   const globalState = getTerminalPanelGlobalState();
   if (globalState.webContainerBootPromise && globalState.webContainerBootWorkdirName === workdirName) {
     return globalState.webContainerBootPromise;
@@ -209,13 +244,6 @@ async function bootWebContainer(apiKey: string | undefined, workdirName: string)
     }
   }
   globalState.webContainerBootPromise = (async () => {
-    const { WebContainer, configureAPIKey } = await import('@webcontainer/api');
-    // The WebContainer dashboard checks the Referer against its allowed-sites
-    // list when configureAPIKey() is set, and it does not accept localhost.
-    // On localhost, boot unauthenticated — that path works without a key.
-    if (apiKey && !isLocalhostHostname()) {
-      configureAPIKey(apiKey);
-    }
     return WebContainer.boot({ coep: 'credentialless', workdirName });
   })();
   globalState.webContainerBootWorkdirName = workdirName;
@@ -1967,6 +1995,8 @@ export function TerminalPanel({
 
     void (async () => {
       try {
+        await ensureWebContainerApiConfigured(apiKey);
+        if (unmountedRef.current) return;
         await ensurePaneSurface(singlePaneIdRef.current);
         if (unmountedRef.current) return;
         await initializeWebContainerSession({ clearTerminal: true });
