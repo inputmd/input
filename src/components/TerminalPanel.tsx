@@ -1274,7 +1274,12 @@ export function TerminalPanel({
         fontFamily: TERMINAL_FONT_FAMILY,
         fontSize: 14.5,
         ghostty,
-        theme: { background: '#0b0b0b' },
+        theme: {
+          background: '#0b0b0b',
+          foreground: '#e6edf3',
+          selectionBackground: '#e6edf3',
+          selectionForeground: '#0b0b0b',
+        },
       });
       runtime.terminal = terminal;
       terminal.open(container);
