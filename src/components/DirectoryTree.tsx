@@ -103,6 +103,17 @@ export function buildDirectoryTree<TEntry extends DirectoryTreeEntry>(
   return root;
 }
 
+export function findFirstDirectoryTreeFile<TEntry extends DirectoryTreeEntry>(
+  nodes: readonly DirectoryTreeNode<TEntry>[],
+): DirectoryTreeFileNode<TEntry> | null {
+  for (const node of nodes) {
+    if (node.kind === 'file') return node;
+    const descendant = findFirstDirectoryTreeFile(node.children);
+    if (descendant) return descendant;
+  }
+  return null;
+}
+
 export function collectDirectoryTreeFolderPaths<TEntry extends DirectoryTreeEntry>(
   node: DirectoryTreeFolderNode<TEntry>,
   out: Set<string>,

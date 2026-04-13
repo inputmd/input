@@ -9,6 +9,7 @@ import {
   DirectoryTree,
   type DirectoryTreeFileNode,
   type DirectoryTreeFolderNode,
+  findFirstDirectoryTreeFile,
 } from './DirectoryTree';
 
 interface TerminalPersistenceDialogProps {
@@ -61,7 +62,7 @@ function IndentGuides({ depth }: { depth: number }) {
 interface TerminalPersistenceTreePaneProps {
   title: string;
   scope: PersistenceScope;
-  entries: readonly PersistedHomeEntry[];
+  tree: DirectoryTreeFolderNode<PersistedHomeEntry>;
   selectedEntry: SelectedPersistedEntry;
   collapsedFolders: Record<string, true>;
   onToggleFolder: (path: string) => void;
@@ -71,13 +72,12 @@ interface TerminalPersistenceTreePaneProps {
 function TerminalPersistenceTreePane({
   title,
   scope,
-  entries,
+  tree,
   selectedEntry,
   collapsedFolders,
   onToggleFolder,
   onSelectFile,
 }: TerminalPersistenceTreePaneProps) {
-  const tree = useMemo(() => buildDirectoryTree(entries), [entries]);
   const selectedPath = selectedEntry?.scope === scope ? selectedEntry.path : null;
   const selectedAncestors = useMemo(() => new Set(selectedPath ? folderAncestors(selectedPath) : []), [selectedPath]);
   const hasFolders = tree.children.some((child) => child.kind === 'folder');
@@ -141,7 +141,7 @@ function TerminalPersistenceTreePane({
             </div>
           )}
         />
-        {entries.length === 0 ? <div class="terminal-persistence-dialog__empty">No persisted files</div> : null}
+        {tree.children.length === 0 ? <div class="terminal-persistence-dialog__empty">No persisted files</div> : null}
       </div>
     </section>
   );
@@ -150,6 +150,8 @@ function TerminalPersistenceTreePane({
 export function TerminalPersistenceDialog({ open, loading, error, snapshot, onClose }: TerminalPersistenceDialogProps) {
   const globalEntries = snapshot?.globalEntries ?? [];
   const workspaceEntries = snapshot?.workspaceEntries ?? [];
+  const globalTree = useMemo(() => buildDirectoryTree(globalEntries), [globalEntries]);
+  const workspaceTree = useMemo(() => buildDirectoryTree(workspaceEntries), [workspaceEntries]);
   const selectedEntryContent = useMemo(() => {
     return new Map<string, PersistedHomeEntry>([
       ...globalEntries.map((entry) => [`global:${entry.path}`, entry] as [string, PersistedHomeEntry]),
@@ -159,26 +161,32 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
   const [globalCollapsedFolders, setGlobalCollapsedFolders] = useState<Record<string, true>>({});
   const [workspaceCollapsedFolders, setWorkspaceCollapsedFolders] = useState<Record<string, true>>({});
   const [selectedEntry, setSelectedEntry] = useState<SelectedPersistedEntry>(null);
+  const defaultSelectedEntry = useMemo<SelectedPersistedEntry>(() => {
+    const firstGlobalFile = findFirstDirectoryTreeFile(globalTree.children);
+    if (firstGlobalFile) return { scope: 'global', path: firstGlobalFile.path };
+    const firstWorkspaceFile = findFirstDirectoryTreeFile(workspaceTree.children);
+    if (firstWorkspaceFile) return { scope: 'workspace', path: firstWorkspaceFile.path };
+    return null;
+  }, [globalTree, workspaceTree]);
 
   useEffect(() => {
-    if (!open) return;
-    setGlobalCollapsedFolders({});
-    setWorkspaceCollapsedFolders({});
+    if (open) return;
+    setGlobalCollapsedFolders((current) => (Object.keys(current).length > 0 ? {} : current));
+    setWorkspaceCollapsedFolders((current) => (Object.keys(current).length > 0 ? {} : current));
+    setSelectedEntry(null);
   }, [open]);
 
-  useEffect(() => {
-    setSelectedEntry((current) => {
-      if (current && selectedEntryContent.has(`${current.scope}:${current.path}`)) return current;
-      if (workspaceEntries[0]) return { scope: 'workspace', path: workspaceEntries[0].path };
-      if (globalEntries[0]) return { scope: 'global', path: globalEntries[0].path };
-      return null;
-    });
-  }, [globalEntries, selectedEntryContent, workspaceEntries]);
+  const effectiveSelectedEntry =
+    selectedEntry && selectedEntryContent.has(`${selectedEntry.scope}:${selectedEntry.path}`)
+      ? selectedEntry
+      : open
+        ? defaultSelectedEntry
+        : null;
 
   useEffect(() => {
-    if (!selectedEntry) return;
-    const ancestors = folderAncestors(selectedEntry.path);
-    const setter = selectedEntry.scope === 'global' ? setGlobalCollapsedFolders : setWorkspaceCollapsedFolders;
+    if (!effectiveSelectedEntry) return;
+    const ancestors = folderAncestors(effectiveSelectedEntry.path);
+    const setter = effectiveSelectedEntry.scope === 'global' ? setGlobalCollapsedFolders : setWorkspaceCollapsedFolders;
     setter((current) => {
       const next = { ...current };
       let changed = false;
@@ -189,10 +197,10 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
       }
       return changed ? next : current;
     });
-  }, [selectedEntry]);
+  }, [effectiveSelectedEntry]);
 
-  const previewEntry = selectedEntry
-    ? (selectedEntryContent.get(`${selectedEntry.scope}:${selectedEntry.path}`) ?? null)
+  const previewEntry = effectiveSelectedEntry
+    ? (selectedEntryContent.get(`${effectiveSelectedEntry.scope}:${effectiveSelectedEntry.path}`) ?? null)
     : null;
 
   return (
@@ -201,7 +209,7 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
         <DialogPrimitive.Overlay class="dialog-overlay" />
         <DialogPrimitive.Content class="dialog-content dialog-content--diff terminal-persistence-dialog">
           <DialogPrimitive.Title class="dialog-title terminal-persistence-dialog__title">
-            Inspect config files
+            View synced data
           </DialogPrimitive.Title>
           <div class="terminal-persistence-dialog__body">
             {loading ? <div class="terminal-persistence-dialog__state">Loading persisted files...</div> : null}
@@ -214,8 +222,8 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
                   <TerminalPersistenceTreePane
                     title="Persisted across workspaces"
                     scope="global"
-                    entries={globalEntries}
-                    selectedEntry={selectedEntry}
+                    tree={globalTree}
+                    selectedEntry={effectiveSelectedEntry}
                     collapsedFolders={globalCollapsedFolders}
                     onToggleFolder={(path) =>
                       setGlobalCollapsedFolders((current) => toggleCollapsedFolderState(current, path))
@@ -225,8 +233,8 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
                   <TerminalPersistenceTreePane
                     title="Persisted in this workspace"
                     scope="workspace"
-                    entries={workspaceEntries}
-                    selectedEntry={selectedEntry}
+                    tree={workspaceTree}
+                    selectedEntry={effectiveSelectedEntry}
                     collapsedFolders={workspaceCollapsedFolders}
                     onToggleFolder={(path) =>
                       setWorkspaceCollapsedFolders((current) => toggleCollapsedFolderState(current, path))

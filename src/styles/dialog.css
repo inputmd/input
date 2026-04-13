@@ -247,6 +247,10 @@
   text-overflow: ellipsis;
 }
 
+.terminal-persistence-dialog__tree-section > .terminal-persistence-dialog__pane-header {
+  padding-top: 9px;
+}
+
 .terminal-persistence-dialog__pane-header--mono {
   font-family: var(--font-mono, monospace);
   font-size: 12px;

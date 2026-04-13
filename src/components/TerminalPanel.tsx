@@ -1,7 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { FileSystemTree, WebContainer } from '@webcontainer/api';
 import type { Terminal as GhosttyTerminal } from 'ghostty-web';
-import { Power } from 'lucide-react';
+import { Power, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils.ts';
 import { matchesControlShortcut, shouldBypassTerminalMetaShortcut } from '../keyboard_shortcuts.ts';
@@ -922,6 +922,15 @@ export function TerminalPanel({
     wcRef,
     workspaceKeyRef,
   });
+
+  const credentialSyncStatusLabel =
+    credentialSyncEnabled === null
+      ? 'Sync ...'
+      : credentialSyncEnabled
+        ? hostBridgeError
+          ? 'Sync error'
+          : 'Sync on'
+        : 'Sync off';
 
   const setShellExited = useCallback((paneId: PaneId, exited: boolean) => {
     shellExitedByPaneRef.current[paneId] = exited;
@@ -2153,6 +2162,41 @@ export function TerminalPanel({
               <DropdownMenu.Trigger asChild>
                 <button
                   type="button"
+                  class="terminal-panel__credential-sync-trigger"
+                  aria-label={`${credentialSyncStatusLabel}. Credential sync actions`}
+                  title={`${credentialSyncStatusLabel}. Credential sync actions`}
+                >
+                  <Zap size={14} aria-hidden="true" />
+                  <span>{credentialSyncStatusLabel}</span>
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
+                  <DropdownMenu.Item
+                    class="terminal-panel__menu-item"
+                    onSelect={() => {
+                      void openPersistenceDialog();
+                    }}
+                  >
+                    View synced data
+                  </DropdownMenu.Item>
+                  {showPersistedHomeTrustConfiguration ? (
+                    <DropdownMenu.Item
+                      class="terminal-panel__menu-item"
+                      onSelect={() => {
+                        openPersistedHomeReconfigurePrompt();
+                      }}
+                    >
+                      Reset credential sync
+                    </DropdownMenu.Item>
+                  ) : null}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+            <DropdownMenu.Root onOpenChange={blurOnClose}>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
                   class="terminal-panel__menu-trigger"
                   aria-label="Terminal actions"
                   title="Terminal actions"
@@ -2162,34 +2206,6 @@ export function TerminalPanel({
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
-                  <DropdownMenu.Label class="terminal-panel__menu-status">
-                    Credential sync:{' '}
-                    {credentialSyncEnabled === null
-                      ? '...'
-                      : credentialSyncEnabled
-                        ? hostBridgeError
-                          ? 'error'
-                          : 'on'
-                        : 'off'}
-                  </DropdownMenu.Label>
-                  {showPersistedHomeTrustConfiguration ? (
-                    <DropdownMenu.Item
-                      class="terminal-panel__menu-item"
-                      onSelect={() => {
-                        openPersistedHomeReconfigurePrompt();
-                      }}
-                    >
-                      Configure credential sync
-                    </DropdownMenu.Item>
-                  ) : null}
-                  <DropdownMenu.Item
-                    class="terminal-panel__menu-item"
-                    onSelect={() => {
-                      void openPersistenceDialog();
-                    }}
-                  >
-                    Inspect credentials
-                  </DropdownMenu.Item>
                   <DropdownMenu.Item
                     class="terminal-panel__menu-item"
                     disabled={!canDownloadFromWebContainer}
@@ -2197,7 +2213,7 @@ export function TerminalPanel({
                       void downloadFromWebContainer();
                     }}
                   >
-                    Download file...
+                    Download files...
                   </DropdownMenu.Item>
                   <DropdownMenu.Separator class="terminal-panel__menu-separator" />
                   {!splitOpen ? (
