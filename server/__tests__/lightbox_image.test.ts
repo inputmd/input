@@ -39,5 +39,14 @@ test('content security policy allows external https images and lightbox data url
 });
 
 test('content security policy allows external https fonts', (t) => {
-  t.true(CONTENT_SECURITY_POLICY.includes("font-src 'self' https:"));
+  t.true(CONTENT_SECURITY_POLICY.includes("font-src 'self' data: blob: https:"));
+});
+
+test('content security policy allows StackBlitz frames for WebContainer', (t) => {
+  t.true(CONTENT_SECURITY_POLICY.includes("frame-src 'self' https://stackblitz.com"));
+});
+
+test('content security policy allows WebAssembly execution for the terminal runtime', (t) => {
+  t.true(CONTENT_SECURITY_POLICY.includes("script-src 'self'"));
+  t.true(CONTENT_SECURITY_POLICY.includes("'wasm-unsafe-eval'"));
 });

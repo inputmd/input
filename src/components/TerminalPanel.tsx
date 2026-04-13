@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { FileSystemTree, WebContainer } from '@webcontainer/api';
-import type { Terminal as GhosttyTerminal } from 'ghostty-web';
+import type { Ghostty, Terminal as GhosttyTerminal } from 'ghostty-web';
+import ghosttyWasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { Power, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils.ts';
@@ -94,7 +95,8 @@ export interface TerminalPanelProps {
 type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
 
 interface TerminalPanelGlobalState {
-  ghosttyInitPromise: Promise<void> | null;
+  ghosttyLoadPromise: Promise<Ghostty> | null;
+  ghosttyModulePromise: Promise<typeof import('ghostty-web')> | null;
   lastHotReloadAt: number;
   webContainerBootPromise: Promise<WebContainer> | null;
   webContainerBootWorkdirName: string | null;
@@ -107,7 +109,8 @@ type TerminalPanelGlobalThis = typeof globalThis & {
 function getTerminalPanelGlobalState(): TerminalPanelGlobalState {
   const root = globalThis as TerminalPanelGlobalThis;
   root.__inputTerminalPanelGlobalState__ ??= {
-    ghosttyInitPromise: null,
+    ghosttyLoadPromise: null,
+    ghosttyModulePromise: null,
     lastHotReloadAt: 0,
     webContainerBootPromise: null,
     webContainerBootWorkdirName: null,
@@ -665,16 +668,18 @@ async function snapshotTerminalTextFiles(
 }
 
 async function loadGhosttyWeb() {
-  const module = await import('ghostty-web');
   const globalState = getTerminalPanelGlobalState();
-  if (!globalState.ghosttyInitPromise) {
-    globalState.ghosttyInitPromise = module.init().catch((err) => {
-      globalState.ghosttyInitPromise = null;
+  const module = await (globalState.ghosttyModulePromise ??= import('ghostty-web'));
+  if (!globalState.ghosttyLoadPromise) {
+    globalState.ghosttyLoadPromise = module.Ghostty.load(ghosttyWasmUrl).catch((err) => {
+      globalState.ghosttyLoadPromise = null;
       throw err;
     });
   }
-  await globalState.ghosttyInitPromise;
-  return module;
+  return {
+    Terminal: module.Terminal,
+    ghostty: await globalState.ghosttyLoadPromise,
+  };
 }
 
 const TERMINAL_FONT_FAMILY =
@@ -1247,7 +1252,7 @@ export function TerminalPanel({
       const runtime = paneRuntimesRef.current[paneId];
       if (runtime.terminal || !runtime.container) return;
       const container = runtime.container;
-      const { Terminal } = await loadGhosttyWeb();
+      const { Terminal, ghostty } = await loadGhosttyWeb();
       if (unmountedRef.current) return;
       if (runtime.terminal) return;
       if (!runtime.container || runtime.container !== container) return;
@@ -1258,6 +1263,7 @@ export function TerminalPanel({
         cursorStyle: 'block',
         fontFamily: TERMINAL_FONT_FAMILY,
         fontSize: 14.5,
+        ghostty,
         theme: { background: '#0b0b0b' },
       });
       runtime.terminal = terminal;
