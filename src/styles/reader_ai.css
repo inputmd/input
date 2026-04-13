@@ -2226,23 +2226,38 @@
 
 .terminal-panel__notice {
   position: absolute;
-  bottom: 14px;
+  bottom: 10px;
   left: 10px;
   right: auto;
-  width: calc(100% - 220px);
+  display: block;
+  max-width: calc(100% - 240px);
   min-width: 160px;
-  max-width: calc(100% - 20px);
   z-index: 2;
   padding: 8px 10px;
+  text-align: left;
   border: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--terminal-panel-bg) 92%, transparent);
   background-clip: padding-box;
   color: color-mix(in srgb, var(--text) 84%, transparent);
+  font: inherit;
   font-size: 12px;
   line-height: 1.35;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.terminal-panel__notice:hover {
+  background: color-mix(in srgb, var(--terminal-panel-bg) 96%, var(--btn-hover));
+}
+
+.terminal-panel__notice:focus,
+.terminal-panel__notice:focus-visible {
+  outline: none;
+  border-color: var(--focus-border);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--focus-border) 55%, transparent);
 }
 
 .terminal-panel__reset-banner {

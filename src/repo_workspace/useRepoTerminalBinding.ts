@@ -136,15 +136,15 @@ export function useRepoTerminalBinding({
   const workspaceChangesNotice = useMemo(() => {
     if (workspaceChangesPersisted) return null;
     if (repoAccessMode === 'public' && publicRepoRef) {
-      return `Changes in this terminal won't be saved to ${publicRepoRef.owner}/${publicRepoRef.repo}. Download files or clone this repo to keep your work.`;
+      return `Changes in this terminal won't be saved to ${publicRepoRef.owner}/${publicRepoRef.repo}.`;
     }
     if (repoAccessMode === 'shared' && currentRouteRepoRef) {
-      return `Changes in this terminal won't be saved to ${currentRouteRepoRef.owner}/${currentRouteRepoRef.repo}. Download files or clone this repo to keep your work.`;
+      return `Changes in this terminal won't be saved to ${currentRouteRepoRef.owner}/${currentRouteRepoRef.repo}.`;
     }
     if (currentGistId) {
-      return "Changes in this terminal won't be saved to this gist. Download files to keep your work.";
+      return "Changes in this terminal won't be saved to this gist.";
     }
-    return "Changes in this terminal won't be saved. Download files to keep your work.";
+    return "Changes in this terminal won't be saved.";
   }, [currentGistId, currentRouteRepoRef, publicRepoRef, repoAccessMode, workspaceChangesPersisted]);
 
   useEffect(() => {

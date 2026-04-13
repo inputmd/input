@@ -825,6 +825,7 @@ export function TerminalPanel({
   });
   const [error, setError] = useState<string | null>(null);
   const [hostBridgeError, setHostBridgeError] = useState(false);
+  const [dismissedWorkspaceNoticeKey, setDismissedWorkspaceNoticeKey] = useState<string | null>(null);
   const [terminalThemeMode, setTerminalThemeMode] = useState<TerminalThemeMode>(() => getDocumentThemeMode());
   const startedRef = useRef(false);
   const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
@@ -925,6 +926,9 @@ export function TerminalPanel({
     observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
     return () => observer.disconnect();
   }, []);
+
+  const workspaceNoticeKey =
+    !workspaceChangesPersisted && workspaceChangesNotice ? `${workspaceKey}:${workspaceChangesNotice}` : null;
 
   const getPreferredPaneId = useCallback((): PaneId => {
     if (visiblePaneIdsRef.current.includes(activePaneIdRef.current)) return activePaneIdRef.current;
@@ -2173,10 +2177,17 @@ export function TerminalPanel({
       ) : (
         <>
           <div class={`terminal-panel__stack${splitOpen ? ' terminal-panel__stack--split' : ''}`}>
-            {!workspaceChangesPersisted && workspaceChangesNotice ? (
-              <div class="terminal-panel__notice" role="status" aria-live="polite">
+            {workspaceNoticeKey && dismissedWorkspaceNoticeKey !== workspaceNoticeKey ? (
+              <button
+                type="button"
+                class="terminal-panel__notice"
+                onClick={() => {
+                  setDismissedWorkspaceNoticeKey(workspaceNoticeKey);
+                }}
+                aria-label="Hide terminal changes notice"
+              >
                 {workspaceChangesNotice}
-              </div>
+              </button>
             ) : null}
             {visiblePaneIds.map((paneId, index) => (
               <div
