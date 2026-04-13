@@ -157,15 +157,7 @@ function isToggleListItemToken(item: Tokens.ListItem): boolean {
 
 function renderMarkdownListItem(renderer: RendererThis<string, string>, item: Tokens.ListItem, syncAttr = ''): string {
   if (!isToggleListItemToken(item)) {
-    let body = renderer.parser.parse(item.tokens);
-    if (item.task) {
-      const checkbox = `<input disabled="" type="checkbox"${item.checked ? ' checked=""' : ''}> `;
-      if (item.loose) {
-        body = body.replace(/^(<p[^>]*>)/, `$1${checkbox}`);
-      } else {
-        body = checkbox + body;
-      }
-    }
+    const body = renderer.parser.parse(item.tokens);
     return `<li${syncAttr}>${body}</li>\n`;
   }
 

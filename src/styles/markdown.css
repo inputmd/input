@@ -644,7 +644,8 @@
   margin-bottom: 0;
 }
 
-.rendered-markdown li:has(> input[type="checkbox"]) {
+.rendered-markdown li:has(> input[type="checkbox"]),
+.rendered-markdown li:has(> p > input[type="checkbox"]) {
   list-style: none;
 }
 
@@ -1251,7 +1252,8 @@
   cursor: pointer;
 }
 
-.rendered-markdown li:has(> input[type="checkbox"]) > input[type="checkbox"] {
+.rendered-markdown li:has(> input[type="checkbox"]) > input[type="checkbox"],
+.rendered-markdown li:has(> p > input[type="checkbox"]) > p > input[type="checkbox"] {
   margin-left: -1.3em;
 }
 
