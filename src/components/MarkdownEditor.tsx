@@ -46,6 +46,7 @@ import type { EditorController, EditorInteractionKind, EditorProtectedRange } fr
 import {
   acceptBracePromptSelectionOnEnter,
   backspacePromptQuestionMarker,
+  backspaceTaskListMarker,
   buildExternalContentSyncTransaction,
   buildExternalEditorChangeTransaction,
   getPromptListRequest,
@@ -683,6 +684,7 @@ export function MarkdownEditor({
             { key: 'Enter', run: insertNewlineExitBlockquote },
             { key: 'Enter', run: insertNewlineExitLooseNestedListItem },
             { key: 'Enter', run: insertNewlineContinueLooseListItem },
+            { key: 'Backspace', run: backspaceTaskListMarker },
             { key: 'Backspace', run: backspacePromptQuestionMarker },
             { key: 'Tab', run: indentMore, shift: indentLess },
             {
