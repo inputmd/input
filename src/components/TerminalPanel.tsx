@@ -714,6 +714,12 @@ function fitTerminal(terminal: GhosttyTerminal, container: HTMLElement): void {
   const cols = Math.max(TERMINAL_MIN_COLS, Math.floor(innerWidth / metrics.width));
   const rows = Math.max(TERMINAL_MIN_ROWS, Math.floor(innerHeight / metrics.height));
   if (cols === terminal.cols && rows === terminal.rows) return;
+  // ghostty-web stores selections as buffer row/column coordinates. After a
+  // resize reflows wrapped lines, those coordinates can point at blank cells,
+  // which makes later copies return only newlines.
+  if (terminal.hasSelection()) {
+    terminal.clearSelection();
+  }
   terminal.resize(cols, rows);
 }
 
