@@ -613,6 +613,31 @@ export function insertNewlineContinuePromptComment(view: EditorView): boolean {
   return true;
 }
 
+export function backspaceTaskListMarker(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty) return false;
+  if (!isMarkdownActive(state, range.from)) return false;
+
+  const line = state.doc.lineAt(range.from);
+  const match = /^((?:\s*> ?)*\s*(?:[-+*]|\d+[.)]) +)\[[ xX]\]( +)$/.exec(line.text);
+  if (!match) return false;
+
+  const taskMarkerEnd = line.from + match[0].length;
+  if (range.from !== taskMarkerEnd) return false;
+
+  const taskMarkerFrom = line.from + match[1].length;
+  view.dispatch(
+    state.update({
+      changes: { from: taskMarkerFrom, to: line.to, insert: '' },
+      selection: EditorSelection.cursor(taskMarkerFrom),
+      scrollIntoView: true,
+      userEvent: 'delete.backward',
+    }),
+  );
+  return true;
+}
+
 export function backspacePromptQuestionMarker(view: EditorView): boolean {
   const { state } = view;
   const range = state.selection.main;

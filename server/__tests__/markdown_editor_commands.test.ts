@@ -17,6 +17,7 @@ import { markdownEditorLanguageSupport, promptListAnsweringFacet } from '../../s
 import {
   acceptBracePromptSelectionOnEnter,
   backspacePromptQuestionMarker,
+  backspaceTaskListMarker,
   buildExternalContentSyncTransaction,
   buildExternalEditorChangeTransaction,
   externalSyncAnnotation,
@@ -555,6 +556,80 @@ test('backspacePromptQuestionMarker ignores non-empty prompt questions and other
 
   t.false(backspacePromptQuestionMarker(nonEmptyView));
   t.false(backspacePromptQuestionMarker(midSpacingView));
+});
+
+test('backspaceTaskListMarker removes an empty task marker and keeps the bullet prefix', (t) => {
+  const view = makeMockView('- [ ] ', EditorSelection.cursor('- [ ] '.length), [markdown({ base: markdownLanguage })]);
+
+  const handled = backspaceTaskListMarker(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '- ');
+  t.is(view.state.selection.main.head, '- '.length);
+});
+
+test('backspaceTaskListMarker preserves indentation and handles checked task markers', (t) => {
+  const view = makeMockView('  - [x] ', EditorSelection.cursor('  - [x] '.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  const handled = backspaceTaskListMarker(view);
+
+  t.true(handled);
+  t.is(view.state.doc.toString(), '  - ');
+  t.is(view.state.selection.main.head, '  - '.length);
+});
+
+test('backspaceTaskListMarker ignores non-empty tasks and non-terminal cursor positions', (t) => {
+  const nonEmptyView = makeMockView('- [ ] task', EditorSelection.cursor('- [ ] '.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+  const midMarkerView = makeMockView('- [ ] ', EditorSelection.cursor('- [ '.length), [
+    markdown({ base: markdownLanguage }),
+  ]);
+
+  t.false(backspaceTaskListMarker(nonEmptyView));
+  t.false(backspaceTaskListMarker(midMarkerView));
+});
+
+test('pressing Backspace on an empty task item removes the task marker before default handling runs', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
+  const restoreDom = installDomGlobals(dom);
+
+  try {
+    const parent = document.getElementById('root');
+    t.truthy(parent);
+
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: '- [ ] ',
+        selection: EditorSelection.cursor('- [ ] '.length),
+        extensions: [
+          markdownEditorLanguageSupport(),
+          Prec.highest(
+            keymap.of([
+              { key: 'Backspace', run: backspaceTaskListMarker },
+              { key: 'Backspace', run: backspacePromptQuestionMarker },
+            ]),
+          ),
+          keymap.of(defaultKeymap),
+        ],
+      }),
+      parent: parent!,
+    });
+
+    try {
+      const handled = runScopeHandlers(view, new window.KeyboardEvent('keydown', { key: 'Backspace' }), 'editor');
+
+      t.true(handled);
+      t.is(view.state.doc.toString(), '- ');
+      t.is(view.state.selection.main.head, '- '.length);
+    } finally {
+      view.destroy();
+    }
+  } finally {
+    restoreDom();
+  }
 });
 
 test('getPromptListRequest returns an insert request for question lines at line end', (t) => {
