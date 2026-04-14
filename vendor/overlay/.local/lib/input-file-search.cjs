@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+
 // WebContainer shells do not include fd/find/grep/rg, so the home overlay
 // provides small replacements for the subset of behavior this app relies on.
 const DEFAULT_IGNORED_NAMES = new Set(['.git', 'node_modules']);
@@ -23,7 +24,7 @@ function escapeRegExp(value) {
   return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
 }
 
-function globToRegExp(pattern) {
+function globToRegExp(pattern, options) {
   let source = '^';
   for (const char of pattern) {
     if (char === '*') {
@@ -37,7 +38,7 @@ function globToRegExp(pattern) {
     source += escapeRegExp(char);
   }
   source += '$';
-  return new RegExp(source);
+  return new RegExp(source, options && options.ignoreCase ? 'i' : '');
 }
 
 function resolveEntryType(stats) {
@@ -46,15 +47,49 @@ function resolveEntryType(stats) {
   return 'other';
 }
 
-function collectEntries(rootPath, options) {
-  const rootStats = fs.lstatSync(rootPath);
-  const rootEntry = {
-    absolutePath: rootPath,
-    name: path.basename(rootPath),
-    outputPath: normalizeOutputPath(options.cwd, rootPath),
-    type: resolveEntryType(rootStats),
+function readOptionValue(command, args, index, arg) {
+  const value = args[index + 1];
+  if (!value) {
+    throw new Error(`${command}: missing value for ${arg}`);
+  }
+  return value;
+}
+
+function parseLongOptionWithValue(arg, name) {
+  const prefix = `${name}=`;
+  if (!arg.startsWith(prefix)) return null;
+  return arg.slice(prefix.length);
+}
+
+function resolveEntryStats(absolutePath, options) {
+  const lstats = fs.lstatSync(absolutePath);
+  if (!options.followSymlinks || !lstats.isSymbolicLink()) {
+    return lstats;
+  }
+  try {
+    return fs.statSync(absolutePath);
+  } catch {
+    return null;
+  }
+}
+
+function createEntry(cwd, absolutePath, stats) {
+  return {
+    absolutePath,
+    name: path.basename(absolutePath),
+    outputPath: normalizeOutputPath(cwd, absolutePath),
+    type: resolveEntryType(stats),
   };
+}
+
+function collectEntries(rootPath, options) {
+  const rootStats = resolveEntryStats(rootPath, options);
+  if (rootStats == null) {
+    return [];
+  }
+  const rootEntry = createEntry(options.cwd, rootPath, rootStats);
   const entries = [];
+  const seenDirectories = new Set();
 
   if (options.includeRoot) {
     entries.push(rootEntry);
@@ -64,7 +99,15 @@ function collectEntries(rootPath, options) {
     return entries;
   }
 
-  function walkDirectory(directoryPath) {
+  if (options.followSymlinks) {
+    try {
+      seenDirectories.add(fs.realpathSync(rootPath));
+    } catch {
+      // Ignore realpath failures and still attempt to walk the root path.
+    }
+  }
+
+  function walkDirectory(directoryPath, depth) {
     const dirEntries = fs
       .readdirSync(directoryPath, { withFileTypes: true })
       .sort((left, right) => left.name.localeCompare(right.name));
@@ -74,22 +117,35 @@ function collectEntries(rootPath, options) {
       if (!options.includeIgnored && DEFAULT_IGNORED_NAMES.has(entry.name)) continue;
 
       const absolutePath = path.join(directoryPath, entry.name);
-      const stats = fs.lstatSync(absolutePath);
-      const nextEntry = {
-        absolutePath,
-        name: entry.name,
-        outputPath: normalizeOutputPath(options.cwd, absolutePath),
-        type: resolveEntryType(stats),
-      };
+      const stats = resolveEntryStats(absolutePath, options);
+      if (stats == null) continue;
 
+      const nextDepth = depth + 1;
+      if (options.maxDepth != null && nextDepth > options.maxDepth) continue;
+
+      const nextEntry = createEntry(options.cwd, absolutePath, stats);
       entries.push(nextEntry);
-      if (stats.isDirectory()) {
-        walkDirectory(absolutePath);
+
+      if (!stats.isDirectory()) continue;
+
+      if (options.followSymlinks) {
+        let realPath;
+        try {
+          realPath = fs.realpathSync(absolutePath);
+        } catch {
+          continue;
+        }
+        if (seenDirectories.has(realPath)) continue;
+        seenDirectories.add(realPath);
+      }
+
+      if (options.maxDepth == null || nextDepth < options.maxDepth) {
+        walkDirectory(absolutePath, nextDepth);
       }
     }
   }
 
-  walkDirectory(rootPath);
+  walkDirectory(rootPath, 0);
   return entries;
 }
 
@@ -110,11 +166,16 @@ function matchesExtension(entry, extension) {
 function parseContentSearchArgs(command, args) {
   const options = {
     debug: false,
-    glob: null,
+    filesOnly: false,
+    fixedStrings: false,
+    followSymlinks: false,
+    globs: [],
     includeHidden: command === 'grep',
     includeIgnored: command === 'grep',
     ignoreCase: false,
     lineNumbers: false,
+    maxDepth: null,
+    outputMode: 'text',
     path: '.',
     paths: [],
     pattern: '',
@@ -139,11 +200,11 @@ function parseContentSearchArgs(command, args) {
       options.debug = true;
       continue;
     }
-    if (arg === '-n') {
+    if (arg === '-n' || arg === '--line-number') {
       options.lineNumbers = true;
       continue;
     }
-    if (arg === '-i') {
+    if (arg === '-i' || arg === '--ignore-case') {
       options.ignoreCase = true;
       continue;
     }
@@ -155,18 +216,85 @@ function parseContentSearchArgs(command, args) {
       options.includeIgnored = true;
       continue;
     }
-    if (arg === '-g' || arg === '--glob') {
-      const value = args[index + 1];
-      if (!value) throw new Error(`${command}: missing value for ${arg}`);
-      options.glob = value;
-      index += 1;
+
+    const globValue = parseLongOptionWithValue(arg, '--glob');
+    if (arg === '-g' || arg === '--glob' || globValue != null) {
+      const value = globValue ?? readOptionValue(command, args, index, arg);
+      options.globs.push({ ignoreCase: false, pattern: value });
+      if (globValue == null) {
+        index += 1;
+      }
       continue;
     }
-    if (arg === '-t' || arg === '--type') {
-      const value = args[index + 1];
-      if (!value) throw new Error(`${command}: missing value for ${arg}`);
+
+    const iGlobValue = parseLongOptionWithValue(arg, '--iglob');
+    if (arg === '--iglob' || iGlobValue != null) {
+      const value = iGlobValue ?? readOptionValue(command, args, index, arg);
+      options.globs.push({ ignoreCase: true, pattern: value });
+      if (iGlobValue == null) {
+        index += 1;
+      }
+      continue;
+    }
+
+    const colorValue = parseLongOptionWithValue(arg, '--color');
+    if (arg === '--color' || colorValue != null) {
+      const value = colorValue ?? readOptionValue(command, args, index, arg);
+      if (value !== 'never') {
+        throw new Error(`${command}: unsupported color mode ${value}`);
+      }
+      if (colorValue == null) {
+        index += 1;
+      }
+      continue;
+    }
+
+    const maxDepthValue = parseLongOptionWithValue(arg, '--max-depth');
+    if (arg === '--max-depth' || maxDepthValue != null) {
+      const value = maxDepthValue ?? readOptionValue(command, args, index, arg);
+      const parsedValue = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+        throw new Error(`${command}: invalid value for --max-depth: ${value}`);
+      }
+      options.maxDepth = parsedValue;
+      if (maxDepthValue == null) {
+        index += 1;
+      }
+      continue;
+    }
+
+    const typeValue = parseLongOptionWithValue(arg, '--type');
+    if (arg === '-t' || arg === '--type' || typeValue != null) {
+      const value = typeValue ?? readOptionValue(command, args, index, arg);
       options.type = value;
+      if (typeValue == null) {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (arg === '--files') {
+      options.filesOnly = true;
+      continue;
+    }
+    if (arg === '--follow') {
+      options.followSymlinks = true;
+      continue;
+    }
+    if (arg === '--json') {
+      options.outputMode = 'json';
+      continue;
+    }
+    if (arg === '--fixed-strings' || arg === '-F') {
+      options.fixedStrings = true;
+      continue;
+    }
+    if (arg === '-j' || arg === '--threads') {
       index += 1;
+      if (!args[index]) throw new Error(`${command}: missing value for ${arg}`);
+      continue;
+    }
+    if (arg.startsWith('-j') && arg.length > 2) {
       continue;
     }
     if (arg === '-r' || arg === '-R') {
@@ -179,19 +307,29 @@ function parseContentSearchArgs(command, args) {
     positionals.push(arg);
   }
 
-  if (positionals.length === 0) {
+  if (positionals.length === 0 && !options.filesOnly) {
     throw new Error(`${command}: missing search pattern`);
   }
 
-  options.pattern = positionals[0];
   if (command === 'rg') {
-    if (positionals.length > 2) {
-      throw new Error('rg: expected a pattern and at most one search path');
-    }
-    if (positionals.length === 2) {
-      options.path = positionals[1];
+    if (options.filesOnly) {
+      if (positionals.length > 1) {
+        throw new Error('rg: expected at most one search path with --files');
+      }
+      if (positionals.length === 1) {
+        options.path = positionals[0];
+      }
+    } else {
+      options.pattern = positionals[0];
+      if (positionals.length > 2) {
+        throw new Error('rg: expected a pattern and at most one search path');
+      }
+      if (positionals.length === 2) {
+        options.path = positionals[1];
+      }
     }
   } else {
+    options.pattern = positionals[0];
     options.paths = positionals.slice(1);
     if (options.paths.length === 0) {
       options.paths = ['.'];
@@ -238,8 +376,7 @@ function parseFdArgs(args) {
       continue;
     }
     if (arg === '-e' || arg === '--extension') {
-      const value = args[index + 1];
-      if (!value) throw new Error('fd: missing value for -e');
+      const value = readOptionValue('fd', args, index, arg);
       options.extension = value.replace(/^\./, '');
       index += 1;
       continue;
@@ -249,8 +386,7 @@ function parseFdArgs(args) {
       continue;
     }
     if (arg === '-t' || arg === '--type') {
-      const value = args[index + 1];
-      if (!value) throw new Error('fd: missing value for -t');
+      const value = readOptionValue('fd', args, index, arg);
       if (value !== 'f' && value !== 'd') throw new Error(`fd: unsupported type ${value}`);
       options.type = value;
       index += 1;
@@ -288,6 +424,7 @@ function parseFindArgs(args) {
     paths: [],
     type: null,
   };
+
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--help' || arg === '-h') {
@@ -304,15 +441,13 @@ function parseFindArgs(args) {
       continue;
     }
     if (arg === '-name') {
-      const value = args[index + 1];
-      if (!value) throw new Error('find: missing value for -name');
+      const value = readOptionValue('find', args, index, arg);
       options.name = value;
       index += 1;
       continue;
     }
     if (arg === '-type') {
-      const value = args[index + 1];
-      if (!value) throw new Error('find: missing value for -type');
+      const value = readOptionValue('find', args, index, arg);
       if (value !== 'f' && value !== 'd') throw new Error(`find: unsupported type ${value}`);
       options.type = value;
       index += 1;
@@ -357,13 +492,21 @@ function printHelp(stdout, command) {
     printLines(
       [
         'usage: rg [options] <pattern> [path]',
+        'usage: rg --files [options] [path]',
         '  --debug',
-        '  -n',
-        '  -i',
+        '  -n, --line-number',
+        '  -i, --ignore-case',
+        '  -F, --fixed-strings',
         '  -H, --hidden',
         '  -I, --no-ignore',
         '  -g, --glob <glob>',
+        '  --iglob <glob>',
         '  -t, --type <ext|type>',
+        '  --files',
+        '  --follow',
+        '  --json',
+        '  --max-depth <n>',
+        '  --color=never',
       ],
       stdout,
     );
@@ -434,24 +577,59 @@ function resolveContentSearchExtensions(type) {
   return commonTypes[normalizedType] ?? [normalizedType.replace(/^\./, '')];
 }
 
+function compileGlobMatchers(globs) {
+  return globs.map((glob) => {
+    const exclude = glob.pattern.startsWith('!');
+    const pattern = exclude ? glob.pattern.slice(1) : glob.pattern;
+    return {
+      exclude,
+      pattern,
+      regex: globToRegExp(pattern, { ignoreCase: glob.ignoreCase }),
+    };
+  });
+}
+
+function matchesGlobMatchers(outputPath, matchers) {
+  if (matchers.length === 0) return true;
+
+  let matchedInclude = false;
+  let hasInclude = false;
+  for (const matcher of matchers) {
+    if (!matcher.exclude) {
+      hasInclude = true;
+    }
+    if (!matcher.regex.test(outputPath)) {
+      continue;
+    }
+    if (matcher.exclude) {
+      return false;
+    }
+    matchedInclude = true;
+  }
+
+  return hasInclude ? matchedInclude : true;
+}
+
+function buildSearchPattern(parsedOptions) {
+  if (parsedOptions.fixedStrings) {
+    return new RegExp(escapeRegExp(parsedOptions.pattern), parsedOptions.ignoreCase ? 'i' : '');
+  }
+  return new RegExp(parsedOptions.pattern, parsedOptions.ignoreCase ? 'i' : '');
+}
+
 function collectSearchFiles(searchPath, options) {
   const absolutePath = path.resolve(options.cwd, searchPath);
   if (!fs.existsSync(absolutePath)) {
     throw new Error(`${options.command}: path not found: ${searchPath}`);
   }
 
-  const stats = fs.lstatSync(absolutePath);
-  if (stats.isFile()) {
-    return [
-      {
-        absolutePath,
-        name: path.basename(absolutePath),
-        outputPath: normalizeOutputPath(options.cwd, absolutePath),
-        type: 'file',
-      },
-    ];
+  const stats = resolveEntryStats(absolutePath, options);
+  if (stats == null) {
+    return [];
   }
-
+  if (stats.isFile()) {
+    return [createEntry(options.cwd, absolutePath, stats)];
+  }
   if (!stats.isDirectory()) {
     return [];
   }
@@ -464,25 +642,63 @@ function collectSearchFiles(searchPath, options) {
         if (!options.includeHidden && isHiddenName(entry.name)) return [];
         if (!options.includeIgnored && DEFAULT_IGNORED_NAMES.has(entry.name)) return [];
         const childPath = path.join(absolutePath, entry.name);
-        const childStats = fs.lstatSync(childPath);
-        if (!childStats.isFile()) return [];
-        return [
-          {
-            absolutePath: childPath,
-            name: entry.name,
-            outputPath: normalizeOutputPath(options.cwd, childPath),
-            type: 'file',
-          },
-        ];
+        const childStats = resolveEntryStats(childPath, options);
+        if (childStats == null || !childStats.isFile()) return [];
+        return [createEntry(options.cwd, childPath, childStats)];
       });
   }
 
   return collectEntries(absolutePath, {
     cwd: options.cwd,
+    followSymlinks: options.followSymlinks,
     includeHidden: options.includeHidden,
     includeIgnored: options.includeIgnored,
     includeRoot: false,
+    maxDepth: options.maxDepth,
   }).filter((entry) => entry.type === 'file');
+}
+
+function collectFilteredSearchFiles(searchPaths, options) {
+  const matchers = compileGlobMatchers(options.globs);
+  const allowedExtensions = resolveContentSearchExtensions(options.type);
+  const files = [];
+  const seenFiles = new Set();
+  let discoveredFiles = 0;
+
+  for (const searchPath of searchPaths) {
+    const nextFiles = collectSearchFiles(searchPath, options);
+    discoveredFiles += nextFiles.length;
+    for (const file of nextFiles) {
+      if (seenFiles.has(file.outputPath)) continue;
+      seenFiles.add(file.outputPath);
+      if (!matchesGlobMatchers(file.outputPath, matchers)) continue;
+      if (
+        Array.isArray(allowedExtensions) &&
+        !allowedExtensions.some((extension) => matchesExtension(file, extension))
+      ) {
+        continue;
+      }
+      files.push(file);
+    }
+  }
+
+  files.sort((left, right) => left.outputPath.localeCompare(right.outputPath));
+  return {
+    discoveredFiles,
+    files,
+  };
+}
+
+function formatJsonMatch(filePath, lineNumber, line) {
+  return JSON.stringify({
+    data: {
+      line_number: lineNumber,
+      lines: { text: `${line}\n` },
+      path: { text: filePath },
+      submatches: [],
+    },
+    type: 'match',
+  });
 }
 
 function runContentSearch(command, args, io) {
@@ -498,32 +714,21 @@ function runContentSearch(command, args, io) {
 
   const cwd = process.cwd();
   const searchPaths = command === 'rg' ? [parsed.options.path] : parsed.options.paths;
-  let pattern;
-  try {
-    pattern = new RegExp(parsed.options.pattern, parsed.options.ignoreCase ? 'i' : '');
-  } catch (err) {
-    io.stderr.write(
-      `${command}: invalid pattern ${parsed.options.pattern}: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-    return 2;
-  }
-
-  const globPattern = parsed.options.glob ? globToRegExp(parsed.options.glob) : null;
-  const allowedExtensions = resolveContentSearchExtensions(parsed.options.type);
-  const results = [];
-  const seenFiles = new Set();
-  let discoveredFiles = 0;
-  let searchedFiles = 0;
 
   debugLog(parsed.options.debug, io.stderr, {
     argv: args,
     command,
     cwd,
-    glob: parsed.options.glob,
+    filesOnly: parsed.options.filesOnly,
+    fixedStrings: parsed.options.fixedStrings,
+    followSymlinks: parsed.options.followSymlinks,
+    globs: parsed.options.globs,
     ignoreCase: parsed.options.ignoreCase,
     includeHidden: parsed.options.includeHidden,
     includeIgnored: parsed.options.includeIgnored,
     lineNumbers: parsed.options.lineNumbers,
+    maxDepth: parsed.options.maxDepth,
+    outputMode: parsed.options.outputMode,
     paths: searchPaths,
     pattern: parsed.options.pattern,
     recursive: parsed.options.recursive,
@@ -531,54 +736,76 @@ function runContentSearch(command, args, io) {
   });
 
   try {
-    for (const searchPath of searchPaths) {
-      const files = collectSearchFiles(searchPath, {
+    const fileInfo = collectFilteredSearchFiles(searchPaths, {
+      command,
+      cwd,
+      followSymlinks: parsed.options.followSymlinks,
+      globs: parsed.options.globs,
+      includeHidden: parsed.options.includeHidden,
+      includeIgnored: parsed.options.includeIgnored,
+      maxDepth: parsed.options.maxDepth,
+      recursive: parsed.options.recursive,
+      type: parsed.options.type,
+    });
+
+    if (parsed.options.filesOnly) {
+      const output = fileInfo.files.map((file) => file.outputPath);
+      debugLog(parsed.options.debug, io.stderr, {
         command,
-        cwd,
-        includeHidden: parsed.options.includeHidden,
-        includeIgnored: parsed.options.includeIgnored,
-        recursive: parsed.options.recursive,
+        discoveredFiles: fileInfo.discoveredFiles,
+        listedFiles: output.length,
       });
-      discoveredFiles += files.length;
-      for (const file of files) {
-        if (seenFiles.has(file.outputPath)) continue;
-        seenFiles.add(file.outputPath);
-        if (globPattern && !globPattern.test(file.outputPath)) continue;
-        if (
-          Array.isArray(allowedExtensions) &&
-          !allowedExtensions.some((extension) => matchesExtension(file, extension))
-        ) {
+      debugLog(parsed.options.debug, io.stderr, Object.assign({ command }, summarizeResults(output)));
+      printLines(output, io.stdout);
+      return 0;
+    }
+
+    let pattern;
+    try {
+      pattern = buildSearchPattern(parsed.options);
+    } catch (err) {
+      io.stderr.write(
+        `${command}: invalid pattern ${parsed.options.pattern}: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      return 2;
+    }
+
+    const results = [];
+    let searchedFiles = 0;
+
+    for (const file of fileInfo.files) {
+      const buffer = fs.readFileSync(file.absolutePath);
+      if (isProbablyBinary(buffer)) continue;
+      searchedFiles += 1;
+      const contents = buffer.toString('utf8');
+      const lines = contents.split(/\r?\n/);
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex];
+        if (!lineMatches(pattern, line)) continue;
+        if (parsed.options.outputMode === 'json') {
+          results.push(formatJsonMatch(file.outputPath, lineIndex + 1, line));
           continue;
         }
-        const buffer = fs.readFileSync(file.absolutePath);
-        if (isProbablyBinary(buffer)) continue;
-        searchedFiles += 1;
-        const contents = buffer.toString('utf8');
-        const lines = contents.split(/\r?\n/);
-        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-          const line = lines[lineIndex];
-          if (!lineMatches(pattern, line)) continue;
-          results.push(
-            parsed.options.lineNumbers
-              ? `${file.outputPath}:${lineIndex + 1}:${line}`
-              : `${file.outputPath}:${line}`,
-          );
-        }
+        results.push(
+          parsed.options.lineNumbers
+            ? `${file.outputPath}:${lineIndex + 1}:${line}`
+            : `${file.outputPath}:${line}`,
+        );
       }
     }
+
+    debugLog(parsed.options.debug, io.stderr, {
+      command,
+      discoveredFiles: fileInfo.discoveredFiles,
+      searchedFiles,
+    });
+    debugLog(parsed.options.debug, io.stderr, Object.assign({ command }, summarizeResults(results)));
+    printLines(results, io.stdout);
+    return results.length > 0 ? 0 : 1;
   } catch (err) {
     io.stderr.write(`${command}: ${err instanceof Error ? err.message : String(err)}\n`);
     return 2;
   }
-
-  debugLog(parsed.options.debug, io.stderr, {
-    command,
-    discoveredFiles,
-    searchedFiles,
-  });
-  debugLog(parsed.options.debug, io.stderr, Object.assign({ command }, summarizeResults(results)));
-  printLines(results, io.stdout);
-  return results.length > 0 ? 0 : 1;
 }
 
 function runFd(args, io) {
@@ -614,7 +841,9 @@ function runFd(args, io) {
     try {
       pattern = new RegExp(parsed.options.pattern);
     } catch (err) {
-      io.stderr.write(`fd: invalid pattern ${parsed.options.pattern}: ${err instanceof Error ? err.message : String(err)}\n`);
+      io.stderr.write(
+        `fd: invalid pattern ${parsed.options.pattern}: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
       return 1;
     }
   }
@@ -622,9 +851,11 @@ function runFd(args, io) {
   const results = [];
   const entries = collectEntries(searchPath, {
     cwd,
+    followSymlinks: false,
     includeHidden: parsed.options.includeHidden,
     includeIgnored: parsed.options.includeIgnored,
     includeRoot: false,
+    maxDepth: null,
   });
   debugLog(parsed.options.debug, io.stderr, {
     command: 'fd',
@@ -677,9 +908,11 @@ function runFind(args, io) {
 
     const entries = collectEntries(absolutePath, {
       cwd,
+      followSymlinks: false,
       includeHidden: true,
       includeIgnored: true,
       includeRoot: true,
+      maxDepth: null,
     });
     debugLog(parsed.options.debug, io.stderr, {
       command: 'find',

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
@@ -295,4 +295,73 @@ test('shared overlay rg and grep commands support basic content search', async (
   t.true(grepDebug.stderr.includes('"command":"grep"'));
   t.true(grepDebug.stderr.includes('"searchedFiles":6'));
   t.true(grepDebug.stderr.includes('"resultCount":6'));
+});
+
+test('shared overlay rg supports Claude and Pi compatible flags', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-rg-compat-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await mkdir(path.join(cwd, '.claude', 'commands'), { recursive: true });
+  await mkdir(path.join(cwd, 'node_modules', 'pkg'), { recursive: true });
+  await mkdir(path.join(cwd, 'src', 'nested', 'deep'), { recursive: true });
+  await writeFile(path.join(cwd, '.hidden.md'), 'Alpha hidden\n', 'utf8');
+  await writeFile(path.join(cwd, '.claude', 'commands', 'prompt.md'), 'Prompt Alpha\n', 'utf8');
+  await writeFile(path.join(cwd, 'README.MD'), 'ALPHA readme\n', 'utf8');
+  await writeFile(path.join(cwd, 'literal.txt'), 'a+b\nregex ab\n', 'utf8');
+  await writeFile(path.join(cwd, 'src', 'main.ts'), 'const alpha = "Alpha";\nconst literal = "a+b";\n', 'utf8');
+  await writeFile(path.join(cwd, 'src', 'nested', 'note.md'), 'alpha note\n', 'utf8');
+  await writeFile(path.join(cwd, 'src', 'nested', 'deep', 'too-deep.md'), 'Alpha deep\n', 'utf8');
+  await writeFile(path.join(cwd, 'node_modules', 'pkg', 'ignored.md'), 'Alpha ignored\n', 'utf8');
+  await symlink(path.join(cwd, 'src', 'nested'), path.join(cwd, 'linked-nested'));
+
+  const filesDefault = await runCommand('rg', ['--files', '.'], { cwd });
+  t.is(filesDefault.code, 0, filesDefault.stderr);
+  t.deepEqual(outputLines(filesDefault.stdout), [
+    'literal.txt',
+    'README.MD',
+    'src/main.ts',
+    'src/nested/deep/too-deep.md',
+    'src/nested/note.md',
+  ]);
+
+  const filesWithFilters = await runCommand(
+    'rg',
+    ['--files', '--hidden', '--follow', '--max-depth', '2', '--iglob', '*.md', '--glob', '!**/node_modules/**', '.'],
+    { cwd },
+  );
+  t.is(filesWithFilters.code, 0, filesWithFilters.stderr);
+  t.deepEqual(outputLines(filesWithFilters.stdout), ['.hidden.md', 'linked-nested/note.md', 'README.MD']);
+
+  const longFormSearch = await runCommand('rg', ['--line-number', '--ignore-case', '--color=never', 'alpha', '.'], {
+    cwd,
+  });
+  t.is(longFormSearch.code, 0, longFormSearch.stderr);
+  t.deepEqual(outputLines(longFormSearch.stdout), [
+    'README.MD:1:ALPHA readme',
+    'src/main.ts:1:const alpha = "Alpha";',
+    'src/nested/deep/too-deep.md:1:Alpha deep',
+    'src/nested/note.md:1:alpha note',
+  ]);
+
+  const fixedStrings = await runCommand('rg', ['--fixed-strings', '--line-number', 'a+b', '.'], { cwd });
+  t.is(fixedStrings.code, 0, fixedStrings.stderr);
+  t.deepEqual(outputLines(fixedStrings.stdout), ['literal.txt:1:a+b', 'src/main.ts:2:const literal = "a+b";']);
+
+  const jsonOutput = await runCommand(
+    'rg',
+    ['--json', '--line-number', '--color=never', '--hidden', '--glob', '*.md', 'Alpha', '.'],
+    { cwd },
+  );
+  t.is(jsonOutput.code, 0, jsonOutput.stderr);
+  const jsonLines = outputLines(jsonOutput.stdout).map((line) => JSON.parse(line));
+  t.deepEqual(
+    jsonLines.map((event) => [event.type, event.data.path.text, event.data.line_number]),
+    [
+      ['match', '.claude/commands/prompt.md', 1],
+      ['match', '.hidden.md', 1],
+      ['match', 'src/nested/deep/too-deep.md', 1],
+    ],
+  );
 });
