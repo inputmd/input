@@ -1,5 +1,7 @@
 import test from 'ava';
 import { JSDOM } from 'jsdom';
+import { resolveSidebarFocusedPath } from '../../src/sidebar_focus.ts';
+import { resolveSidebarFolderRowBehavior, resolveSidebarFolderRowLabel } from '../../src/sidebar_row_behavior.ts';
 import {
   loadSidebarCollapsedFoldersState,
   persistSidebarCollapsedFolders,
@@ -80,4 +82,109 @@ test('sidebar collapsed folders state prefers persisted values over active ances
       loadedFromPersistence: true,
     });
   });
+});
+
+test('resolveSidebarFocusedPath remaps a missing combined markdown focus target to its folder row', (t) => {
+  const visibleNodes = [
+    {
+      kind: 'folder' as const,
+      path: 'guides',
+      parentPath: null,
+      depth: 0,
+      hasChildren: true,
+      collapsed: false,
+    },
+    {
+      kind: 'file' as const,
+      path: 'notes.md',
+      parentPath: null,
+      depth: 0,
+      hasChildren: false,
+      collapsed: false,
+    },
+  ];
+
+  t.is(resolveSidebarFocusedPath('guides.md', null, visibleNodes), 'guides');
+});
+
+test('resolveSidebarFocusedPath keeps a visible combined markdown alias focused', (t) => {
+  const visibleNodes = [
+    {
+      kind: 'folder' as const,
+      path: 'guides',
+      parentPath: null,
+      depth: 0,
+      hasChildren: true,
+      collapsed: false,
+      combinedFilePath: 'guides.md',
+    },
+  ];
+
+  t.is(resolveSidebarFocusedPath('guides.md', null, visibleNodes), 'guides.md');
+});
+
+test('resolveSidebarFolderRowBehavior selects the markdown file from the merged row body', (t) => {
+  t.deepEqual(
+    resolveSidebarFolderRowBehavior({
+      folderPath: 'guides',
+      combinedFilePath: 'guides.md',
+      combinedFileVirtual: false,
+      readOnly: false,
+      isRenaming: false,
+      isRenamePending: false,
+      isMoving: false,
+    }).bodyAction,
+    { type: 'select-file', path: 'guides.md' },
+  );
+});
+
+test('resolveSidebarFolderRowBehavior keeps the caret toggle routed to the folder', (t) => {
+  t.deepEqual(
+    resolveSidebarFolderRowBehavior({
+      folderPath: 'guides',
+      combinedFilePath: 'guides.md',
+      combinedFileVirtual: false,
+      readOnly: false,
+      isRenaming: false,
+      isRenamePending: false,
+      isMoving: false,
+    }).caretAction,
+    { type: 'toggle-folder', path: 'guides' },
+  );
+});
+
+test('resolveSidebarFolderRowBehavior routes rename delete and view targets to the markdown file', (t) => {
+  const behavior = resolveSidebarFolderRowBehavior({
+    folderPath: 'guides',
+    combinedFilePath: 'guides.md',
+    combinedFileVirtual: false,
+    readOnly: false,
+    isRenaming: false,
+    isRenamePending: false,
+    isMoving: false,
+  });
+
+  t.deepEqual(behavior.renameTarget, { kind: 'file', path: 'guides.md' });
+  t.deepEqual(behavior.deleteTarget, { kind: 'file', path: 'guides.md' });
+  t.deepEqual(behavior.viewTarget, { kind: 'file', path: 'guides.md' });
+});
+
+test('resolveSidebarFolderRowBehavior keeps create and drop targets on the folder', (t) => {
+  const behavior = resolveSidebarFolderRowBehavior({
+    folderPath: 'guides',
+    combinedFilePath: 'guides.md',
+    combinedFileVirtual: false,
+    readOnly: false,
+    isRenaming: false,
+    isRenamePending: false,
+    isMoving: false,
+  });
+
+  t.is(behavior.createParentPath, 'guides');
+  t.is(behavior.dropTargetFolderPath, 'guides');
+});
+
+test('resolveSidebarFolderRowLabel uses the markdown filename for merged rows', (t) => {
+  t.is(resolveSidebarFolderRowLabel('guides', 'guides.md'), 'guides.md');
+  t.is(resolveSidebarFolderRowLabel('guides', null), 'guides');
 });

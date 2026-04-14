@@ -18,6 +18,8 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import type { RepoWorkspaceChangedFileDetail } from '../repo_workspace/commit';
+import { resolveSidebarFocusedPath, type SidebarVisibleNode } from '../sidebar_focus';
+import { resolveSidebarFolderRowBehavior, resolveSidebarFolderRowLabel } from '../sidebar_row_behavior';
 import { loadSidebarCollapsedFoldersState, persistSidebarCollapsedFolders } from '../sidebar_state';
 import { buildSidebarTree, type SidebarTreeFolderNode, type SidebarTreeNode } from '../sidebar_tree';
 import {
@@ -81,14 +83,6 @@ type SidebarFolderNode = SidebarTreeFolderNode<SidebarFile>;
 type RenameTarget = { kind: 'file' | 'folder'; path: string } | null;
 type CreateKind = 'file' | 'directory';
 type DraggedSidebarItem = { kind: 'file' | 'folder'; path: string } | null;
-type SidebarVisibleNode = {
-  kind: 'file' | 'folder';
-  path: string;
-  parentPath: string | null;
-  depth: number;
-  hasChildren: boolean;
-  collapsed: boolean;
-};
 
 const ICON_SIZE = 15;
 
@@ -189,6 +183,7 @@ function flattenVisibleTree(
         depth,
         hasChildren,
         collapsed,
+        combinedFilePath: node.combinedFile?.path,
       });
       if (!collapsed && hasChildren) {
         visible.push(...flattenVisibleTree(node.children, collapsedFolders, depth + 1, node.path));
@@ -374,7 +369,10 @@ export function Sidebar({
   const visibleNodes = useMemo(() => flattenVisibleTree(tree.children, collapsedFolders), [tree, collapsedFolders]);
   const visibleIndexByPath = useMemo(() => {
     const map = new Map<string, number>();
-    for (const [index, node] of visibleNodes.entries()) map.set(node.path, index);
+    for (const [index, node] of visibleNodes.entries()) {
+      map.set(node.path, index);
+      if (node.combinedFilePath) map.set(node.combinedFilePath, index);
+    }
     return map;
   }, [visibleNodes]);
 
@@ -433,6 +431,14 @@ export function Sidebar({
     return null;
   }, [creatingNew, fileFilter, files.length, textFileCount, totalFileCount]);
 
+  const setRowRef = (paths: readonly string[], element: HTMLDivElement | null): void => {
+    for (const path of paths) {
+      if (!path) continue;
+      if (element) rowRefs.current[path] = element;
+      else delete rowRefs.current[path];
+    }
+  };
+
   useEffect(() => {
     if (creatingNew) newInputRef.current?.focus();
   }, [creatingNew]);
@@ -456,16 +462,8 @@ export function Sidebar({
   }, [renamingTarget]);
 
   useEffect(() => {
-    if (visibleNodes.length === 0) {
-      setFocusedPath(null);
-      return;
-    }
-    setFocusedPath((prev) => {
-      if (prev && visibleIndexByPath.has(prev)) return prev;
-      if (activeFilePath && visibleIndexByPath.has(activeFilePath)) return activeFilePath;
-      return visibleNodes[0]?.path ?? null;
-    });
-  }, [activeFilePath, visibleIndexByPath, visibleNodes]);
+    setFocusedPath((prev) => resolveSidebarFocusedPath(prev, activeFilePath, visibleNodes));
+  }, [activeFilePath, visibleNodes]);
 
   useEffect(() => {
     if (workspaceKeyRef.current === workspaceKey) return;
@@ -872,31 +870,69 @@ export function Sidebar({
   };
 
   const renderFolderRow = (folder: SidebarFolderNode, depth: number, collapsed: boolean) => {
-    const isRenaming = renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
-    const isRenamePending = renamingInFlightTarget?.kind === 'folder' && renamingInFlightTarget.path === folder.path;
-    const isMoving = movingTarget?.kind === 'folder' && movingTarget.path === folder.path;
+    const combinedFile = folder.combinedFile;
+    const combinedEntry = combinedFile?.entry ?? null;
+    const combinedActive = Boolean(combinedEntry?.active);
+    const hasCombinedDescendantActive = folder.hasActiveDescendant && !combinedActive;
+    const renameTarget =
+      combinedFile && !combinedEntry?.virtual ? ({ kind: 'file', path: combinedFile.path } as const) : null;
+    const isRenaming = renameTarget
+      ? renamingTarget?.kind === 'file' && renamingTarget.path === renameTarget.path
+      : renamingTarget?.kind === 'folder' && renamingTarget.path === folder.path;
+    const isRenamePending = renameTarget
+      ? renamingInFlightTarget?.kind === 'file' && renamingInFlightTarget.path === renameTarget.path
+      : renamingInFlightTarget?.kind === 'folder' && renamingInFlightTarget.path === folder.path;
+    const isMoving =
+      movingTarget?.kind === 'folder' && movingTarget.path === folder.path
+        ? true
+        : Boolean(combinedFile && movingTarget?.kind === 'file' && movingTarget.path === combinedFile.path);
     const FolderIcon = collapsed ? FolderClosed : FolderOpen;
+    const FileIcon = combinedFile ? getFileIcon(combinedFile.name, combinedEntry?.size) : null;
     const isDragging = draggingItem?.kind === 'folder' && draggingItem.path === folder.path;
     const isDropTarget = (draggingItem !== null || draggingExternalFile) && dropFolderPath === folder.path;
+    const canRenameCombinedFile = Boolean(
+      renameTarget && combinedEntry && combinedEntry.editable && !combinedEntry.virtual,
+    );
+    const canModifyCombinedFile = Boolean(combinedFile && combinedEntry && !combinedEntry.virtual);
+    const rowBehavior = resolveSidebarFolderRowBehavior({
+      folderPath: folder.path,
+      combinedFilePath: combinedFile?.path ?? null,
+      combinedFileVirtual: combinedEntry?.virtual ?? false,
+      readOnly,
+      isRenaming,
+      isRenamePending,
+      isMoving,
+    });
+    const rowName = resolveSidebarFolderRowLabel(folder.name, combinedFile?.name);
     const folderRow = (
       <div
-        class={`sidebar-file sidebar-folder${folder.hasActiveDescendant ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${folder.deemphasized ? ' sidebar-file-deemphasized' : ''}${isDropTarget ? ' drop-target' : ''}${isDragging ? ' dragging' : ''}`}
+        class={`sidebar-file sidebar-folder${combinedFile ? ' sidebar-folder-combined' : ''}${combinedActive ? ' active' : ''}${hasCombinedDescendantActive ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${folder.deemphasized || (combinedEntry ? isSidebarFileDeemphasized(combinedEntry) : false) ? ' sidebar-file-deemphasized' : ''}${combinedEntry?.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${combinedEntry?.changeState ? ` sidebar-file-${combinedEntry.changeState}` : ''}${isDropTarget ? ' drop-target' : ''}${isDragging ? ' dragging' : ''}`}
         ref={(el) => {
-          rowRefs.current[folder.path] = el;
+          setRowRef(combinedFile ? [folder.path, combinedFile.path] : [folder.path], el);
         }}
-        tabIndex={focusedPath === folder.path ? 0 : -1}
+        tabIndex={focusedPath === folder.path || focusedPath === combinedFile?.path ? 0 : -1}
         role="treeitem"
         aria-level={depth + 1}
         aria-expanded={!collapsed}
-        aria-selected={folder.hasActiveDescendant || undefined}
-        draggable={!readOnly && !isRenaming && !isRenamePending && !isMoving}
+        aria-selected={combinedFile ? combinedActive || undefined : folder.hasActiveDescendant || undefined}
+        aria-current={combinedActive ? 'true' : undefined}
+        draggable={Boolean(rowBehavior.dragSource)}
         data-folder-path={folder.path}
         style={{ paddingLeft: `${8 + depth * DIRECTORY_TREE_INDENT_PX}px` }}
-        onClick={() => toggleFolder(folder.path)}
+        onClick={() => {
+          if (rowBehavior.bodyAction.type === 'select-file') {
+            if (!combinedEntry?.active) onSelectFile(rowBehavior.bodyAction.path);
+          } else {
+            toggleFolder(rowBehavior.bodyAction.path);
+          }
+        }}
         onFocus={() => {
           setCreateAtRoot(false);
-          setFocusedPath(folder.path);
+          setFocusedPath(combinedFile?.path ?? folder.path);
           setCreateContextPath(folder.path);
+        }}
+        onDblClick={() => {
+          if (canRenameCombinedFile && renameTarget) void startRename(renameTarget);
         }}
         onDragOver={(e) => {
           if (readOnly) return;
@@ -922,14 +958,14 @@ export function Sidebar({
           if (dropFolderPath === folder.path) setDropFolderPath(null);
         }}
         onDragStart={(e) => {
-          if (readOnly || isRenaming || isRenamePending || isMoving) {
+          if (!rowBehavior.dragSource) {
             e.preventDefault();
             return;
           }
-          e.dataTransfer?.setData('text/plain', folder.path);
-          e.dataTransfer?.setData('application/x-input-sidebar-node-kind', 'folder');
+          e.dataTransfer?.setData('text/plain', rowBehavior.dragSource.path);
+          e.dataTransfer?.setData('application/x-input-sidebar-node-kind', rowBehavior.dragSource.kind);
           if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-          setDraggingItem({ kind: 'folder', path: folder.path });
+          setDraggingItem(rowBehavior.dragSource);
         }}
         onDragEnd={() => {
           clearDragState();
@@ -937,28 +973,46 @@ export function Sidebar({
         onDrop={(e) => {
           if (readOnly) return;
           if (isExternalFileDrag(e)) {
-            void handleExternalFileDrop(e, folder.path);
+            void handleExternalFileDrop(e, rowBehavior.dropTargetFolderPath);
             return;
           }
-          void handleDropToFolder(e, folder.path);
+          void handleDropToFolder(e, rowBehavior.dropTargetFolderPath);
         }}
         onKeyDown={(e) => {
           if (isRenaming) return;
-          if (e.key === 'Enter' || e.key === ' ') {
+          if (combinedFile && e.key === 'Enter') {
+            e.preventDefault();
+            if (!combinedEntry?.active && !combinedEntry?.virtual) onSelectFile(combinedFile.path);
+          } else if (e.key === ' ') {
             e.preventDefault();
             toggleFolder(folder.path);
-          } else if (!readOnly && e.key === 'F2') {
+          } else if (combinedFile && !readOnly && canRenameCombinedFile && e.key === 'F2') {
+            e.preventDefault();
+            if (renameTarget) void startRename(renameTarget);
+          } else if (!combinedFile && !readOnly && e.key === 'F2') {
             e.preventDefault();
             void startRename({ kind: 'folder', path: folder.path });
+          } else if (!combinedFile && e.key === 'Enter') {
+            e.preventDefault();
+            toggleFolder(folder.path);
           }
         }}
       >
         <IndentGuides depth={depth} />
-        <span class={`sidebar-folder-caret${collapsed ? '' : ' open'}`} aria-hidden="true">
+        <span
+          class={`sidebar-folder-caret${collapsed ? '' : ' open'}`}
+          aria-hidden="true"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleFolder(rowBehavior.caretAction.path);
+          }}
+        >
           <ChevronRight size={DIRECTORY_TREE_CHEVRON_SIZE} />
         </span>
         {isRenamePending || isMoving ? (
           <span class="sidebar-rename-spinner" aria-hidden="true" />
+        ) : combinedFile && FileIcon ? (
+          <FileIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
         ) : (
           <FolderIcon size={ICON_SIZE} class="sidebar-node-icon" aria-hidden="true" />
         )}
@@ -988,14 +1042,70 @@ export function Sidebar({
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span class="sidebar-folder-name">{folder.name}</span>
+          <span class={combinedFile ? 'sidebar-file-name sidebar-combined-name' : 'sidebar-folder-name'}>
+            {rowName}
+          </span>
         )}
       </div>
     );
 
     const showViewOnlyContext = readOnly && canViewOnGitHub;
+    const showCombinedModifyActions = canModifyCombinedFile && !readOnly;
     if (readOnly && !showViewOnlyContext) {
       return folderRow;
+    }
+
+    if (combinedFile) {
+      return (
+        <ContextMenu.Root>
+          <ContextMenu.Trigger asChild>{folderRow}</ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content class="sidebar-context-menu" sideOffset={6} align="start" collisionPadding={8}>
+              {!readOnly && (
+                <ContextMenu.Item
+                  class="sidebar-context-menu-item"
+                  onSelect={() => startCreate('file', rowBehavior.createParentPath)}
+                >
+                  Add file
+                </ContextMenu.Item>
+              )}
+              {!readOnly && (
+                <ContextMenu.Item
+                  class="sidebar-context-menu-item"
+                  onSelect={() => startCreate('directory', rowBehavior.createParentPath)}
+                >
+                  Add directory
+                </ContextMenu.Item>
+              )}
+              {showCombinedModifyActions && renameTarget ? (
+                <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => void startRename(renameTarget)}>
+                  Rename
+                </ContextMenu.Item>
+              ) : null}
+              {canViewOnGitHub && (
+                <ContextMenu.Item
+                  class="sidebar-context-menu-item"
+                  onSelect={() => onViewOnGitHub(rowBehavior.viewTarget.path)}
+                >
+                  View on GitHub{' '}
+                  <ExternalLink size={14} className="sidebar-context-menu-item-icon" aria-hidden="true" />
+                </ContextMenu.Item>
+              )}
+              {showCombinedModifyActions ? (
+                <>
+                  <ContextMenu.Separator class="sidebar-context-menu-separator" />
+                  <ContextMenu.Item
+                    class="sidebar-context-menu-item sidebar-context-menu-item-danger"
+                    onSelect={() => onDeleteFile(rowBehavior.deleteTarget.path)}
+                  >
+                    Delete
+                  </ContextMenu.Item>
+                </>
+              ) : null}
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
+      );
     }
 
     return (
@@ -1057,7 +1167,7 @@ export function Sidebar({
       <div
         class={`sidebar-file${entry.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${isSidebarFileDeemphasized(entry) ? ' sidebar-file-deemphasized' : ''}${entry.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${entry.changeState ? ` sidebar-file-${entry.changeState}` : ''}${draggingItem?.kind === 'file' && draggingItem.path === file.path ? ' dragging' : ''}`}
         ref={(el) => {
-          rowRefs.current[file.path] = el;
+          setRowRef([file.path], el);
         }}
         tabIndex={focusedPath === file.path ? 0 : -1}
         role="treeitem"
