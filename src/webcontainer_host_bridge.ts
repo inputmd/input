@@ -10,6 +10,7 @@ import {
 const HOST_BRIDGE_PORT = 4318;
 const HOST_BRIDGE_DEFAULT_URL = `http://127.0.0.1:${HOST_BRIDGE_PORT}`;
 const HOST_BRIDGE_READY_TIMEOUT_MS = 15_000;
+const HOST_BRIDGE_SHUTDOWN_GRACE_PERIOD_MS = 1_000;
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'content-length',
@@ -43,7 +44,7 @@ interface BufferedBridgeRequest {
 
 export interface WebContainerHostBridgeSession {
   env: Record<string, string>;
-  stop: () => void;
+  stop: () => Promise<void>;
 }
 
 interface StartWebContainerHostBridgeOptions {
@@ -184,7 +185,9 @@ export async function startWebContainerHostBridge({
   const activeFetches = new Map<string, AbortController>();
   let stopped = false;
   let readyResolved = false;
+  let daemonExited = false;
   let writeQueue = Promise.resolve();
+  let stopPromise: Promise<void> | null = null;
   let readyResolve: (() => void) | null = null;
   let readyReject: ((error: Error) => void) | null = null;
   const readyPromise = new Promise<void>((resolve, reject) => {
@@ -363,7 +366,8 @@ export async function startWebContainerHostBridge({
       onLog?.(`[terminal] host bridge output closed: ${err instanceof Error ? err.message : String(err)}`);
     });
 
-  void daemon.exit.then((code) => {
+  const daemonExitPromise = daemon.exit.then((code) => {
+    daemonExited = true;
     if (stopped) return;
     const message = `host bridge daemon exited with code ${code}`;
     if (!readyResolved) {
@@ -376,32 +380,57 @@ export async function startWebContainerHostBridge({
 
   await readyPromise;
 
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    window.clearTimeout(readyTimeoutId);
-    for (const controller of activeFetches.values()) {
-      controller.abort();
+  const stop = async (): Promise<void> => {
+    if (stopPromise) {
+      await stopPromise;
+      return;
     }
-    activeFetches.clear();
-    requests.clear();
-    try {
-      void writer.close().catch(() => {
+    stopPromise = (async () => {
+      if (stopped) return;
+      stopped = true;
+      window.clearTimeout(readyTimeoutId);
+      for (const controller of activeFetches.values()) {
+        controller.abort();
+      }
+      activeFetches.clear();
+      requests.clear();
+      try {
+        await writer.write(encodeHostBridgeFrame({ type: 'shutdown' }));
+      } catch {
         // ignore
-      });
-    } catch {
-      // ignore
-    }
-    try {
-      writer.releaseLock();
-    } catch {
-      // ignore
-    }
-    try {
-      daemon.kill();
-    } catch {
-      // ignore
-    }
+      }
+      try {
+        await writer.close();
+      } catch {
+        // ignore
+      }
+      try {
+        writer.releaseLock();
+      } catch {
+        // ignore
+      }
+      try {
+        await Promise.race([
+          daemonExitPromise,
+          new Promise<void>((resolve) => window.setTimeout(resolve, HOST_BRIDGE_SHUTDOWN_GRACE_PERIOD_MS)),
+        ]);
+      } catch {
+        // ignore
+      }
+      if (!daemonExited) {
+        try {
+          daemon.kill();
+        } catch {
+          // ignore
+        }
+        try {
+          await daemonExitPromise;
+        } catch {
+          // ignore
+        }
+      }
+    })();
+    await stopPromise;
   };
 
   return {

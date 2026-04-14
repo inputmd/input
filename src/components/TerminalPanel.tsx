@@ -1197,10 +1197,10 @@ export function TerminalPanel({
     [releasePaneShellSession],
   );
 
-  const releaseHostBridgeSession = useCallback(() => {
+  const releaseHostBridgeSession = useCallback(async () => {
     const hostBridge = hostBridgeRef.current;
     hostBridgeRef.current = null;
-    hostBridge?.stop();
+    await hostBridge?.stop();
   }, []);
 
   const teardownWebContainer = useCallback((wc: WebContainer | null) => {
@@ -1677,7 +1677,7 @@ export function TerminalPanel({
       const previousWc = wcRef.current;
       restartInFlightRef.current = null;
       releasePersistedHomeSyncSession();
-      releaseHostBridgeSession();
+      await releaseHostBridgeSession();
       releaseAllPaneShellSessions({ invalidate: true });
       setFsReady(false);
       setShellReadyByPane({ primary: false, secondary: false });
@@ -2284,7 +2284,7 @@ export function TerminalPanel({
       setPersistedHomeActiveSessionMode(null);
       disposePersistedHomePrompt();
       releasePersistedHomeSyncSession();
-      releaseHostBridgeSession();
+      void releaseHostBridgeSession();
       releaseAllPaneShellSessions({ invalidate: true });
       paneRuntimesRef.current.primary.disposeSurface?.();
       paneRuntimesRef.current.secondary.disposeSurface?.();
