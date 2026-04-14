@@ -1,0 +1,39 @@
+#!/usr/bin/env node
+
+const path = require('path');
+
+function extractTarget(argv) {
+  for (let index = 2; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (!arg) continue;
+
+    if (arg === '-w' || arg === '--wait' || arg === '-r' || arg === '--reuse-window') {
+      continue;
+    }
+
+    if (arg === '-n' || arg === '--new-window') {
+      continue;
+    }
+
+    if (arg === '-g' || arg === '--goto') {
+      const next = argv[index + 1];
+      if (next) {
+        return next.split(':', 1)[0];
+      }
+      continue;
+    }
+
+    if (arg.startsWith('-')) {
+      continue;
+    }
+
+    return arg;
+  }
+
+  return null;
+}
+
+const target = extractTarget(process.argv);
+process.argv = [process.argv[0], path.resolve(__filename), ...(target ? [target] : [])];
+
+require('../lib/input-nano.cjs').main();

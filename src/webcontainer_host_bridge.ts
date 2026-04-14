@@ -155,11 +155,13 @@ export function buildWebContainerSpawnEnv(homeDir: string, currentPath: string):
 
   return {
     COLORTERM: 'truecolor',
+    EDITOR: 'nano',
     INPUT_HOST_BRIDGE_URL: HOST_BRIDGE_DEFAULT_URL,
     NODE_OPTIONS: `--require=${normalizedHomeDir}/host_rewrite.mjs`,
     PATH: hasLocalBinDir ? currentPath : [localBinDir, currentPath].filter(Boolean).join(':'),
     TERM: 'xterm-256color',
     TERM_PROGRAM: 'ghostty-web',
+    VISUAL: 'nano',
   };
 }
 
