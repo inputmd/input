@@ -761,6 +761,8 @@ const TERMINAL_SCROLLBAR_RESERVATION_PX = 15;
 const TERMINAL_MIN_COLS = 2;
 const TERMINAL_MIN_ROWS = 1;
 const TERMINAL_DRAG_RESIZE_INTERVAL_MS = 90;
+const TERMINAL_FOLLOW_OUTPUT_LEAVE_THRESHOLD_LINES = 4;
+const TERMINAL_FOLLOW_OUTPUT_RESUME_THRESHOLD_LINES = 1;
 const LAYOUT_RESIZE_START_EVENT = 'input:layout-resize-start';
 const LAYOUT_SETTLED_EVENT = 'input:layout-settled';
 
@@ -922,6 +924,10 @@ export function TerminalPanel({
   const [singlePaneId, setSinglePaneId] = useState<PaneId>('primary');
   const [splitOpen, setSplitOpen] = useState(false);
   const [activePaneId, setActivePaneId] = useState<PaneId>('primary');
+  const followOutputByPaneRef = useRef<Record<PaneId, boolean>>({
+    primary: true,
+    secondary: true,
+  });
   const singlePaneIdRef = useRef(singlePaneId);
   singlePaneIdRef.current = singlePaneId;
   const activePaneIdRef = useRef(activePaneId);
@@ -965,25 +971,89 @@ export function TerminalPanel({
     return visiblePaneIdsRef.current[0] ?? 'primary';
   }, []);
 
-  const renderBaseFilesLoadError = useCallback((paneId: PaneId): void => {
-    const message = baseFilesLoadErrorRef.current;
-    if (!message) {
-      lastBaseFilesLoadErrorRef.current = null;
-      return;
-    }
-    if (lastBaseFilesLoadErrorRef.current === message) return;
-    const terminal = paneRuntimesRef.current[paneId].terminal;
-    if (!terminal) return;
-    resetTerminalSurface(terminal);
-    terminal.write(`${message}\r\n`);
-    lastBaseFilesLoadErrorRef.current = message;
-  }, []);
-
   const fitPane = useCallback((paneId: PaneId) => {
     const runtime = paneRuntimesRef.current[paneId];
     if (!runtime.terminal || !runtime.container) return;
     fitTerminal(runtime.terminal, runtime.container);
   }, []);
+
+  const updateFollowOutputState = useCallback((paneId: PaneId, viewportY?: number) => {
+    const terminal = paneRuntimesRef.current[paneId].terminal;
+    if (!terminal) return;
+    const nextViewportY = viewportY ?? terminal.getViewportY();
+    const isFollowing = followOutputByPaneRef.current[paneId];
+    if (isFollowing) {
+      if (nextViewportY >= TERMINAL_FOLLOW_OUTPUT_LEAVE_THRESHOLD_LINES) {
+        followOutputByPaneRef.current[paneId] = false;
+      }
+      return;
+    }
+    if (nextViewportY <= TERMINAL_FOLLOW_OUTPUT_RESUME_THRESHOLD_LINES) {
+      followOutputByPaneRef.current[paneId] = true;
+    }
+  }, []);
+
+  const setFollowOutput = useCallback((paneId: PaneId, followOutput: boolean) => {
+    followOutputByPaneRef.current[paneId] = followOutput;
+  }, []);
+
+  const writeTerminal = useCallback(
+    (
+      paneId: PaneId,
+      data: string | Uint8Array,
+      options?: {
+        forceFollow?: boolean;
+        newline?: boolean;
+      },
+    ) => {
+      const terminal = paneRuntimesRef.current[paneId].terminal;
+      if (!terminal) return;
+      const shouldFollow = options?.forceFollow ?? followOutputByPaneRef.current[paneId];
+      const previousViewportY = shouldFollow ? 0 : terminal.getViewportY();
+      const previousScrollbackLength = shouldFollow ? 0 : terminal.getScrollbackLength();
+
+      if (options?.newline) {
+        terminal.writeln(data);
+      } else {
+        terminal.write(data);
+      }
+
+      if (shouldFollow) {
+        followOutputByPaneRef.current[paneId] = true;
+        return;
+      }
+
+      const nextScrollbackLength = terminal.getScrollbackLength();
+      const scrollbackDelta = Math.max(0, nextScrollbackLength - previousScrollbackLength);
+      const restoreViewportY = Math.max(
+        0,
+        Math.min(nextScrollbackLength, Math.round(previousViewportY + scrollbackDelta)),
+      );
+      if (Math.abs(terminal.getViewportY() - restoreViewportY) > 0.01) {
+        terminal.scrollToLine(restoreViewportY);
+      }
+      updateFollowOutputState(paneId, restoreViewportY);
+    },
+    [updateFollowOutputState],
+  );
+
+  const renderBaseFilesLoadError = useCallback(
+    (paneId: PaneId): void => {
+      const message = baseFilesLoadErrorRef.current;
+      if (!message) {
+        lastBaseFilesLoadErrorRef.current = null;
+        return;
+      }
+      if (lastBaseFilesLoadErrorRef.current === message) return;
+      const terminal = paneRuntimesRef.current[paneId].terminal;
+      if (!terminal) return;
+      resetTerminalSurface(terminal);
+      setFollowOutput(paneId, true);
+      writeTerminal(paneId, `${message}\r\n`, { forceFollow: true });
+      lastBaseFilesLoadErrorRef.current = message;
+    },
+    [setFollowOutput, writeTerminal],
+  );
 
   const focusPane = useCallback(
     (paneId?: PaneId) => {
@@ -1161,6 +1231,7 @@ export function TerminalPanel({
       runtime.disposeSurface = null;
       runtime.terminal = null;
       runtime.container = null;
+      followOutputByPaneRef.current[paneId] = true;
     },
     [releasePaneShellSession],
   );
@@ -1246,6 +1317,7 @@ export function TerminalPanel({
       const sessionId = runtime.shellSessionId + 1;
       runtime.shellSessionId = sessionId;
       releasePaneShellSession(paneId);
+      setFollowOutput(paneId, true);
 
       if (options?.clearTerminal) {
         resetTerminalSurface(terminal);
@@ -1285,7 +1357,7 @@ export function TerminalPanel({
             write(chunk) {
               if (runtime.shellSessionId !== sessionId) return;
               try {
-                terminal.write(chunk);
+                writeTerminal(paneId, chunk);
               } catch (err) {
                 console.error('[terminal] write failed; chunk dropped', err);
               }
@@ -1314,8 +1386,10 @@ export function TerminalPanel({
         hideResetBanner();
         resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
         try {
-          terminal.writeln(
+          writeTerminal(
+            paneId,
             `Shell exited${typeof exitCode === 'number' ? ` (code ${exitCode})` : ''}. Press Ctrl-C twice to restart.`,
+            { forceFollow: true, newline: true },
           );
         } catch {
           // ignore
@@ -1324,7 +1398,7 @@ export function TerminalPanel({
 
       setShellReadyByPane((current) => ({ ...current, [paneId]: true }));
     },
-    [flushManagedSync, hideResetBanner, releasePaneShellSession, setShellExited],
+    [flushManagedSync, hideResetBanner, releasePaneShellSession, setFollowOutput, setShellExited, writeTerminal],
   );
 
   const handleResetHotkey = useCallback(
@@ -1470,7 +1544,9 @@ export function TerminalPanel({
           if (now - lastCtrlZNoticeAtRef.current > CTRL_Z_NOTICE_WINDOW_MS) {
             lastCtrlZNoticeAtRef.current = now;
             try {
-              terminal.writeln('[terminal] Ctrl-Z job control is not supported in this terminal.');
+              writeTerminal(paneId, '[terminal] Ctrl-Z job control is not supported in this terminal.', {
+                newline: true,
+              });
             } catch {
               // ignore
             }
@@ -1496,6 +1572,10 @@ export function TerminalPanel({
         }
       });
 
+      const onScrollDispose = terminal.onScroll((viewportY) => {
+        updateFollowOutputState(paneId, viewportY);
+      });
+
       runtime.disposeSurface = () => {
         resizeObserver.disconnect();
         if (resizeFrameId !== null) {
@@ -1511,6 +1591,7 @@ export function TerminalPanel({
         window.removeEventListener(LAYOUT_SETTLED_EVENT, onLayoutSettled);
         onDataDispose.dispose();
         onResizeDispose.dispose();
+        onScrollDispose.dispose();
         container.removeEventListener('keydown', onMetaKeyDown, true);
         if (runtime.terminal === terminal) {
           runtime.terminal = null;
@@ -1518,7 +1599,15 @@ export function TerminalPanel({
         terminal.dispose();
       };
     },
-    [fitPane, handleResetHotkey, onToggleVisibilityShortcut, renderBaseFilesLoadError, terminalThemeMode],
+    [
+      fitPane,
+      handleResetHotkey,
+      onToggleVisibilityShortcut,
+      renderBaseFilesLoadError,
+      terminalThemeMode,
+      updateFollowOutputState,
+      writeTerminal,
+    ],
   );
 
   useEffect(() => {
@@ -1598,11 +1687,12 @@ export function TerminalPanel({
           const paneTerminal = paneRuntimesRef.current[paneId].terminal;
           if (paneTerminal) {
             resetTerminalSurface(paneTerminal);
+            setFollowOutput(paneId, true);
           }
         }
       }
       if (options?.announceRestart) {
-        terminal.write('Restarting...\r\n');
+        writeTerminal(logPaneId, 'Restarting...\r\n', { forceFollow: true });
       }
 
       if (options?.importBeforeReboot && previousWc) {
@@ -1628,7 +1718,7 @@ export function TerminalPanel({
       }
 
       try {
-        terminal.write('Booting container...\r\n');
+        writeTerminal(logPaneId, 'Booting container...\r\n', { forceFollow: true });
         const wc = await bootPerf.measure('bootWebContainer', () => bootWebContainer(apiKey, workdirName));
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
@@ -1653,7 +1743,7 @@ export function TerminalPanel({
           managed_file_count: initialFileCount,
         });
 
-        terminal.write('Mounting workspace files...\r\n');
+        writeTerminal(logPaneId, 'Mounting workspace files...\r\n', { forceFollow: true });
         try {
           await bootPerf.measure('mountWorkspace', () => wc.mount(initialTree), {
             managed_file_count: initialFileCount,
@@ -1670,16 +1760,18 @@ export function TerminalPanel({
         wcRef.current = wc;
 
         try {
-          terminal.write('Mounting binaries...\r\n');
+          writeTerminal(logPaneId, 'Mounting binaries...\r\n', { forceFollow: true });
           const overlayResult = await provisionHomeOverlay(wc, bootPerf);
           bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
         } catch (err) {
           console.error('[terminal] failed to provision home overlay', err);
-          terminal.write(formatTerminalBootError('[terminal] failed to provision home overlay', err));
+          writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to provision home overlay', err), {
+            forceFollow: true,
+          });
         }
 
         try {
-          terminal.write('Restoring config files...\r\n');
+          writeTerminal(logPaneId, 'Restoring config files...\r\n', { forceFollow: true });
           const homeDir = await bootPerf.measure('persistedHome.resolveHomeDirectory', () =>
             resolveWebContainerHomeDirectory(wc),
           );
@@ -1701,23 +1793,25 @@ export function TerminalPanel({
         } catch (err) {
           setPersistedHomeScriptPath(null);
           console.error('[terminal] failed to restore managed home state', err);
-          terminal.write(formatTerminalBootError('[terminal] failed to restore managed home state', err));
+          writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to restore managed home state', err), {
+            forceFollow: true,
+          });
         }
         setPersistedHomeActiveSessionMode(persistedHomeTransition.nextSessionMode);
 
         if (!includePersistedHomeSync) {
-          terminal.write('Credential sync disabled.\r\n');
+          writeTerminal(logPaneId, 'Credential sync disabled.\r\n', { forceFollow: true });
         }
 
         if (enableNetworkingBridge) {
           try {
-            terminal.write('Starting networking...\r\n');
+            writeTerminal(logPaneId, 'Starting networking...\r\n', { forceFollow: true });
             hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
               startWebContainerHostBridge({
                 onLog(message) {
                   console.error(message);
                   try {
-                    terminal.write(`${message}\r\n`);
+                    writeTerminal(logPaneId, `${message}\r\n`);
                   } catch {
                     // ignore
                   }
@@ -1728,14 +1822,16 @@ export function TerminalPanel({
             setHostBridgeError(false);
           } catch (err) {
             console.error('[terminal] failed to start host bridge', err);
-            terminal.write(
+            writeTerminal(
+              logPaneId,
               `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
+              { forceFollow: true },
             );
             setHostBridgeError(true);
           }
         } else {
           setHostBridgeError(false);
-          terminal.write('Terminal networking disabled.\r\n');
+          writeTerminal(logPaneId, 'Terminal networking disabled.\r\n', { forceFollow: true });
         }
 
         await bootPerf.measure(
@@ -1762,8 +1858,10 @@ export function TerminalPanel({
           await bootPerf.measure('startPersistedHomeWatcher', () => startPersistedHomeSync(wc));
         } catch (err) {
           console.error('[terminal] failed to start managed home state watcher', err);
-          terminal.write(
+          writeTerminal(
+            logPaneId,
             `[terminal] failed to start managed home state watcher: ${err instanceof Error ? err.message : String(err)}\r\n`,
+            { forceFollow: true },
           );
         }
 
@@ -1791,9 +1889,11 @@ export function TerminalPanel({
       resolvePersistedHomeMode,
       setPersistedHomeActiveSessionMode,
       setPersistedHomeScriptPath,
+      setFollowOutput,
       spawnShellSession,
       startPersistedHomeSync,
       teardownWebContainer,
+      writeTerminal,
       workdirName,
     ],
   );
@@ -1815,7 +1915,7 @@ export function TerminalPanel({
         setResettingShell(true);
         try {
           if (!options?.clearTerminal) {
-            terminal.write('\r\n');
+            writeTerminal(targetPaneId, '\r\n', { forceFollow: true });
           }
           await spawnShellSession(targetPaneId, {
             clearTerminal: options?.clearTerminal,
@@ -1826,7 +1926,10 @@ export function TerminalPanel({
           console.error('[terminal] reset failed', err);
           const message = err instanceof Error ? err.message : String(err);
           try {
-            terminal.writeln(`[terminal] failed to reset shell: ${message}`);
+            writeTerminal(targetPaneId, `[terminal] failed to reset shell: ${message}`, {
+              forceFollow: true,
+              newline: true,
+            });
           } catch {
             // ignore
           }
@@ -1844,7 +1947,7 @@ export function TerminalPanel({
         }
       }
     },
-    [focusPane, getPreferredPaneId, hideResetBanner, spawnShellSession],
+    [focusPane, getPreferredPaneId, hideResetBanner, spawnShellSession, writeTerminal],
   );
   restartShellRef.current = restartShell;
 
@@ -1878,7 +1981,10 @@ export function TerminalPanel({
           const message = err instanceof Error ? err.message : String(err);
           if (terminal) {
             try {
-              terminal.writeln(`[terminal] failed to restart WebContainer: ${message}`);
+              writeTerminal(getPreferredPaneId(), `[terminal] failed to restart WebContainer: ${message}`, {
+                forceFollow: true,
+                newline: true,
+              });
             } catch {
               // ignore
             }
@@ -1897,7 +2003,7 @@ export function TerminalPanel({
         }
       }
     },
-    [getPreferredPaneId, hideResetBanner, initializeWebContainerSession],
+    [getPreferredPaneId, hideResetBanner, initializeWebContainerSession, writeTerminal],
   );
   restartWebContainerRef.current = restartWebContainer;
 
