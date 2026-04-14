@@ -4,6 +4,7 @@ import { UPSTREAM_PROXY_SESSION_HEADER, UPSTREAM_PROXY_USER_AGENT_HEADER } from 
 import {
   UPSTREAM_PROXY_MAX_CONCURRENT_ANON,
   UPSTREAM_PROXY_MAX_CONCURRENT_AUTH,
+  UPSTREAM_PROXY_MAX_CONCURRENT_WEBCONTAINER_ANON,
   UPSTREAM_PROXY_MAX_COOKIE_BYTES_PER_SESSION,
   UPSTREAM_PROXY_MAX_COOKIE_VALUE_BYTES,
   UPSTREAM_PROXY_MAX_COOKIES_PER_HOST,
@@ -610,9 +611,33 @@ export function attachUpstreamProxyCookies(
   headers.set('cookie', matchingCookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; '));
 }
 
+function resolveUpstreamProxyConcurrencyBucket(
+  req: http.IncomingMessage,
+  userId: number | null,
+): { key: string; maxConcurrent: number } {
+  if (userId !== null) {
+    return {
+      key: `user:${userId}`,
+      maxConcurrent: UPSTREAM_PROXY_MAX_CONCURRENT_AUTH,
+    };
+  }
+
+  const proxySessionId = getUpstreamProxySessionId(req.headers);
+  if (proxySessionId) {
+    return {
+      key: `webcontainer-session:${proxySessionId}`,
+      maxConcurrent: UPSTREAM_PROXY_MAX_CONCURRENT_WEBCONTAINER_ANON,
+    };
+  }
+
+  return {
+    key: `ip:${getClientIp(req)}`,
+    maxConcurrent: UPSTREAM_PROXY_MAX_CONCURRENT_ANON,
+  };
+}
+
 export function acquireUpstreamProxyConcurrency(req: http.IncomingMessage, userId: number | null): () => void {
-  const key = userId !== null ? `user:${userId}` : `ip:${getClientIp(req)}`;
-  const maxConcurrent = userId !== null ? UPSTREAM_PROXY_MAX_CONCURRENT_AUTH : UPSTREAM_PROXY_MAX_CONCURRENT_ANON;
+  const { key, maxConcurrent } = resolveUpstreamProxyConcurrencyBucket(req, userId);
   const inflight = upstreamProxyInflightRequests.get(key) ?? 0;
   if (inflight >= maxConcurrent) {
     throw new ClientError('Too many concurrent upstream proxy requests', 429);

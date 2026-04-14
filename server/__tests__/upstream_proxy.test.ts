@@ -280,3 +280,55 @@ test.serial('upstream proxy helper caps concurrent anonymous requests and releas
   releaseB();
   releaseC();
 });
+
+test.serial('upstream proxy helper scopes anonymous WebContainer concurrency to the proxy session header', (t) => {
+  const reqA = {
+    headers: {
+      'x-forwarded-for': '203.0.113.10',
+      [UPSTREAM_PROXY_SESSION_HEADER]: 'wc-session-a',
+    },
+    socket: { remoteAddress: '127.0.0.1' },
+  } as const;
+  const reqB = {
+    headers: {
+      'x-forwarded-for': '203.0.113.10',
+      [UPSTREAM_PROXY_SESSION_HEADER]: 'wc-session-b',
+    },
+    socket: { remoteAddress: '127.0.0.1' },
+  } as const;
+
+  const releases = [
+    acquireUpstreamProxyConcurrency(reqA as never, null),
+    acquireUpstreamProxyConcurrency(reqA as never, null),
+    acquireUpstreamProxyConcurrency(reqA as never, null),
+    acquireUpstreamProxyConcurrency(reqA as never, null),
+    acquireUpstreamProxyConcurrency(reqA as never, null),
+    acquireUpstreamProxyConcurrency(reqA as never, null),
+  ];
+  const err = t.throws(() => acquireUpstreamProxyConcurrency(reqA as never, null), { instanceOf: ClientError });
+  t.is(err?.statusCode, 429);
+
+  t.notThrows(() => acquireUpstreamProxyConcurrency(reqB as never, null)());
+
+  for (const release of releases) release();
+});
+
+test.serial('upstream proxy helper keeps authenticated concurrency keyed by user id', (t) => {
+  const req = {
+    headers: { [UPSTREAM_PROXY_SESSION_HEADER]: 'wc-session-a', 'x-forwarded-for': '203.0.113.10' },
+    socket: { remoteAddress: '127.0.0.1' },
+  } as const;
+
+  const releases = [
+    acquireUpstreamProxyConcurrency(req as never, 42),
+    acquireUpstreamProxyConcurrency(req as never, 42),
+    acquireUpstreamProxyConcurrency(req as never, 42),
+    acquireUpstreamProxyConcurrency(req as never, 42),
+    acquireUpstreamProxyConcurrency(req as never, 42),
+    acquireUpstreamProxyConcurrency(req as never, 42),
+  ];
+  const err = t.throws(() => acquireUpstreamProxyConcurrency(req as never, 42), { instanceOf: ClientError });
+  t.is(err?.statusCode, 429);
+
+  for (const release of releases) release();
+});
