@@ -760,6 +760,8 @@ const TERMINAL_IMPORT_MAX_DEPTH = 50;
 const TERMINAL_SCROLLBAR_RESERVATION_PX = 15;
 const TERMINAL_MIN_COLS = 2;
 const TERMINAL_MIN_ROWS = 1;
+const TERMINAL_DRAG_RESIZE_INTERVAL_MS = 90;
+const LAYOUT_RESIZE_START_EVENT = 'input:layout-resize-start';
 const LAYOUT_SETTLED_EVENT = 'input:layout-settled';
 
 function waitForNextAnimationFrame(): Promise<void> {
@@ -1406,28 +1408,50 @@ export function TerminalPanel({
       container.addEventListener('keydown', onMetaKeyDown, true);
 
       let resizeFrameId: number | null = null;
+      let dragResizeTimeoutId: number | null = null;
       let layoutSettledTimeoutId: number | null = null;
-      const scheduleFit = () => {
+      let layoutResizeActive = false;
+      const requestFit = () => {
         if (resizeFrameId !== null) return;
         resizeFrameId = window.requestAnimationFrame(() => {
           resizeFrameId = null;
           fitPane(paneId);
         });
       };
+      const scheduleFit = () => {
+        if (!layoutResizeActive) {
+          requestFit();
+          return;
+        }
+        if (dragResizeTimeoutId !== null || resizeFrameId !== null) return;
+        dragResizeTimeoutId = window.setTimeout(() => {
+          dragResizeTimeoutId = null;
+          requestFit();
+        }, TERMINAL_DRAG_RESIZE_INTERVAL_MS);
+      };
+      const onLayoutResizeStart = () => {
+        layoutResizeActive = true;
+      };
       const onLayoutSettled = () => {
-        scheduleFit();
+        layoutResizeActive = false;
+        if (dragResizeTimeoutId !== null) {
+          window.clearTimeout(dragResizeTimeoutId);
+          dragResizeTimeoutId = null;
+        }
+        requestFit();
         if (layoutSettledTimeoutId !== null) {
           window.clearTimeout(layoutSettledTimeoutId);
         }
         layoutSettledTimeoutId = window.setTimeout(() => {
           layoutSettledTimeoutId = null;
-          scheduleFit();
+          requestFit();
         }, 80);
       };
       const resizeObserver = new ResizeObserver(() => {
         scheduleFit();
       });
       resizeObserver.observe(container);
+      window.addEventListener(LAYOUT_RESIZE_START_EVENT, onLayoutResizeStart);
       window.addEventListener(LAYOUT_SETTLED_EVENT, onLayoutSettled);
 
       const onDataDispose = terminal.onData((data) => {
@@ -1477,9 +1501,13 @@ export function TerminalPanel({
         if (resizeFrameId !== null) {
           window.cancelAnimationFrame(resizeFrameId);
         }
+        if (dragResizeTimeoutId !== null) {
+          window.clearTimeout(dragResizeTimeoutId);
+        }
         if (layoutSettledTimeoutId !== null) {
           window.clearTimeout(layoutSettledTimeoutId);
         }
+        window.removeEventListener(LAYOUT_RESIZE_START_EVENT, onLayoutResizeStart);
         window.removeEventListener(LAYOUT_SETTLED_EVENT, onLayoutSettled);
         onDataDispose.dispose();
         onResizeDispose.dispose();

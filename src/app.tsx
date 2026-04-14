@@ -908,6 +908,11 @@ export function App() {
   const editContentSnapshotTimerRef = useRef<number | null>(null);
   const hydratedLocalDraftKeysRef = useRef(new Set<string>());
   const externalEditSessionIdRef = useRef(0);
+  // Coalesce splitter drag updates to one state write per frame.
+  const sidebarResizeFrameRef = useRef<number | null>(null);
+  const pendingSidebarWidthRef = useRef<number | null>(null);
+  const sidePaneResizeFrameRef = useRef<number | null>(null);
+  const pendingSidePaneWidthRef = useRef<number | null>(null);
   const hasTypedInExternalEditSessionRef = useRef(false);
   currentRepoDocPathRef.current = currentRepoDocPath;
   currentFileNameRef.current = currentFileName;
@@ -8588,41 +8593,102 @@ export function App() {
       }),
     [showSidebar, sidebarWidth],
   );
+  const scheduleSidebarWidth = useCallback((width: number) => {
+    pendingSidebarWidthRef.current = width;
+    if (sidebarResizeFrameRef.current !== null) return;
+    sidebarResizeFrameRef.current = window.requestAnimationFrame(() => {
+      sidebarResizeFrameRef.current = null;
+      const pendingWidth = pendingSidebarWidthRef.current;
+      pendingSidebarWidthRef.current = null;
+      if (pendingWidth == null) return;
+      setSidebarWidth((current) => (current === pendingWidth ? current : pendingWidth));
+    });
+  }, []);
+  const flushPendingSidebarWidth = useCallback(() => {
+    if (sidebarResizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(sidebarResizeFrameRef.current);
+      sidebarResizeFrameRef.current = null;
+    }
+    const pendingWidth = pendingSidebarWidthRef.current;
+    pendingSidebarWidthRef.current = null;
+    if (pendingWidth == null) return;
+    setSidebarWidth((current) => (current === pendingWidth ? current : pendingWidth));
+  }, []);
+  const scheduleSidePaneWidth = useCallback((width: number) => {
+    pendingSidePaneWidthRef.current = width;
+    if (sidePaneResizeFrameRef.current !== null) return;
+    sidePaneResizeFrameRef.current = window.requestAnimationFrame(() => {
+      sidePaneResizeFrameRef.current = null;
+      const pendingWidth = pendingSidePaneWidthRef.current;
+      pendingSidePaneWidthRef.current = null;
+      if (pendingWidth == null) return;
+      setSidePaneWidth((current) => (current === pendingWidth ? current : pendingWidth));
+    });
+  }, []);
+  const flushPendingSidePaneWidth = useCallback(() => {
+    if (sidePaneResizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(sidePaneResizeFrameRef.current);
+      sidePaneResizeFrameRef.current = null;
+    }
+    const pendingWidth = pendingSidePaneWidthRef.current;
+    pendingSidePaneWidthRef.current = null;
+    if (pendingWidth == null) return;
+    setSidePaneWidth((current) => (current === pendingWidth ? current : pendingWidth));
+  }, []);
   const onSidebarSplitPointerDown = useCallback(
     (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
       if (!isDesktopWidth) return;
+      window.dispatchEvent(new Event('input:layout-resize-start'));
       const onMove = (moveEvent: globalThis.PointerEvent) => {
-        setSidebarWidth(clampSidebarWidth(moveEvent.clientX));
+        scheduleSidebarWidth(clampSidebarWidth(moveEvent.clientX));
       };
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        flushPendingSidebarWidth();
         window.dispatchEvent(new Event('input:layout-settled'));
       };
 
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
       event.preventDefault();
     },
-    [isDesktopWidth],
+    [flushPendingSidebarWidth, isDesktopWidth, scheduleSidebarWidth],
   );
   const onReaderAiSplitPointerDown = useCallback(
     (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
       if (!isDesktopWidth) return;
+      window.dispatchEvent(new Event('input:layout-resize-start'));
       const onMove = (moveEvent: globalThis.PointerEvent) => {
-        setSidePaneWidth(clampResponsiveSidePaneWidth(window.innerWidth - moveEvent.clientX));
+        scheduleSidePaneWidth(clampResponsiveSidePaneWidth(window.innerWidth - moveEvent.clientX));
       };
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        flushPendingSidePaneWidth();
         window.dispatchEvent(new Event('input:layout-settled'));
       };
 
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
       event.preventDefault();
     },
-    [clampResponsiveSidePaneWidth, isDesktopWidth],
+    [clampResponsiveSidePaneWidth, flushPendingSidePaneWidth, isDesktopWidth, scheduleSidePaneWidth],
+  );
+  useEffect(
+    () => () => {
+      if (sidebarResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrameRef.current);
+      }
+      if (sidePaneResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sidePaneResizeFrameRef.current);
+      }
+    },
+    [],
   );
   useLayoutEffect(() => {
     const clampCurrent = () => {
