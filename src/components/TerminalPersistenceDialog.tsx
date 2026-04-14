@@ -2,6 +2,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ChevronRight, FileText, FolderClosed, FolderOpen } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import type { PersistedHomeEntry, PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
+import { parseSyncedJsonl } from '../synced_jsonl.ts';
 import {
   buildDirectoryTree,
   DIRECTORY_TREE_CHEVRON_SIZE,
@@ -11,6 +12,7 @@ import {
   type DirectoryTreeFolderNode,
   findFirstDirectoryTreeFile,
 } from './DirectoryTree';
+import { SyncedJsonlTreeView } from './SyncedJsonlTreeView';
 
 interface TerminalPersistenceDialogProps {
   open: boolean;
@@ -22,6 +24,25 @@ interface TerminalPersistenceDialogProps {
 
 type PersistenceScope = 'global' | 'workspace';
 type SelectedPersistedEntry = { scope: PersistenceScope; path: string } | null;
+type PersistencePreviewMode = 'parsed' | 'raw';
+
+function persistedEntryDownloadName(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return 'download.txt';
+  return trimmed.split('/').filter(Boolean).at(-1) ?? 'download.txt';
+}
+
+function triggerBrowserDownload(blob: Blob, fileName: string): void {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = fileName;
+  link.style.display = 'none';
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(href), 0);
+}
 
 function folderAncestors(path: string): string[] {
   const parts = path.split('/').filter(Boolean);
@@ -161,6 +182,7 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
   const [globalCollapsedFolders, setGlobalCollapsedFolders] = useState<Record<string, true>>({});
   const [workspaceCollapsedFolders, setWorkspaceCollapsedFolders] = useState<Record<string, true>>({});
   const [selectedEntry, setSelectedEntry] = useState<SelectedPersistedEntry>(null);
+  const [previewMode, setPreviewMode] = useState<PersistencePreviewMode>('raw');
   const defaultSelectedEntry = useMemo<SelectedPersistedEntry>(() => {
     const firstGlobalFile = findFirstDirectoryTreeFile(globalTree.children);
     if (firstGlobalFile) return { scope: 'global', path: firstGlobalFile.path };
@@ -174,6 +196,7 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
     setGlobalCollapsedFolders((current) => (Object.keys(current).length > 0 ? {} : current));
     setWorkspaceCollapsedFolders((current) => (Object.keys(current).length > 0 ? {} : current));
     setSelectedEntry(null);
+    setPreviewMode('raw');
   }, [open]);
 
   const effectiveSelectedEntry =
@@ -202,6 +225,18 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
   const previewEntry = effectiveSelectedEntry
     ? (selectedEntryContent.get(`${effectiveSelectedEntry.scope}:${effectiveSelectedEntry.path}`) ?? null)
     : null;
+  const parsedPreview = useMemo(
+    () => (previewEntry ? parseSyncedJsonl(previewEntry.content, previewEntry.path) : null),
+    [previewEntry],
+  );
+
+  useEffect(() => {
+    if (!previewEntry) {
+      setPreviewMode('raw');
+      return;
+    }
+    setPreviewMode(parsedPreview ? 'parsed' : 'raw');
+  }, [previewEntry, parsedPreview]);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(nextOpen: boolean) => (!nextOpen ? onClose() : undefined)}>
@@ -244,11 +279,64 @@ export function TerminalPersistenceDialog({ open, loading, error, snapshot, onCl
                 </section>
                 <section class="terminal-persistence-dialog__preview-pane">
                   <div class="terminal-persistence-dialog__pane-header terminal-persistence-dialog__pane-header--mono">
-                    {previewEntry?.path ?? 'Select a file'}
+                    <span class="terminal-persistence-dialog__pane-header-text">
+                      {previewEntry?.path ?? 'Select a file'}
+                    </span>
+                    {previewEntry ? (
+                      <button
+                        type="button"
+                        class="terminal-persistence-dialog__download-link"
+                        onClick={() => {
+                          triggerBrowserDownload(
+                            new Blob([previewEntry.content], { type: 'text/plain;charset=utf-8' }),
+                            persistedEntryDownloadName(previewEntry.path),
+                          );
+                        }}
+                      >
+                        Download
+                      </button>
+                    ) : null}
                   </div>
                   <div class="terminal-persistence-dialog__preview-body">
                     {previewEntry ? (
-                      <pre class="terminal-persistence-dialog__preview-content">{previewEntry.content}</pre>
+                      <>
+                        <div class="terminal-persistence-dialog__preview-toolbar">
+                          <div
+                            class="terminal-persistence-dialog__preview-toggle"
+                            role="tablist"
+                            aria-label="Preview mode"
+                          >
+                            <button
+                              type="button"
+                              role="tab"
+                              aria-selected={previewMode === 'parsed'}
+                              class={`terminal-persistence-dialog__preview-toggle-button${previewMode === 'parsed' ? ' is-active' : ''}`}
+                              disabled={!parsedPreview}
+                              onClick={() => {
+                                setPreviewMode('parsed');
+                              }}
+                            >
+                              Parsed JSONL
+                            </button>
+                            <button
+                              type="button"
+                              role="tab"
+                              aria-selected={previewMode === 'raw'}
+                              class={`terminal-persistence-dialog__preview-toggle-button${previewMode === 'raw' ? ' is-active' : ''}`}
+                              onClick={() => {
+                                setPreviewMode('raw');
+                              }}
+                            >
+                              Raw text
+                            </button>
+                          </div>
+                        </div>
+                        {previewMode === 'parsed' && parsedPreview ? (
+                          <SyncedJsonlTreeView parsed={parsedPreview} />
+                        ) : (
+                          <pre class="terminal-persistence-dialog__preview-content">{previewEntry.content}</pre>
+                        )}
+                      </>
                     ) : (
                       <div class="terminal-persistence-dialog__empty">Select a file to view its contents</div>
                     )}

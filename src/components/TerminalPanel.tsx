@@ -1111,13 +1111,10 @@ export function TerminalPanel({
   const networkingStatusLabel = hostBridgeError ? 'Networking error' : 'Networking on';
   const credentialSyncMenuNote =
     credentialSyncEnabled === null
-      ? 'Credential sync status is still loading.'
+      ? 'Loading...'
       : credentialSyncEnabled
-        ? 'Credential sync: on. Credentials and sessions are automatically synced to new terminals.'
-        : 'Credential sync: off. Credentials and sessions are not synced to new terminals.';
-  const networkingMenuNote = hostBridgeError
-    ? 'Terminal networking: error. Networking failed to start in this terminal.'
-    : 'Terminal networking: on. Networking remains available in this terminal.';
+        ? 'Credentials and sessions are automatically synced across terminals.'
+        : 'Untrusted repo, credentials and sessions will be deleted on exit.';
 
   const setShellExited = useCallback((paneId: PaneId, exited: boolean) => {
     shellExitedByPaneRef.current[paneId] = exited;
@@ -2446,7 +2443,6 @@ export function TerminalPanel({
               <DropdownMenu.Portal>
                 <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
                   <DropdownMenu.Label class="terminal-panel__menu-note">{credentialSyncMenuNote}</DropdownMenu.Label>
-                  <DropdownMenu.Label class="terminal-panel__menu-note">{networkingMenuNote}</DropdownMenu.Label>
                   <DropdownMenu.Separator class="terminal-panel__menu-separator" />
                   <DropdownMenu.Item
                     class="terminal-panel__menu-item"
