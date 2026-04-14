@@ -6849,7 +6849,6 @@ export function App() {
           setHasUnsavedChanges(false);
         }
         setSidebarFileFilter('all');
-        navigateToSidebarFile(seedFilePath);
       } catch (err) {
         showRateLimitToastIfNeeded(err);
         void showAlert(err instanceof Error ? err.message : 'Failed to create directory');
@@ -6869,7 +6868,6 @@ export function App() {
       showConfirm,
       showFailureToast,
       showRateLimitToastIfNeeded,
-      navigateToSidebarFile,
       setRepoFileContent,
       setHasUnsavedChanges,
       upsertRepoFile,

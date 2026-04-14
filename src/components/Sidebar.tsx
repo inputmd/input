@@ -19,14 +19,13 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import type { RepoWorkspaceChangedFileDetail } from '../repo_workspace/commit';
 import { loadSidebarCollapsedFoldersState, persistSidebarCollapsedFolders } from '../sidebar_state';
+import { buildSidebarTree, type SidebarTreeFolderNode, type SidebarTreeNode } from '../sidebar_tree';
 import {
-  buildDirectoryTree,
   collectDirectoryTreeFolderPaths,
   DIRECTORY_TREE_CHEVRON_SIZE,
   DIRECTORY_TREE_INDENT_PX,
   DirectoryTree,
   type DirectoryTreeFileNode,
-  type DirectoryTreeFolderNode,
 } from './DirectoryTree';
 
 export interface SidebarFile {
@@ -78,14 +77,7 @@ export interface SidebarProps {
 }
 
 type SidebarFileNode = DirectoryTreeFileNode<SidebarFile>;
-
-interface SidebarFolderNode extends Omit<DirectoryTreeFolderNode<SidebarFile>, 'children'> {
-  children: SidebarTreeNode[];
-  deemphasized: boolean;
-  hasActiveDescendant: boolean;
-}
-
-type SidebarTreeNode = SidebarFileNode | SidebarFolderNode;
+type SidebarFolderNode = SidebarTreeFolderNode<SidebarFile>;
 type RenameTarget = { kind: 'file' | 'folder'; path: string } | null;
 type CreateKind = 'file' | 'directory';
 type DraggedSidebarItem = { kind: 'file' | 'folder'; path: string } | null;
@@ -169,32 +161,6 @@ function sanitizeCreateNameInput(input: string): string {
   if (!normalized) return '';
   if (normalized.includes('/') || normalized === '.' || normalized === '..') return '';
   return normalized;
-}
-
-function isKeepMarkerPath(path: string): boolean {
-  return /(?:^|\/)\.keep$/i.test(path);
-}
-
-function buildTree(files: SidebarFile[]): SidebarFolderNode {
-  const genericRoot = buildDirectoryTree(files, { shouldIncludeFile: (file) => !isKeepMarkerPath(file.path) });
-
-  const annotateFolders = (folder: DirectoryTreeFolderNode<SidebarFile>): SidebarFolderNode => {
-    const children: SidebarTreeNode[] = folder.children.map((child) => {
-      if (child.kind === 'folder') return annotateFolders(child);
-      return child;
-    });
-    const hasActiveDescendant = children.some((child) =>
-      child.kind === 'folder' ? child.hasActiveDescendant : child.entry.active,
-    );
-    return {
-      ...folder,
-      children,
-      deemphasized: folder.path ? isHiddenFolderPath(folder.path) : false,
-      hasActiveDescendant,
-    };
-  };
-
-  return annotateFolders(genericRoot);
 }
 
 function collectFolderPaths(node: SidebarFolderNode, out: Set<string>): void {
@@ -382,7 +348,7 @@ export function Sidebar({
   const cancelRenameOnBlurRef = useRef(false);
   const stagedChangesTooltipCloseTimeoutRef = useRef<number | null>(null);
 
-  const tree = useMemo(() => buildTree(files), [files]);
+  const tree = useMemo(() => buildSidebarTree(files), [files]);
   const folderPaths = useMemo(() => {
     const paths = new Set<string>();
     collectFolderPaths(tree, paths);
@@ -588,8 +554,26 @@ export function Sidebar({
     createInFlightRef.current = true;
     setCreatingFile(true);
     try {
-      if (createKind === 'directory') await onCreateDirectory(path);
-      else await onCreateFile(path);
+      if (createKind === 'directory') {
+        await onCreateDirectory(path);
+        const expandedPaths = [...folderAncestors(path), path];
+        for (const expandedPath of expandedPaths) autoCollapsedDefaultsRef.current.add(expandedPath);
+        setCollapsedFolders((prev) => {
+          let next = prev;
+          for (const expandedPath of expandedPaths) {
+            if (!next[expandedPath]) continue;
+            if (next === prev) next = { ...prev };
+            delete next[expandedPath];
+          }
+          return next;
+        });
+        setCreateAtRoot(false);
+        setFocusedPath(path);
+        setCreateContextPath(path);
+        requestAnimationFrame(() => rowRefs.current[path]?.focus());
+      } else {
+        await onCreateFile(path);
+      }
       setNewFileName('');
       setCreateParentPath('');
       setCreatingNew(false);
