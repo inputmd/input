@@ -183,6 +183,7 @@ import {
   writePersistedNewGistFileDraft,
 } from './scratch_files';
 import { isSubdomainMode } from './subdomain';
+import { resolveTerminalRouteEligibility } from './terminal_eligibility.ts';
 import {
   decodeBase64ToBytes,
   encodeBytesToBase64,
@@ -1224,6 +1225,12 @@ export function App() {
     (((renderMode === 'markdown' || renderMode === 'ansi') && Boolean(readerAiSource)) ||
       (contentLoadPending && readerAiContentFileEligible));
   const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
+  const terminalRouteEligible = resolveTerminalRouteEligibility({
+    routeView,
+    readerAiContentEligible,
+    currentEditingDocPath,
+    isScratchDocument,
+  });
   const setInlinePromptProtectedRangeState = useCallback((range: EditorProtectedRange | null) => {
     inlinePromptProtectedRangeRef.current = range;
     setInlinePromptProtectedRange(range);
@@ -8791,7 +8798,7 @@ export function App() {
   const mountReaderAiPanel = showReaderAiToggle;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
   const showTerminalToggle =
-    Boolean(import.meta.env.VITE_WEBCONTAINERS_API_KEY) && readerAiHistoryEligible && !documentStack.hasStack;
+    Boolean(import.meta.env.VITE_WEBCONTAINERS_API_KEY) && terminalRouteEligible && !documentStack.hasStack;
   const showTerminalPanel = showTerminalToggle && terminalVisible;
   const mountTerminalPanel =
     showTerminalToggle && (showTerminalPanel || mountedTerminalWorkspaceKey === sidebarWorkspaceKey);
