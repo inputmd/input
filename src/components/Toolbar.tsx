@@ -340,7 +340,7 @@ export function Toolbar({
   const selectedInstallationLabel = selectedInstallation?.accountLogin ?? selectedInstallation?.installationId ?? null;
   const selectedRepoName = selectedRepo?.split('/').at(-1) ?? selectedRepo;
   const showHeaderToggleGroup = showPreviewToggle || showAiToggle;
-  const showAiModelSelector = showAiToggle;
+  const showAiModelSelector = showAiToggle && aiVisible && !terminalVisible;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const showHeaderForkRepoButton = showForkRepo && view !== 'edit' && view !== 'workspaces';
@@ -364,6 +364,11 @@ export function Toolbar({
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (showAiModelSelector) return;
+    setModelSelectorOpen(false);
+  }, [showAiModelSelector]);
 
   useEffect(() => {
     return () => {
