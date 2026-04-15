@@ -722,6 +722,11 @@ export function Toolbar({
                 <span class="toolbar-spinner" aria-hidden="true" />
               </div>
             ) : null}
+            <span class="toolbar-brand-logo-wrap" aria-hidden="true">
+              <svg class="toolbar-brand-logo" viewBox="0 0 19 19" aria-hidden="true" focusable="false">
+                <use href="/logo.svg#logo-mark" />
+              </svg>
+            </span>
             {showSidebarToggle ? (
               <button
                 type="button"

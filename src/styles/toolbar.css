@@ -21,6 +21,24 @@
   gap: 8px;
 }
 
+.toolbar-brand-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 35px;
+  margin-left: -2px;
+  padding-right: 5px;
+}
+
+.toolbar-brand-logo {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
 .toolbar-mobile-only {
   display: none;
 }
