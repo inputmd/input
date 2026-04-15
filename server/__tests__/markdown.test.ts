@@ -229,6 +229,21 @@ test('marked renders double-colon highlight markup', (t) => {
   t.true(html.includes('Use <mark class="double-colon-highlight">highlighted text</mark> here.'));
 });
 
+test('marked renders double-plus inline comments as italic comment spans', (t) => {
+  const html = marked.parse('Use ++note to self++ here.');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('Use <span class="inline-comment">note to self</span> here.'));
+});
+
+test('marked trims padding inside double-plus inline comments', (t) => {
+  const html = marked.parse('Use ++ note to self ++ here.');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('Use <span class="inline-comment">note to self</span> here.'));
+  t.false(html.includes('> note to self <'));
+});
+
 test('marked renders bare bracketed text without brackets', (t) => {
   const html = marked.parse('Use [draft] status.');
 
@@ -940,6 +955,19 @@ test('parseMarkdownToHtml renders CriticMarkup inside prompt list items', (t) =>
   t.true(html.includes('<li class="prompt-answer">Keep <del class="critic-deletion">that</del></li>'));
 });
 
+test('parseMarkdownToHtml renders double-plus inline comments inside list items', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('- Keep ++internal note++ nearby.'));
+
+  t.true(html.includes('<li>Keep <span class="inline-comment">internal note</span> nearby.</li>'));
+});
+
+test('parseMarkdownToHtml renders double-plus inline comments inside prompt list items', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('~ Ask ++private note++\n⏺ Answer ++draft thought++'));
+
+  t.true(html.includes('<li class="prompt-question">Ask <span class="inline-comment">private note</span></li>'));
+  t.true(html.includes('<li class="prompt-answer">Answer <span class="inline-comment">draft thought</span></li>'));
+});
+
 test('parseMarkdownToHtml renders CriticMarkup inside footnote definitions', (t) => {
   const html = withDom(() => parseMarkdownToHtml('See [^edit].\n\n[^edit]: add {++this++}'));
 
@@ -963,6 +991,13 @@ test('parseMarkdownToHtml does not parse CriticMarkup inside fenced code blocks'
 
   t.regex(html, /<pre(?:\s+data-sync-id="[^"]+")?><code(?: class="language-md")?>\{\+\+literal\+\+\}\n<\/code><\/pre>/);
   t.false(html.includes('critic-addition'));
+});
+
+test('parseMarkdownToHtml does not parse double-plus inline comments inside fenced code blocks', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('```md\n++literal++\n```'));
+
+  t.regex(html, /<pre(?:\s+data-sync-id="[^"]+")?><code(?: class="language-md")?>\+\+literal\+\+\n<\/code><\/pre>/);
+  t.false(html.includes('inline-comment'));
 });
 
 test('parseMarkdownToHtml renders empty tilde prompt placeholders inside io code blocks', (t) => {
@@ -991,6 +1026,12 @@ test('parseMarkdownToHtml renders brace prompt tab hints only at the end of io c
       `<span class="io-hl-brace-prompt">{inline}</span><span class="io-hl-brace-prompt-hint">${BRACE_PROMPT_HINT_LABEL}</span>`,
     ),
   );
+});
+
+test('parseMarkdownToHtml highlights double-plus inline comments inside io code blocks', (t) => {
+  const html = withDom(() => parseMarkdownToHtml('```io\nbefore ++note++ after\n```'));
+
+  t.true(html.includes('before <span class="io-hl-inline-comment">++note++</span> after'));
 });
 
 test('parseMarkdownToHtml strips shallow prompt continuation indentation inside io code blocks', (t) => {

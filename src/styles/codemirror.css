@@ -991,6 +991,17 @@
   color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
 }
 
+.cm-editor .cm-inline-comment {
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+  font-style: italic;
+}
+
+.cm-editor .cm-inline-comment .tok-content,
+.cm-editor .cm-inline-comment .tok-variableName {
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+  font-style: italic;
+}
+
 [data-theme="light"] .cm-editor .tok-string,
 [data-theme="light"] .cm-editor .tok-attributeValue {
   color: color-mix(in srgb, var(--text) 55%, var(--ansi-green));

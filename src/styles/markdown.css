@@ -1143,6 +1143,13 @@
   white-space: pre-wrap;
 }
 
+.rendered-markdown .inline-comment,
+.markdown-link-preview-body .inline-comment {
+  color: var(--text-secondary);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
 .rendered-markdown .critic-substitution,
 .markdown-link-preview-body .critic-substitution {
   display: inline;
@@ -1171,6 +1178,11 @@
 }
 
 .rendered-markdown .io-hl-critic-comment {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.rendered-markdown .io-hl-inline-comment {
   color: var(--text-secondary);
   font-style: italic;
 }

@@ -334,6 +334,85 @@ test('markdown editor decorates double-colon highlights inside long list items',
   }
 });
 
+test('markdown editor collapses double-plus inline comment markers until the selection enters the span', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc = 'Use ++note to self++ here.';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.regex(view.dom.textContent ?? '', /Use note to self here\./);
+    t.false((view.dom.textContent ?? '').includes('++note to self++'));
+    t.truthy(view.dom.querySelector('.cm-inline-comment'));
+
+    const commentFrom = doc.indexOf('note');
+    view.dispatch({ selection: EditorSelection.cursor(commentFrom + 1) });
+
+    t.regex(view.dom.textContent ?? '', /Use \+\+note to self\+\+ here\./);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('markdown editor decorates double-plus inline comments inside long list items', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc =
+      '- ++Lantern note++ is described here as an internal aside, with enough trailing prose to keep the list item long and exercise the wrapped-line decoration path in CodeMirror.';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    t.truthy(view.dom.querySelector('.cm-inline-comment'));
+    t.false((view.dom.textContent ?? '').includes('++Lantern note++'));
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('markdown editor leaves double-plus inline comment syntax literal inside inline and fenced code', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    const doc = ['`++code++`', '', '```md', '++fenced++', '```', '', '++shown++'].join('\n');
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor(0),
+        extensions: [markdownEditorLanguageSupport()],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    const text = view.dom.textContent ?? '';
+    t.true(text.includes('++code++'));
+    t.true(text.includes('++fenced++'));
+    t.false(text.includes('++shown++'));
+    t.is(view.dom.querySelectorAll('.cm-inline-comment').length, 1);
+    view.destroy();
+  } finally {
+    restore();
+  }
+});
+
 test('promptListHintLabelForText returns question hint labels', (t) => {
   t.is(promptListHintLabelForText('~ '), 'Type to ask AI');
   t.is(promptListHintLabelForText('~ Explain Solomonoff induction'), null);

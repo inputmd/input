@@ -6,6 +6,7 @@ import { tags } from '@lezer/highlight';
 import type { BlockContext, InlineParser, Line, MarkdownExtension } from '@lezer/markdown';
 import { BRACE_PROMPT_HINT_LABEL } from '../brace_prompt.ts';
 import { parseHighlightMarkupAt } from '../highlight_markup.ts';
+import { parseInlineCommentAt } from '../inline_comment.ts';
 import { EMPTY_PROMPT_QUESTION_PLACEHOLDER, matchPromptListLine, parsePromptListBlock } from '../prompt_list_syntax.ts';
 import { criticMarkupDecorationExtension } from './codemirror_criticmarkup.ts';
 import {
@@ -110,6 +111,33 @@ const highlightMarkupMarkdownExtension: MarkdownExtension = {
   parseInline: [highlightMarkupInlineParser],
 };
 
+const inlineCommentInlineParser: InlineParser = {
+  name: 'InlineComment',
+  before: 'Emphasis',
+  parse(cx, next, pos) {
+    if (next !== 43 || cx.char(pos + 1) !== 43) return -1;
+    if (pos > 0 && cx.char(pos - 1) === 123) return -1; // don't steal `{++critic++}`
+    const lineEnd = cx.text.indexOf('\n', pos);
+    const sliceEnd = lineEnd === -1 ? cx.end : Math.min(cx.end, lineEnd);
+    const match = parseInlineCommentAt(cx.text.slice(0, sliceEnd), pos);
+    if (!match) return -1;
+    return cx.addElement(
+      cx.elt('InlineComment', pos, match.to, [
+        cx.elt('InlineCommentMark', pos, pos + 2),
+        cx.elt('InlineCommentMark', match.closerFrom, match.closerTo),
+      ]),
+    );
+  },
+};
+
+const inlineCommentMarkdownExtension: MarkdownExtension = {
+  defineNodes: [
+    { name: 'InlineComment', style: tags.comment },
+    { name: 'InlineCommentMark', style: tags.comment },
+  ],
+  parseInline: [inlineCommentInlineParser],
+};
+
 const markdownParserExtensions: MarkdownExtension = [
   {
     // Leaving HTML parsing enabled makes unfinished `<!--` comments
@@ -123,6 +151,7 @@ const markdownParserExtensions: MarkdownExtension = [
   },
   htmlCommentMarkdownExtension,
   highlightMarkupMarkdownExtension,
+  inlineCommentMarkdownExtension,
   wikiLinkMarkdownExtension,
 ];
 
@@ -711,6 +740,7 @@ const COLLAPSIBLE_INLINE_NODE_NAMES = new Set([
   'StrongEmphasis',
   'Strikethrough',
   'HighlightMarkup',
+  'InlineComment',
 ]);
 
 const CODE_NODE_NAMES = new Set(['FencedCode', 'InlineCode', 'CodeText', 'CodeMark']);
@@ -857,6 +887,57 @@ function buildDoubleColonHighlightDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
+function buildInlineCommentDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+
+  for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber += 1) {
+    const line = view.state.doc.line(lineNumber);
+    const text = line.text;
+    let cursor = 0;
+
+    while (cursor < text.length) {
+      const plusIndex = text.indexOf('++', cursor);
+      if (plusIndex === -1) break;
+
+      const absoluteFrom = line.from + plusIndex;
+      cursor = plusIndex + 2;
+
+      if (isCodePosition(view.state, absoluteFrom)) continue;
+      if (plusIndex > 0 && text[plusIndex - 1] === '{') continue;
+
+      const match = parseInlineCommentAt(text, plusIndex);
+      if (!match) continue;
+
+      const absoluteTo = line.from + match.to;
+      const selected = rangeTouchesSelection(view.state, absoluteFrom, absoluteTo);
+
+      if (!selected) {
+        builder.add(line.from + match.openerFrom, line.from + match.openerTo, Decoration.replace({}));
+        if (match.openerTo < match.contentFrom) {
+          builder.add(line.from + match.openerTo, line.from + match.contentFrom, Decoration.replace({}));
+        }
+      }
+      if (match.contentFrom < match.contentTo) {
+        builder.add(
+          line.from + match.contentFrom,
+          line.from + match.contentTo,
+          Decoration.mark({ class: 'cm-inline-comment' }),
+        );
+      }
+      if (!selected) {
+        if (match.contentTo < match.closerFrom) {
+          builder.add(line.from + match.contentTo, line.from + match.closerFrom, Decoration.replace({}));
+        }
+        builder.add(line.from + match.closerFrom, line.from + match.closerTo, Decoration.replace({}));
+      }
+
+      cursor = match.to;
+    }
+  }
+
+  return builder.finish();
+}
+
 const promptListHintExtension = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
@@ -944,6 +1025,25 @@ const doubleColonHighlightDecorationExtension = ViewPlugin.fromClass(
   },
 );
 
+const inlineCommentDecorationExtension = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildInlineCommentDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.selectionSet) {
+        this.decorations = buildInlineCommentDecorations(update.view);
+      }
+    }
+  },
+  {
+    decorations: (value) => value.decorations,
+  },
+);
+
 export function markdownEditorLanguageSupport() {
   return [
     markdown({
@@ -954,6 +1054,7 @@ export function markdownEditorLanguageSupport() {
     promptListCollapseField,
     promptListAtomicRangesExtension,
     doubleColonHighlightDecorationExtension,
+    inlineCommentDecorationExtension,
     collapsedLinkDecorationExtension,
     criticMarkupDecorationExtension,
     bracePromptDecorationExtension,
@@ -974,11 +1075,13 @@ export function markdownCodeLanguageSupport() {
           remove: ['HTMLBlock', 'HTMLTag', 'IndentedCode'],
         },
         htmlCommentMarkdownExtension,
+        inlineCommentMarkdownExtension,
       ],
     }),
     promptListCollapseField,
     promptListAtomicRangesExtension,
     doubleColonHighlightDecorationExtension,
+    inlineCommentDecorationExtension,
     collapsedLinkDecorationExtension,
     criticMarkupDecorationExtension,
     promptListLineClassExtension,

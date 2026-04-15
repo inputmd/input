@@ -48,6 +48,16 @@ Inline editorial annotations ([CriticMarkup](https://criticmarkup.com/) spec, si
 | `{>>text<<}` | Comment | inline comment |
 | `{~~old~>new~~}` | Substitution | `<del>old</del><ins>new</ins>` |
 
+## Inline Comments
+
+```
+++how about that?++
+```
+
+Double-plus spans render as visible inline comments with plain-text content only.
+Leading and trailing padding inside the delimiters is trimmed. Inline Markdown is
+not parsed inside the comment body.
+
 ## Wikilinks
 
 ```
