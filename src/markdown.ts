@@ -7,6 +7,7 @@ import { parseCriticMarkupAt } from './criticmarkup.ts';
 import { parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { parseHighlightMarkupAt } from './highlight_markup.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
+import { parseInlineCommentAt } from './inline_comment.ts';
 import {
   hashPromptListIdentifierText,
   normalizePromptListIdentifierText,
@@ -62,6 +63,11 @@ interface CriticMarkupToken extends Tokens.Generic {
 interface HighlightMarkupToken extends Tokens.Generic {
   type: 'highlightMarkup';
   tokens?: Token[];
+}
+
+interface InlineCommentToken extends Tokens.Generic {
+  type: 'inlineComment';
+  text: string;
 }
 
 interface SuperscriptLinkToken extends Tokens.Generic {
@@ -478,6 +484,25 @@ marked.use({
       },
       renderer(token) {
         return `<mark class="double-colon-highlight">${this.parser.parseInline((token as HighlightMarkupToken).tokens ?? [])}</mark>`;
+      },
+    },
+    {
+      name: 'inlineComment',
+      level: 'inline',
+      start(src: string) {
+        return src.indexOf('++');
+      },
+      tokenizer(src: string) {
+        const match = parseInlineCommentAt(src, 0);
+        if (!match) return undefined;
+        return {
+          type: 'inlineComment',
+          raw: match.raw,
+          text: match.text,
+        } satisfies InlineCommentToken;
+      },
+      renderer(token) {
+        return `<span class="inline-comment">${escapeHtmlAttr((token as InlineCommentToken).text)}</span>`;
       },
     },
     {
@@ -1199,6 +1224,7 @@ const IO_HIGHLIGHT_RULES: Array<{ pattern: RegExp; className: string }> = [
   { pattern: /\{--[\s\S]*?--\}/g, className: 'io-hl-critic-deletion' },
   { pattern: /\{==[\s\S]*?==\}/g, className: 'io-hl-critic-highlight' },
   { pattern: /\{>>[\s\S]*?<<\}/g, className: 'io-hl-critic-comment' },
+  { pattern: /\+\+[^\r\n]*?\+\+/g, className: 'io-hl-inline-comment' },
   // Template tags
   { pattern: /\{%[\t ].*?%\}/g, className: 'io-hl-template-tag' },
   // Brace prompts (single-line, no nested braces, not CriticMarkup)
