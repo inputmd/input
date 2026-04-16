@@ -22,6 +22,7 @@ import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
 import { parseDocumentEditorsFromMarkdown, parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { createGistDocumentStore, createRepoDocumentStore, type RepoDocFile } from './document_store';
+import { resolveRepoSaveExpectedSha, shouldSkipRedundantExistingDocumentSave } from './editor_save_guards';
 import { resolveForkTargetInstallationId, resolveForkTargetRepoFullName } from './fork_repo';
 import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import {
@@ -899,6 +900,7 @@ export function App() {
   const activeTerminalImportPathRef = useRef<string | null>(null);
   const hasUserTypedUnsavedChangesRef = useRef(false);
   const currentDocumentSavedContentRef = useRef<string | null>(null);
+  const currentRepoDocShaRef = useRef<string | null>(currentRepoDocSha);
   const setHasUnsavedChangesRef = useRef<(value: boolean) => void>(() => {});
   const setHasUserTypedUnsavedChangesRef = useRef<(value: boolean) => void>(() => {});
   const prevRouteNameRef = useRef(route.name);
@@ -917,6 +919,7 @@ export function App() {
   const hasTypedInExternalEditSessionRef = useRef(false);
   currentRepoDocPathRef.current = currentRepoDocPath;
   currentFileNameRef.current = currentFileName;
+  currentRepoDocShaRef.current = currentRepoDocSha;
   const cancelEditContentSnapshot = useCallback(() => {
     if (editContentSnapshotTimerRef.current == null) return;
     window.clearTimeout(editContentSnapshotTimerRef.current);
@@ -5351,6 +5354,22 @@ export function App() {
       }
       const title = (options?.title ?? editTitle).trim() || DEFAULT_NEW_FILENAME;
       const content = options?.content ?? editContentRef.current;
+      if (
+        shouldSkipRedundantExistingDocumentSave({
+          editingBackend,
+          currentRepoDocPath: currentRepoDocPathRef.current,
+          currentFileName: currentFileNameRef.current,
+          content,
+          savedContent: currentDocumentSavedContentRef.current,
+        })
+      ) {
+        if (currentDocumentDraftKey) {
+          removeDocumentDraft(currentDocumentDraftKey);
+          setCurrentDocumentDraft(null);
+        }
+        setHasUnsavedChanges(false);
+        return null;
+      }
       const inferredScratchFilename = inferScratchFileNameFromContent(content, browserLocales);
       const preferredScratchFilename =
         activeScratchFile?.filename || inferredScratchFilename || DEFAULT_SCRATCH_FILENAME;
@@ -5409,9 +5428,11 @@ export function App() {
             currentRepoDocPath,
             `Update ${currentRepoDocPath}`,
             contentB64,
-            currentRepoDocSha ?? undefined,
+            resolveRepoSaveExpectedSha(currentRepoDocShaRef.current),
           );
           const contentSize = new TextEncoder().encode(content).length;
+          currentRepoDocShaRef.current = result.content.sha;
+          currentDocumentSavedContentRef.current = content;
           setCurrentRepoDocSha(result.content.sha);
           updateRepoFile(currentRepoDocPath, { sha: result.content.sha, size: contentSize });
           setRepoFileContent(currentRepoDocPath, content);
@@ -5474,6 +5495,7 @@ export function App() {
             if (!proceed) return null;
           }
           const baseFile = findBaseRepoSidebarFile(currentRepoDocPath);
+          const expectedSha = resolveRepoSaveExpectedSha(currentRepoDocShaRef.current, baseFile?.sha);
           const mutation: RepoBatchMutation = baseFile
             ? {
                 message: `Update ${currentRepoDocPath}`,
@@ -5481,7 +5503,7 @@ export function App() {
                   {
                     path: currentRepoDocPath,
                     content,
-                    ...(baseFile.sha ? { expectedSha: baseFile.sha } : {}),
+                    ...(expectedSha ? { expectedSha } : {}),
                   },
                 ],
               }
@@ -5499,8 +5521,10 @@ export function App() {
             refreshedFiles?.find((file) => file.path === currentRepoDocPath) ??
             findBaseRepoSidebarFile(currentRepoDocPath);
           if (refreshedCurrentFile?.sha) {
+            currentRepoDocShaRef.current = refreshedCurrentFile.sha;
             setCurrentRepoDocSha(refreshedCurrentFile.sha);
           }
+          currentDocumentSavedContentRef.current = content;
           setCurrentDocumentSavedContent(content);
           if (currentDocumentDraftKey) {
             removeDocumentDraft(currentDocumentDraftKey);
@@ -5587,6 +5611,10 @@ export function App() {
             localStorage.removeItem(repoNewDraftKey(instId, repoName, draftPath, 'content'));
             localStorage.removeItem(repoNewDraftKey(instId, repoName, draftPath, 'filename'));
           }
+          currentRepoDocPathRef.current = createdFile.path;
+          currentFileNameRef.current = createdFile.path;
+          currentRepoDocShaRef.current = createdFile.sha || null;
+          currentDocumentSavedContentRef.current = content;
           setCurrentRepoDocPath(createdFile.path);
           setCurrentRepoDocSha(createdFile.sha || null);
           setCurrentFileName(createdFile.path);
@@ -5651,6 +5679,8 @@ export function App() {
             gist = await createGist(content, filename, title === UNSAVED_FILE_LABEL ? undefined : title);
             markGistRecentlyCreated(user?.login ?? null, gist);
           }
+          currentFileNameRef.current = filename;
+          currentDocumentSavedContentRef.current = content;
           setCurrentGistId(gist.id);
           setCurrentGistOwnerLogin(typeof gist.owner?.login === 'string' ? gist.owner.login : null);
           setCurrentFileName(filename);
@@ -5721,7 +5751,6 @@ export function App() {
       currentFileName,
       currentGistId,
       currentRepoDocPath,
-      currentRepoDocSha,
       currentRouteRepoRef,
       draftMode,
       editTitle,

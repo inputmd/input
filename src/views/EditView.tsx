@@ -14,6 +14,7 @@ import type { PromptListRequest } from '../components/markdown_editor_commands';
 import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlightsPopover';
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextEditor } from '../components/TextEditor';
+import { shouldTriggerEditSaveShortcut } from '../editor_save_guards';
 import type { MarkdownSyncBlock } from '../markdown';
 import {
   findPreviewHashTarget,
@@ -449,9 +450,23 @@ export function EditView({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (!loading && !locked && !readOnly && canSave && !saving) onSave();
+      }
+      if (
+        shouldTriggerEditSaveShortcut({
+          key: e.key,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          repeat: e.repeat,
+          loading,
+          locked,
+          readOnly,
+          canSave,
+          saving,
+        })
+      ) {
+        onSave();
       }
     };
     window.addEventListener('keydown', onKeyDown);
