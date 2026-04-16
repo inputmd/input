@@ -10,6 +10,7 @@ interface MarkdownLinkPreview {
 interface DocumentStackViewProps {
   entries: StackEntry[];
   baseTitle: string;
+  currentUserAvatarUrl?: string | null;
   onPopToIndex: (index: number) => void;
   onInternalLinkNavigate: (route: string) => void;
   onRequestMarkdownLinkPreview?: (route: string) => Promise<MarkdownLinkPreview | null>;
@@ -19,6 +20,7 @@ interface DocumentStackViewProps {
 export function DocumentStackView({
   entries,
   baseTitle,
+  currentUserAvatarUrl = null,
   onPopToIndex,
   onInternalLinkNavigate,
   onRequestMarkdownLinkPreview,
@@ -110,6 +112,7 @@ export function DocumentStackView({
                 markdown={entry.markdown}
                 markdownCustomCss={entry.customCss}
                 markdownCustomCssScope={entry.customCssScope}
+                currentUserAvatarUrl={currentUserAvatarUrl}
                 containScroll
                 onInternalLinkNavigate={isTopmost ? onInternalLinkNavigate : undefined}
                 onRequestMarkdownLinkPreview={isTopmost ? onRequestMarkdownLinkPreview : undefined}

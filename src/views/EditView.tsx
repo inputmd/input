@@ -10,8 +10,15 @@ import type { EditorDiffPreview, EditorDiffPreviewActionEvent } from '../compone
 import type { BracePromptRequest } from '../components/codemirror_inline_prompt';
 import type { EditorController, EditorProtectedRange } from '../components/editor_controller';
 import { MarkdownEditor } from '../components/MarkdownEditor';
-import type { PromptListRequest } from '../components/markdown_editor_commands';
+import {
+  getPromptListAskInsertion,
+  getPromptListContinueInsertion,
+  getPromptListQuotedReplyInsertion,
+  type PromptListRequest,
+} from '../components/markdown_editor_commands';
 import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlightsPopover';
+import type { PromptAnswerCommentSelection } from '../components/PromptAnswerCommentComposer';
+import { PromptAnswerCommentComposer } from '../components/PromptAnswerCommentComposer';
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextEditor } from '../components/TextEditor';
 import { shouldTriggerEditSaveShortcut } from '../editor_save_guards';
@@ -23,12 +30,15 @@ import {
 } from '../preview_navigation';
 import { toggleNthMarkdownTaskCheckbox } from '../preview_task_list';
 import {
-  navigatePromptListBranch,
-  setPromptListCollapsedStateInUrl,
-  syncPromptListBranchNavigationButtons,
-  syncPromptListCollapsedStateFromUrl,
+  capturePromptAnswerExpandedStates,
+  capturePromptListCollapsedStates,
+  consumeSuppressedPromptAnswerToggle,
+  hasNonCollapsedSelectionIntersectingNode,
+  restorePromptAnswerExpandedStates,
+  restorePromptListCollapsedStates,
+  setPromptListCollapsedState,
+  syncPromptAnswerExpandedStateInUrl,
   togglePromptAnswerExpandedState,
-  togglePromptListCollapsedStateInUrl,
 } from '../prompt_list_state';
 import type { ReaderAiEditorOverlay } from '../reader_ai_editor_state';
 import { getStoredScrollPosition } from '../scroll_positions';
@@ -244,6 +254,7 @@ export interface EditViewProps {
   previewFrontMatterError?: string | null;
   previewCssWarning?: string | null;
   previewSyncBlocks?: MarkdownSyncBlock[];
+  currentUserAvatarUrl?: string | null;
   previewVisible: boolean;
   canRenderPreview: boolean;
   sidePaneWidth?: number;
@@ -305,6 +316,7 @@ export function EditView({
   previewFrontMatterError = null,
   previewCssWarning = null,
   previewSyncBlocks = [],
+  currentUserAvatarUrl = null,
   previewVisible,
   canRenderPreview,
   sidePaneWidth = 480,
@@ -413,6 +425,8 @@ export function EditView({
   const pointerDownRef = useRef(false);
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const promptListCollapsedStatesRef = useRef<Map<string, boolean> | null>(null);
+  const promptAnswerExpandedStatesRef = useRef<Map<string, boolean> | null>(null);
   const [previewScrollLocked, setPreviewScrollLocked] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
@@ -447,6 +461,13 @@ export function EditView({
     html: '',
     url: null,
   });
+
+  const rememberPromptListStates = useCallback(() => {
+    const root = renderedMarkdownRef.current;
+    if (!root) return;
+    promptListCollapsedStatesRef.current = capturePromptListCollapsedStates(root);
+    promptAnswerExpandedStatesRef.current = capturePromptAnswerExpandedStates(root);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1071,6 +1092,22 @@ export function EditView({
     });
   }, [markdown, previewHtml, previewVisible]);
 
+  useLayoutEffect(() => {
+    const root = renderedMarkdownRef.current;
+    if (!markdown || !previewVisible || !previewHtml || !root) return;
+
+    const continueDisabled =
+      editorControllerReadyVersion === 0 || !editorControllerRef.current || readOnly || locked || loading;
+    root.querySelectorAll<HTMLButtonElement>('button.prompt-list-action-button').forEach((button) => {
+      const label = button.classList.contains('prompt-list-ask-button') ? 'Branch' : 'Continue';
+      const row = button.closest('li');
+      if (row instanceof HTMLElement) row.hidden = continueDisabled;
+      button.disabled = continueDisabled;
+      button.textContent = label;
+      button.setAttribute('aria-label', label);
+    });
+  }, [editorControllerReadyVersion, loading, locked, markdown, previewHtml, previewVisible, readOnly]);
+
   useEffect(() => {
     if (!markdown || !previewVisible || !previewHtml) {
       lastAppliedPreviewHashKeyRef.current = null;
@@ -1272,18 +1309,23 @@ export function EditView({
     if (!markdown || !previewVisible || !previewHtml || !root) return;
 
     syncToggleListPersistedState(root);
-    syncPromptListCollapsedStateFromUrl(root, false);
-    syncPromptListBranchNavigationButtons(root);
-  }, [markdown, previewHtml, previewVisible]);
+    restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, false);
+    restorePromptAnswerExpandedStates(root, promptAnswerExpandedStatesRef.current);
+    rememberPromptListStates();
+  }, [markdown, previewHtml, previewVisible, rememberPromptListStates]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
     if (!markdown || !previewVisible || !root) return;
 
-    const sync = () => syncPromptListCollapsedStateFromUrl(root, false);
+    const sync = () => {
+      restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, false);
+      restorePromptAnswerExpandedStates(root, promptAnswerExpandedStatesRef.current);
+      rememberPromptListStates();
+    };
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
-  }, [markdown, previewVisible]);
+  }, [markdown, previewVisible, rememberPromptListStates]);
 
   const onSplitPointerDown = (event: JSX.TargetedPointerEvent<HTMLDivElement>) => {
     if (!previewVisible || !canRenderPreview || !onSidePaneResize) return;
@@ -1566,8 +1608,95 @@ export function EditView({
     [content, previewSyncBlocks],
   );
 
+  const continuePromptListConversation = useCallback(
+    (button: HTMLButtonElement) => {
+      const controller = editorControllerRef.current;
+      if (!controller || readOnly || locked || loading) return false;
+
+      const promptListId = button.dataset.promptListId?.trim() ?? '';
+      const rawTargetItemIndex = button.dataset.promptListContinueTargetItemIndex?.trim() ?? '';
+      const targetItemIndex = Number.parseInt(rawTargetItemIndex, 10);
+      const insertion = getPromptListContinueInsertion(content, promptListId, targetItemIndex);
+      if (!insertion) return false;
+
+      const applied = controller.applyExternalChange({
+        from: insertion.insertFrom,
+        to: insertion.insertTo,
+        insert: insertion.insertedText,
+        selection: insertion.selection,
+        scrollIntoView: true,
+        addToHistory: true,
+      });
+      if (!applied) return false;
+
+      controller.revealRange(insertion.selection.anchor);
+      return true;
+    },
+    [content, loading, locked, readOnly],
+  );
+
+  const askPromptListReply = useCallback(
+    (button: HTMLButtonElement) => {
+      const controller = editorControllerRef.current;
+      if (!controller || readOnly || locked || loading) return false;
+
+      const promptListId = button.dataset.promptListId?.trim() ?? '';
+      const rawTargetItemIndex = button.dataset.promptListAskTargetItemIndex?.trim() ?? '';
+      const targetItemIndex = Number.parseInt(rawTargetItemIndex, 10);
+      const insertion = getPromptListAskInsertion(content, promptListId, targetItemIndex);
+      if (!insertion) return false;
+
+      const applied = controller.applyExternalChange({
+        from: insertion.insertFrom,
+        to: insertion.insertTo,
+        insert: insertion.insertedText,
+        selection: insertion.selection,
+        scrollIntoView: true,
+        addToHistory: true,
+      });
+      if (!applied) return false;
+
+      controller.revealRange(insertion.selection.anchor);
+      return true;
+    },
+    [content, loading, locked, readOnly],
+  );
+
+  const replyToPromptAnswerSelection = useCallback(
+    (selection: PromptAnswerCommentSelection) => {
+      const controller = editorControllerRef.current;
+      if (!controller || readOnly || locked || loading) return false;
+
+      const insertion = getPromptListQuotedReplyInsertion(
+        content,
+        selection.promptListId,
+        selection.answerItemIndex,
+        selection.quotedText,
+      );
+      if (!insertion) return false;
+
+      const applied = controller.applyExternalChange({
+        from: insertion.insertFrom,
+        to: insertion.insertTo,
+        insert: insertion.insertedText,
+        selection: insertion.selection,
+        scrollIntoView: true,
+        addToHistory: true,
+      });
+      if (!applied) return false;
+
+      controller.revealRange(insertion.selection.anchor);
+      return true;
+    },
+    [content, loading, locked, readOnly],
+  );
+
   const onPreviewClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
+    const pointerDragged = pointerDraggedRef.current;
+    pointerDraggedRef.current = false;
+    pointerDownRef.current = false;
+    pointerDownPositionRef.current = null;
     const taskCheckbox = target?.closest('input[type="checkbox"]');
     if (taskCheckbox instanceof HTMLInputElement) {
       event.preventDefault();
@@ -1578,27 +1707,35 @@ export function EditView({
       return;
     }
 
-    const branchNav = target?.closest('.prompt-list-branch-nav');
-    if (branchNav instanceof HTMLElement) {
+    const continueButton = target?.closest('button.prompt-list-continue-button');
+    if (continueButton instanceof HTMLButtonElement) {
       event.preventDefault();
-      claimScrollOwnership('preview');
-      navigatePromptListBranch(branchNav, { behavior: 'smooth' });
+      if (continueButton.disabled) return;
+      claimScrollOwnership('editor');
+      continuePromptListConversation(continueButton);
       return;
     }
 
-    const answerToggle = target?.closest('.prompt-answer-toggle');
-    if (answerToggle instanceof HTMLElement) {
+    const askButton = target?.closest('button.prompt-list-ask-button');
+    if (askButton instanceof HTMLButtonElement) {
+      event.preventDefault();
+      if (askButton.disabled) return;
+      claimScrollOwnership('editor');
+      askPromptListReply(askButton);
+      return;
+    }
+
+    const answer = target?.closest('li.prompt-answer');
+    const answerToggleSuppressed = answer instanceof HTMLElement && consumeSuppressedPromptAnswerToggle(answer);
+    const answerInteractiveTarget = target?.closest('a, img, button, input, label, summary.toggle-list-summary');
+    if (answer instanceof HTMLElement && !answerInteractiveTarget) {
+      if (answerToggleSuppressed || pointerDragged || hasNonCollapsedSelectionIntersectingNode(answer)) return;
       event.preventDefault();
       claimScrollOwnership('preview');
-      const answer = answerToggle.closest('li.prompt-answer');
-      if (answer instanceof HTMLElement) {
-        const conversation = answer.closest('.prompt-list-conversation');
-        if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
-          setPromptListCollapsedStateInUrl(conversation, false, false, { syncAnswers: false });
-        }
-        togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
-        handlePreviewPromptListLayoutChange();
-      }
+      togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
+      syncPromptAnswerExpandedStateInUrl(answer);
+      rememberPromptListStates();
+      handlePreviewPromptListLayoutChange();
       return;
     }
 
@@ -1611,20 +1748,22 @@ export function EditView({
       return;
     }
 
-    const toggle = target?.closest('.prompt-list-caption');
-    if (toggle instanceof HTMLElement) {
+    const modeOption = target?.closest('.prompt-list-mode-option');
+    if (modeOption instanceof HTMLButtonElement) {
       event.preventDefault();
       claimScrollOwnership('preview');
-      const container = toggle.closest('.prompt-list-conversation');
+      const container = modeOption.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
-        togglePromptListCollapsedStateInUrl(container, false);
+        const collapsed = modeOption.dataset.promptListMode === 'map';
+        setPromptListCollapsedState(container, collapsed);
+        rememberPromptListStates();
         handlePreviewPromptListLayoutChange();
       }
       return;
     }
 
     const anchor = target?.closest('a') as HTMLAnchorElement | null;
-    if (anchor && !pointerDraggedRef.current) {
+    if (anchor && !pointerDragged && !hasNonCollapsedSelectionIntersectingNode(anchor)) {
       const href = (anchor.getAttribute('href') || '').trim();
       if (href.startsWith('#')) {
         event.preventDefault();
@@ -1651,6 +1790,17 @@ export function EditView({
 
   const onPreviewKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
+    const answer = target?.closest('li.prompt-answer');
+    if (answer instanceof HTMLElement && answer === target && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      claimScrollOwnership('preview');
+      togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
+      syncPromptAnswerExpandedStateInUrl(answer);
+      rememberPromptListStates();
+      handlePreviewPromptListLayoutChange();
+      return;
+    }
+
     const toggleList = findToggleListFromTarget(target);
     if (toggleList && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
@@ -1658,17 +1808,6 @@ export function EditView({
       toggleToggleListState(toggleList);
       handlePreviewPromptListLayoutChange();
       return;
-    }
-
-    const toggle = target?.closest('.prompt-list-caption');
-    if (!(toggle instanceof HTMLElement)) return;
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    claimScrollOwnership('preview');
-    const container = toggle.closest('.prompt-list-conversation');
-    if (container instanceof HTMLElement) {
-      togglePromptListCollapsedStateInUrl(container, false);
-      handlePreviewPromptListLayoutChange();
     }
   };
 
@@ -1999,7 +2138,6 @@ export function EditView({
                 class="rendered-markdown"
                 data-markdown-custom-css={previewCustomCssScope ?? undefined}
                 data-enable-task-list-toggles="true"
-                data-hide-prompt-answer-less="true"
                 data-toggle-list-storage-key={scrollStorageKey ?? undefined}
                 onClick={onPreviewClick}
                 onKeyDown={onPreviewKeyDown}
@@ -2008,6 +2146,14 @@ export function EditView({
                 onMouseMove={onRenderedMarkdownMouseMove}
                 onMouseLeave={hidePreview}
                 dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+              <PromptAnswerCommentComposer
+                enabled
+                resetKey={previewHtml}
+                rootRef={renderedMarkdownRef}
+                currentUserAvatarUrl={currentUserAvatarUrl}
+                canReply={editorControllerReadyVersion > 0 && !readOnly && !locked && !loading}
+                onReplySelection={replyToPromptAnswerSelection}
               />
             </div>
           </>
@@ -2072,7 +2218,6 @@ export function EditView({
               class="rendered-markdown"
               data-markdown-custom-css={previewCustomCssScope ?? undefined}
               data-enable-task-list-toggles="true"
-              data-hide-prompt-answer-less="true"
               data-toggle-list-storage-key={scrollStorageKey ?? undefined}
               onClick={onPreviewClick}
               onKeyDown={onPreviewKeyDown}
@@ -2081,6 +2226,14 @@ export function EditView({
               onMouseMove={onRenderedMarkdownMouseMove}
               onMouseLeave={hidePreview}
               dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
+            <PromptAnswerCommentComposer
+              enabled
+              resetKey={previewHtml}
+              rootRef={renderedMarkdownRef}
+              currentUserAvatarUrl={currentUserAvatarUrl}
+              canReply={editorControllerReadyVersion > 0 && !readOnly && !locked && !loading}
+              onReplySelection={replyToPromptAnswerSelection}
             />
           </div>
         </>

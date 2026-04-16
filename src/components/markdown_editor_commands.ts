@@ -3,6 +3,7 @@ import { markdownLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { EditorSelection, type EditorState, Transaction, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
+import { hashPromptListIdentifierText, normalizePromptListIdentifierText } from '../prompt_list_state.ts';
 import { matchPromptListLine, parsePromptListBlock } from '../prompt_list_syntax.ts';
 import type { ExternalEditorChange } from './editor_controller';
 import { getMarkdownListContext, type MarkdownListContext } from './markdown_editor_list_context.ts';
@@ -23,6 +24,11 @@ export interface PromptListRequest {
   answerFrom: number;
 }
 
+export interface PromptListAnswerSelection {
+  anchor: number;
+  head: number;
+}
+
 interface BracePromptEnterController {
   isActive: () => boolean;
   getPanel: () => { options: string[] } | null;
@@ -33,6 +39,7 @@ interface PromptListItem {
   kind: 'question' | 'answer' | 'comment';
   indent: string;
   indentWidth: number;
+  markerEnd: number;
   lineNumber: number;
   lastLineNumber: number;
   from: number;
@@ -50,6 +57,37 @@ interface PromptListBlock {
   items: PromptListItem[];
   turns: PromptListTurn[];
   itemToTurnIndex: number[];
+  promptListId: string;
+}
+
+interface PromptListContinueInsertion {
+  insertFrom: number;
+  insertTo: number;
+  insertedText: string;
+  selection: {
+    anchor: number;
+    head: number;
+  };
+}
+
+interface PromptListQuotedReplyInsertion {
+  insertFrom: number;
+  insertTo: number;
+  insertedText: string;
+  selection: {
+    anchor: number;
+    head: number;
+  };
+}
+
+interface PromptListReplyInsertion {
+  insertFrom: number;
+  insertTo: number;
+  insertedText: string;
+  selection: {
+    anchor: number;
+    head: number;
+  };
 }
 
 export function wrapWithMarker(view: EditorView, marker: string): boolean {
@@ -230,12 +268,20 @@ function buildPromptListTurns(items: PromptListItem[]): { turns: PromptListTurn[
   return { turns, itemToTurnIndex };
 }
 
-function parsePromptListBlocks(state: EditorState): PromptListBlock[] {
+function parsePromptListBlocksFromContent(documentContent: string): PromptListBlock[] {
   const blocks: PromptListBlock[] = [];
-  const lines = Array.from({ length: state.doc.lines }, (_, index) => state.doc.line(index + 1).text);
+  const rawLines = documentContent.split('\n');
+  const lines = rawLines.map((line) => line.replace(/\r$/, ''));
+  const lineStartOffsets: number[] = [];
+  let nextLineStart = 0;
+  for (const line of rawLines) {
+    lineStartOffsets.push(nextLineStart);
+    nextLineStart += line.length + 1;
+  }
   let lineNumber = 1;
+  const promptListConversationDuplicateCounts = new Map<string, number>();
 
-  while (lineNumber <= state.doc.lines) {
+  while (lineNumber <= lines.length) {
     const block = parsePromptListBlock(lines, lineNumber - 1);
     if (!block) {
       lineNumber += 1;
@@ -246,25 +292,40 @@ function parsePromptListBlocks(state: EditorState): PromptListBlock[] {
     for (const parsedItem of block.items) {
       const currentLineNumber = parsedItem.startLineIndex + 1;
       const lastLineNumber = parsedItem.endLineIndex + 1;
-      const currentLine = state.doc.line(currentLineNumber);
+      const currentLineIndex = currentLineNumber - 1;
+      const lastLineIndex = lastLineNumber - 1;
       items.push({
         kind: parsedItem.match.kind,
         indent: parsedItem.match.indent,
         indentWidth: promptListIndentWidth(parsedItem.match.indent),
+        markerEnd: parsedItem.match.markerEnd,
         lineNumber: currentLineNumber,
         lastLineNumber,
-        from: currentLine.from,
-        to: state.doc.line(lastLineNumber).to,
+        from: lineStartOffsets[currentLineIndex] ?? 0,
+        to: (lineStartOffsets[lastLineIndex] ?? 0) + (rawLines[lastLineIndex]?.length ?? 0),
         content: parsedItem.content.trim(),
       });
     }
 
     const { turns, itemToTurnIndex } = buildPromptListTurns(items);
-    blocks.push({ items, turns, itemToTurnIndex });
+    const firstQuestion = items.find((item) => item.kind === 'question')?.content ?? items[0]?.content ?? '';
+    const promptHash = hashPromptListIdentifierText(normalizePromptListIdentifierText(firstQuestion));
+    const duplicateIndex = promptListConversationDuplicateCounts.get(promptHash) ?? 0;
+    promptListConversationDuplicateCounts.set(promptHash, duplicateIndex + 1);
+    blocks.push({
+      items,
+      turns,
+      itemToTurnIndex,
+      promptListId: `${promptHash}-${duplicateIndex}`,
+    });
     lineNumber = items[items.length - 1].lastLineNumber + 1;
   }
 
   return blocks;
+}
+
+function parsePromptListBlocks(state: EditorState): PromptListBlock[] {
+  return parsePromptListBlocksFromContent(state.doc.toString());
 }
 
 function previousSiblingTurnIndices(block: PromptListBlock, turnIndex: number): number[] {
@@ -311,10 +372,12 @@ function contextMessagesThroughTurn(block: PromptListBlock, turnIndex: number): 
 }
 
 function insertionPointAfterTurnSubtree(block: PromptListBlock, turnIndex: number): number {
-  const question = block.items[block.turns[turnIndex].questionItemIndex];
-  let insertionPoint = question.to;
+  const turn = block.turns[turnIndex];
+  const question = block.items[turn.questionItemIndex];
+  const startItemIndex = turn.answerItemIndex ?? turn.questionItemIndex;
+  let insertionPoint = block.items[startItemIndex]?.to ?? question.to;
 
-  for (let itemIndex = block.turns[turnIndex].questionItemIndex + 1; itemIndex < block.items.length; itemIndex += 1) {
+  for (let itemIndex = startItemIndex + 1; itemIndex < block.items.length; itemIndex += 1) {
     const item = block.items[itemIndex];
     if (item.indentWidth <= question.indentWidth) break;
     insertionPoint = item.to;
@@ -534,6 +597,254 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
     insertTo: insertFrom,
     insertedPrefix,
     answerFrom: insertFrom + insertedPrefix.length,
+  };
+}
+
+export function getPromptListAnswerSelection(state: EditorState): PromptListAnswerSelection | null {
+  const range = state.selection.main;
+  if (!range.empty) return null;
+  if (!isMarkdownActive(state, range.from)) return null;
+
+  const line = state.doc.lineAt(range.from);
+  if (range.from !== line.to) return null;
+
+  const thread = findPromptListBlockAt(state, line.number);
+  if (!thread) return null;
+
+  const currentItem = thread.block.items[thread.itemIndex];
+  if (currentItem.kind !== 'question' || line.number !== currentItem.lastLineNumber) return null;
+
+  const firstLineMatch = matchPromptListLine(state.doc.line(currentItem.lineNumber).text);
+  if (!firstLineMatch || firstLineMatch.kind !== 'question' || firstLineMatch.marker !== '~') return null;
+
+  const currentTurnIndex = thread.block.itemToTurnIndex[thread.itemIndex];
+  if (currentTurnIndex < 0) return null;
+
+  const currentTurn = thread.block.turns[currentTurnIndex];
+  if (currentTurn.answerItemIndex === null) return null;
+
+  const answer = thread.block.items[currentTurn.answerItemIndex];
+  if (!answer || answer.kind !== 'answer') return null;
+
+  const anchor = Math.min(answer.from + answer.markerEnd, answer.to);
+  return { anchor, head: answer.to };
+}
+
+export function selectPromptListAnswer(view: EditorView): boolean {
+  const selection = getPromptListAnswerSelection(view.state);
+  if (!selection) return false;
+
+  view.dispatch(
+    view.state.update({
+      selection: EditorSelection.range(selection.anchor, selection.head),
+      scrollIntoView: true,
+      userEvent: 'select',
+    }),
+  );
+  return true;
+}
+
+function emptyQuestionCursorSelection(item: PromptListItem): { anchor: number; head: number } {
+  const cursor = item.from + item.markerEnd;
+  return { anchor: cursor, head: cursor };
+}
+
+function promptListReplyTarget(
+  documentContent: string,
+  promptListId: string,
+  afterItemIndex: number,
+): { block: PromptListBlock; answer: PromptListItem; turnIndex: number } | null {
+  if (!promptListId) return null;
+  if (!Number.isInteger(afterItemIndex) || afterItemIndex < 0) return null;
+
+  const block = parsePromptListBlocksFromContent(documentContent).find(
+    (candidate) => candidate.promptListId === promptListId,
+  );
+  if (!block) return null;
+
+  const answer = block.items[afterItemIndex];
+  if (!answer || answer.kind !== 'answer') return null;
+
+  const turnIndex = block.itemToTurnIndex[afterItemIndex];
+  if (turnIndex < 0) return null;
+
+  return { block, answer, turnIndex };
+}
+
+function findTrailingEmptyChildQuestion(
+  block: PromptListBlock,
+  turnIndex: number,
+  questionIndent: string,
+): PromptListItem | null {
+  const turn = block.turns[turnIndex];
+  const question = block.items[turn.questionItemIndex];
+  const startItemIndex = turn.answerItemIndex ?? turn.questionItemIndex;
+  let trailingDescendant: PromptListItem | null = null;
+
+  for (let itemIndex = startItemIndex + 1; itemIndex < block.items.length; itemIndex += 1) {
+    const item = block.items[itemIndex];
+    if (item.indentWidth <= question.indentWidth) break;
+    trailingDescendant = item;
+  }
+
+  if (
+    trailingDescendant &&
+    trailingDescendant.kind === 'question' &&
+    trailingDescendant.content.length === 0 &&
+    trailingDescendant.indent === questionIndent
+  ) {
+    return trailingDescendant;
+  }
+
+  return null;
+}
+
+function immediateNextPromptListItem(block: PromptListBlock, item: PromptListItem): PromptListItem | null {
+  return block.items.find((candidate) => candidate.from > item.to) ?? null;
+}
+
+function branchIndentAfterAnswer(answer: PromptListItem, nextItem: PromptListItem | null): string {
+  const baseIndent = nextItem && nextItem.indentWidth > answer.indentWidth ? nextItem.indent : answer.indent;
+  return `${baseIndent}  `;
+}
+
+export function getPromptListContinueInsertion(
+  documentContent: string,
+  promptListId: string,
+  targetItemIndex: number,
+): PromptListContinueInsertion | null {
+  if (!promptListId) return null;
+  if (!Number.isInteger(targetItemIndex) || targetItemIndex < 0) return null;
+
+  const block = parsePromptListBlocksFromContent(documentContent).find(
+    (candidate) => candidate.promptListId === promptListId,
+  );
+  if (!block) return null;
+
+  const targetItem = block.items[targetItemIndex];
+  if (!targetItem) return null;
+
+  if (targetItem.kind === 'question' && targetItem.content.length === 0) {
+    return {
+      insertFrom: targetItem.from,
+      insertTo: targetItem.from,
+      insertedText: '',
+      selection: emptyQuestionCursorSelection(targetItem),
+    };
+  }
+
+  if (targetItem.kind !== 'answer') return null;
+
+  const turnIndex = block.itemToTurnIndex[targetItemIndex];
+  if (turnIndex < 0) return null;
+
+  const answer = targetItem;
+  const insertFrom = insertionPointAfterTurnSubtree(block, turnIndex);
+  const nextItem = block.items.find((item) => item.from > insertFrom) ?? null;
+  if (nextItem && nextItem.kind === 'question' && nextItem.content.length === 0 && nextItem.indent === answer.indent) {
+    return {
+      insertFrom: nextItem.from,
+      insertTo: nextItem.from,
+      insertedText: '',
+      selection: emptyQuestionCursorSelection(nextItem),
+    };
+  }
+
+  const insertedText = `\n${answer.indent}~ `;
+  const selection = { anchor: insertFrom + insertedText.length, head: insertFrom + insertedText.length };
+  return {
+    insertFrom,
+    insertTo: insertFrom,
+    insertedText,
+    selection,
+  };
+}
+
+export function getPromptListReplyInsertion(
+  documentContent: string,
+  promptListId: string,
+  afterItemIndex: number,
+): PromptListReplyInsertion | null {
+  const target = promptListReplyTarget(documentContent, promptListId, afterItemIndex);
+  if (!target) return null;
+
+  const { block, answer, turnIndex } = target;
+  const questionIndent = `${answer.indent}  `;
+  const reusableQuestion = findTrailingEmptyChildQuestion(block, turnIndex, questionIndent);
+  if (reusableQuestion) {
+    return {
+      insertFrom: reusableQuestion.from,
+      insertTo: reusableQuestion.from,
+      insertedText: '',
+      selection: emptyQuestionCursorSelection(reusableQuestion),
+    };
+  }
+
+  const insertFrom = insertionPointAfterTurnSubtree(block, turnIndex);
+  const insertedText = `\n${questionIndent}~ `;
+  const cursor = insertFrom + insertedText.length;
+  return {
+    insertFrom,
+    insertTo: insertFrom,
+    insertedText,
+    selection: { anchor: cursor, head: cursor },
+  };
+}
+
+export function getPromptListAskInsertion(
+  documentContent: string,
+  promptListId: string,
+  afterItemIndex: number,
+): PromptListReplyInsertion | null {
+  const target = promptListReplyTarget(documentContent, promptListId, afterItemIndex);
+  if (!target) return null;
+
+  const { block, answer } = target;
+  const nextItem = immediateNextPromptListItem(block, answer);
+  if (nextItem && nextItem.kind === 'question' && nextItem.content.length === 0) {
+    return {
+      insertFrom: nextItem.from,
+      insertTo: nextItem.from,
+      insertedText: '',
+      selection: emptyQuestionCursorSelection(nextItem),
+    };
+  }
+
+  const questionIndent = branchIndentAfterAnswer(answer, nextItem);
+  const insertFrom = answer.to;
+  const insertedText = `\n${questionIndent}~ `;
+  const cursor = insertFrom + insertedText.length;
+  return {
+    insertFrom,
+    insertTo: insertFrom,
+    insertedText,
+    selection: { anchor: cursor, head: cursor },
+  };
+}
+
+export function getPromptListQuotedReplyInsertion(
+  documentContent: string,
+  promptListId: string,
+  afterItemIndex: number,
+  quotedText: string,
+): PromptListQuotedReplyInsertion | null {
+  const normalizedQuote = quotedText.replace(/\s+/g, ' ').trim();
+  if (!normalizedQuote) return null;
+
+  const target = promptListReplyTarget(documentContent, promptListId, afterItemIndex);
+  if (!target) return null;
+
+  const { block, answer, turnIndex } = target;
+  const insertFrom = insertionPointAfterTurnSubtree(block, turnIndex);
+  const questionIndent = `${answer.indent}  `;
+  const continuationIndent = `${questionIndent}  `;
+  const insertedText = `\n${questionIndent}~ > ${normalizedQuote}\n${continuationIndent}`;
+  const cursor = insertFrom + insertedText.length;
+  return {
+    insertFrom,
+    insertTo: insertFrom,
+    insertedText,
+    selection: { anchor: cursor, head: cursor },
   };
 }
 

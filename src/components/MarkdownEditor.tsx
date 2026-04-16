@@ -58,6 +58,7 @@ import {
   insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
   type PromptListRequest,
+  selectPromptListAnswer,
   wrapWithMarker,
 } from './markdown_editor_commands';
 import {
@@ -660,6 +661,7 @@ export function MarkdownEditor({
               key: 'Enter',
               run: (view) => {
                 if (acceptBracePromptSelectionOnEnter(view, bracePrompt)) return true;
+                if (selectPromptListAnswer(view)) return true;
                 const request = getPromptListRequest(view.state);
                 if (!request) return false;
                 onPromptListSubmitRef.current?.(request);

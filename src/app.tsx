@@ -8435,6 +8435,7 @@ export function App() {
               readOnly
               locked={false}
               showLockIndicator={false}
+              currentUserAvatarUrl={user?.avatar_url ?? null}
             />
           );
         }
@@ -8467,6 +8468,7 @@ export function App() {
               fileSelected={currentFileName !== null}
               markdownCustomCss={renderedCustomCss}
               markdownCustomCssScope={renderedCustomCssScope}
+              currentUserAvatarUrl={user?.avatar_url ?? null}
               scrollStorageKey={currentDocumentScrollKey}
               plainText={renderMode === 'ansi' && !contentImagePreview ? renderedText : null}
               plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
@@ -8484,6 +8486,7 @@ export function App() {
               <DocumentStackView
                 entries={documentStack.entries}
                 baseTitle={currentFileName ?? ''}
+                currentUserAvatarUrl={user?.avatar_url ?? null}
                 onPopToIndex={documentStack.popToIndex}
                 onInternalLinkNavigate={handleStackLinkNavigate}
                 onRequestMarkdownLinkPreview={onRequestMarkdownLinkPreview}
@@ -8494,7 +8497,7 @@ export function App() {
         );
       }
       case 'edit':
-        return <EditSessionView {...repoEditorBinding.props} />;
+        return <EditSessionView {...repoEditorBinding.props} currentUserAvatarUrl={user?.avatar_url ?? null} />;
       case 'loading':
         return <LoadingView />;
       case 'error':

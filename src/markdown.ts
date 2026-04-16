@@ -8,11 +8,7 @@ import { parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { parseHighlightMarkupAt } from './highlight_markup.ts';
 import { parseImageDimensionTitle } from './image_markdown.ts';
 import { parseInlineCommentAt } from './inline_comment.ts';
-import {
-  hashPromptListIdentifierText,
-  normalizePromptListIdentifierText,
-  setPromptAnswerExpandedState,
-} from './prompt_list_state.ts';
+import { hashPromptListIdentifierText, normalizePromptListIdentifierText } from './prompt_list_state.ts';
 import { EMPTY_PROMPT_QUESTION_PLACEHOLDER, matchPromptListLine, parsePromptListBlock } from './prompt_list_syntax.ts';
 import { encodePathForHref, isExternalHttpHref } from './util.ts';
 
@@ -45,6 +41,11 @@ type PromptListRenderNode =
       type: 'item';
       className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
       contentHtml: string;
+      itemIndex: number;
+    }
+  | {
+      type: 'continue';
+      afterItemIndex: number;
     }
   | {
       type: 'branch';
@@ -379,7 +380,7 @@ marked.use({
         const promptListToken = token as PromptListToken;
 
         const promptListTree = buildPromptListTree(
-          promptListToken.items.map((item) => {
+          promptListToken.items.map((item, itemIndex) => {
             const isSingleParagraphBlock =
               item.renderAsBlock &&
               item.tokens.length === 1 &&
@@ -394,15 +395,11 @@ marked.use({
               className: item.className,
               contentHtml,
               depth: item.depth,
+              itemIndex,
             };
           }),
         );
-        const itemsHtml = renderPromptListTree(promptListTree);
         const itemCount = promptListToken.items.length;
-        if (itemCount <= 1) {
-          return `<ul class="prompt-list">${itemsHtml}</ul>`;
-        }
-        const metadataLabel = `${itemCount} ${itemCount === 1 ? 'message' : 'messages'}`;
         const firstQuestion =
           promptListToken.items.find((item) => item.kind === 'question')?.sourceText ??
           promptListToken.items[0]?.sourceText ??
@@ -411,7 +408,12 @@ marked.use({
         const duplicateIndex = promptListConversationDuplicateCounts.get(promptHash) ?? 0;
         promptListConversationDuplicateCounts.set(promptHash, duplicateIndex + 1);
         const promptListId = `${promptHash}-${duplicateIndex}`;
-        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}"${markdownSyncAttr(promptListToken as PromptListToken & { syncId?: string })}><div class="prompt-list-header"><div class="prompt-list-caption" role="button" tabindex="0" aria-expanded="true"><span class="prompt-list-caption-meta">${metadataLabel}</span><span class="prompt-list-caption-action">Collapse</span></div></div><div class="prompt-list-body"><ul class="prompt-list">${itemsHtml}</ul></div></div>`;
+        appendPromptListContinueNodes(promptListTree);
+        const itemsHtml = renderPromptListTree(promptListTree, promptListId);
+        if (itemCount <= 1) {
+          return `<ul class="prompt-list prompt-list-tree" data-prompt-list-id="${promptListId}">${itemsHtml}</ul>`;
+        }
+        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}" data-collapsed="false"${markdownSyncAttr(promptListToken as PromptListToken & { syncId?: string })}><div class="prompt-list-header"><div class="prompt-list-mode-toggle" role="group" aria-label="Prompt list mode"><button type="button" class="prompt-list-mode-option" data-prompt-list-mode="map" aria-pressed="false">Map Mode</button><button type="button" class="prompt-list-mode-option" data-prompt-list-mode="read" aria-pressed="true">Read Mode</button></div></div><div class="prompt-list-body"><ul class="prompt-list prompt-list-tree">${itemsHtml}</ul></div></div>`;
       },
     },
     {
@@ -907,6 +909,7 @@ function buildPromptListTree(
     className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
     contentHtml: string;
     depth: number;
+    itemIndex: number;
   }>,
 ): PromptListRenderNode[] {
   const root: PromptListRenderNode[] = [];
@@ -924,295 +927,48 @@ function buildPromptListTree(
       type: 'item',
       className: item.className,
       contentHtml: item.contentHtml,
+      itemIndex: item.itemIndex,
     });
   }
 
   return root;
 }
 
-function renderPromptListBranchNavButton(direction: 'up' | 'down'): string {
-  const label =
-    direction === 'down' ? 'Jump to the next message at this level' : 'Jump to the previous message at this level';
-  const path = direction === 'down' ? 'M6 9l6 6 6-6' : 'M6 15l6-6 6 6';
-  return `<button type="button" class="prompt-list-branch-nav prompt-list-branch-nav-${direction}" data-direction="${direction}" aria-label="${label}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"></path></svg></button>`;
+function appendPromptListContinueNodes(nodes: PromptListRenderNode[]): void {
+  for (const node of nodes) {
+    if (node.type === 'branch') appendPromptListContinueNodes(node.children);
+  }
+
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (node.type !== 'item') continue;
+    if (node.className === 'prompt-answer') {
+      nodes.push({ type: 'continue', afterItemIndex: node.itemIndex });
+    } else if (node.className === 'prompt-question' && !node.contentHtml.trim()) {
+      nodes.push({ type: 'continue', afterItemIndex: node.itemIndex });
+    }
+    break;
+  }
 }
 
-function renderPromptListTree(nodes: PromptListRenderNode[]): string {
+function renderPromptListTree(nodes: PromptListRenderNode[], promptListId: string): string {
   return nodes
     .map((node) => {
       if (node.type === 'item') {
         const contentHtml = node.contentHtml.trim()
           ? node.contentHtml
-          : '<span class="prompt-list-placeholder">Empty conversation block</span>';
+          : '<span class="prompt-list-placeholder">Continue here</span>';
+        if (node.className === 'prompt-answer') {
+          return `<li class="${node.className}" data-prompt-list-id="${promptListId}" data-prompt-list-item-index="${node.itemIndex}" data-expanded="false" aria-expanded="false" tabindex="0">${contentHtml}</li><li class="prompt-ask" hidden><button type="button" class="prompt-list-action-button prompt-list-ask-button" data-prompt-list-id="${promptListId}" data-prompt-list-ask-target-item-index="${node.itemIndex}" disabled>Open editor to branch</button></li>`;
+        }
         return `<li class="${node.className}">${contentHtml}</li>`;
       }
-      return `<li class="prompt-list-branch">${renderPromptListBranchNavButton('down')}<ul>${renderPromptListTree(node.children)}</ul>${renderPromptListBranchNavButton('up')}</li>`;
+      if (node.type === 'continue') {
+        return `<li class="prompt-continue" hidden><button type="button" class="prompt-list-action-button prompt-list-continue-button" data-prompt-list-id="${promptListId}" data-prompt-list-continue-target-item-index="${node.afterItemIndex}" disabled>Open editor to continue</button></li>`;
+      }
+      return `<li class="prompt-list-branch"><ul class="prompt-list-tree">${renderPromptListTree(node.children, promptListId)}</ul></li>`;
     })
     .join('');
-}
-
-function isIgnorablePromptAnswerNode(node: Node): boolean {
-  return node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length === 0;
-}
-
-function findLastMeaningfulTextNode(node: Node): Text | null {
-  for (let index = node.childNodes.length - 1; index >= 0; index -= 1) {
-    const child = node.childNodes[index];
-    if (!child) continue;
-    if (child.nodeType === Node.TEXT_NODE && (child.textContent ?? '').trim().length > 0) {
-      return child as Text;
-    }
-    const nested = findLastMeaningfulTextNode(child);
-    if (nested) return nested;
-  }
-  return null;
-}
-
-function textNodePath(root: Node, target: Node): string | null {
-  const path: number[] = [];
-
-  function visit(node: Node): boolean {
-    if (node === target) return true;
-    for (let index = 0; index < node.childNodes.length; index += 1) {
-      const child = node.childNodes[index];
-      if (!child) continue;
-      path.push(index);
-      if (visit(child)) return true;
-      path.pop();
-    }
-    return false;
-  }
-
-  return visit(root) ? path.join('/') : null;
-}
-
-function collapsedPromptAnswerTailText(text: string): string | null {
-  const match = /([!?,;:\u2026])([)"'\]\u2019\u201d]*)\s*$/u.exec(text);
-  if (!match || match.index < 0) return null;
-  return `${text.slice(0, match.index)}...${match[2] ?? ''}`;
-}
-
-function countWordsInText(text: string): number {
-  return text.trim().match(/\S+/g)?.length ?? 0;
-}
-
-function splitTextAtWordLimit(
-  text: string,
-  maxWords: number,
-): { excerptText: string; restText: string; wordsUsed: number } {
-  if (maxWords <= 0) {
-    return { excerptText: '', restText: text, wordsUsed: 0 };
-  }
-
-  const matches = Array.from(text.matchAll(/\S+/g));
-  if (matches.length <= maxWords) {
-    return { excerptText: text, restText: '', wordsUsed: matches.length };
-  }
-
-  const boundaryMatch = matches[maxWords - 1];
-  const boundaryIndex = (boundaryMatch?.index ?? 0) + (boundaryMatch?.[0].length ?? 0);
-  return {
-    excerptText: text.slice(0, boundaryIndex),
-    restText: text.slice(boundaryIndex),
-    wordsUsed: maxWords,
-  };
-}
-
-interface PromptAnswerSplitResult {
-  excerptNode: Node | null;
-  restNode: Node | null;
-  splitWithinNode: boolean;
-  wordsUsed: number;
-}
-
-function splitPromptAnswerNodeAtWordLimit(node: Node, maxWords: number): PromptAnswerSplitResult {
-  if (node.nodeType === Node.TEXT_NODE) {
-    const text = node.textContent ?? '';
-    const wordCount = countWordsInText(text);
-    if (wordCount === 0) {
-      return {
-        excerptNode: maxWords > 0 ? node.cloneNode(true) : null,
-        restNode: maxWords > 0 ? null : node.cloneNode(true),
-        splitWithinNode: false,
-        wordsUsed: 0,
-      };
-    }
-
-    if (wordCount <= maxWords) {
-      return {
-        excerptNode: node.cloneNode(true),
-        restNode: null,
-        splitWithinNode: false,
-        wordsUsed: wordCount,
-      };
-    }
-
-    const split = splitTextAtWordLimit(text, maxWords);
-    const ownerDocument = node.ownerDocument ?? document;
-    return {
-      excerptNode: split.excerptText ? ownerDocument.createTextNode(split.excerptText) : null,
-      restNode: split.restText ? ownerDocument.createTextNode(split.restText) : null,
-      splitWithinNode: true,
-      wordsUsed: split.wordsUsed,
-    };
-  }
-
-  if (!(node instanceof HTMLElement)) {
-    return {
-      excerptNode: maxWords > 0 ? node.cloneNode(true) : null,
-      restNode: maxWords > 0 ? null : node.cloneNode(true),
-      splitWithinNode: false,
-      wordsUsed: 0,
-    };
-  }
-
-  const excerptElement = node.cloneNode(false) as HTMLElement;
-  const restElement = node.cloneNode(false) as HTMLElement;
-  let wordsUsed = 0;
-  let appendRemainingToRest = false;
-  let splitWithinNode = false;
-
-  for (const child of Array.from(node.childNodes)) {
-    if (appendRemainingToRest) {
-      restElement.appendChild(child.cloneNode(true));
-      continue;
-    }
-
-    const split = splitPromptAnswerNodeAtWordLimit(child, Math.max(0, maxWords - wordsUsed));
-    if (split.excerptNode) excerptElement.appendChild(split.excerptNode);
-    if (split.restNode) {
-      restElement.appendChild(split.restNode);
-      appendRemainingToRest = true;
-      splitWithinNode = true;
-    }
-    if (split.splitWithinNode) splitWithinNode = true;
-    wordsUsed += split.wordsUsed;
-    if (wordsUsed >= maxWords) {
-      appendRemainingToRest = true;
-    }
-  }
-
-  return {
-    excerptNode: excerptElement.childNodes.length > 0 ? excerptElement : null,
-    restNode: restElement.childNodes.length > 0 ? restElement : null,
-    splitWithinNode,
-    wordsUsed,
-  };
-}
-
-function splitPromptAnswerNodesAtWordLimit(
-  nodes: Node[],
-  maxWords: number,
-): {
-  excerptNodes: Node[];
-  restNodes: Node[];
-  splitBoundaryWithinNode: boolean;
-} {
-  const excerptNodes: Node[] = [];
-  const restNodes: Node[] = [];
-  let wordsUsed = 0;
-  let appendRemainingToRest = false;
-  let splitBoundaryWithinNode = false;
-
-  for (const node of nodes) {
-    if (appendRemainingToRest) {
-      restNodes.push(node.cloneNode(true));
-      continue;
-    }
-
-    const split = splitPromptAnswerNodeAtWordLimit(node, Math.max(0, maxWords - wordsUsed));
-    if (split.excerptNode) excerptNodes.push(split.excerptNode);
-    if (split.restNode) {
-      restNodes.push(split.restNode);
-      appendRemainingToRest = true;
-      if (split.splitWithinNode) splitBoundaryWithinNode = true;
-    }
-    wordsUsed += split.wordsUsed;
-    if (wordsUsed >= maxWords) {
-      appendRemainingToRest = true;
-    }
-  }
-
-  return { excerptNodes, restNodes, splitBoundaryWithinNode };
-}
-
-function decoratePromptAnswerCollapses(root: ParentNode): void {
-  const maxCollapsedWords = 40;
-  const firstParagraphBoundaryWordThreshold = 20;
-
-  root.querySelectorAll('li.prompt-answer').forEach((answer) => {
-    if (!(answer instanceof HTMLElement)) return;
-    if (answer.querySelector('.prompt-answer-toggle')) return;
-
-    const meaningfulNodes = Array.from(answer.childNodes).filter((node) => !isIgnorablePromptAnswerNode(node));
-    const firstNode = meaningfulNodes[0];
-    if (!(firstNode instanceof HTMLElement) || firstNode.tagName !== 'P') return;
-
-    const split =
-      meaningfulNodes.length > 1 && countWordsInText(firstNode.textContent ?? '') > firstParagraphBoundaryWordThreshold
-        ? {
-            excerptNodes: [firstNode.cloneNode(true)],
-            restNodes: meaningfulNodes.slice(1).map((node) => node.cloneNode(true)),
-            splitBoundaryWithinNode: false,
-          }
-        : splitPromptAnswerNodesAtWordLimit(meaningfulNodes, maxCollapsedWords);
-    if (split.restNodes.length === 0) return;
-
-    answer.replaceChildren(...split.excerptNodes);
-
-    const rest = answer.ownerDocument.createElement('div');
-    rest.className = 'prompt-answer-rest';
-    rest.append(...split.restNodes);
-
-    const toggle = answer.ownerDocument.createElement('a');
-    toggle.className = 'prompt-answer-toggle';
-    toggle.setAttribute('href', '#');
-    toggle.setAttribute('aria-expanded', 'false');
-
-    const previewParagraph = Array.from(answer.children)
-      .reverse()
-      .find((child): child is HTMLElement => child instanceof HTMLElement && child.tagName === 'P');
-    if (!previewParagraph) return;
-
-    const preview = answer.ownerDocument.createElement('span');
-    preview.className = 'prompt-answer-preview';
-    while (previewParagraph.firstChild) {
-      preview.appendChild(previewParagraph.firstChild);
-    }
-
-    if (split.splitBoundaryWithinNode) {
-      const firstRestParagraph = rest.firstElementChild;
-      if (
-        firstRestParagraph instanceof HTMLElement &&
-        firstRestParagraph.tagName === 'P' &&
-        previewParagraph.tagName === 'P'
-      ) {
-        const inlineRest = answer.ownerDocument.createElement('span');
-        inlineRest.className = 'prompt-answer-inline-rest';
-        while (firstRestParagraph.firstChild) {
-          inlineRest.appendChild(firstRestParagraph.firstChild);
-        }
-        previewParagraph.appendChild(inlineRest);
-        firstRestParagraph.remove();
-      }
-    }
-
-    const tailTextNode = findLastMeaningfulTextNode(preview);
-    if (tailTextNode) {
-      const collapsedTailText = collapsedPromptAnswerTailText(tailTextNode.textContent ?? '');
-      const path = collapsedTailText ? textNodePath(preview, tailTextNode) : null;
-      if (collapsedTailText && path) {
-        preview.setAttribute('data-preview-tail-path', path);
-        preview.setAttribute('data-preview-tail-original', tailTextNode.textContent ?? '');
-        preview.setAttribute('data-preview-tail-collapsed', collapsedTailText);
-      }
-    }
-
-    previewParagraph.append(preview, ' ', toggle);
-    answer.appendChild(rest);
-    answer.setAttribute('data-collapsible', 'true');
-    setPromptAnswerExpandedState(answer, false);
-  });
 }
 
 // --- io code block highlighting ---
@@ -3111,7 +2867,6 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
 
   preserveLeadingIndentation(template.content);
   applySmartPunctuation(template.content, options);
-  decoratePromptAnswerCollapses(template.content);
   highlightIoCodeBlocks(template.content);
 
   return {

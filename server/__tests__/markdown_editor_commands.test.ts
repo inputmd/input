@@ -21,6 +21,10 @@ import {
   buildExternalContentSyncTransaction,
   buildExternalEditorChangeTransaction,
   externalSyncAnnotation,
+  getPromptListAnswerSelection,
+  getPromptListAskInsertion,
+  getPromptListQuotedReplyInsertion,
+  getPromptListReplyInsertion,
   getPromptListRequest,
   insertNewlineContinueLooseListItem,
   insertNewlineContinuePromptAnswer,
@@ -29,6 +33,7 @@ import {
   insertNewlineExitLooseNestedListItem,
   insertNewlineExitPromptQuestion,
   isExternalSyncTransaction,
+  selectPromptListAnswer,
   wrapWithMarker,
 } from '../../src/components/markdown_editor_commands.ts';
 import {
@@ -38,6 +43,7 @@ import {
   normalizeSimpleWrappedParagraphPaste,
   normalizeStandaloneUrlPaste,
 } from '../../src/components/markdown_editor_paste.ts';
+import { hashPromptListIdentifierText, normalizePromptListIdentifierText } from '../../src/prompt_list_state.ts';
 
 function makeMockView(doc: string, selection?: EditorSelection, extensions: Extension[] = []): EditorView {
   let currentState = EditorState.create({ doc, selection, extensions });
@@ -90,6 +96,10 @@ function installDomGlobals(dom: JSDOM): () => void {
     globalThis.getComputedStyle = previousGetComputedStyle;
     if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
   };
+}
+
+function promptListIdForFirstQuestion(text: string): string {
+  return `${hashPromptListIdentifierText(normalizePromptListIdentifierText(text))}-0`;
 }
 
 test('wrapWithMarker wraps selected text and keeps selection around content', (t) => {
@@ -478,6 +488,97 @@ test('insertNewlineContinuePromptAnswer ignores non-answer or non-terminal posit
 
   t.false(insertNewlineContinuePromptAnswer(questionView));
   t.false(insertNewlineContinuePromptAnswer(midLineView));
+});
+
+test('getPromptListReplyInsertion creates an indented branch after an answer', (t) => {
+  const doc = '~ Foo\n⏺ Bar';
+  const insertion = getPromptListReplyInsertion(doc, promptListIdForFirstQuestion('Foo'), 1);
+
+  t.truthy(insertion);
+  t.is(insertion?.insertFrom, doc.length);
+  t.is(insertion?.insertTo, doc.length);
+  t.is(insertion?.insertedText, '\n  ~ ');
+  t.deepEqual(insertion?.selection, { anchor: doc.length + '\n  ~ '.length, head: doc.length + '\n  ~ '.length });
+});
+
+test('getPromptListReplyInsertion reuses a trailing empty child question', (t) => {
+  const doc = '~ Foo\n⏺ Bar\n  ~ ';
+  const insertion = getPromptListReplyInsertion(doc, promptListIdForFirstQuestion('Foo'), 1);
+
+  t.truthy(insertion);
+  t.is(insertion?.insertedText, '');
+  t.deepEqual(insertion?.selection, { anchor: doc.length, head: doc.length });
+});
+
+test('getPromptListAskInsertion inserts a new branch deeper than existing descendants', (t) => {
+  const doc = '~ Foo\n⏺ Bar\n  ~ Existing branch\n  ⏺ Existing reply';
+  const insertion = getPromptListAskInsertion(doc, promptListIdForFirstQuestion('Foo'), 1);
+
+  t.truthy(insertion);
+  t.is(insertion?.insertFrom, '~ Foo\n⏺ Bar'.length);
+  t.is(insertion?.insertedText, '\n    ~ ');
+  t.deepEqual(insertion?.selection, {
+    anchor: '~ Foo\n⏺ Bar'.length + '\n    ~ '.length,
+    head: '~ Foo\n⏺ Bar'.length + '\n    ~ '.length,
+  });
+});
+
+test('getPromptListAskInsertion inserts one level deeper than the immediate next message after the answer', (t) => {
+  const doc = '~ Foo\n⏺ Bar\n  ~ Baz\n    ~ Qux\n      ~ Quux';
+  const insertion = getPromptListAskInsertion(doc, promptListIdForFirstQuestion('Foo'), 1);
+
+  t.truthy(insertion);
+  t.is(insertion?.insertFrom, '~ Foo\n⏺ Bar'.length);
+  t.is(insertion?.insertedText, '\n    ~ ');
+  t.deepEqual(insertion?.selection, {
+    anchor: '~ Foo\n⏺ Bar'.length + '\n    ~ '.length,
+    head: '~ Foo\n⏺ Bar'.length + '\n    ~ '.length,
+  });
+});
+
+test('getPromptListAskInsertion stays at least one level deeper than the answer when the next message is shallower', (t) => {
+  const doc = '~ Root\n  ~ Branch\n  ⏺ Answer\n~ Next root';
+  const insertion = getPromptListAskInsertion(doc, promptListIdForFirstQuestion('Root'), 2);
+
+  t.truthy(insertion);
+  t.is(insertion?.insertFrom, '~ Root\n  ~ Branch\n  ⏺ Answer'.length);
+  t.is(insertion?.insertedText, '\n    ~ ');
+  t.deepEqual(insertion?.selection, {
+    anchor: '~ Root\n  ~ Branch\n  ⏺ Answer'.length + '\n    ~ '.length,
+    head: '~ Root\n  ~ Branch\n  ⏺ Answer'.length + '\n    ~ '.length,
+  });
+});
+
+test('getPromptListAskInsertion reuses an immediately following empty child question at any indentation', (t) => {
+  const doc = '~ Foo\n⏺ Bar\n      ~ ';
+  const insertion = getPromptListAskInsertion(doc, promptListIdForFirstQuestion('Foo'), 1);
+
+  t.truthy(insertion);
+  t.is(insertion?.insertFrom, '~ Foo\n⏺ Bar\n'.length);
+  t.is(insertion?.insertTo, '~ Foo\n⏺ Bar\n'.length);
+  t.is(insertion?.insertedText, '');
+  t.deepEqual(insertion?.selection, {
+    anchor: '~ Foo\n⏺ Bar\n      ~ '.length,
+    head: '~ Foo\n⏺ Bar\n      ~ '.length,
+  });
+});
+
+test('getPromptListQuotedReplyInsertion nests the quote under the answer', (t) => {
+  const doc = '~ Foo\n⏺ Bar';
+  const insertion = getPromptListQuotedReplyInsertion(
+    doc,
+    promptListIdForFirstQuestion('Foo'),
+    1,
+    ' First  line\nsecond ',
+  );
+
+  t.truthy(insertion);
+  t.is(insertion?.insertFrom, doc.length);
+  t.is(insertion?.insertedText, '\n  ~ > First line second\n    ');
+  t.deepEqual(insertion?.selection, {
+    anchor: doc.length + '\n  ~ > First line second\n    '.length,
+    head: doc.length + '\n  ~ > First line second\n    '.length,
+  });
 });
 
 test('insertNewlineContinuePromptComment creates a tilde prompt row after a comment', (t) => {
@@ -1051,6 +1152,34 @@ test('getPromptListRequest does not trigger AI for chevron-prefixed user lines',
   t.is(getPromptListRequest(state), null);
 });
 
+test('getPromptListAnswerSelection selects existing answer content for answered prompt questions', (t) => {
+  const doc = '~ Question\n⏺ Old answer';
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor('~ Question'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListAnswerSelection(state), {
+    anchor: '~ Question\n⏺ '.length,
+    head: doc.length,
+  });
+});
+
+test('getPromptListAnswerSelection works at the end of multiline prompt questions', (t) => {
+  const doc = '~ Question\n  continued\n⏺ Old answer\n  continuation';
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor('~ Question\n  continued'.length),
+    extensions: [markdown({ base: markdownLanguage })],
+  });
+
+  t.deepEqual(getPromptListAnswerSelection(state), {
+    anchor: '~ Question\n  continued\n⏺ '.length,
+    head: doc.length,
+  });
+});
+
 test('prompt question Enter binding wins over markdown Enter handling for multiline answers', (t) => {
   const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
   const restore = installDomGlobals(dom);
@@ -1096,6 +1225,55 @@ test('prompt question Enter binding wins over markdown Enter handling for multil
     const event = new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
     t.true(runScopeHandlers(view, event, 'editor'));
     t.true(submitted);
+  } finally {
+    restore();
+  }
+});
+
+test('prompt question Enter selects an existing answer instead of submitting a replacement', (t) => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app"></div></body></html>');
+  const restore = installDomGlobals(dom);
+
+  try {
+    let submitted = false;
+    const doc = ['~ Question', '  continued', '⏺ Existing answer', '  continuation'].join('\n');
+
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: EditorSelection.cursor('~ Question\n  continued'.length),
+        extensions: [
+          markdownEditorLanguageSupport(),
+          promptListAnsweringFacet.of(false),
+          EditorState.tabSize.of(2),
+          EditorView.lineWrapping,
+          fencedCodeLineClassExtension,
+          continuedIndentExtension({ mode: 'markdown', maxColumns: 10 }),
+          Prec.highest(
+            keymap.of([
+              {
+                key: 'Enter',
+                run: (editorView) => {
+                  if (selectPromptListAnswer(editorView)) return true;
+                  const request = getPromptListRequest(editorView.state);
+                  if (!request) return false;
+                  submitted = true;
+                  return true;
+                },
+              },
+            ]),
+          ),
+        ],
+      }),
+      parent: document.getElementById('app')!,
+    });
+
+    const event = new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+    t.true(runScopeHandlers(view, event, 'editor'));
+    t.false(submitted);
+    t.is(view.state.doc.toString(), doc);
+    t.is(view.state.selection.main.from, '~ Question\n  continued\n⏺ '.length);
+    t.is(view.state.selection.main.to, doc.length);
   } finally {
     restore();
   }

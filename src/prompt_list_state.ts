@@ -1,5 +1,7 @@
-const PROMPT_LIST_COLLAPSED_QUERY_PARAM = 'plc';
-const SVG_NS = 'http://www.w3.org/2000/svg';
+const PROMPT_ANSWER_EXPANDED_QUERY_PARAM = 'ple';
+const LEGACY_PROMPT_LIST_COLLAPSED_QUERY_PARAM = 'plc';
+const SUPPRESS_NEXT_PROMPT_ANSWER_TOGGLE_ATTR = 'data-suppress-next-prompt-answer-toggle';
+const PROMPT_ANSWER_STATE_KEY_SEPARATOR = ':';
 
 interface TogglePromptAnswerExpandedOptions {
   behavior?: ScrollBehavior;
@@ -9,6 +11,9 @@ interface TogglePromptAnswerExpandedOptions {
 interface SetPromptListCollapsedStateOptions {
   syncAnswers?: boolean;
 }
+
+export type PromptAnswerExpandedStateSnapshot = Map<string, boolean>;
+export type PromptListCollapsedStateSnapshot = Map<string, boolean>;
 
 export function normalizePromptListIdentifierText(text: string): string {
   return text.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -29,12 +34,11 @@ export function setPromptListCollapsedState(
   options?: SetPromptListCollapsedStateOptions,
 ) {
   container.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
-  const toggle = container.querySelector<HTMLElement>('.prompt-list-caption');
-  if (toggle) {
-    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    const action = toggle.querySelector<HTMLElement>('.prompt-list-caption-action');
-    if (action) action.textContent = collapsed ? 'Expand' : 'Collapse';
-  }
+  container.querySelectorAll<HTMLButtonElement>('.prompt-list-mode-option').forEach((option) => {
+    const mode = option.dataset.promptListMode?.trim();
+    const selected = (mode === 'map' && collapsed) || (mode === 'read' && !collapsed);
+    option.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
   if (options?.syncAnswers === false) return;
   container.querySelectorAll<HTMLElement>('li.prompt-answer').forEach((answer) => {
     setPromptAnswerExpandedState(answer, !collapsed);
@@ -43,73 +47,132 @@ export function setPromptListCollapsedState(
 
 export function setPromptAnswerExpandedState(container: HTMLElement, expanded: boolean) {
   container.setAttribute('data-expanded', expanded ? 'true' : 'false');
-
-  const toggle = container.querySelector<HTMLElement>('.prompt-answer-toggle');
-  const hideExpandedToggle = shouldHideExpandedPromptAnswerToggle(container);
-  if (toggle) {
-    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    toggle.setAttribute('aria-label', expanded ? 'Less' : 'More');
-    renderPromptAnswerToggleContent(toggle, expanded, hideExpandedToggle);
-    toggle.hidden = expanded && hideExpandedToggle;
-  }
-
-  const rest = container.querySelector<HTMLElement>('.prompt-answer-rest');
-  if (rest) {
-    rest.hidden = !expanded;
-  }
-
-  const inlineRest = container.querySelector<HTMLElement>('.prompt-answer-inline-rest');
-  if (inlineRest) {
-    inlineRest.hidden = !expanded;
-  }
-
-  const preview = container.querySelector<HTMLElement>('.prompt-answer-preview');
-  if (preview) {
-    syncPromptAnswerPreviewEnding(preview, expanded);
-  }
-
-  if (toggle) {
-    syncPromptAnswerTogglePlacement(container, toggle, expanded);
-  }
+  container.setAttribute('aria-expanded', expanded ? 'true' : 'false');
 }
 
-function renderPromptAnswerToggleContent(toggle: HTMLElement, expanded: boolean, hideExpandedToggle = false) {
-  toggle.replaceChildren();
-  if (expanded) {
-    if (hideExpandedToggle) return;
-    toggle.textContent = 'Less';
-    return;
-  }
-
-  const badge = toggle.ownerDocument.createElement('span');
-  badge.className = 'prompt-answer-toggle-badge';
-  badge.setAttribute('aria-hidden', 'true');
-
-  const icon = toggle.ownerDocument.createElementNS(SVG_NS, 'svg');
-  icon.setAttribute('viewBox', '0 0 24 24');
-  icon.setAttribute('width', '14');
-  icon.setAttribute('height', '14');
-  icon.setAttribute('fill', 'none');
-  icon.setAttribute('stroke', 'currentColor');
-  icon.setAttribute('stroke-width', '2');
-  icon.setAttribute('stroke-linecap', 'round');
-  icon.setAttribute('stroke-linejoin', 'round');
-  icon.setAttribute('aria-hidden', 'true');
-
-  for (const cx of ['5', '12', '19']) {
-    const circle = toggle.ownerDocument.createElementNS(SVG_NS, 'circle');
-    circle.setAttribute('cx', cx);
-    circle.setAttribute('cy', '12');
-    circle.setAttribute('r', '1');
-    icon.appendChild(circle);
-  }
-
-  badge.appendChild(icon);
-  toggle.appendChild(badge);
+function getPromptListCollapsedStateKey(container: Element): string | null {
+  const promptListId = container.getAttribute('data-prompt-list-id')?.trim() ?? '';
+  return promptListId || null;
 }
 
-function shouldHideExpandedPromptAnswerToggle(container: HTMLElement): boolean {
-  return container.closest<HTMLElement>('.rendered-markdown')?.dataset.hidePromptAnswerLess === 'true';
+function getPromptAnswerExpandedStateKey(container: Element): string | null {
+  const promptListId = container.getAttribute('data-prompt-list-id')?.trim() ?? '';
+  const itemIndex = container.getAttribute('data-prompt-list-item-index')?.trim() ?? '';
+  if (!promptListId || !itemIndex) return null;
+  return `${promptListId}${PROMPT_ANSWER_STATE_KEY_SEPARATOR}${itemIndex}`;
+}
+
+export function capturePromptListCollapsedStates(root: ParentNode): PromptListCollapsedStateSnapshot {
+  const snapshot: PromptListCollapsedStateSnapshot = new Map();
+  root.querySelectorAll<HTMLElement>('.prompt-list-conversation[data-prompt-list-id]').forEach((container) => {
+    const key = getPromptListCollapsedStateKey(container);
+    if (!key) return;
+    snapshot.set(key, container.getAttribute('data-collapsed') === 'true');
+  });
+  return snapshot;
+}
+
+export function capturePromptAnswerExpandedStates(root: ParentNode): PromptAnswerExpandedStateSnapshot {
+  const snapshot: PromptAnswerExpandedStateSnapshot = new Map();
+  root
+    .querySelectorAll<HTMLElement>('li.prompt-answer[data-prompt-list-id][data-prompt-list-item-index]')
+    .forEach((answer) => {
+      const key = getPromptAnswerExpandedStateKey(answer);
+      if (!key) return;
+      snapshot.set(key, answer.getAttribute('data-expanded') === 'true');
+    });
+  return snapshot;
+}
+
+function readPromptAnswerExpandedStateKeysFromLocation(): Set<string> {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get(PROMPT_ANSWER_EXPANDED_QUERY_PARAM)?.trim() ?? '';
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split('.')
+      .map((part) => part.trim())
+      .filter(Boolean),
+  );
+}
+
+function writePromptAnswerExpandedStateKeysToLocation(expandedKeys: Set<string>) {
+  const url = new URL(window.location.href);
+  url.searchParams.delete(LEGACY_PROMPT_LIST_COLLAPSED_QUERY_PARAM);
+  if (expandedKeys.size === 0) {
+    url.searchParams.delete(PROMPT_ANSWER_EXPANDED_QUERY_PARAM);
+  } else {
+    url.searchParams.set(PROMPT_ANSWER_EXPANDED_QUERY_PARAM, Array.from(expandedKeys).sort().join('.'));
+  }
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+export function restorePromptListCollapsedStates(
+  root: ParentNode,
+  snapshot?: ReadonlyMap<string, boolean> | null,
+  defaultCollapsed = false,
+): void {
+  root.querySelectorAll<HTMLElement>('.prompt-list-conversation[data-prompt-list-id]').forEach((container) => {
+    const key = getPromptListCollapsedStateKey(container);
+    const collapsed = key ? (snapshot?.get(key) ?? defaultCollapsed) : defaultCollapsed;
+    setPromptListCollapsedState(container, collapsed);
+  });
+}
+
+export function restorePromptAnswerExpandedStates(
+  root: ParentNode,
+  snapshot?: ReadonlyMap<string, boolean> | null,
+): void {
+  const persistedExpandedKeys = snapshot ? null : readPromptAnswerExpandedStateKeysFromLocation();
+  root
+    .querySelectorAll<HTMLElement>('li.prompt-answer[data-prompt-list-id][data-prompt-list-item-index]')
+    .forEach((answer) => {
+      const key = getPromptAnswerExpandedStateKey(answer);
+      if (!key) return;
+      const expanded = snapshot?.get(key);
+      if (expanded != null) {
+        setPromptAnswerExpandedState(answer, expanded);
+        return;
+      }
+
+      if (persistedExpandedKeys?.has(key)) {
+        setPromptAnswerExpandedState(answer, true);
+        return;
+      }
+
+      const conversation = answer.closest<HTMLElement>('.prompt-list-conversation');
+      if (conversation?.getAttribute('data-collapsed') === 'false') {
+        setPromptAnswerExpandedState(answer, true);
+      }
+    });
+}
+
+export function suppressNextPromptAnswerToggle(container: HTMLElement) {
+  container.setAttribute(SUPPRESS_NEXT_PROMPT_ANSWER_TOGGLE_ATTR, 'true');
+}
+
+export function consumeSuppressedPromptAnswerToggle(container: HTMLElement): boolean {
+  const suppressed = container.getAttribute(SUPPRESS_NEXT_PROMPT_ANSWER_TOGGLE_ATTR) === 'true';
+  if (suppressed) container.removeAttribute(SUPPRESS_NEXT_PROMPT_ANSWER_TOGGLE_ATTR);
+  return suppressed;
+}
+
+export function hasNonCollapsedSelectionIntersectingNode(target: Node): boolean {
+  const document = target.ownerDocument;
+  const selection = document?.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = selection.getRangeAt(index);
+    try {
+      if (range.intersectsNode(target)) return true;
+    } catch {
+      if (selection.anchorNode && target.contains(selection.anchorNode)) return true;
+      if (selection.focusNode && target.contains(selection.focusNode)) return true;
+    }
+  }
+
+  return false;
 }
 
 function getPromptListConversationHeaderGap(target: HTMLElement): number {
@@ -153,22 +216,55 @@ function getFixedToolbarHeight(document: Document): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function scrollPromptAnswerTopIntoView(container: HTMLElement, behavior: ScrollBehavior = 'auto') {
-  const headerGap = getPromptListConversationHeaderGap(container);
-  const scrollContainer = getPromptListScrollContainer(container);
+function scrollPromptListMessageTopIntoView(target: HTMLElement, behavior: ScrollBehavior = 'auto') {
+  const headerGap = getPromptListConversationHeaderGap(target);
+  const scrollContainer = getPromptListScrollContainer(target);
   if (scrollContainer) {
     const containerRect = scrollContainer.getBoundingClientRect();
-    const targetRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
     const offsetTop = targetRect.top - containerRect.top + scrollContainer.scrollTop;
     scrollContainer.scrollTo({ top: Math.max(0, offsetTop - headerGap), behavior });
     return;
   }
 
-  const view = container.ownerDocument.defaultView;
+  const view = target.ownerDocument.defaultView;
   if (!view) return;
-  const targetTop = container.getBoundingClientRect().top + view.scrollY;
-  const toolbarHeight = getFixedToolbarHeight(container.ownerDocument);
+  const targetTop = target.getBoundingClientRect().top + view.scrollY;
+  const toolbarHeight = getFixedToolbarHeight(target.ownerDocument);
   view.scrollTo({ top: Math.max(0, targetTop - toolbarHeight - headerGap), behavior });
+}
+
+function isPromptListMessageVisible(target: HTMLElement): boolean {
+  const scrollContainer = getPromptListScrollContainer(target);
+  if (scrollContainer) {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    return targetRect.bottom > containerRect.top && targetRect.top < containerRect.bottom;
+  }
+
+  const view = target.ownerDocument.defaultView;
+  if (!view) return false;
+  const targetRect = target.getBoundingClientRect();
+  return targetRect.bottom > 0 && targetRect.top < view.innerHeight;
+}
+
+function findPromptingQuestionForAnswer(answer: HTMLElement): HTMLElement | null {
+  let current: Element | null = answer;
+
+  while (current) {
+    let sibling = current.previousElementSibling;
+    while (sibling) {
+      if (sibling instanceof HTMLElement && sibling.matches('li.prompt-question')) return sibling;
+      sibling = sibling.previousElementSibling;
+    }
+
+    const parentList: HTMLElement | null = current.parentElement;
+    const parentBranch: HTMLElement | null = parentList?.parentElement ?? null;
+    if (!(parentBranch instanceof HTMLElement) || !parentBranch.matches('li.prompt-list-branch')) return null;
+    current = parentBranch;
+  }
+
+  return null;
 }
 
 export function togglePromptAnswerExpandedState(container: HTMLElement, options?: TogglePromptAnswerExpandedOptions) {
@@ -177,177 +273,17 @@ export function togglePromptAnswerExpandedState(container: HTMLElement, options?
   setPromptAnswerExpandedState(container, nextExpanded);
 
   if (expanded && !nextExpanded && options?.keepTopInViewOnCollapse) {
-    scrollPromptAnswerTopIntoView(container, options.behavior);
+    const promptingQuestion = findPromptingQuestionForAnswer(container);
+    if (promptingQuestion && isPromptListMessageVisible(promptingQuestion)) return;
+    scrollPromptListMessageTopIntoView(promptingQuestion ?? container, options.behavior);
   }
 }
 
-function isPromptListMessage(element: Element | null): element is HTMLElement {
-  return Boolean(
-    element &&
-      element instanceof HTMLElement &&
-      (element.matches('li.prompt-question') ||
-        element.matches('li.prompt-answer') ||
-        element.matches('li.prompt-comment')),
-  );
-}
-
-function findPromptListBranchNavigationTarget(branch: HTMLElement, direction: 'up' | 'down'): HTMLElement | null {
-  let sibling = direction === 'up' ? branch.previousElementSibling : branch.nextElementSibling;
-  while (sibling) {
-    if (isPromptListMessage(sibling)) return sibling;
-    sibling = direction === 'up' ? sibling.previousElementSibling : sibling.nextElementSibling;
-  }
-  return null;
-}
-
-export function syncPromptListBranchNavigationButtons(root: ParentNode) {
-  root.querySelectorAll<HTMLElement>('.prompt-list-branch').forEach((branch) => {
-    branch.querySelectorAll<HTMLElement>(':scope > .prompt-list-branch-nav').forEach((button) => {
-      const direction = button.getAttribute('data-direction') === 'up' ? 'up' : 'down';
-      const target = findPromptListBranchNavigationTarget(branch, direction);
-      button.hidden = !target;
-      button.tabIndex = target ? 0 : -1;
-      button.setAttribute('aria-hidden', target ? 'false' : 'true');
-    });
-  });
-}
-
-export function navigatePromptListBranch(button: HTMLElement, options?: { behavior?: ScrollBehavior }) {
-  const branch = button.closest<HTMLElement>('li.prompt-list-branch');
-  if (!branch) return false;
-
-  const direction = button.getAttribute('data-direction') === 'up' ? 'up' : 'down';
-  const target = findPromptListBranchNavigationTarget(branch, direction);
-  if (!target) return false;
-
-  const headerGap = getPromptListConversationHeaderGap(target);
-  const directionGap = direction === 'down' ? 10 : 0;
-  const scrollContainer = getPromptListScrollContainer(target);
-  if (scrollContainer) {
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const targetRect = target.getBoundingClientRect();
-    const offsetTop = targetRect.top - containerRect.top + scrollContainer.scrollTop;
-    const nextScrollTop = Math.max(0, offsetTop - headerGap - directionGap);
-    scrollContainer.scrollTo({ top: nextScrollTop, behavior: options?.behavior ?? 'smooth' });
-    return true;
-  }
-
-  const view = target.ownerDocument.defaultView;
-  if (!view) return false;
-  const targetTop = target.getBoundingClientRect().top + view.scrollY;
-  const toolbarHeight = getFixedToolbarHeight(target.ownerDocument);
-  view.scrollTo({
-    top: Math.max(0, targetTop - toolbarHeight - headerGap - directionGap),
-    behavior: options?.behavior ?? 'smooth',
-  });
-  return true;
-}
-
-function promptAnswerPreviewTextNodeAtPath(root: Node, path: string): Text | null {
-  if (!path) return null;
-
-  let node: Node = root;
-  for (const segment of path.split('/')) {
-    const index = Number.parseInt(segment, 10);
-    if (!Number.isFinite(index) || index < 0) return null;
-    const next = node.childNodes.item(index);
-    if (!next) return null;
-    node = next;
-  }
-
-  return node instanceof Text ? node : null;
-}
-
-function syncPromptAnswerPreviewEnding(preview: HTMLElement, expanded: boolean) {
-  const originalText = preview.getAttribute('data-preview-tail-original') ?? '';
-  const collapsedText = preview.getAttribute('data-preview-tail-collapsed') ?? '';
-  const path = preview.getAttribute('data-preview-tail-path') ?? '';
-  if (!originalText || !collapsedText || !path) return;
-
-  const textNode = promptAnswerPreviewTextNodeAtPath(preview, path);
-  if (!textNode) return;
-  textNode.textContent = expanded ? originalText : collapsedText;
-}
-
-function syncPromptAnswerTogglePlacement(container: HTMLElement, toggle: HTMLElement, expanded: boolean) {
-  if (expanded && toggle.hidden) return;
-
-  const preview = container.querySelector<HTMLElement>('.prompt-answer-preview');
-  const previewParagraph = preview?.closest('p');
-  const inlineRest = container.querySelector<HTMLElement>('.prompt-answer-inline-rest');
-
-  if (!expanded) {
-    if (!previewParagraph || !preview) return;
-    if (inlineRest) {
-      previewParagraph.append(preview, inlineRest, ' ', toggle);
-    } else {
-      previewParagraph.append(preview, ' ', toggle);
-    }
-    return;
-  }
-
-  const paragraphs = Array.from(container.querySelectorAll<HTMLElement>('p'));
-  const lastParagraph = paragraphs.at(-1);
-  if (!lastParagraph) return;
-  lastParagraph.append(' ', toggle);
-}
-
-function readCollapsedPromptListIdsFromLocation(): Set<string> {
-  const params = new URLSearchParams(window.location.search);
-  const raw = params.get(PROMPT_LIST_COLLAPSED_QUERY_PARAM)?.trim() ?? '';
-  if (!raw) return new Set();
-  return new Set(
-    raw
-      .split('.')
-      .map((part) => part.trim())
-      .filter(Boolean),
-  );
-}
-
-function writeCollapsedPromptListIdsToLocation(collapsedIds: Set<string>) {
-  const url = new URL(window.location.href);
-  if (collapsedIds.size === 0) {
-    url.searchParams.delete(PROMPT_LIST_COLLAPSED_QUERY_PARAM);
-  } else {
-    url.searchParams.set(PROMPT_LIST_COLLAPSED_QUERY_PARAM, Array.from(collapsedIds).sort().join('.'));
-  }
-  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
-}
-
-export function syncPromptListCollapsedStateFromUrl(root: ParentNode, defaultCollapsed = false) {
-  const collapsedIds = readCollapsedPromptListIdsFromLocation();
-  root.querySelectorAll<HTMLElement>('.prompt-list-conversation[data-prompt-list-id]').forEach((container) => {
-    const id = container.getAttribute('data-prompt-list-id')?.trim() ?? '';
-    setPromptListCollapsedState(container, defaultCollapsed || (id !== '' && collapsedIds.has(id)));
-  });
-}
-
-export function setPromptListCollapsedStateInUrl(
-  container: HTMLElement,
-  collapsed: boolean,
-  defaultCollapsed = false,
-  options?: SetPromptListCollapsedStateOptions,
-) {
-  if (defaultCollapsed) {
-    setPromptListCollapsedState(container, collapsed, options);
-    return;
-  }
-
-  const collapsedIds = readCollapsedPromptListIdsFromLocation();
-  const id = container.getAttribute('data-prompt-list-id')?.trim() ?? '';
-  if (!id) {
-    setPromptListCollapsedState(container, collapsed, options);
-    return;
-  }
-
-  if (collapsed) collapsedIds.add(id);
-  else collapsedIds.delete(id);
-
-  writeCollapsedPromptListIdsToLocation(collapsedIds);
-  setPromptListCollapsedState(container, collapsed, options);
-}
-
-export function togglePromptListCollapsedStateInUrl(container: HTMLElement, defaultCollapsed = false) {
-  const nextCollapsed = container.getAttribute('data-collapsed') !== 'true';
-  setPromptListCollapsedStateInUrl(container, nextCollapsed, defaultCollapsed);
+export function syncPromptAnswerExpandedStateInUrl(container: HTMLElement): void {
+  const key = getPromptAnswerExpandedStateKey(container);
+  if (!key) return;
+  const expandedKeys = readPromptAnswerExpandedStateKeysFromLocation();
+  if (container.getAttribute('data-expanded') === 'true') expandedKeys.add(key);
+  else expandedKeys.delete(key);
+  writePromptAnswerExpandedStateKeysToLocation(expandedKeys);
 }

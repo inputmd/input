@@ -3,6 +3,7 @@ import { ExternalLink, Highlighter, Pin } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlightsPopover';
+import { PromptAnswerCommentComposer } from '../components/PromptAnswerCommentComposer';
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextCodeView } from '../components/TextCodeView';
 import {
@@ -11,12 +12,15 @@ import {
   resolveInternalPreviewRoute,
 } from '../preview_navigation';
 import {
-  navigatePromptListBranch,
-  setPromptListCollapsedStateInUrl,
-  syncPromptListBranchNavigationButtons,
-  syncPromptListCollapsedStateFromUrl,
+  capturePromptAnswerExpandedStates,
+  capturePromptListCollapsedStates,
+  consumeSuppressedPromptAnswerToggle,
+  hasNonCollapsedSelectionIntersectingNode,
+  restorePromptAnswerExpandedStates,
+  restorePromptListCollapsedStates,
+  setPromptListCollapsedState,
+  syncPromptAnswerExpandedStateInUrl,
   togglePromptAnswerExpandedState,
-  togglePromptListCollapsedStateInUrl,
 } from '../prompt_list_state';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
 import { findToggleListFromTarget, syncToggleListPersistedState, toggleToggleListState } from '../toggle_list_state';
@@ -43,6 +47,7 @@ interface ContentViewProps {
   alertMessage?: string | null;
   alertDownloadHref?: string | null;
   alertDownloadName?: string | null;
+  currentUserAvatarUrl?: string | null;
   /** When true, hash links scroll within the component instead of the window. */
   containScroll?: boolean;
   onInternalLinkNavigate?: (route: string) => void;
@@ -96,6 +101,7 @@ export function ContentView({
   alertMessage,
   alertDownloadHref,
   alertDownloadName,
+  currentUserAvatarUrl = null,
   containScroll = false,
   onInternalLinkNavigate,
   onRequestMarkdownLinkPreview,
@@ -113,6 +119,8 @@ export function ContentView({
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
   const currentScrollStorageKeyRef = useRef<string | null>(null);
+  const promptListCollapsedStatesRef = useRef<Map<string, boolean> | null>(null);
+  const promptAnswerExpandedStatesRef = useRef<Map<string, boolean> | null>(null);
   const [previewHighlightEntries, setPreviewHighlightEntries] = useState<PreviewHighlightEntry[]>([]);
   const [previewHighlightsPopoverOpen, setPreviewHighlightsPopoverOpen] = useState(false);
   const [previewHighlightsPopoverPinned, setPreviewHighlightsPopoverPinned] = useState(false);
@@ -198,6 +206,13 @@ export function ContentView({
     };
   }, [clearPreviewHighlightsPopoverCloseTimeout]);
 
+  const rememberPromptListStates = useCallback(() => {
+    const root = renderedMarkdownRef.current;
+    if (!root) return;
+    promptListCollapsedStatesRef.current = capturePromptListCollapsedStates(root);
+    promptAnswerExpandedStatesRef.current = capturePromptAnswerExpandedStates(root);
+  }, []);
+
   useEffect(() => {
     const syncScrollPosition = () => {
       const key = currentScrollStorageKeyRef.current;
@@ -276,9 +291,10 @@ export function ContentView({
     if (!markdown || !html || !root) return;
 
     syncToggleListPersistedState(root);
-    syncPromptListCollapsedStateFromUrl(root, false);
-    syncPromptListBranchNavigationButtons(root);
-  }, [html, markdown]);
+    restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, false);
+    restorePromptAnswerExpandedStates(root, promptAnswerExpandedStatesRef.current);
+    rememberPromptListStates();
+  }, [html, markdown, rememberPromptListStates]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
@@ -306,10 +322,14 @@ export function ContentView({
     const root = renderedMarkdownRef.current;
     if (!markdown || !root) return;
 
-    const sync = () => syncPromptListCollapsedStateFromUrl(root, false);
+    const sync = () => {
+      restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, false);
+      restorePromptAnswerExpandedStates(root, promptAnswerExpandedStatesRef.current);
+      rememberPromptListStates();
+    };
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
-  }, [markdown]);
+  }, [markdown, rememberPromptListStates]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
@@ -362,28 +382,20 @@ export function ContentView({
 
   const onRenderedMarkdownClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null;
+    const pointerDragged = pointerDraggedRef.current;
     pointerDraggedRef.current = false;
     pointerDownRef.current = false;
     pointerDownPositionRef.current = null;
 
-    const branchNav = target?.closest('.prompt-list-branch-nav');
-    if (branchNav instanceof HTMLElement) {
+    const answer = target?.closest('li.prompt-answer');
+    const answerToggleSuppressed = answer instanceof HTMLElement && consumeSuppressedPromptAnswerToggle(answer);
+    const answerInteractiveTarget = target?.closest('a, img, button, input, label, summary.toggle-list-summary');
+    if (answer instanceof HTMLElement && !answerInteractiveTarget) {
+      if (answerToggleSuppressed || pointerDragged || hasNonCollapsedSelectionIntersectingNode(answer)) return;
       event.preventDefault();
-      navigatePromptListBranch(branchNav);
-      return;
-    }
-
-    const answerToggle = target?.closest('.prompt-answer-toggle');
-    if (answerToggle instanceof HTMLElement) {
-      event.preventDefault();
-      const answer = answerToggle.closest('li.prompt-answer');
-      if (answer instanceof HTMLElement) {
-        const conversation = answer.closest('.prompt-list-conversation');
-        if (conversation instanceof HTMLElement && conversation.getAttribute('data-collapsed') === 'true') {
-          setPromptListCollapsedStateInUrl(conversation, false, false, { syncAnswers: false });
-        }
-        togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
-      }
+      togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
+      syncPromptAnswerExpandedStateInUrl(answer);
+      rememberPromptListStates();
       return;
     }
 
@@ -394,12 +406,14 @@ export function ContentView({
       return;
     }
 
-    const toggle = target?.closest('.prompt-list-caption');
-    if (toggle instanceof HTMLElement) {
+    const modeOption = target?.closest('.prompt-list-mode-option');
+    if (modeOption instanceof HTMLButtonElement) {
       event.preventDefault();
-      const container = toggle.closest('.prompt-list-conversation');
+      const container = modeOption.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
-        togglePromptListCollapsedStateInUrl(container, false);
+        const collapsed = modeOption.dataset.promptListMode === 'map';
+        setPromptListCollapsedState(container, collapsed);
+        rememberPromptListStates();
       }
       return;
     }
@@ -418,6 +432,7 @@ export function ContentView({
 
     const anchor = target?.closest('a');
     if (!anchor) return;
+    if (pointerDragged || hasNonCollapsedSelectionIntersectingNode(anchor)) return;
     hidePreview();
     if (anchor.hasAttribute('download')) return;
 
@@ -452,20 +467,20 @@ export function ContentView({
 
   const onRenderedMarkdownKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
+    const answer = target?.closest('li.prompt-answer');
+    if (answer instanceof HTMLElement && answer === target && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
+      syncPromptAnswerExpandedStateInUrl(answer);
+      rememberPromptListStates();
+      return;
+    }
+
     const toggleList = findToggleListFromTarget(target);
     if (toggleList && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
       toggleToggleListState(toggleList);
       return;
-    }
-
-    const toggle = target?.closest('.prompt-list-caption');
-    if (!(toggle instanceof HTMLElement)) return;
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    const container = toggle.closest('.prompt-list-conversation');
-    if (container instanceof HTMLElement) {
-      togglePromptListCollapsedStateInUrl(container, false);
     }
   };
 
@@ -758,6 +773,12 @@ export function ContentView({
             onMouseMove={onRenderedMarkdownMouseMove}
             onMouseLeave={hidePreview}
             dangerouslySetInnerHTML={{ __html: html }}
+          />
+          <PromptAnswerCommentComposer
+            enabled={markdown}
+            resetKey={html}
+            rootRef={renderedMarkdownRef}
+            currentUserAvatarUrl={currentUserAvatarUrl}
           />
         </>
       ) : plainText !== null ? (
