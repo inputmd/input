@@ -6280,16 +6280,23 @@ export function App() {
         if (!saved) return false;
       }
 
-      clearCurrentInstalledRepoFileSelection();
+      const currentDocRepoRef =
+        repoAccessMode === 'installed' ? selectedRepoRef : repoAccessMode === 'shared' ? currentRouteRepoRef : null;
+      if (currentRepoDocPath && currentDocRepoRef) {
+        navigate(routePath.repoFile(currentDocRepoRef.owner, currentDocRepoRef.repo, currentRepoDocPath));
+      }
       return true;
     },
     [
       activeView,
-      clearCurrentInstalledRepoFileSelection,
       commitAndStayInEdit,
       currentRepoDocPath,
+      currentRouteRepoRef,
       editingBackend,
       hasCurrentEditorUnsavedChanges,
+      navigate,
+      repoAccessMode,
+      selectedRepoRef,
       showConfirm,
     ],
   );
