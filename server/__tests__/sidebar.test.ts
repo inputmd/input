@@ -1,7 +1,11 @@
 import test from 'ava';
 import { JSDOM } from 'jsdom';
 import { resolveSidebarFocusedPath } from '../../src/sidebar_focus.ts';
-import { resolveSidebarFolderRowBehavior, resolveSidebarFolderRowLabel } from '../../src/sidebar_row_behavior.ts';
+import {
+  resolveSidebarFolderRowBehavior,
+  resolveSidebarFolderRowClickAction,
+  resolveSidebarFolderRowLabel,
+} from '../../src/sidebar_row_behavior.ts';
 import {
   loadSidebarCollapsedFoldersState,
   persistSidebarCollapsedFolders,
@@ -123,18 +127,15 @@ test('resolveSidebarFocusedPath keeps a visible combined markdown alias focused'
   t.is(resolveSidebarFocusedPath('guides.md', null, visibleNodes), 'guides.md');
 });
 
-test('resolveSidebarFolderRowBehavior selects the markdown file from the merged row body', (t) => {
+test('resolveSidebarFolderRowClickAction selects the markdown file and expands the folder when it was not focused', (t) => {
   t.deepEqual(
-    resolveSidebarFolderRowBehavior({
+    resolveSidebarFolderRowClickAction({
       folderPath: 'guides',
       combinedFilePath: 'guides.md',
       combinedFileVirtual: false,
-      readOnly: false,
-      isRenaming: false,
-      isRenamePending: false,
-      isMoving: false,
-    }).bodyAction,
-    { type: 'select-file', path: 'guides.md' },
+      combinedFileFocused: false,
+    }),
+    { type: 'select-file', path: 'guides.md', expandFolderPath: 'guides' },
   );
 });
 
@@ -149,6 +150,30 @@ test('resolveSidebarFolderRowBehavior keeps the caret toggle routed to the folde
       isRenamePending: false,
       isMoving: false,
     }).caretAction,
+    { type: 'toggle-folder', path: 'guides' },
+  );
+});
+
+test('resolveSidebarFolderRowClickAction toggles the folder when the merged file was already focused', (t) => {
+  t.deepEqual(
+    resolveSidebarFolderRowClickAction({
+      folderPath: 'guides',
+      combinedFilePath: 'guides.md',
+      combinedFileVirtual: false,
+      combinedFileFocused: true,
+    }),
+    { type: 'toggle-folder', path: 'guides' },
+  );
+});
+
+test('resolveSidebarFolderRowClickAction keeps virtual merged rows as folder toggles', (t) => {
+  t.deepEqual(
+    resolveSidebarFolderRowClickAction({
+      folderPath: 'guides',
+      combinedFilePath: 'guides.md',
+      combinedFileVirtual: true,
+      combinedFileFocused: false,
+    }),
     { type: 'toggle-folder', path: 'guides' },
   );
 });

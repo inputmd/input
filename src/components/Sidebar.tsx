@@ -19,7 +19,11 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
 import type { RepoWorkspaceChangedFileDetail } from '../repo_workspace/commit';
 import { resolveSidebarFocusedPath, type SidebarVisibleNode } from '../sidebar_focus';
-import { resolveSidebarFolderRowBehavior, resolveSidebarFolderRowLabel } from '../sidebar_row_behavior';
+import {
+  resolveSidebarFolderRowBehavior,
+  resolveSidebarFolderRowClickAction,
+  resolveSidebarFolderRowLabel,
+} from '../sidebar_row_behavior';
 import { loadSidebarCollapsedFoldersState, persistSidebarCollapsedFolders } from '../sidebar_state';
 import { buildSidebarTree, type SidebarTreeFolderNode, type SidebarTreeNode } from '../sidebar_tree';
 import {
@@ -335,6 +339,8 @@ export function Sidebar({
   const [movingTarget, setMovingTarget] = useState<RenameTarget>(null);
   const [stagedChangesTooltipOpen, setStagedChangesTooltipOpen] = useState(false);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const focusedPathRef = useRef<string | null>(null);
+  const combinedFileFocusedOnPointerDownRef = useRef<Record<string, boolean>>({});
   const newInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const createInFlightRef = useRef(false);
@@ -667,6 +673,8 @@ export function Sidebar({
     rowRefs.current[path]?.focus();
   };
 
+  focusedPathRef.current = focusedPath;
+
   const focusNextVisibleOffset = (offset: number) => {
     if (!focusedPath || visibleNodes.length === 0) return;
     const index = visibleIndexByPath.get(focusedPath);
@@ -919,11 +927,33 @@ export function Sidebar({
         draggable={Boolean(rowBehavior.dragSource)}
         data-folder-path={folder.path}
         style={{ paddingLeft: `${8 + depth * DIRECTORY_TREE_INDENT_PX}px` }}
+        onPointerDownCapture={() => {
+          if (!combinedFile) return;
+          combinedFileFocusedOnPointerDownRef.current[folder.path] = focusedPathRef.current === combinedFile.path;
+        }}
         onClick={() => {
-          if (rowBehavior.bodyAction.type === 'select-file') {
-            if (!combinedEntry?.active) onSelectFile(rowBehavior.bodyAction.path);
+          const rowClickAction = resolveSidebarFolderRowClickAction({
+            folderPath: folder.path,
+            combinedFilePath: combinedFile?.path ?? null,
+            combinedFileVirtual: combinedEntry?.virtual ?? false,
+            combinedFileFocused: combinedFile
+              ? (combinedFileFocusedOnPointerDownRef.current[folder.path] ??
+                focusedPathRef.current === combinedFile.path)
+              : false,
+          });
+          delete combinedFileFocusedOnPointerDownRef.current[folder.path];
+          if (rowClickAction.type === 'select-file') {
+            if (rowClickAction.expandFolderPath && collapsedFolders[rowClickAction.expandFolderPath]) {
+              setCollapsedFolders((prev) => {
+                if (!prev[rowClickAction.expandFolderPath!]) return prev;
+                const next = { ...prev };
+                delete next[rowClickAction.expandFolderPath!];
+                return next;
+              });
+            }
+            if (!combinedEntry?.active) onSelectFile(rowClickAction.path);
           } else {
-            toggleFolder(rowBehavior.bodyAction.path);
+            toggleFolder(rowClickAction.path);
           }
         }}
         onFocus={() => {
@@ -968,6 +998,7 @@ export function Sidebar({
           setDraggingItem(rowBehavior.dragSource);
         }}
         onDragEnd={() => {
+          delete combinedFileFocusedOnPointerDownRef.current[folder.path];
           clearDragState();
         }}
         onDrop={(e) => {
