@@ -477,15 +477,18 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
   const line = state.doc.lineAt(range.from);
   if (range.from !== line.to) return null;
 
-  const match = matchPromptListLine(line.text);
-  if (!match || match.kind !== 'question' || match.marker !== '~') return null;
-
-  const prompt = match.content.trim();
-  if (!prompt) return null;
   const thread = findPromptListBlockAt(state, line.number);
   if (!thread) return null;
 
   const currentItem = thread.block.items[thread.itemIndex];
+  if (currentItem.kind !== 'question' || line.number !== currentItem.lastLineNumber) return null;
+
+  const firstLineMatch = matchPromptListLine(state.doc.line(currentItem.lineNumber).text);
+  if (!firstLineMatch || firstLineMatch.kind !== 'question' || firstLineMatch.marker !== '~') return null;
+
+  const prompt = currentItem.content.trim();
+  if (!prompt) return null;
+
   const currentTurnIndex = thread.block.itemToTurnIndex[thread.itemIndex];
   if (currentTurnIndex < 0) return null;
 
@@ -521,12 +524,12 @@ export function getPromptListRequest(state: EditorState): PromptListRequest | nu
   }
 
   const insertFrom = insertionPointAfterTurnSubtree(thread.block, currentTurnIndex);
-  const insertedPrefix = `${state.lineBreak}${match.indent}⏺ `;
+  const insertedPrefix = `${state.lineBreak}${currentItem.indent}⏺ `;
   return {
     prompt,
     documentContent: state.doc.toString(),
     messages,
-    answerIndent: match.indent,
+    answerIndent: currentItem.indent,
     insertFrom,
     insertTo: insertFrom,
     insertedPrefix,
