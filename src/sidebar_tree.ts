@@ -1,4 +1,5 @@
 import { buildDirectoryTree, type DirectoryTreeFileNode, type DirectoryTreeFolderNode } from './directory_tree.ts';
+import { isHiddenSidebarPath } from './path_utils.ts';
 
 export interface SidebarTreeFileEntry {
   path: string;
@@ -42,14 +43,6 @@ function sortSidebarTreeNodes<TEntry extends SidebarTreeFileEntry>(nodes: Sideba
   });
 }
 
-function isKeepMarkerPath(path: string): boolean {
-  return /(?:^|\/)\.keep$/i.test(path);
-}
-
-function isHiddenFolderPath(path: string): boolean {
-  return path.split('/').some((segment) => segment.startsWith('.'));
-}
-
 function isMatchingCombinedMarkdownFile<TEntry extends SidebarTreeFileEntry>(
   folder: SidebarTreeFolderNode<TEntry>,
   file: SidebarTreeFileNode<TEntry>,
@@ -65,25 +58,14 @@ export function buildSidebarTree<TEntry extends SidebarTreeFileEntry>(files: TEn
   const genericRoot = buildDirectoryTree(files);
 
   const annotateFolders = (folder: DirectoryTreeFolderNode<TEntry>): SidebarTreeFolderNode<TEntry> => {
-    const annotatedChildren: SidebarTreeNode<TEntry>[] = [];
-    let hasActiveKeepMarker = false;
-    for (const child of folder.children) {
-      if (child.kind === 'folder') {
-        const annotatedChild = annotateFolders(child);
-        annotatedChildren.push(annotatedChild);
-        continue;
-      }
-      if (isKeepMarkerPath(child.path)) {
-        if (child.entry.active) hasActiveKeepMarker = true;
-        continue;
-      }
-      annotatedChildren.push(child);
-    }
+    const annotatedChildren = folder.children.map((child) =>
+      child.kind === 'folder' ? annotateFolders(child) : child,
+    ) as SidebarTreeNode<TEntry>[];
 
     const children: SidebarTreeNode<TEntry>[] = [];
     const fileNodesByName = new Map<string, SidebarTreeFileNode<TEntry>>();
     const mergedFilePaths = new Set<string>();
-    let hasActiveDescendant = hasActiveKeepMarker;
+    let hasActiveDescendant = false;
 
     for (const child of annotatedChildren) {
       if (child.kind === 'file') fileNodesByName.set(child.name, child);
@@ -112,7 +94,7 @@ export function buildSidebarTree<TEntry extends SidebarTreeFileEntry>(files: TEn
     return {
       ...folder,
       children,
-      deemphasized: folder.path ? isHiddenFolderPath(folder.path) : false,
+      deemphasized: folder.path ? isHiddenSidebarPath(folder.path) : false,
       hasActiveDescendant,
       combinedFile: null,
     };

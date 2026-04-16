@@ -266,18 +266,20 @@ export function applyRepoWorkspaceMutationsToDocFiles(
 export function filterRepoWorkspaceSidebarFiles(
   files: SidebarFile[],
   sidebarFileFilter: SidebarFileFilter,
+  showHiddenFiles = false,
 ): SidebarFile[] {
-  if (sidebarFileFilter === 'markdown') return files.filter((file) => isMarkdownFileName(file.path));
-  if (sidebarFileFilter === 'text') return files.filter((file) => isSidebarTextListPath(file.path));
-  return files;
+  const visibleFiles = showHiddenFiles ? files : files.filter((file) => isVisibleSidebarFilePath(file.path));
+  if (sidebarFileFilter === 'markdown') return visibleFiles.filter((file) => isMarkdownFileName(file.path));
+  if (sidebarFileFilter === 'text') return visibleFiles.filter((file) => isSidebarTextListPath(file.path));
+  return visibleFiles;
 }
 
-export function countRepoWorkspaceSidebarFiles(files: SidebarFile[]): RepoWorkspaceFileCounts {
-  const visibleFiles = files.filter((file) => isVisibleSidebarFilePath(file.path));
+export function countRepoWorkspaceSidebarFiles(files: SidebarFile[], showHiddenFiles = false): RepoWorkspaceFileCounts {
+  const visibleFiles = showHiddenFiles ? files : files.filter((file) => isVisibleSidebarFilePath(file.path));
   if (visibleFiles.length === 0) return { markdown: 0, text: 0, total: 0 };
   return {
     markdown: visibleFiles.filter((file) => isMarkdownFileName(file.path)).length,
-    text: visibleFiles.filter((file) => isSidebarTextFileName(file.path)).length,
+    text: visibleFiles.filter((file) => isSidebarTextListPath(file.path)).length,
     total: visibleFiles.length,
   };
 }

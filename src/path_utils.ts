@@ -143,6 +143,10 @@ export function isKeepFilePath(path: string | null | undefined): boolean {
   return Boolean(path && /(?:^|\/)\.keep$/i.test(path));
 }
 
+export function isHiddenSidebarPath(path: string | null | undefined): boolean {
+  return Boolean(path?.split('/').some((segment) => segment.startsWith('.')));
+}
+
 export function isSidebarTextListPath(path: string): boolean {
   return isSidebarTextFileName(path) || isKeepFilePath(path);
 }
@@ -152,7 +156,7 @@ export function isEditableTextFilePath(path: string | null | undefined): boolean
 }
 
 export function isVisibleSidebarFilePath(path: string): boolean {
-  return !isKeepFilePath(path);
+  return !isHiddenSidebarPath(path);
 }
 
 export function isSafeImageFileName(name: string | null | undefined): boolean {

@@ -119,6 +119,14 @@
   text-align: right;
 }
 
+.sidebar-filter-menu-item-check {
+  min-width: 14px;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .sidebar-filter-menu-item[data-highlighted] {
   background: var(--btn-hover);
 }

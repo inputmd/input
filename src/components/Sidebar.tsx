@@ -2,6 +2,7 @@ import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -59,6 +60,8 @@ export interface SidebarProps {
   totalFileCount: number;
   fileFilter: SidebarFileFilter;
   onFileFilterChange: (value: SidebarFileFilter) => void;
+  showHiddenFiles: boolean;
+  onShowHiddenFilesChange: (value: boolean) => void;
   disabled?: boolean;
   readOnly?: boolean;
   showDailyNoteAction?: boolean;
@@ -303,6 +306,8 @@ export function Sidebar({
   totalFileCount,
   fileFilter,
   onFileFilterChange,
+  showHiddenFiles,
+  onShowHiddenFilesChange,
   disabled = false,
   readOnly = false,
   showDailyNoteAction = false,
@@ -797,6 +802,17 @@ export function Sidebar({
               <span class="sidebar-filter-menu-item-count">{totalFileCount}</span>
             </DropdownMenu.RadioItem>
           </DropdownMenu.RadioGroup>
+          <DropdownMenu.Separator class="sidebar-context-menu-separator" />
+          <DropdownMenu.CheckboxItem
+            class="sidebar-filter-menu-item"
+            checked={showHiddenFiles}
+            onCheckedChange={(checked: boolean | 'indeterminate') => onShowHiddenFilesChange(checked === true)}
+          >
+            <span>Show hidden files</span>
+            <span class="sidebar-filter-menu-item-check" aria-hidden="true">
+              {showHiddenFiles ? <Check size={14} /> : null}
+            </span>
+          </DropdownMenu.CheckboxItem>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

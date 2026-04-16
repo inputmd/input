@@ -117,6 +117,7 @@ export interface UseRepoWorkspaceArgs {
   currentRepoDocPath: string | null;
   scratchSidebarPath: string | null;
   sidebarFileFilter: SidebarFileFilter;
+  sidebarShowHiddenFiles: boolean;
 }
 
 export interface RepoSidebarBinding {

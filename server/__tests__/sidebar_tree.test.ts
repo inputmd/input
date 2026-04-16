@@ -27,10 +27,13 @@ test('buildSidebarTree keeps folders backed only by .keep entries', (t) => {
   if (!docsFolder || docsFolder.kind !== 'folder') return;
 
   t.is(docsFolder.path, 'docs');
-  t.deepEqual(docsFolder.children, []);
+  t.deepEqual(
+    docsFolder.children.map((child) => child.path),
+    ['docs/.keep'],
+  );
 });
 
-test('buildSidebarTree hides .keep files but preserves active folder ancestry', (t) => {
+test('buildSidebarTree keeps .keep files visible and preserves active folder ancestry', (t) => {
   const tree = buildSidebarTree([
     createSidebarFile('docs/.keep', { active: true }),
     createSidebarFile('docs/readme.md'),
@@ -44,7 +47,7 @@ test('buildSidebarTree hides .keep files but preserves active folder ancestry', 
   t.true(docsFolder.hasActiveDescendant);
   t.deepEqual(
     docsFolder.children.map((child) => child.path),
-    ['docs/readme.md'],
+    ['docs/.keep', 'docs/readme.md'],
   );
 });
 

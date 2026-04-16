@@ -45,6 +45,7 @@ export function useRepoWorkspace({
   currentRepoDocPath,
   scratchSidebarPath,
   sidebarFileFilter,
+  sidebarShowHiddenFiles,
 }: UseRepoWorkspaceArgs): RepoWorkspaceState {
   const [repoMarkdownFiles, setRepoMarkdownFiles] = useState<RepoDocFile[]>([]);
   const [repoSidebarFiles, setRepoSidebarFiles] = useState<RepoDocFile[]>([]);
@@ -191,10 +192,13 @@ export function useRepoWorkspace({
   ]);
 
   const sidebarFiles = useMemo(() => {
-    return filterRepoWorkspaceSidebarFiles(sidebarSourceFiles, sidebarFileFilter);
-  }, [sidebarFileFilter, sidebarSourceFiles]);
+    return filterRepoWorkspaceSidebarFiles(sidebarSourceFiles, sidebarFileFilter, sidebarShowHiddenFiles);
+  }, [sidebarFileFilter, sidebarShowHiddenFiles, sidebarSourceFiles]);
 
-  const sidebarFileCounts = useMemo(() => countRepoWorkspaceSidebarFiles(sidebarSourceFiles), [sidebarSourceFiles]);
+  const sidebarFileCounts = useMemo(
+    () => countRepoWorkspaceSidebarFiles(sidebarSourceFiles, sidebarShowHiddenFiles),
+    [sidebarShowHiddenFiles, sidebarSourceFiles],
+  );
   const getRepoMarkdownPaths = useCallback(
     () => listRepoDocFilePaths(effectiveRepoMarkdownFiles),
     [effectiveRepoMarkdownFiles],

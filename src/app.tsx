@@ -232,6 +232,7 @@ const MIN_SIDE_PANE_WIDTH_PX = 170;
 const MAX_SIDE_PANE_WIDTH_PX = 720;
 const MIN_MAIN_CONTENT_WIDTH_PX = 100;
 const SIDEBAR_FILE_FILTER_KEY = 'sidebar_file_filter';
+const SIDEBAR_SHOW_HIDDEN_FILES_KEY = 'sidebar_show_hidden_files';
 const SIDEBAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
 const OAUTH_REDIRECT_GUARD_KEY = 'oauth_redirect_guard';
@@ -872,6 +873,14 @@ export function App() {
       return 'text';
     }
   });
+  const [sidebarShowHiddenFiles, setSidebarShowHiddenFiles] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem(SIDEBAR_SHOW_HIDDEN_FILES_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH_PX;
     try {
@@ -1056,6 +1065,7 @@ export function App() {
     currentRepoDocPath,
     scratchSidebarPath,
     sidebarFileFilter,
+    sidebarShowHiddenFiles,
   });
   const {
     findBaseRepoSidebarFile,
@@ -3956,6 +3966,12 @@ export function App() {
       localStorage.setItem(SIDEBAR_FILE_FILTER_KEY, sidebarFileFilter);
     } catch {}
   }, [sidebarFileFilter]);
+
+  useLayoutEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_SHOW_HIDDEN_FILES_KEY, sidebarShowHiddenFiles ? 'true' : 'false');
+    } catch {}
+  }, [sidebarShowHiddenFiles]);
 
   useEffect(() => {
     if (sidebarFileFilter === 'all' || sidebarFileFilter === 'text' || sidebarFileFilter === 'markdown') {
@@ -8514,6 +8530,8 @@ export function App() {
     hasOpenFile: currentRepoDocPath !== null || currentFileName !== null,
     fileFilter: sidebarFileFilter,
     onFileFilterChange: setSidebarFileFilter,
+    showHiddenFiles: sidebarShowHiddenFiles,
+    onShowHiddenFilesChange: setSidebarShowHiddenFiles,
     onSelectFile: handleSelectFile,
     onClearSelection: () => {
       void handleClearSelectedFile();
