@@ -1082,6 +1082,8 @@ export function Sidebar({
 
     const showViewOnlyContext = readOnly && canViewOnGitHub;
     const showCombinedModifyActions = canModifyCombinedFile && !readOnly;
+    const showCombinedFileActions = Boolean((showCombinedModifyActions && renameTarget) || canViewOnGitHub);
+    const showCombinedDeleteActions = !readOnly;
     if (readOnly && !showViewOnlyContext) {
       return folderRow;
     }
@@ -1108,6 +1110,9 @@ export function Sidebar({
                   Add directory
                 </ContextMenu.Item>
               )}
+              {!readOnly && showCombinedFileActions ? (
+                <ContextMenu.Separator class="sidebar-context-menu-separator" />
+              ) : null}
               {showCombinedModifyActions && renameTarget ? (
                 <ContextMenu.Item class="sidebar-context-menu-item" onSelect={() => void startRename(renameTarget)}>
                   Rename
@@ -1122,17 +1127,21 @@ export function Sidebar({
                   <ExternalLink size={14} className="sidebar-context-menu-item-icon" aria-hidden="true" />
                 </ContextMenu.Item>
               )}
+              {showCombinedDeleteActions ? <ContextMenu.Separator class="sidebar-context-menu-separator" /> : null}
               {showCombinedModifyActions ? (
-                <>
-                  <ContextMenu.Separator class="sidebar-context-menu-separator" />
-                  <ContextMenu.Item
-                    class="sidebar-context-menu-item sidebar-context-menu-item-danger"
-                    onSelect={() => onDeleteFile(rowBehavior.deleteTarget.path)}
-                  >
-                    Delete
-                  </ContextMenu.Item>
-                </>
+                <ContextMenu.Item
+                  class="sidebar-context-menu-item sidebar-context-menu-item-danger"
+                  onSelect={() => onDeleteFile(rowBehavior.deleteTarget.path)}
+                >
+                  Delete file
+                </ContextMenu.Item>
               ) : null}
+              <ContextMenu.Item
+                class="sidebar-context-menu-item sidebar-context-menu-item-danger"
+                onSelect={() => onDeleteFolder(folder.path)}
+              >
+                Delete folder
+              </ContextMenu.Item>
             </ContextMenu.Content>
           </ContextMenu.Portal>
         </ContextMenu.Root>
