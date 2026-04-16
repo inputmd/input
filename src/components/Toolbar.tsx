@@ -353,7 +353,7 @@ export function Toolbar({
   const selectedInstallationLabel = selectedInstallation?.accountLogin ?? selectedInstallation?.installationId ?? null;
   const selectedRepoName = selectedRepo?.split('/').at(-1) ?? selectedRepo;
   const showHeaderToggleGroup = showPreviewToggle || showAiToggle;
-  const showAiModelSelector = showAiToggle && aiVisible && !terminalVisible;
+  const showAiModelSelector = showAiToggle && view === 'edit' && !terminalVisible;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const sidebarToggleLabel = `${sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'} (${sidebarShortcutLabel})`;
