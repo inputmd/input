@@ -18,6 +18,24 @@ interface ExtractTarballOptions {
   maxTotalBytes?: number;
 }
 
+function createTarEntryFinalizer(entryStream: NodeJS.ReadableStream, next: (err?: Error | null) => void) {
+  let finished = false;
+  const onEntryError = (err: unknown) => {
+    finish(err instanceof Error ? err : new Error(tarballErrorMessage(err)));
+  };
+
+  entryStream.once('error', onEntryError);
+
+  function finish(err?: Error | null) {
+    if (finished) return;
+    finished = true;
+    if (!err) entryStream.off('error', onEntryError);
+    next(err ?? undefined);
+  }
+
+  return finish;
+}
+
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError');
 }
@@ -43,9 +61,11 @@ export async function extractTarball(
   source.on('error', onSourceError);
 
   extract.on('entry', (header, entryStream, next) => {
+    const finishEntry = createTarEntryFinalizer(entryStream, next);
+
     if (header.type !== 'file') {
       entryStream.resume();
-      next();
+      finishEntry();
       return;
     }
 
@@ -55,14 +75,14 @@ export async function extractTarball(
     const path = slashIndex >= 0 ? rawPath.slice(slashIndex + 1) : rawPath;
     if (!path) {
       entryStream.resume();
-      next();
+      finishEntry();
       return;
     }
 
     const size = header.size ?? 0;
     if (size > REPO_TARBALL_MAX_FILE_SIZE) {
       entryStream.resume();
-      next();
+      finishEntry();
       return;
     }
 
@@ -94,7 +114,7 @@ export async function extractTarball(
     entryStream.on('end', () => {
       if (aborted) return;
       if (isBinary) {
-        next();
+        finishEntry();
         return;
       }
       const buf = Buffer.concat(chunks);
@@ -104,9 +124,8 @@ export async function extractTarball(
         extract.destroy(new Error('too_many_files'));
         return;
       }
-      next();
+      finishEntry();
     });
-    entryStream.on('error', next);
   });
 
   try {
