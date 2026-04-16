@@ -358,6 +358,9 @@ export function Toolbar({
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const sidebarToggleLabel = `${sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'} (${sidebarShortcutLabel})`;
   const previewToggleLabel = `${previewVisible ? 'Hide preview' : 'Show preview'} (${previewShortcutLabel})`;
+  const brandRoute = user ? routePath.workspaces() : routePath.home();
+  const brandHref = brandRoute ? `/${brandRoute}` : '/';
+  const brandLabel = user ? 'Go to workspaces' : 'Go to home page';
   const readerAiToggleLabel = `${aiVisible ? 'Hide Reader AI' : 'Show Reader AI'} (${readerAiShortcutLabel})`;
   const resolvedLocalRateLimit = localRateLimit ?? readStoredGitHubRateLimitSnapshot('serverLocal');
   const resolvedServerRateLimit = serverRateLimit ?? readStoredGitHubRateLimitSnapshot('server');
@@ -727,11 +730,22 @@ export function Toolbar({
                 <span class="toolbar-spinner" aria-hidden="true" />
               </div>
             ) : null}
-            <span class="toolbar-brand-logo-wrap" aria-hidden="true">
-              <svg class="toolbar-brand-logo" viewBox="0 0 19 19" aria-hidden="true" focusable="false">
-                <use href="/logo.svg#logo-mark" />
-              </svg>
-            </span>
+            <a
+              href={brandHref}
+              class="toolbar-brand-link"
+              aria-label={brandLabel}
+              onClick={(event) => {
+                event.preventDefault();
+                navigate(brandRoute);
+              }}
+            >
+              <span class="toolbar-sr-only">{brandLabel}</span>
+              <span class="toolbar-brand-logo-wrap" aria-hidden="true">
+                <svg class="toolbar-brand-logo" viewBox="0 0 19 19" aria-hidden="true" focusable="false">
+                  <use href="/logo.svg#logo-mark" />
+                </svg>
+              </span>
+            </a>
             {showSidebarToggle ? (
               <button
                 type="button"
