@@ -262,9 +262,6 @@ export function useRepoWorkspace({
       setTerminalSnapshotVersion((current) => current + 1);
     }
   }, []);
-  const replaceRepoMarkdownFiles = useCallback((files: RepoDocFile[]) => {
-    setRepoMarkdownFiles(files);
-  }, []);
   const replaceTerminalBaseSnapshot = useCallback(
     (snapshotKey: string, files: RepoFileEntry[] | Record<string, string>) => {
       setTerminalBaseSnapshot({
@@ -588,7 +585,6 @@ export function useRepoWorkspace({
       terminalSnapshotVersion,
       resetRepoState,
       replaceRepoSnapshot,
-      replaceRepoMarkdownFiles,
       replaceTerminalBaseSnapshot,
       clearTerminalBaseSnapshot,
       setRepoFileContent,
@@ -644,7 +640,6 @@ export function useRepoWorkspace({
       overlayFiles,
       removeRepoFileContent,
       removeRepoFileContents,
-      replaceRepoMarkdownFiles,
       replaceRepoSnapshot,
       replaceTerminalBaseSnapshot,
       renamedBaseFiles,

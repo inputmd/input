@@ -10,6 +10,7 @@ import {
   loadSidebarCollapsedFoldersState,
   persistSidebarCollapsedFolders,
   readPersistedSidebarCollapsedFolders,
+  reconcileSidebarCollapsedFolders,
 } from '../../src/sidebar_state.ts';
 
 function withDom<T>(callback: () => T): T {
@@ -86,6 +87,19 @@ test('sidebar collapsed folders state prefers persisted values over active ances
       loadedFromPersistence: true,
     });
   });
+});
+
+test('sidebar collapsed folders preserve persisted expand-all state during folder hydration', (t) => {
+  const reconciled = reconcileSidebarCollapsedFolders(
+    {},
+    new Set(['docs', 'src']),
+    new Set(['docs', 'src']),
+    new Set(),
+    true,
+  );
+
+  t.deepEqual(reconciled.collapsedFolders, {});
+  t.deepEqual([...reconciled.autoCollapsedDefaults].sort(), ['docs', 'src']);
 });
 
 test('resolveSidebarFocusedPath remaps a missing combined markdown focus target to its folder row', (t) => {

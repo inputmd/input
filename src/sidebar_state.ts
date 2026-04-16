@@ -62,6 +62,41 @@ export function loadSidebarCollapsedFoldersState(
   return { collapsedFolders, loadedFromPersistence: false };
 }
 
+export function reconcileSidebarCollapsedFolders(
+  collapsedFolders: Record<string, true>,
+  folderPaths: Iterable<string>,
+  defaultCollapsedPaths: Iterable<string>,
+  autoCollapsedDefaults: ReadonlySet<string>,
+  suppressNewDefaultCollapse = false,
+): { collapsedFolders: Record<string, true>; autoCollapsedDefaults: Set<string> } {
+  const availableFolderPaths = new Set(folderPaths);
+  const nextAutoCollapsedDefaults = new Set<string>();
+  const nextCollapsedFolders: Record<string, true> = {};
+  let changed = false;
+
+  for (const [path, collapsed] of Object.entries(collapsedFolders)) {
+    if (collapsed && availableFolderPaths.has(path)) nextCollapsedFolders[path] = true;
+    else changed = true;
+  }
+
+  for (const path of autoCollapsedDefaults) {
+    if (availableFolderPaths.has(path)) nextAutoCollapsedDefaults.add(path);
+  }
+
+  for (const path of defaultCollapsedPaths) {
+    if (nextAutoCollapsedDefaults.has(path)) continue;
+    nextAutoCollapsedDefaults.add(path);
+    if (suppressNewDefaultCollapse || nextCollapsedFolders[path]) continue;
+    nextCollapsedFolders[path] = true;
+    changed = true;
+  }
+
+  return {
+    collapsedFolders: changed ? nextCollapsedFolders : collapsedFolders,
+    autoCollapsedDefaults: nextAutoCollapsedDefaults,
+  };
+}
+
 export function persistSidebarCollapsedFolders(workspaceKey: string, collapsedFolders: Record<string, true>): void {
   if (typeof window === 'undefined') return;
   const storageKey = sidebarCollapsedFoldersStorageKey(workspaceKey);

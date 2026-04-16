@@ -1086,7 +1086,6 @@ export function App() {
     terminalSnapshotVersion,
     resetRepoState,
     replaceRepoSnapshot,
-    replaceRepoMarkdownFiles,
     replaceTerminalBaseSnapshot,
     setRepoFileContent,
     removeRepoFileContents,
@@ -2930,7 +2929,7 @@ export function App() {
         if (knownMarkdownPaths.length === 0) {
           try {
             const mdFiles = await loadRepoMarkdownFiles(instId, repoName);
-            replaceRepoMarkdownFiles(mdFiles);
+            replaceRepoSnapshot(mdFiles, { invalidateTerminal: false });
             knownMarkdownPaths = mdFiles.map((file) => file.path);
           } catch {
             /* sidebar index is best-effort */
@@ -2999,7 +2998,7 @@ export function App() {
       primeInstalledRepoSidebar,
       showRateLimitToastIfNeeded,
       canApplyExternalEditSession,
-      replaceRepoMarkdownFiles,
+      replaceRepoSnapshot,
     ],
   );
 
@@ -3021,7 +3020,7 @@ export function App() {
         const decoded = binary ? '' : new TextDecoder().decode(contentBytes);
         const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
         const knownMarkdownPaths = mdFiles.map((file) => file.path);
-        replaceRepoMarkdownFiles(mdFiles);
+        replaceRepoSnapshot(mdFiles, { invalidateTerminal: false });
         setRepoAccessMode('public');
         setPublicRepoRef({ owner, repo });
         setCurrentRepoDocPath(contents.path);
@@ -3082,7 +3081,7 @@ export function App() {
       showError,
       showRateLimitToastIfNeeded,
       setCurrentDocumentSavedContent,
-      replaceRepoMarkdownFiles,
+      replaceRepoSnapshot,
     ],
   );
 
@@ -3301,7 +3300,7 @@ export function App() {
               if (mdFiles.length > 0) {
                 setRepoAccessMode('installed');
                 setPublicRepoRef(null);
-                replaceRepoMarkdownFiles(mdFiles);
+                replaceRepoSnapshot(mdFiles, { invalidateTerminal: false });
                 const target = pickPreferredRepoMarkdownFile(mdFiles);
                 if (!target) {
                   navigate(routePath.repoNew(owner, repo, DEFAULT_NEW_FILENAME), { replace: true });
@@ -3321,7 +3320,7 @@ export function App() {
             }
             setRepoAccessMode('public');
             setPublicRepoRef({ owner, repo });
-            replaceRepoMarkdownFiles(mdFiles);
+            replaceRepoSnapshot(mdFiles, { invalidateTerminal: false });
             const target = pickPreferredRepoMarkdownFile(mdFiles);
             if (!target) {
               showError('No markdown files found in this repository');
@@ -3765,7 +3764,6 @@ export function App() {
       loadRepoAllFiles,
       shouldHydrateLocalDraftForRoute,
       resetRepoState,
-      replaceRepoMarkdownFiles,
       replaceRepoSnapshot,
     ],
   );

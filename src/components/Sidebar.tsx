@@ -25,7 +25,11 @@ import {
   resolveSidebarFolderRowClickAction,
   resolveSidebarFolderRowLabel,
 } from '../sidebar_row_behavior';
-import { loadSidebarCollapsedFoldersState, persistSidebarCollapsedFolders } from '../sidebar_state';
+import {
+  loadSidebarCollapsedFoldersState,
+  persistSidebarCollapsedFolders,
+  reconcileSidebarCollapsedFolders,
+} from '../sidebar_state';
 import { buildSidebarTree, type SidebarTreeFolderNode, type SidebarTreeNode } from '../sidebar_tree';
 import {
   collectDirectoryTreeFolderPaths,
@@ -373,6 +377,9 @@ export function Sidebar({
     return initialCollapsedFoldersState.collapsedFolders;
   });
   const autoCollapsedDefaultsRef = useRef<Set<string>>(new Set(defaultCollapsedPaths));
+  const suppressInitialDefaultCollapseRef = useRef(
+    initialCollapsedFoldersState.loadedFromPersistence && folderPaths.size === 0,
+  );
   const workspaceKeyRef = useRef(workspaceKey);
   const skipNextActiveAncestorsExpandRef = useRef(initialCollapsedFoldersState.loadedFromPersistence);
   const skipNextCollapsedFoldersPersistRef = useRef(false);
@@ -484,6 +491,7 @@ export function Sidebar({
     skipNextActiveAncestorsExpandRef.current = nextState.loadedFromPersistence;
     skipNextCollapsedFoldersPersistRef.current = true;
     autoCollapsedDefaultsRef.current = new Set(defaultCollapsedPaths);
+    suppressInitialDefaultCollapseRef.current = nextState.loadedFromPersistence && folderPaths.size === 0;
     hasHydratedFolderPathsRef.current = folderPaths.size > 0;
     setCollapsedFolders(nextState.collapsedFolders);
   }, [activeAncestors, defaultCollapsedPaths, folderPaths, workspaceKey]);
@@ -492,24 +500,16 @@ export function Sidebar({
     if (folderPaths.size > 0) hasHydratedFolderPathsRef.current = true;
     if (folderPaths.size === 0 && !hasHydratedFolderPathsRef.current) return;
     setCollapsedFolders((prev) => {
-      const next: Record<string, true> = {};
-      let changed = false;
-      for (const [path, collapsed] of Object.entries(prev)) {
-        if (collapsed && folderPaths.has(path)) next[path] = true;
-        else changed = true;
-      }
-      for (const path of Array.from(autoCollapsedDefaultsRef.current)) {
-        if (!folderPaths.has(path)) autoCollapsedDefaultsRef.current.delete(path);
-      }
-      for (const path of defaultCollapsedPaths) {
-        if (autoCollapsedDefaultsRef.current.has(path)) continue;
-        autoCollapsedDefaultsRef.current.add(path);
-        if (!next[path]) {
-          next[path] = true;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
+      const nextState = reconcileSidebarCollapsedFolders(
+        prev,
+        folderPaths,
+        defaultCollapsedPaths,
+        autoCollapsedDefaultsRef.current,
+        suppressInitialDefaultCollapseRef.current,
+      );
+      autoCollapsedDefaultsRef.current = nextState.autoCollapsedDefaults;
+      if (folderPaths.size > 0) suppressInitialDefaultCollapseRef.current = false;
+      return nextState.collapsedFolders;
     });
   }, [defaultCollapsedPaths, folderPaths]);
 

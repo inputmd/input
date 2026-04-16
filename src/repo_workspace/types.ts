@@ -76,7 +76,6 @@ export interface RepoWorkspaceState {
   listRepoSidebarFilesInFolder: (folderPath: string) => RepoDocFile[];
   resetRepoState: () => void;
   replaceRepoSnapshot: (repoSidebarFiles: RepoDocFile[], options?: { invalidateTerminal?: boolean }) => void;
-  replaceRepoMarkdownFiles: (repoMarkdownFiles: RepoDocFile[]) => void;
   replaceTerminalBaseSnapshot: (snapshotKey: string, files: RepoFileEntry[] | Record<string, string>) => void;
   clearTerminalBaseSnapshot: () => void;
   setRepoFileContent: (path: string, content: string) => void;
