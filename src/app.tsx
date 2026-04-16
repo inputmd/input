@@ -6262,6 +6262,38 @@ export function App() {
     ],
   );
 
+  const prepareCurrentRepoEditorFileForMutation = useCallback(
+    async (path: string, action: 'renaming' | 'deleting'): Promise<boolean> => {
+      if (activeView !== 'edit' || editingBackend !== 'repo' || currentRepoDocPath !== path) return true;
+
+      const confirmLabel = hasCurrentEditorUnsavedChanges ? 'Save' : 'Close';
+      const confirmed = await showConfirm(`${confirmLabel} "${path}" in the editor before ${action} it?`, {
+        title: hasCurrentEditorUnsavedChanges ? 'Unsaved changes' : 'Close editor',
+        confirmLabel,
+        cancelLabel: 'Cancel',
+        defaultFocus: 'cancel',
+      });
+      if (!confirmed) return false;
+
+      if (hasCurrentEditorUnsavedChanges) {
+        const saved = await commitAndStayInEdit();
+        if (!saved) return false;
+      }
+
+      clearCurrentInstalledRepoFileSelection();
+      return true;
+    },
+    [
+      activeView,
+      clearCurrentInstalledRepoFileSelection,
+      commitAndStayInEdit,
+      currentRepoDocPath,
+      editingBackend,
+      hasCurrentEditorUnsavedChanges,
+      showConfirm,
+    ],
+  );
+
   const handleSelectFile = useCallback(
     async (filePath: string) => {
       if (activeView === 'edit' && readerAiNavigationLocked) {
@@ -7113,12 +7145,10 @@ export function App() {
     async (filePath: string) => {
       const store = getActiveDocumentStore();
       if (!store) return;
-      const deletingOpenRepoEditorFile =
-        store.kind === 'repo' && activeView === 'edit' && editingBackend === 'repo' && currentRepoDocPath === filePath;
       const deletingCurrentRepoSelection = store.kind === 'repo' && currentRepoDocPath === filePath;
-      if (deletingOpenRepoEditorFile) {
-        void showAlert(`Close "${filePath}" in the editor before deleting it.`);
-        return;
+      if (store.kind === 'repo') {
+        const canProceed = await prepareCurrentRepoEditorFileForMutation(filePath, 'deleting');
+        if (!canProceed) return;
       }
       if (
         !(await showConfirm(`Delete "${filePath}"?`, {
@@ -7181,9 +7211,7 @@ export function App() {
     },
     [
       activeInstalledRepoInstallationId,
-      activeView,
       clearCurrentInstalledRepoFileSelection,
-      editingBackend,
       getActiveDocumentStore,
       currentFileName,
       findRepoSidebarFile,
@@ -7192,6 +7220,7 @@ export function App() {
       currentGistId,
       handleSessionExpired,
       navigate,
+      prepareCurrentRepoEditorFileForMutation,
       refreshRepoTreeAfterWrite,
       resolveRepoBasePath,
       selectedRepo,
@@ -7344,13 +7373,7 @@ export function App() {
             navigate(routePath.gistView(currentGistId, newPath));
           }
         } else {
-          const renamingOpenRepoEditorFile =
-            activeView === 'edit' && editingBackend === 'repo' && currentRepoDocPathRef.current === oldPath;
           const renamingCurrentRepoSelection = currentRepoDocPathRef.current === oldPath;
-          if (renamingOpenRepoEditorFile) {
-            void showAlert(`Close "${oldPath}" in the editor before renaming it.`);
-            return;
-          }
           if (hasRepoSidebarPath(newPath) && newPath !== oldPath) {
             void showAlert(`Rename conflict: "${newPath}" already exists.`);
             return;
@@ -7405,10 +7428,8 @@ export function App() {
     },
     [
       activeInstalledRepoInstallationId,
-      activeView,
       applyRepoContentRenames,
       applyRepoOverlayRenames,
-      editingBackend,
       getActiveDocumentStore,
       currentGistId,
       handleSessionExpired,
@@ -7425,13 +7446,8 @@ export function App() {
 
   const handleBeforeRenameFile = useCallback(
     async (path: string): Promise<boolean> => {
-      // For installed repos, rename is blocked entirely when the target is
-      // the currently-open editor file (handleRenameFile enforces this).
-      // For gists, offer to save first if the open file has unsaved edits.
       if (editingBackend === 'repo' && currentRepoDocPath === path) {
-        if (activeView !== 'edit') return true;
-        void showAlert(`Close "${path}" in the editor before renaming it.`);
-        return false;
+        return prepareCurrentRepoEditorFileForMutation(path, 'renaming');
       }
       if (!isMarkdownFileName(path)) return true;
       if (activeView !== 'edit' || !hasCurrentEditorUnsavedChanges) return true;
@@ -7455,7 +7471,7 @@ export function App() {
       editingBackend,
       currentRepoDocPath,
       currentFileName,
-      showAlert,
+      prepareCurrentRepoEditorFileForMutation,
       showConfirm,
       onSave,
     ],
