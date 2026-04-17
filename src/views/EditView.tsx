@@ -22,6 +22,7 @@ import { PromptAnswerCommentComposer } from '../components/PromptAnswerCommentCo
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextEditor } from '../components/TextEditor';
 import { shouldTriggerEditSaveShortcut } from '../editor_save_guards';
+import { useMarkdownCustomCss } from '../hooks/useMarkdownCustomCss';
 import type { MarkdownSyncBlock } from '../markdown';
 import {
   findPreviewHashTarget,
@@ -450,6 +451,8 @@ export function EditView({
   const [desktopHighlightsPopoverPinned, setDesktopHighlightsPopoverPinned] = useState(false);
   const [mobileHighlightsPopoverOpen, setMobileHighlightsPopoverOpen] = useState(false);
   const [previewHighlightEntries, setPreviewHighlightEntries] = useState<PreviewHighlightEntry[]>([]);
+  const { inlineCss: previewInlineCss, pendingExternalFonts: previewFontsPending } =
+    useMarkdownCustomCss(previewCustomCss);
   const [editorControllerReadyVersion, setEditorControllerReadyVersion] = useState(0);
   const lastPreviewRestoreKeyRef = useRef<string | null>(null);
   const [preview, setPreview] = useState<LinkPreviewState>({
@@ -1288,7 +1291,7 @@ export function EditView({
   useEffect(() => {
     const markdownRoot = renderedMarkdownRef.current;
     const pane = canRenderPreview ? previewPaneRef.current : mobilePreviewPaneRef.current;
-    if (!markdown || !previewVisible || !markdownRoot || !pane) return;
+    if (!markdown || previewFontsPending || !previewVisible || !markdownRoot || !pane) return;
 
     const sync = () => syncPromptPaneBleedVars(markdownRoot, pane);
     sync();
@@ -1302,17 +1305,17 @@ export function EditView({
       observer.disconnect();
       window.removeEventListener('resize', sync);
     };
-  }, [canRenderPreview, markdown, previewVisible]);
+  }, [canRenderPreview, markdown, previewFontsPending, previewVisible]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
-    if (!markdown || !previewVisible || !previewHtml || !root) return;
+    if (!markdown || previewFontsPending || !previewVisible || !previewHtml || !root) return;
 
     syncToggleListPersistedState(root);
     restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, false);
     restorePromptAnswerExpandedStates(root, promptAnswerExpandedStatesRef.current);
     rememberPromptListStates();
-  }, [markdown, previewHtml, previewVisible, rememberPromptListStates]);
+  }, [markdown, previewFontsPending, previewHtml, previewVisible, rememberPromptListStates]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
@@ -1554,7 +1557,7 @@ export function EditView({
     const root = renderedMarkdownRef.current;
     previewHighlightElementsRef.current.clear();
 
-    if (!markdown || !previewVisible || !previewHtml || !pane || !root) {
+    if (!markdown || previewFontsPending || !previewVisible || !previewHtml || !pane || !root) {
       setPreviewHighlightEntries([]);
       return;
     }
@@ -1562,7 +1565,7 @@ export function EditView({
     const { entries, elementsById } = collectPreviewHighlights(root);
     previewHighlightElementsRef.current = elementsById;
     setPreviewHighlightEntries(entries);
-  }, [canRenderPreview, markdown, previewHtml, previewVisible]);
+  }, [canRenderPreview, markdown, previewFontsPending, previewHtml, previewVisible]);
 
   useEffect(() => {
     if (previewVisible) return;
@@ -2130,15 +2133,21 @@ export function EditView({
               {!previewFrontMatterError && previewCssWarning ? (
                 <div class="editor-preview-alert">{previewCssWarning}</div>
               ) : null}
-              {previewCustomCss ? (
-                <style key={previewCustomCssScope ?? previewCustomCss}>{previewCustomCss}</style>
+              {previewInlineCss ? (
+                <style key={previewCustomCssScope ?? previewInlineCss}>{previewInlineCss}</style>
+              ) : null}
+              {previewFontsPending ? (
+                <div class="rendered-markdown-font-loading" role="status" aria-live="polite" aria-label="Loading fonts">
+                  <span class="editor-loading-spinner" aria-hidden="true" />
+                </div>
               ) : null}
               <div
                 ref={renderedMarkdownRef}
-                class="rendered-markdown"
+                class={`rendered-markdown${previewFontsPending ? ' rendered-markdown--pending-fonts' : ''}`}
                 data-markdown-custom-css={previewCustomCssScope ?? undefined}
                 data-enable-task-list-toggles="true"
                 data-toggle-list-storage-key={scrollStorageKey ?? undefined}
+                aria-busy={previewFontsPending ? 'true' : 'false'}
                 onClick={onPreviewClick}
                 onKeyDown={onPreviewKeyDown}
                 onMouseDown={onRenderedMarkdownMouseDown}
@@ -2210,15 +2219,21 @@ export function EditView({
             {!previewFrontMatterError && previewCssWarning ? (
               <div class="editor-preview-alert">{previewCssWarning}</div>
             ) : null}
-            {previewCustomCss ? (
-              <style key={previewCustomCssScope ?? previewCustomCss}>{previewCustomCss}</style>
+            {previewInlineCss ? (
+              <style key={previewCustomCssScope ?? previewInlineCss}>{previewInlineCss}</style>
+            ) : null}
+            {previewFontsPending ? (
+              <div class="rendered-markdown-font-loading" role="status" aria-live="polite" aria-label="Loading fonts">
+                <span class="editor-loading-spinner" aria-hidden="true" />
+              </div>
             ) : null}
             <div
               ref={renderedMarkdownRef}
-              class="rendered-markdown"
+              class={`rendered-markdown${previewFontsPending ? ' rendered-markdown--pending-fonts' : ''}`}
               data-markdown-custom-css={previewCustomCssScope ?? undefined}
               data-enable-task-list-toggles="true"
               data-toggle-list-storage-key={scrollStorageKey ?? undefined}
+              aria-busy={previewFontsPending ? 'true' : 'false'}
               onClick={onPreviewClick}
               onKeyDown={onPreviewKeyDown}
               onMouseDown={onRenderedMarkdownMouseDown}

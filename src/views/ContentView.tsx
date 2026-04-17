@@ -6,6 +6,7 @@ import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlights
 import { PromptAnswerCommentComposer } from '../components/PromptAnswerCommentComposer';
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextCodeView } from '../components/TextCodeView';
+import { useMarkdownCustomCss } from '../hooks/useMarkdownCustomCss';
 import {
   findPreviewHashTarget,
   resolveInternalNavigationRoute,
@@ -134,6 +135,9 @@ export function ContentView({
     url: null,
   });
   const [imagePreviewLoading, setImagePreviewLoading] = useState(true);
+  const { inlineCss: markdownInlineCss, pendingExternalFonts: markdownFontsPending } = useMarkdownCustomCss(
+    markdown ? markdownCustomCss : null,
+  );
   const isEmpty = html.trim().length === 0 && (plainText === null || plainText.length === 0) && !imagePreview;
 
   const scrollToHash = useCallback((hash: string, behavior: ScrollBehavior = 'auto') => {
@@ -270,7 +274,7 @@ export function ContentView({
     const contentView = contentViewRef.current;
     const pane = contentView?.closest('main') ?? contentView;
     const markdownRoot = renderedMarkdownRef.current;
-    if (!markdown || !pane || !markdownRoot) return;
+    if (!markdown || markdownFontsPending || !pane || !markdownRoot) return;
 
     const sync = () => syncPromptPaneBleedVars(markdownRoot, pane);
     sync();
@@ -284,23 +288,23 @@ export function ContentView({
       observer.disconnect();
       window.removeEventListener('resize', sync);
     };
-  }, [markdown]);
+  }, [markdown, markdownFontsPending]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
-    if (!markdown || !html || !root) return;
+    if (!markdown || markdownFontsPending || !html || !root) return;
 
     syncToggleListPersistedState(root);
     restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, false);
     restorePromptAnswerExpandedStates(root, promptAnswerExpandedStatesRef.current);
     rememberPromptListStates();
-  }, [html, markdown, rememberPromptListStates]);
+  }, [html, markdown, markdownFontsPending, rememberPromptListStates]);
 
   useEffect(() => {
     const root = renderedMarkdownRef.current;
     previewHighlightElementsRef.current.clear();
 
-    if (!markdown || !html || !root) {
+    if (!markdown || markdownFontsPending || !html || !root) {
       setPreviewHighlightEntries([]);
       return;
     }
@@ -308,7 +312,7 @@ export function ContentView({
     const { entries, elementsById } = collectPreviewHighlights(root);
     previewHighlightElementsRef.current = elementsById;
     setPreviewHighlightEntries(entries);
-  }, [html, markdown]);
+  }, [html, markdown, markdownFontsPending]);
 
   const handlePreviewHighlightSelect = useCallback((id: string) => {
     const target = previewHighlightElementsRef.current.get(id);
@@ -710,8 +714,13 @@ export function ContentView({
         </div>
       ) : markdown ? (
         <>
-          {markdownCustomCss ? (
-            <style key={markdownCustomCssScope ?? markdownCustomCss}>{markdownCustomCss}</style>
+          {markdownInlineCss ? (
+            <style key={markdownCustomCssScope ?? markdownInlineCss}>{markdownInlineCss}</style>
+          ) : null}
+          {markdownFontsPending ? (
+            <div class="rendered-markdown-font-loading" role="status" aria-live="polite" aria-label="Loading fonts">
+              <span class="content-spinner" aria-hidden="true" />
+            </div>
           ) : null}
           <div class="content-overlay-controls">
             <Popover.Root open={previewHighlightsPopoverOpen} onOpenChange={handlePreviewHighlightsPopoverOpenChange}>
@@ -763,9 +772,10 @@ export function ContentView({
           </div>
           <div
             ref={renderedMarkdownRef}
-            class="rendered-markdown"
+            class={`rendered-markdown${markdownFontsPending ? ' rendered-markdown--pending-fonts' : ''}`}
             data-markdown-custom-css={markdownCustomCssScope ?? undefined}
             data-toggle-list-storage-key={scrollStorageKey ?? undefined}
+            aria-busy={markdownFontsPending ? 'true' : 'false'}
             onClick={onRenderedMarkdownClick}
             onKeyDown={onRenderedMarkdownKeyDown}
             onMouseDown={onRenderedMarkdownMouseDown}
