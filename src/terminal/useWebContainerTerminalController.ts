@@ -1,35 +1,20 @@
-import type { FileSystemTree, WebContainer } from '@webcontainer/api';
-import type { Ghostty, Terminal as GhosttyTerminal } from 'ghostty-web';
-import ghosttyWasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
+import type { WebContainer } from '@webcontainer/api';
+import type { Terminal as GhosttyTerminal } from 'ghostty-web';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { resetTerminalSurface } from '../components/terminal_surface_reset.ts';
 import { consumeTerminalPixelWheelDelta } from '../components/terminal_wheel.ts';
 import { matchesControlShortcut, shouldBypassTerminalMetaShortcut } from '../keyboard_shortcuts.ts';
-import { isLikelyBinaryBytes } from '../path_utils.ts';
-import {
-  buildPersistedHomeSeed,
-  buildPersistedHomeSyncScript,
-  loadPersistedHomeEntries,
-  logPersistedHomePaths,
-  PERSISTED_HOME_SEED_FILENAME,
-  PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
-  type PersistedHomeEntry,
-  type PersistedHomeInspectionSnapshot,
-} from '../persisted_home_state.ts';
+import type { PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
 import {
   type PersistedHomeTransitionReason,
   resolvePersistedHomeSessionTransition,
 } from '../repo_workspace/persisted_home_trust.ts';
 import {
   buildTerminalImportDiff,
-  shouldImportTerminalPath,
   type TerminalImportDiff,
   type TerminalImportOptions,
 } from '../repo_workspace/terminal_sync.ts';
-import {
-  buildWebContainerHomeOverlayProvisionScript,
-  WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL,
-} from '../webcontainer_home_overlay.ts';
+import { WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL } from '../webcontainer_home_overlay.ts';
 import { startWebContainerHostBridge, type WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
 import type {
   WebContainerTerminalConfig,
@@ -37,6 +22,38 @@ import type {
   WebContainerTerminalPaneId,
   WebContainerTerminalPersistedHomePrompt,
 } from './config.ts';
+import {
+  buildFileSystemTree,
+  buildManagedFiles,
+  clearWorkdir,
+  DEFAULT_AUTO_IMPORT_INTERVAL_MS,
+  DEFAULT_LIVE_FILE_DEBOUNCE_MS,
+  snapshotTerminalTextFiles,
+  terminalDownloadName,
+  triggerBrowserDownload,
+  writeTextFile,
+} from './filesystem.ts';
+import {
+  createPersistedHomeSupportFiles,
+  createTerminalBootPerfLogger,
+  formatTerminalBootError,
+  provisionHomeOverlay,
+  readPersistedHomeEntriesForWorkspace,
+  restorePersistedHomeForWorkspace,
+} from './provisioning.ts';
+import {
+  bootWebContainer,
+  didRecentHotReload,
+  ensureWebContainerApiConfigured,
+  fitTerminal,
+  getDocumentThemeMode,
+  getTerminalTheme,
+  isLocalhostHostname,
+  loadGhosttyWeb,
+  resetBootWebContainerState,
+  type TerminalThemeMode,
+  waitForNextAnimationFrame,
+} from './runtime_shared.ts';
 import { type TerminalPersistedHomePromptState, useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
 
 // Ctrl-C/Ctrl-\ don't reliably interrupt processes inside WebContainer
@@ -45,42 +62,6 @@ import { type TerminalPersistedHomePromptState, useTerminalPersistedHome } from 
 const CTRL_C_RESET_WINDOW_MS = 1000;
 const CTRL_Z_NOTICE_WINDOW_MS = 1000;
 const TERMINAL_RESET_BANNER_DURATION_MS = 3000;
-
-type TerminalThemeMode = 'dark' | 'light';
-
-interface TerminalTheme {
-  background: string;
-  foreground: string;
-  cursor: string;
-  selectionBackground: string;
-  selectionForeground: string;
-}
-
-const TERMINAL_THEME_BY_MODE: Record<TerminalThemeMode, TerminalTheme> = {
-  dark: {
-    background: '#0b0b0b',
-    foreground: '#e6edf3',
-    cursor: '#e6edf3',
-    selectionBackground: '#1a4a32',
-    selectionForeground: '#eef5f0',
-  },
-  light: {
-    background: '#ffffff',
-    foreground: '#1f2328',
-    cursor: '#1f2328',
-    selectionBackground: '#2a7d4f',
-    selectionForeground: '#ffffff',
-  },
-};
-
-function getDocumentThemeMode(): TerminalThemeMode {
-  if (typeof document === 'undefined') return 'dark';
-  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-}
-
-function getTerminalTheme(mode: TerminalThemeMode): TerminalTheme {
-  return { ...TERMINAL_THEME_BY_MODE[mode] };
-}
 
 export interface WebContainerTerminalControllerDialogs {
   showAlert: (message: string) => Promise<void>;
@@ -142,698 +123,13 @@ export interface WebContainerTerminalController {
 }
 
 type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
-
-interface TerminalPanelGlobalState {
-  ghosttyLoadPromise: Promise<Ghostty> | null;
-  ghosttyModulePromise: Promise<typeof import('ghostty-web')> | null;
-  lastHotReloadAt: number;
-  webContainerApiModulePromise: Promise<typeof import('@webcontainer/api')> | null;
-  webContainerBootCoep: 'credentialless' | 'none' | null;
-  webContainerConfiguredApiKey: string | null;
-  webContainerBootPromise: Promise<WebContainer> | null;
-  webContainerBootWorkdirName: string | null;
-}
-
-type TerminalPanelGlobalThis = typeof globalThis & {
-  __inputTerminalPanelGlobalState__?: TerminalPanelGlobalState;
-};
-
-function getTerminalPanelGlobalState(): TerminalPanelGlobalState {
-  const root = globalThis as TerminalPanelGlobalThis;
-  root.__inputTerminalPanelGlobalState__ ??= {
-    ghosttyLoadPromise: null,
-    ghosttyModulePromise: null,
-    lastHotReloadAt: 0,
-    webContainerApiModulePromise: null,
-    webContainerBootCoep: null,
-    webContainerConfiguredApiKey: null,
-    webContainerBootPromise: null,
-    webContainerBootWorkdirName: null,
-  };
-  return root.__inputTerminalPanelGlobalState__;
-}
-
-const HOT_RELOAD_UNMOUNT_IMPORT_GUARD_WINDOW_MS = 2000;
-
-function didRecentHotReload(): boolean {
-  return Date.now() - getTerminalPanelGlobalState().lastHotReloadAt <= HOT_RELOAD_UNMOUNT_IMPORT_GUARD_WINDOW_MS;
-}
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    getTerminalPanelGlobalState().lastHotReloadAt = Date.now();
-  });
-}
-
-function terminalDownloadName(path: string, workdirName: string): string {
-  const normalized = path.replace(/^\/+|\/+$/g, '');
-  if (!normalized || normalized === '.') return `${workdirName || 'workspace'}.zip`;
-  const baseName = normalized.split('/').filter(Boolean).at(-1) ?? workdirName ?? 'download';
-  return `${baseName}.zip`;
-}
-
-function triggerBrowserDownload(blob: Blob, fileName: string): void {
-  const href = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = href;
-  link.download = fileName;
-  link.style.display = 'none';
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(href), 0);
-}
-
-function isLocalhostHostname(): boolean {
-  if (typeof window === 'undefined') return false;
-  const host = window.location.hostname;
-  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
-}
-
-async function loadWebContainerApi(): Promise<typeof import('@webcontainer/api')> {
-  const globalState = getTerminalPanelGlobalState();
-  if (!globalState.webContainerApiModulePromise) {
-    globalState.webContainerApiModulePromise = import('@webcontainer/api');
-  }
-  return await globalState.webContainerApiModulePromise;
-}
-
-async function ensureWebContainerApiConfigured(
-  apiKey: string | undefined,
-): Promise<typeof import('@webcontainer/api')> {
-  const webContainerApi = await loadWebContainerApi();
-  // The WebContainer dashboard checks the Referer against its allowed-sites
-  // list when configureAPIKey() is set, and it does not accept localhost.
-  // On localhost, boot unauthenticated — that path works without a key.
-  if (isLocalhostHostname()) {
-    return webContainerApi;
-  }
-  if (!apiKey) {
-    throw new Error('VITE_WEBCONTAINERS_API_KEY is not set.');
-  }
-  const globalState = getTerminalPanelGlobalState();
-  if (globalState.webContainerConfiguredApiKey === apiKey) {
-    return webContainerApi;
-  }
-  webContainerApi.configureAPIKey(apiKey);
-  globalState.webContainerConfiguredApiKey = apiKey;
-  return webContainerApi;
-}
-
-async function bootWebContainer(
-  apiKey: string | undefined,
-  workdirName: string,
-  options?: {
-    coep?: 'credentialless' | 'none';
-    reuseBootInstance?: boolean;
-  },
-): Promise<WebContainer> {
-  const { WebContainer } = await ensureWebContainerApiConfigured(apiKey);
-  const globalState = getTerminalPanelGlobalState();
-  const coep = options?.coep ?? 'credentialless';
-  const reuseBootInstance = options?.reuseBootInstance ?? true;
-  if (
-    reuseBootInstance &&
-    globalState.webContainerBootPromise &&
-    globalState.webContainerBootWorkdirName === workdirName &&
-    globalState.webContainerBootCoep === coep
-  ) {
-    return globalState.webContainerBootPromise;
-  }
-  if (
-    globalState.webContainerBootPromise &&
-    (!reuseBootInstance ||
-      globalState.webContainerBootWorkdirName !== workdirName ||
-      globalState.webContainerBootCoep !== coep)
-  ) {
-    try {
-      const wc = await globalState.webContainerBootPromise;
-      wc.teardown();
-    } catch {
-      // ignore boot/teardown failures and attempt a clean reboot below
-    } finally {
-      globalState.webContainerBootCoep = null;
-      globalState.webContainerBootPromise = null;
-      globalState.webContainerBootWorkdirName = null;
-    }
-  }
-  globalState.webContainerBootPromise = (async () => {
-    if (coep === 'none') {
-      return WebContainer.boot({ workdirName });
-    }
-    return WebContainer.boot({ coep, workdirName });
-  })();
-  globalState.webContainerBootCoep = coep;
-  globalState.webContainerBootWorkdirName = workdirName;
-  try {
-    return await globalState.webContainerBootPromise;
-  } catch (err) {
-    globalState.webContainerBootCoep = null;
-    globalState.webContainerBootPromise = null;
-    globalState.webContainerBootWorkdirName = null;
-    throw err;
-  }
-}
-
-// Build a nested FileSystemTree from a flat path → contents map.
-function buildFileSystemTree(files: Record<string, string>): FileSystemTree {
-  const root: FileSystemTree = {};
-  for (const [rawPath, contents] of Object.entries(files)) {
-    const segments = rawPath.split('/').filter((s) => s.length > 0);
-    if (segments.length === 0) continue;
-    let cursor = root;
-    for (let i = 0; i < segments.length - 1; i++) {
-      const segment = segments[i];
-      const existing = cursor[segment];
-      if (existing && 'directory' in existing) {
-        cursor = existing.directory;
-      } else {
-        const dir: FileSystemTree = {};
-        cursor[segment] = { directory: dir };
-        cursor = dir;
-      }
-    }
-    const leaf = segments[segments.length - 1];
-    cursor[leaf] = { file: { contents } };
-  }
-  return root;
-}
-
-function buildManagedFiles(
-  baseFiles: Record<string, string>,
-  liveFilePath: string | null,
-  liveFileContent: string | null,
-): Record<string, string> {
-  if (liveFilePath === null) return { ...baseFiles };
-  return { ...baseFiles, [liveFilePath]: liveFileContent ?? '' };
-}
-
-function dirname(path: string): string {
-  const idx = path.lastIndexOf('/');
-  return idx <= 0 ? '' : path.slice(0, idx);
-}
-
-async function readStreamFully(stream: ReadableStream<string>): Promise<string> {
-  const reader = stream.getReader();
-  let result = '';
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      result += value;
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return result;
-}
-
-const ANSI_ESCAPE_SEQUENCE_RE = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-const HOME_OVERLAY_ARCHIVE_FILENAME = '.input-home-overlay.tar';
-const HOME_OVERLAY_PROVISION_FILENAME = '.input-home-overlay-provision.cjs';
-
-type TerminalBootPerfValue = boolean | null | number | string;
-type TerminalBootPerfDetails = Record<string, TerminalBootPerfValue>;
-
-interface TerminalBootPerfLogger {
-  complete: (status: 'cancelled' | 'error' | 'ok', details?: TerminalBootPerfDetails) => void;
-  measure: <T>(stage: string, fn: () => Promise<T>, details?: TerminalBootPerfDetails) => Promise<T>;
-  record: (stage: string, durationMs: number, details?: TerminalBootPerfDetails) => void;
-}
-
-interface TerminalBootPerfStage {
-  details?: TerminalBootPerfDetails;
-  durationMs: number;
-  error?: string;
-  stage: string;
-  status: 'error' | 'ok';
-}
-
-function normalizeTerminalProcessOutput(output: string): string {
-  return output.replace(ANSI_ESCAPE_SEQUENCE_RE, '').replace(/\r\n?/g, '\n').trim();
-}
-
-function buildNodeHelperExitError(label: string, exitCode: number, output: string): Error {
-  const normalizedOutput = normalizeTerminalProcessOutput(output);
-  return new Error(
-    normalizedOutput
-      ? `${label} exited with code ${exitCode}\n${normalizedOutput}`
-      : `${label} exited with code ${exitCode}`,
-  );
-}
-
-function formatTerminalBootError(prefix: string, err: unknown): string {
-  const rawMessage = err instanceof Error ? err.message : String(err);
-  const normalizedMessage = normalizeTerminalProcessOutput(rawMessage) || 'Unknown error';
-  const [firstLine, ...restLines] = normalizedMessage.split('\n');
-  return `${[`${prefix}: ${firstLine}`, ...restLines.map((line) => `  ${line}`)].join('\r\n')}\r\n`;
-}
-
-function joinHomePath(homeDir: string, fileName: string): string {
-  return `${homeDir.replace(/\/+$/, '')}/${fileName}`;
-}
-
-function bootPerfNow(): number {
-  return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
-}
-
-function createTerminalBootPerfLogger(workspaceKey: string, workdirName: string): TerminalBootPerfLogger {
-  const bootStartedAt = bootPerfNow();
-  const stages: TerminalBootPerfStage[] = [];
-  let completed = false;
-
-  const pushStage = (
-    stage: string,
-    durationMs: number,
-    status: 'error' | 'ok',
-    details?: TerminalBootPerfDetails,
-    error?: string,
-  ) => {
-    stages.push({
-      stage,
-      durationMs,
-      status,
-      details,
-      error,
-    });
-  };
-
-  return {
-    async measure<T>(stage: string, fn: () => Promise<T>, details?: TerminalBootPerfDetails): Promise<T> {
-      const startedAt = bootPerfNow();
-      try {
-        const result = await fn();
-        pushStage(stage, bootPerfNow() - startedAt, 'ok', details);
-        return result;
-      } catch (err) {
-        pushStage(stage, bootPerfNow() - startedAt, 'error', details, err instanceof Error ? err.message : String(err));
-        throw err;
-      }
-    },
-    record(stage: string, durationMs: number, details?: TerminalBootPerfDetails): void {
-      pushStage(stage, durationMs, 'ok', details);
-    },
-    complete(status: 'cancelled' | 'error' | 'ok', details?: TerminalBootPerfDetails): void {
-      if (completed) return;
-      completed = true;
-      const totalMs = bootPerfNow() - bootStartedAt;
-      console.groupCollapsed(`[terminal-perf] boot ${workdirName} (${Math.round(totalMs)}ms)`);
-      console.info('[terminal-perf] summary', {
-        workspaceKey,
-        workdirName,
-        status,
-        total_ms: Number(totalMs.toFixed(1)),
-        ...details,
-      });
-      console.table(
-        stages.map((entry) => ({
-          stage: entry.stage,
-          status: entry.status,
-          duration_ms: Number(entry.durationMs.toFixed(1)),
-          error: entry.error ?? '',
-          ...entry.details,
-        })),
-      );
-      console.groupEnd();
-    },
-  };
-}
-
-async function measureBootStage<T>(
-  bootPerf: TerminalBootPerfLogger | undefined,
-  stage: string,
-  fn: () => Promise<T>,
-  details?: TerminalBootPerfDetails,
-): Promise<T> {
-  if (!bootPerf) return await fn();
-  return await bootPerf.measure(stage, fn, details);
-}
-
-async function resolveWebContainerHomeDirectory(wc: WebContainer): Promise<string> {
-  const process = await wc.spawn('node', ['-p', 'process.env.HOME']);
-  const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
-  if (exitCode !== 0) {
-    throw new Error(`node -p process.env.HOME exited with code ${exitCode}`);
-  }
-  const homeDir = output.trim();
-  if (!homeDir) {
-    throw new Error('WebContainer HOME is empty');
-  }
-  return homeDir;
-}
-
-function encodeBase64Bytes(bytes: Uint8Array): string {
-  let binary = '';
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  }
-  return btoa(binary);
-}
-
-async function writeContainerFile(wc: WebContainer, filePath: string, content: string): Promise<void> {
-  await writeContainerBytesFile(wc, filePath, new TextEncoder().encode(content));
-}
-
-async function writeContainerBytesFile(wc: WebContainer, filePath: string, content: Uint8Array): Promise<void> {
-  const process = await wc.spawn('node', [
-    '-e',
-    [
-      "const fs = require('fs');",
-      "const path = require('path');",
-      "const targetPath = process.argv[1] || '';",
-      "const encodedContent = process.argv[2] || '';",
-      "if (!targetPath) throw new Error('Missing target path');",
-      'fs.mkdirSync(path.dirname(targetPath), { recursive: true });',
-      'fs.writeFileSync(targetPath, Buffer.from(encodedContent, "base64"));',
-    ].join(' '),
-    filePath,
-    encodeBase64Bytes(content),
-  ]);
-  const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
-  if (exitCode !== 0) {
-    throw buildNodeHelperExitError('node write helper', exitCode, output);
-  }
-}
-
-async function removeContainerAbsolutePath(wc: WebContainer, filePath: string): Promise<void> {
-  const process = await wc.spawn('node', [
-    '-e',
-    [
-      "const fs = require('fs');",
-      "const targetPath = process.argv[1] || '';",
-      "if (!targetPath) throw new Error('Missing target path');",
-      'fs.rmSync(targetPath, { force: true, recursive: true });',
-    ].join(' '),
-    filePath,
-  ]);
-  const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
-  if (exitCode !== 0) {
-    throw buildNodeHelperExitError('node remove helper', exitCode, output);
-  }
-}
-
-async function fetchWebContainerHomeOverlayArchive(archiveUrl: string): Promise<Uint8Array<ArrayBuffer>> {
-  const response = await fetch(archiveUrl, {
-    ...(isLocalhostHostname() ? { cache: 'no-store' as RequestCache } : {}),
-    credentials: 'same-origin',
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load WebContainer home overlay archive (${response.status})`);
-  }
-  const contentType = response.headers.get('content-type') ?? '';
-  const archive = new Uint8Array(await response.arrayBuffer());
-  if (contentType && !contentType.includes('application/x-tar') && !contentType.includes('application/octet-stream')) {
-    const preview = new TextDecoder().decode(archive.subarray(0, 200)).replace(/\s+/g, ' ').trim();
-    throw new Error(
-      `Unexpected WebContainer home overlay response type: ${contentType}; preview=${JSON.stringify(preview)}`,
-    );
-  }
-  if (archive.byteLength % 512 !== 0) {
-    const preview = new TextDecoder().decode(archive.subarray(0, 200)).replace(/\s+/g, ' ').trim();
-    throw new Error(
-      `Invalid WebContainer home overlay archive size: ${archive.byteLength} bytes; preview=${JSON.stringify(preview)}`,
-    );
-  }
-  return archive;
-}
-
-async function provisionHomeOverlay(
-  wc: WebContainer,
-  archiveUrl: string,
-  bootPerf?: TerminalBootPerfLogger,
-): Promise<{ archiveBytes: number }> {
-  const [archive, homeDir] = await Promise.all([
-    measureBootStage(bootPerf, 'overlay.fetchArchive', () => fetchWebContainerHomeOverlayArchive(archiveUrl)),
-    measureBootStage(bootPerf, 'overlay.resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc)),
-  ]);
-  const archivePath = joinHomePath(homeDir, HOME_OVERLAY_ARCHIVE_FILENAME);
-  const provisionScriptPath = joinHomePath(homeDir, HOME_OVERLAY_PROVISION_FILENAME);
-  const provisionScript = buildWebContainerHomeOverlayProvisionScript(HOME_OVERLAY_ARCHIVE_FILENAME);
-  await measureBootStage(bootPerf, 'overlay.writeArchive', () => writeContainerBytesFile(wc, archivePath, archive), {
-    archive_bytes: archive.byteLength,
-  });
-  await measureBootStage(
-    bootPerf,
-    'overlay.writeProvisionScript',
-    () => writeContainerFile(wc, provisionScriptPath, provisionScript),
-    {
-      script_bytes: provisionScript.length,
-    },
-  );
-  try {
-    await measureBootStage(
-      bootPerf,
-      'overlay.provisionFiles',
-      async () => {
-        const provision = await wc.spawn('node', [provisionScriptPath]);
-        const [output, exitCode] = await Promise.all([readStreamFully(provision.output), provision.exit]);
-        if (exitCode !== 0) {
-          throw buildNodeHelperExitError('node overlay provision', exitCode, output);
-        }
-      },
-      {
-        archive_bytes: archive.byteLength,
-      },
-    );
-  } finally {
-    try {
-      await removeContainerAbsolutePath(wc, provisionScriptPath);
-    } catch {
-      // best-effort cleanup
-    }
-    try {
-      await removeContainerAbsolutePath(wc, archivePath);
-    } catch {
-      // best-effort cleanup
-    }
-  }
-  return { archiveBytes: archive.byteLength };
-}
-
-async function preparePersistedHomeSupportFiles(wc: WebContainer, homeDir: string): Promise<string> {
-  const scriptPath = joinHomePath(homeDir, PERSISTED_HOME_SYNC_SCRIPT_FILENAME);
-  const seedPath = joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME);
-  await writeContainerFile(wc, scriptPath, buildPersistedHomeSyncScript(seedPath));
-  return scriptPath;
-}
-
-async function restorePersistedHomeForWorkspace(
-  wc: WebContainer,
-  workspaceKey: string,
-  homeDir: string,
-  scriptPath: string,
-  options?: { includePersistedHome?: boolean; bootPerf?: TerminalBootPerfLogger },
-): Promise<{ entryCount: number }> {
-  const entries =
-    options?.includePersistedHome === false
-      ? []
-      : await measureBootStage(options?.bootPerf, 'persistedHome.loadEntries', () =>
-          loadPersistedHomeEntries(workspaceKey),
-        );
-  await measureBootStage(
-    options?.bootPerf,
-    'persistedHome.writeSeedFile',
-    () => writeContainerFile(wc, joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME), buildPersistedHomeSeed(entries)),
-    {
-      entry_count: entries.length,
-    },
-  );
-  await measureBootStage(
-    options?.bootPerf,
-    'persistedHome.restoreEntries',
-    async () => {
-      const restore = await wc.spawn('node', [scriptPath, 'restore']);
-      const [output, exitCode] = await Promise.all([readStreamFully(restore.output), restore.exit]);
-      if (exitCode !== 0) {
-        throw buildNodeHelperExitError('node persisted home restore', exitCode, output);
-      }
-    },
-    {
-      entry_count: entries.length,
-    },
-  );
-  logPersistedHomePaths('log', '[terminal] restored persisted home entries into terminal session', entries);
-  return { entryCount: entries.length };
-}
-
-async function readPersistedHomeEntriesForWorkspace(
-  wc: WebContainer,
-  scriptPath: string,
-): Promise<PersistedHomeEntry[]> {
-  const reader = await wc.spawn('node', [scriptPath, 'snapshot']);
-  const [output, exitCode] = await Promise.all([readStreamFully(reader.output), reader.exit]);
-  if (exitCode !== 0) {
-    throw new Error(`node persisted home snapshot exited with code ${exitCode}`);
-  }
-  const line = output
-    .split('\n')
-    .map((entry) => entry.trim())
-    .find((entry) => entry.length > 0);
-  if (!line) return [];
-  const parsed = JSON.parse(line) as { type?: string; entries?: unknown };
-  if (parsed.type !== 'snapshot' || !Array.isArray(parsed.entries)) return [];
-  return parsed.entries.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object') return [];
-    const path = (entry as { path?: unknown }).path;
-    const content = (entry as { content?: unknown }).content;
-    const mtime = (entry as { mtime?: unknown }).mtime;
-    if (typeof path !== 'string' || typeof content !== 'string') return [];
-    return [{ path, content, mtime: typeof mtime === 'number' && Number.isFinite(mtime) ? Math.trunc(mtime) : null }];
-  });
-}
-
-// Wipe everything in the WebContainer working directory. Used when a new
-// TerminalPanel mounts (workspace remount via React key) so the previous
-// workspace's files don't leak into the new one.
-async function clearWorkdir(wc: WebContainer): Promise<void> {
-  let entries: string[] = [];
-  try {
-    entries = await wc.fs.readdir('.');
-  } catch {
-    return;
-  }
-  await Promise.all(
-    entries.map(async (name) => {
-      try {
-        await wc.fs.rm(name, { recursive: true, force: true });
-      } catch {
-        // best-effort cleanup
-      }
-    }),
-  );
-}
-
-async function writeTextFile(wc: WebContainer, path: string, contents: string): Promise<void> {
-  const dir = dirname(path);
-  if (dir) {
-    await wc.fs.mkdir(dir, { recursive: true });
-  }
-  await wc.fs.writeFile(path, contents);
-}
-
-async function readTerminalFileBytes(wc: WebContainer, path: string): Promise<Uint8Array | null> {
-  try {
-    const value = await (wc.fs as { readFile(path: string): Promise<unknown> }).readFile(path);
-    if (typeof value === 'string') return new TextEncoder().encode(value);
-    if (value instanceof Uint8Array) return value;
-    if (value instanceof ArrayBuffer) return new Uint8Array(value);
-    if (ArrayBuffer.isView(value)) {
-      return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-interface SnapshotState {
-  count: number;
-  truncated: boolean;
-}
-
-async function snapshotTerminalTextFiles(
-  wc: WebContainer,
-  path = '.',
-  relativePath = '',
-  depth = 0,
-  state: SnapshotState = { count: 0, truncated: false },
-): Promise<Record<string, string>> {
-  if (state.truncated) return {};
-  if (depth > TERMINAL_IMPORT_MAX_DEPTH) {
-    state.truncated = true;
-    console.error(`[terminal-import] truncated: depth exceeded ${TERMINAL_IMPORT_MAX_DEPTH} at ${path}`);
-    return {};
-  }
-
-  const normalizedRelativePath = relativePath.replace(/^\/+|\/+$/g, '');
-  if (normalizedRelativePath && !shouldImportTerminalPath(normalizedRelativePath)) {
-    return {};
-  }
-
-  try {
-    const entries = await wc.fs.readdir(path);
-    const files: Record<string, string> = {};
-    for (const entry of entries) {
-      if (state.truncated) break;
-      const childRelativePath = normalizedRelativePath ? `${normalizedRelativePath}/${entry}` : entry;
-      if (!shouldImportTerminalPath(childRelativePath)) continue;
-      const childPath = path === '.' ? entry : `${path}/${entry}`;
-      Object.assign(files, await snapshotTerminalTextFiles(wc, childPath, childRelativePath, depth + 1, state));
-    }
-    return files;
-  } catch {
-    if (!normalizedRelativePath || !shouldImportTerminalPath(normalizedRelativePath)) return {};
-    if (state.count >= TERMINAL_IMPORT_MAX_ENTRIES) {
-      state.truncated = true;
-      console.error(`[terminal-import] truncated: entry count exceeded ${TERMINAL_IMPORT_MAX_ENTRIES} at ${path}`);
-      return {};
-    }
-    const bytes = await readTerminalFileBytes(wc, path);
-    if (!bytes || bytes.length > TERMINAL_IMPORT_MAX_FILE_BYTES || isLikelyBinaryBytes(bytes)) return {};
-    state.count += 1;
-    return { [normalizedRelativePath]: new TextDecoder().decode(bytes) };
-  }
-}
-
-async function loadGhosttyWeb() {
-  const globalState = getTerminalPanelGlobalState();
-  const module = await (globalState.ghosttyModulePromise ??= import('ghostty-web'));
-  if (!globalState.ghosttyLoadPromise) {
-    globalState.ghosttyLoadPromise = module.Ghostty.load(ghosttyWasmUrl).catch((err) => {
-      globalState.ghosttyLoadPromise = null;
-      throw err;
-    });
-  }
-  return {
-    Terminal: module.Terminal,
-    ghostty: await globalState.ghosttyLoadPromise,
-  };
-}
-
 const TERMINAL_FONT_FAMILY =
   "'JetBrains Mono', 'SF Mono Web', 'SF Mono', 'Fira Mono', ui-monospace, Menlo, Monaco, Consolas, monospace";
-const LIVE_FILE_DEBOUNCE_MS = 300;
-const TERMINAL_AUTO_IMPORT_INTERVAL_MS = 3000;
-const TERMINAL_IMPORT_MAX_FILE_BYTES = 512 * 1024;
-const TERMINAL_IMPORT_MAX_ENTRIES = 5000;
-const TERMINAL_IMPORT_MAX_DEPTH = 50;
-const TERMINAL_SCROLLBAR_RESERVATION_PX = 15;
-const TERMINAL_MIN_COLS = 2;
-const TERMINAL_MIN_ROWS = 1;
 const TERMINAL_DRAG_RESIZE_INTERVAL_MS = 90;
 const TERMINAL_FOLLOW_OUTPUT_LEAVE_THRESHOLD_LINES = 4;
 const TERMINAL_FOLLOW_OUTPUT_RESUME_THRESHOLD_LINES = 1;
 const LAYOUT_RESIZE_START_EVENT = 'input:layout-resize-start';
 const LAYOUT_SETTLED_EVENT = 'input:layout-settled';
-
-function waitForNextAnimationFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => resolve());
-  });
-}
-
-function fitTerminal(terminal: GhosttyTerminal, container: HTMLElement): void {
-  const metrics = terminal.renderer?.getMetrics?.();
-  if (!metrics || metrics.width === 0 || metrics.height === 0) return;
-  const styles = window.getComputedStyle(container);
-  const paddingTop = Number.parseInt(styles.getPropertyValue('padding-top'), 10) || 0;
-  const paddingBottom = Number.parseInt(styles.getPropertyValue('padding-bottom'), 10) || 0;
-  const paddingLeft = Number.parseInt(styles.getPropertyValue('padding-left'), 10) || 0;
-  const paddingRight = Number.parseInt(styles.getPropertyValue('padding-right'), 10) || 0;
-  const innerWidth = container.clientWidth - paddingLeft - paddingRight - TERMINAL_SCROLLBAR_RESERVATION_PX;
-  const innerHeight = container.clientHeight - paddingTop - paddingBottom;
-  if (innerWidth <= 0 || innerHeight <= 0) return;
-  const cols = Math.max(TERMINAL_MIN_COLS, Math.floor(innerWidth / metrics.width));
-  const rows = Math.max(TERMINAL_MIN_ROWS, Math.floor(innerHeight / metrics.height));
-  if (cols === terminal.cols && rows === terminal.rows) return;
-  // ghostty-web stores selections as buffer row/column coordinates. After a
-  // resize reflows wrapped lines, those coordinates can point at blank cells,
-  // which makes later copies return only newlines.
-  if (terminal.hasSelection()) {
-    terminal.clearSelection();
-  }
-  terminal.resize(cols, rows);
-}
 
 type PaneId = WebContainerTerminalPaneId;
 
@@ -891,8 +187,8 @@ export function useWebContainerTerminalController({
   const upstreamProxyBaseUrl =
     config.network === false ? '/api/upstream-proxy' : (config.network?.upstreamProxyBaseUrl ?? '/api/upstream-proxy');
   const importFromContainerEnabled = importFromContainerConfig?.enabled ?? Boolean(onImportDiff);
-  const importFromContainerIntervalMs = importFromContainerConfig?.intervalMs ?? TERMINAL_AUTO_IMPORT_INTERVAL_MS;
-  const liveSyncDebounceMs = syncToContainerConfig?.debounceMs ?? LIVE_FILE_DEBOUNCE_MS;
+  const importFromContainerIntervalMs = importFromContainerConfig?.intervalMs ?? DEFAULT_AUTO_IMPORT_INTERVAL_MS;
+  const liveSyncDebounceMs = syncToContainerConfig?.debounceMs ?? DEFAULT_LIVE_FILE_DEBOUNCE_MS;
   const syncToContainerEnabled = syncToContainerConfig?.enabled ?? true;
   const importOnUnmount = config.lifecycle?.importOnUnmount ?? true;
   const stopOnUnmount = config.lifecycle?.stopOnUnmount ?? true;
@@ -1261,11 +557,8 @@ export function useWebContainerTerminalController({
   }, []);
 
   const teardownWebContainer = useCallback((wc: WebContainer | null) => {
-    const globalState = getTerminalPanelGlobalState();
     if (!wc) {
-      globalState.webContainerBootCoep = null;
-      globalState.webContainerBootPromise = null;
-      globalState.webContainerBootWorkdirName = null;
+      resetBootWebContainerState();
       return;
     }
     try {
@@ -1276,9 +569,7 @@ export function useWebContainerTerminalController({
       if (wcRef.current === wc) {
         wcRef.current = null;
       }
-      globalState.webContainerBootCoep = null;
-      globalState.webContainerBootPromise = null;
-      globalState.webContainerBootWorkdirName = null;
+      resetBootWebContainerState();
     }
   }, []);
 
@@ -1798,7 +1089,8 @@ export function useWebContainerTerminalController({
           return;
         }
 
-        const initialFilesStartedAt = bootPerfNow();
+        const initialFilesStartedAt =
+          typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
         const initialFiles = buildManagedFiles(
           baseFilesRef.current,
           liveFilePathRef.current,
@@ -1806,9 +1098,15 @@ export function useWebContainerTerminalController({
         );
         const initialFileCount = Object.keys(initialFiles).length;
         const initialTree = buildFileSystemTree(initialFiles);
-        bootPerf.record('prepareWorkspaceTree', bootPerfNow() - initialFilesStartedAt, {
-          managed_file_count: initialFileCount,
-        });
+        bootPerf.record(
+          'prepareWorkspaceTree',
+          (typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now()) - initialFilesStartedAt,
+          {
+            managed_file_count: initialFileCount,
+          },
+        );
 
         writeTerminal(logPaneId, 'Mounting workspace files...\r\n', { forceFollow: true });
         try {
@@ -1841,12 +1139,10 @@ export function useWebContainerTerminalController({
 
         try {
           writeTerminal(logPaneId, 'Restoring config files...\r\n', { forceFollow: true });
-          const homeDir = await bootPerf.measure('persistedHome.resolveHomeDirectory', () =>
-            resolveWebContainerHomeDirectory(wc),
+          const persistedHomeSupport = await bootPerf.measure('persistedHome.prepareSupportFiles', () =>
+            createPersistedHomeSupportFiles(wc),
           );
-          const persistedHomeScriptPath = await bootPerf.measure('persistedHome.writeSupportScript', () =>
-            preparePersistedHomeSupportFiles(wc, homeDir),
-          );
+          const { homeDir, scriptPath: persistedHomeScriptPath } = persistedHomeSupport;
           setPersistedHomeScriptPath(persistedHomeScriptPath);
           const persistedHomeResult = await restorePersistedHomeForWorkspace(
             wc,
