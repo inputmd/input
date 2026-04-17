@@ -3,6 +3,8 @@ import { ApiError } from '../api_error';
 import type { GistFile } from '../github';
 import type { LinkedInstallation } from '../github_app';
 import { getPublicRepoTarball, getRepoTarball } from '../github_app';
+import type { WebContainerTerminalConfig } from '../terminal/config.ts';
+import { WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL } from '../webcontainer_home_overlay.ts';
 import type { PublicRepoRef } from '../wiki_links';
 import { applyRepoWorkspaceMutationsToTerminalFiles, buildGistTerminalBaseFiles } from './helpers';
 import { resolvePersistedHomeTrustAccess } from './persisted_home_trust.ts';
@@ -19,7 +21,6 @@ import type {
 interface UseRepoTerminalBindingArgs {
   workspaceKey: string;
   snapshotVersion: number;
-  visible: boolean;
   mounted: boolean;
   enabled: boolean;
   apiKey: string | undefined;
@@ -58,7 +59,6 @@ interface UseRepoTerminalBindingArgs {
 export function useRepoTerminalBinding({
   workspaceKey,
   snapshotVersion,
-  visible,
   mounted,
   enabled,
   apiKey,
@@ -253,24 +253,61 @@ export function useRepoTerminalBinding({
 
   return useMemo(
     () => ({
-      props: {
-        visible,
-        workspaceKey,
-        workdirName,
-        apiKey,
-        baseFiles,
-        baseFilesReady,
-        baseFilesLoadError,
-        liveFile,
-        workspaceChangesPersisted,
-        workspaceChangesNotice,
-        persistedHomeTrustPrompt: persistedHomeTrustAccess.prompt,
-        showPersistedHomeTrustConfiguration: persistedHomeTrustAccess.canConfigure,
-        includeActiveEditPathInImports,
-        onToggleVisibilityShortcut,
-        onImportDiff: workspaceChangesPersisted ? onImportDiff : undefined,
-        registerImportHandler: workspaceChangesPersisted ? registerImportHandler : undefined,
-      },
+      config: {
+        session: {
+          id: workspaceKey,
+          apiKey,
+          workdirName,
+        },
+        files: {
+          base: baseFiles,
+          ready: baseFilesReady,
+          baseLoadError: baseFilesLoadError,
+          live: liveFile,
+          importFromContainer: {
+            enabled: workspaceChangesPersisted,
+            includeLiveFile: includeActiveEditPathInImports,
+            onDiff: workspaceChangesPersisted
+              ? async (diff, context) => {
+                  await onImportDiff?.({
+                    workspaceKey: context.sessionId,
+                    diff,
+                    options: context.options,
+                  });
+                }
+              : undefined,
+            registerHandler: workspaceChangesPersisted ? registerImportHandler : undefined,
+          },
+        },
+        overlay: {
+          archiveUrl: WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL,
+          enabled: true,
+        },
+        network: {
+          enabled: true,
+          upstreamProxyBaseUrl: '/api/upstream-proxy',
+        },
+        persistedHome: {
+          canConfigure: persistedHomeTrustAccess.canConfigure,
+          mode: persistedHomeTrustAccess.prompt ? 'ask' : 'off',
+          prompt: persistedHomeTrustAccess.prompt
+            ? {
+                storageKey: persistedHomeTrustAccess.prompt.storageKey,
+                target: persistedHomeTrustAccess.prompt.target,
+                title: persistedHomeTrustAccess.prompt.title,
+                message: persistedHomeTrustAccess.prompt.message,
+                note: persistedHomeTrustAccess.prompt.note,
+                defaultMode: persistedHomeTrustAccess.prompt.defaultMode,
+                trustResolved: persistedHomeTrustAccess.prompt.trustResolved,
+              }
+            : null,
+        },
+        shortcuts: {
+          onToggleVisibility: onToggleVisibilityShortcut,
+        },
+      } satisfies WebContainerTerminalConfig,
+      workspaceChangesNotice,
+      workspaceChangesPersisted,
     }),
     [
       apiKey,
@@ -283,7 +320,6 @@ export function useRepoTerminalBinding({
       onImportDiff,
       persistedHomeTrustAccess,
       registerImportHandler,
-      visible,
       workspaceChangesNotice,
       workspaceChangesPersisted,
       workdirName,

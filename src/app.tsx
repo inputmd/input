@@ -8883,7 +8883,6 @@ export function App() {
   const repoTerminalBinding = useRepoTerminalBinding({
     workspaceKey: sidebarWorkspaceKey,
     snapshotVersion: terminalSnapshotVersion,
-    visible: showTerminalPanel,
     mounted: mountTerminalPanel,
     enabled: showTerminalToggle,
     apiKey: import.meta.env.VITE_WEBCONTAINERS_API_KEY as string | undefined,
@@ -9394,7 +9393,15 @@ export function App() {
             }
           />
         ) : null}
-        {mountTerminalPanel ? <TerminalPanel key={sidebarWorkspaceKey} {...repoTerminalBinding.props} /> : null}
+        {mountTerminalPanel ? (
+          <TerminalPanel
+            key={sidebarWorkspaceKey}
+            visible={showTerminalPanel}
+            config={repoTerminalBinding.config}
+            workspaceChangesPersisted={repoTerminalBinding.workspaceChangesPersisted}
+            workspaceChangesNotice={repoTerminalBinding.workspaceChangesNotice}
+          />
+        ) : null}
       </div>
       {lightboxImage && <ImageLightbox src={lightboxImage.src} alt={lightboxImage.alt} onClose={onCloseLightbox} />}
       {forkRepoDialog ? (

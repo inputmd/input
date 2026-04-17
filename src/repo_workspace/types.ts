@@ -1,9 +1,9 @@
 import type { SidebarFile, SidebarFileFilter, SidebarProps } from '../components/Sidebar';
-import type { TerminalPanelProps } from '../components/TerminalPanel';
 import type { RepoDocFile } from '../document_store';
 import type { GistFile } from '../github';
 import type { RepoFileEntry } from '../github_app';
 import type { Route } from '../routing';
+import type { WebContainerTerminalConfig } from '../terminal/config.ts';
 import type { EditSessionViewProps } from '../views/EditSessionView';
 import type { PublicRepoRef } from '../wiki_links';
 import type { TerminalImportDiff, TerminalImportedWorkspaceChanges } from './terminal_sync';
@@ -124,7 +124,9 @@ export interface RepoSidebarBinding {
 }
 
 export interface RepoTerminalBinding {
-  props: TerminalPanelProps;
+  config: WebContainerTerminalConfig;
+  workspaceChangesNotice: string | null;
+  workspaceChangesPersisted: boolean;
 }
 
 export interface RepoEditorBinding {

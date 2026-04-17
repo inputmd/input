@@ -49,6 +49,7 @@ export interface WebContainerHostBridgeSession {
 
 interface StartWebContainerHostBridgeOptions {
   onLog?: (message: string) => void;
+  upstreamProxyBaseUrl?: string;
   wc: WebContainer;
 }
 
@@ -165,13 +166,15 @@ export function buildWebContainerSpawnEnv(homeDir: string, currentPath: string):
   };
 }
 
-function createProxyFetchUrl(targetHost: string, path: string): string {
-  return new URL(`/api/upstream-proxy/${encodeURIComponent(targetHost)}${path}`, window.location.origin).toString();
+function createProxyFetchUrl(upstreamProxyBaseUrl: string, targetHost: string, path: string): string {
+  const normalizedBaseUrl = upstreamProxyBaseUrl.replace(/\/+$/, '');
+  return new URL(`${normalizedBaseUrl}/${encodeURIComponent(targetHost)}${path}`, window.location.origin).toString();
 }
 
 export async function startWebContainerHostBridge({
   wc,
   onLog,
+  upstreamProxyBaseUrl = '/api/upstream-proxy',
 }: StartWebContainerHostBridgeOptions): Promise<WebContainerHostBridgeSession> {
   const proxySessionId = crypto.randomUUID();
   const homeDir = await resolveWebContainerHomeDirectory(wc);
@@ -240,7 +243,7 @@ export async function startWebContainerHostBridge({
       if (typeof originalUserAgent === 'string' && originalUserAgent.trim()) {
         requestHeaders.set(UPSTREAM_PROXY_USER_AGENT_HEADER, originalUserAgent.trim());
       }
-      const response = await fetch(createProxyFetchUrl(request.targetHost, request.path), {
+      const response = await fetch(createProxyFetchUrl(upstreamProxyBaseUrl, request.targetHost, request.path), {
         body: requestBody,
         headers: requestHeaders,
         method: request.method,

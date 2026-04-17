@@ -10,10 +10,13 @@ import {
 import {
   type PersistedHomeMode,
   type PersistedHomeTransitionReason,
-  type PersistedHomeTrustPrompt,
   readPersistedHomeTrustDecision,
   writePersistedHomeTrustDecision,
 } from '../repo_workspace/persisted_home_trust.ts';
+import type {
+  WebContainerTerminalPersistedHomeMode,
+  WebContainerTerminalPersistedHomePrompt,
+} from '../terminal/config.ts';
 
 const PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS = 250;
 
@@ -33,7 +36,8 @@ export interface TerminalPersistedHomePromptState {
 
 interface UseTerminalPersistedHomeArgs {
   focusPane: () => void;
-  persistedHomeTrustPrompt: PersistedHomeTrustPrompt | null;
+  persistedHomeMode: WebContainerTerminalPersistedHomeMode;
+  persistedHomeTrustPrompt: WebContainerTerminalPersistedHomePrompt | null;
   readPersistedHomeEntriesForWorkspace: (wc: WebContainer, scriptPath: string) => Promise<PersistedHomeEntry[]>;
   restartWebContainerRef: RefValue<((options?: { reason?: PersistedHomeTransitionReason }) => Promise<void>) | null>;
   unmountedRef: RefValue<boolean>;
@@ -52,6 +56,7 @@ interface CapturePersistedHomeStateOptions {
 
 export function useTerminalPersistedHome({
   focusPane,
+  persistedHomeMode,
   persistedHomeTrustPrompt,
   readPersistedHomeEntriesForWorkspace,
   restartWebContainerRef,
@@ -66,7 +71,7 @@ export function useTerminalPersistedHome({
   const pendingPersistedHomeEntriesRef = useRef<{ entries: PersistedHomeEntry[]; workspaceKey: string } | null>(null);
   const persistedHomeScriptPathRef = useRef<string | null>(null);
   const persistedHomeActiveSessionModeRef = useRef<PersistedHomeMode | null>(null);
-  const persistedHomeTrustPromptRef = useRef<PersistedHomeTrustPrompt | null>(persistedHomeTrustPrompt);
+  const persistedHomeTrustPromptRef = useRef<WebContainerTerminalPersistedHomePrompt | null>(persistedHomeTrustPrompt);
   const pendingTrustResolutionPromiseRef = useRef<Promise<void> | null>(null);
   const pendingTrustResolutionResolveRef = useRef<(() => void) | null>(null);
   const [credentialSyncEnabled, setCredentialSyncEnabled] = useState<boolean | null>(null);
@@ -254,6 +259,11 @@ export function useTerminalPersistedHome({
   }, []);
 
   const resolvePersistedHomeMode = useCallback(async (): Promise<PersistedHomeMode> => {
+    if (persistedHomeMode !== 'ask') {
+      const nextMode: PersistedHomeMode = persistedHomeMode === 'include' ? 'include' : 'exclude';
+      setPersistedHomeConfiguredMode(nextMode);
+      return nextMode;
+    }
     while (true) {
       const trustPrompt = persistedHomeTrustPromptRef.current;
       if (!trustPrompt) {
@@ -273,14 +283,14 @@ export function useTerminalPersistedHome({
       setPersistedHomeConfiguredMode(trustPrompt.defaultMode);
       return trustPrompt.defaultMode;
     }
-  }, [setPersistedHomeConfiguredMode, waitForPersistedHomeTrustResolution]);
+  }, [persistedHomeMode, setPersistedHomeConfiguredMode, waitForPersistedHomeTrustResolution]);
 
   const openPersistedHomeReconfigurePrompt = useCallback(() => {
     if (!persistedHomeTrustPrompt) return;
     setPersistedHomePromptState({
       title: persistedHomeTrustPrompt.title,
       message: persistedHomeTrustPrompt.message,
-      note: persistedHomeTrustPrompt.note,
+      note: persistedHomeTrustPrompt.note ?? null,
       storageKey: persistedHomeTrustPrompt.storageKey,
       target: persistedHomeTrustPrompt.target,
     });

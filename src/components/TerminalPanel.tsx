@@ -18,7 +18,6 @@ import {
 } from '../persisted_home_state.ts';
 import {
   type PersistedHomeTransitionReason,
-  type PersistedHomeTrustPrompt,
   resolvePersistedHomeSessionTransition,
 } from '../repo_workspace/persisted_home_trust.ts';
 import {
@@ -27,6 +26,11 @@ import {
   type TerminalImportDiff,
   type TerminalImportOptions,
 } from '../repo_workspace/terminal_sync.ts';
+import type {
+  WebContainerTerminalConfig,
+  WebContainerTerminalImportContext,
+  WebContainerTerminalPersistedHomePrompt,
+} from '../terminal/config.ts';
 import {
   buildWebContainerHomeOverlayProvisionScript,
   WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL,
@@ -81,52 +85,12 @@ function getTerminalTheme(mode: TerminalThemeMode): TerminalTheme {
   return { ...TERMINAL_THEME_BY_MODE[mode] };
 }
 
-export interface TerminalLiveFile {
-  path: string;
-  content: string;
-}
-
 export interface TerminalPanelProps {
   className?: string;
+  config: WebContainerTerminalConfig;
   visible: boolean;
-  workspaceKey: string;
-  workdirName: string;
-  apiKey: string | undefined;
-  baseFilesLoadError?: string | null;
   workspaceChangesPersisted?: boolean;
   workspaceChangesNotice?: string | null;
-  /**
-   * Stable workspace snapshot mirrored into the WebContainer FS on mount and
-   * when non-editor state changes.
-   */
-  baseFiles: Record<string, string>;
-  /**
-   * Whether `baseFiles` is ready to be treated as authoritative. This prevents
-   * transient snapshot gaps (for example during hot reload) from being
-   * interpreted as mass deletions.
-   */
-  baseFilesReady: boolean;
-  /**
-   * Active unsaved editor buffer overlaid on top of `baseFiles`. This stays
-   * one-way (app → terminal) and is synced as a single debounced file write.
-   */
-  liveFile: TerminalLiveFile | null;
-  persistedHomeTrustPrompt?: PersistedHomeTrustPrompt | null;
-  showPersistedHomeTrustConfiguration?: boolean;
-  /**
-   * When true, terminal imports may include changes to the active editor file.
-   * This should only be enabled while the editor buffer is still clean.
-   */
-  includeActiveEditPathInImports?: boolean;
-  onToggleVisibilityShortcut?: () => void | Promise<void>;
-  onImportDiff?: (args: {
-    workspaceKey: string;
-    diff: TerminalImportDiff;
-    options?: TerminalImportOptions;
-  }) => void | Promise<void>;
-  registerImportHandler?: (
-    handler: ((options?: TerminalImportOptions) => Promise<TerminalImportDiff | null>) | null,
-  ) => void;
 }
 
 type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
@@ -136,6 +100,7 @@ interface TerminalPanelGlobalState {
   ghosttyModulePromise: Promise<typeof import('ghostty-web')> | null;
   lastHotReloadAt: number;
   webContainerApiModulePromise: Promise<typeof import('@webcontainer/api')> | null;
+  webContainerBootCoep: 'credentialless' | 'none' | null;
   webContainerConfiguredApiKey: string | null;
   webContainerBootPromise: Promise<WebContainer> | null;
   webContainerBootWorkdirName: string | null;
@@ -152,6 +117,7 @@ function getTerminalPanelGlobalState(): TerminalPanelGlobalState {
     ghosttyModulePromise: null,
     lastHotReloadAt: 0,
     webContainerApiModulePromise: null,
+    webContainerBootCoep: null,
     webContainerConfiguredApiKey: null,
     webContainerBootPromise: null,
     webContainerBootWorkdirName: null,
@@ -226,30 +192,55 @@ async function ensureWebContainerApiConfigured(
   return webContainerApi;
 }
 
-async function bootWebContainer(apiKey: string | undefined, workdirName: string): Promise<WebContainer> {
+async function bootWebContainer(
+  apiKey: string | undefined,
+  workdirName: string,
+  options?: {
+    coep?: 'credentialless' | 'none';
+    reuseBootInstance?: boolean;
+  },
+): Promise<WebContainer> {
   const { WebContainer } = await ensureWebContainerApiConfigured(apiKey);
   const globalState = getTerminalPanelGlobalState();
-  if (globalState.webContainerBootPromise && globalState.webContainerBootWorkdirName === workdirName) {
+  const coep = options?.coep ?? 'credentialless';
+  const reuseBootInstance = options?.reuseBootInstance ?? true;
+  if (
+    reuseBootInstance &&
+    globalState.webContainerBootPromise &&
+    globalState.webContainerBootWorkdirName === workdirName &&
+    globalState.webContainerBootCoep === coep
+  ) {
     return globalState.webContainerBootPromise;
   }
-  if (globalState.webContainerBootPromise && globalState.webContainerBootWorkdirName !== workdirName) {
+  if (
+    globalState.webContainerBootPromise &&
+    (!reuseBootInstance ||
+      globalState.webContainerBootWorkdirName !== workdirName ||
+      globalState.webContainerBootCoep !== coep)
+  ) {
     try {
       const wc = await globalState.webContainerBootPromise;
       wc.teardown();
     } catch {
       // ignore boot/teardown failures and attempt a clean reboot below
     } finally {
+      globalState.webContainerBootCoep = null;
       globalState.webContainerBootPromise = null;
       globalState.webContainerBootWorkdirName = null;
     }
   }
   globalState.webContainerBootPromise = (async () => {
-    return WebContainer.boot({ coep: 'credentialless', workdirName });
+    if (coep === 'none') {
+      return WebContainer.boot({ workdirName });
+    }
+    return WebContainer.boot({ coep, workdirName });
   })();
+  globalState.webContainerBootCoep = coep;
   globalState.webContainerBootWorkdirName = workdirName;
   try {
     return await globalState.webContainerBootPromise;
   } catch (err) {
+    globalState.webContainerBootCoep = null;
     globalState.webContainerBootPromise = null;
     globalState.webContainerBootWorkdirName = null;
     throw err;
@@ -493,8 +484,8 @@ async function removeContainerAbsolutePath(wc: WebContainer, filePath: string): 
   }
 }
 
-async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBuffer>> {
-  const response = await fetch(WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL, {
+async function fetchWebContainerHomeOverlayArchive(archiveUrl: string): Promise<Uint8Array<ArrayBuffer>> {
+  const response = await fetch(archiveUrl, {
     ...(isLocalhostHostname() ? { cache: 'no-store' as RequestCache } : {}),
     credentials: 'same-origin',
   });
@@ -520,10 +511,11 @@ async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBu
 
 async function provisionHomeOverlay(
   wc: WebContainer,
+  archiveUrl: string,
   bootPerf?: TerminalBootPerfLogger,
 ): Promise<{ archiveBytes: number }> {
   const [archive, homeDir] = await Promise.all([
-    measureBootStage(bootPerf, 'overlay.fetchArchive', () => fetchWebContainerHomeOverlayArchive()),
+    measureBootStage(bootPerf, 'overlay.fetchArchive', () => fetchWebContainerHomeOverlayArchive(archiveUrl)),
     measureBootStage(bootPerf, 'overlay.resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc)),
   ]);
   const archivePath = joinHomePath(homeDir, HOME_OVERLAY_ARCHIVE_FILENAME);
@@ -820,23 +812,44 @@ function resetBannerTextForKey(key: ResetKey | null): string {
 
 export function TerminalPanel({
   className,
+  config,
   visible,
-  workspaceKey,
-  workdirName,
-  apiKey,
-  baseFilesLoadError = null,
   workspaceChangesPersisted = true,
   workspaceChangesNotice = null,
-  baseFiles,
-  baseFilesReady,
-  liveFile,
-  persistedHomeTrustPrompt = null,
-  showPersistedHomeTrustConfiguration = false,
-  includeActiveEditPathInImports = false,
-  onToggleVisibilityShortcut,
-  onImportDiff,
-  registerImportHandler,
 }: TerminalPanelProps) {
+  const workspaceKey = config.session.id;
+  const workdirName = config.session.workdirName;
+  const apiKey = config.session.apiKey;
+  const autostart = config.session.autostart ?? true;
+  const baseFiles = config.files.base;
+  const baseFilesReady = config.files.ready;
+  const baseFilesLoadError = config.files.baseLoadError ?? null;
+  const liveFile = config.files.live ?? null;
+  const importFromContainerConfig = config.files.importFromContainer;
+  const syncToContainerConfig = config.files.syncToContainer;
+  const persistedHomeConfig = config.persistedHome === false ? null : config.persistedHome;
+  const persistedHomeMode = persistedHomeConfig?.mode ?? (persistedHomeConfig ? 'ask' : 'off');
+  const includeActiveEditPathInImports = importFromContainerConfig?.includeLiveFile ?? false;
+  const onImportDiff = importFromContainerConfig?.onDiff;
+  const registerImportHandler = importFromContainerConfig?.registerHandler;
+  const persistedHomeTrustPrompt: WebContainerTerminalPersistedHomePrompt | null = persistedHomeConfig?.prompt ?? null;
+  const showPersistedHomeTrustConfiguration = persistedHomeConfig?.canConfigure ?? false;
+  const onToggleVisibilityShortcut = config.shortcuts?.onToggleVisibility;
+  const overlayEnabled = config.overlay !== false && (config.overlay?.enabled ?? true);
+  const overlayArchiveUrl =
+    config.overlay === false
+      ? WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL
+      : (config.overlay?.archiveUrl ?? WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL);
+  const networkEnabled = config.network !== false && (config.network?.enabled ?? true);
+  const upstreamProxyBaseUrl =
+    config.network === false ? '/api/upstream-proxy' : (config.network?.upstreamProxyBaseUrl ?? '/api/upstream-proxy');
+  const importFromContainerEnabled = importFromContainerConfig?.enabled ?? Boolean(onImportDiff);
+  const importFromContainerIntervalMs = importFromContainerConfig?.intervalMs ?? TERMINAL_AUTO_IMPORT_INTERVAL_MS;
+  const liveSyncDebounceMs = syncToContainerConfig?.debounceMs ?? LIVE_FILE_DEBOUNCE_MS;
+  const syncToContainerEnabled = syncToContainerConfig?.enabled ?? true;
+  const importOnUnmount = config.lifecycle?.importOnUnmount ?? true;
+  const stopOnUnmount = config.lifecycle?.stopOnUnmount ?? true;
+  const maxPaneCount = config.panes?.max ?? 2;
   const paneRuntimesRef = useRef<Record<PaneId, PaneRuntime>>({
     primary: {
       container: null,
@@ -922,7 +935,7 @@ export function TerminalPanel({
     ((options?: { reason?: PersistedHomeTransitionReason }) => Promise<void>) | null
   >(null);
   const [singlePaneId, setSinglePaneId] = useState<PaneId>('primary');
-  const [splitOpen, setSplitOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(() => Boolean(config.panes?.initialSplit && maxPaneCount > 1));
   const [activePaneId, setActivePaneId] = useState<PaneId>('primary');
   const followOutputByPaneRef = useRef<Record<PaneId, boolean>>({
     primary: true,
@@ -1094,6 +1107,7 @@ export function TerminalPanel({
     startPersistedHomeSync,
   } = useTerminalPersistedHome({
     focusPane,
+    persistedHomeMode,
     persistedHomeTrustPrompt,
     readPersistedHomeEntriesForWorkspace,
     restartWebContainerRef,
@@ -1203,6 +1217,7 @@ export function TerminalPanel({
   const teardownWebContainer = useCallback((wc: WebContainer | null) => {
     const globalState = getTerminalPanelGlobalState();
     if (!wc) {
+      globalState.webContainerBootCoep = null;
       globalState.webContainerBootPromise = null;
       globalState.webContainerBootWorkdirName = null;
       return;
@@ -1215,6 +1230,7 @@ export function TerminalPanel({
       if (wcRef.current === wc) {
         wcRef.current = null;
       }
+      globalState.webContainerBootCoep = null;
       globalState.webContainerBootPromise = null;
       globalState.webContainerBootWorkdirName = null;
     }
@@ -1257,7 +1273,10 @@ export function TerminalPanel({
   }, []);
 
   const importTerminalDiff = useCallback(
-    async (options?: TerminalImportOptions): Promise<TerminalImportDiff | null> => {
+    async (
+      options?: TerminalImportOptions,
+      reason: WebContainerTerminalImportContext['reason'] = 'manual',
+    ): Promise<TerminalImportDiff | null> => {
       if (importInFlightRef.current) return importInFlightRef.current;
       const pendingImport = (async (): Promise<TerminalImportDiff | null> => {
         const wc = wcRef.current;
@@ -1276,10 +1295,10 @@ export function TerminalPanel({
           includeActiveEditPath: includeActiveEditPathInImportsRef.current,
         });
         if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return null;
-        await onImportDiffRef.current({
-          workspaceKey: workspaceKeyRef.current,
-          diff,
+        await onImportDiffRef.current(diff, {
           options,
+          reason,
+          sessionId: workspaceKeyRef.current,
         });
         return diff;
       })();
@@ -1694,7 +1713,7 @@ export function TerminalPanel({
 
       if (options?.importBeforeReboot && previousWc) {
         try {
-          await importTerminalDiff({ silent: true });
+          await importTerminalDiff({ silent: true }, 'restart');
           await waitForNextAnimationFrame();
         } catch (err) {
           console.error('[terminal] import before restart failed', err);
@@ -1716,7 +1735,12 @@ export function TerminalPanel({
 
       try {
         writeTerminal(logPaneId, 'Booting container...\r\n', { forceFollow: true });
-        const wc = await bootPerf.measure('bootWebContainer', () => bootWebContainer(apiKey, workdirName));
+        const wc = await bootPerf.measure('bootWebContainer', () =>
+          bootWebContainer(apiKey, workdirName, {
+            coep: config.session.boot?.coep,
+            reuseBootInstance: config.session.boot?.reuseBootInstance,
+          }),
+        );
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
           return;
@@ -1756,15 +1780,17 @@ export function TerminalPanel({
         lastWrittenRef.current = new Map(Object.entries(initialFiles));
         wcRef.current = wc;
 
-        try {
-          writeTerminal(logPaneId, 'Mounting binaries...\r\n', { forceFollow: true });
-          const overlayResult = await provisionHomeOverlay(wc, bootPerf);
-          bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
-        } catch (err) {
-          console.error('[terminal] failed to provision home overlay', err);
-          writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to provision home overlay', err), {
-            forceFollow: true,
-          });
+        if (overlayEnabled && overlayArchiveUrl) {
+          try {
+            writeTerminal(logPaneId, 'Mounting binaries...\r\n', { forceFollow: true });
+            const overlayResult = await provisionHomeOverlay(wc, overlayArchiveUrl, bootPerf);
+            bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
+          } catch (err) {
+            console.error('[terminal] failed to provision home overlay', err);
+            writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to provision home overlay', err), {
+              forceFollow: true,
+            });
+          }
         }
 
         try {
@@ -1800,7 +1826,7 @@ export function TerminalPanel({
           writeTerminal(logPaneId, 'Credential sync disabled.\r\n', { forceFollow: true });
         }
 
-        if (enableNetworkingBridge) {
+        if (enableNetworkingBridge && networkEnabled) {
           try {
             writeTerminal(logPaneId, 'Starting networking...\r\n', { forceFollow: true });
             hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
@@ -1813,6 +1839,7 @@ export function TerminalPanel({
                     // ignore
                   }
                 },
+                upstreamProxyBaseUrl,
                 wc,
               }),
             );
@@ -1876,10 +1903,15 @@ export function TerminalPanel({
     [
       apiKey,
       capturePersistedHomeState,
+      config.session.boot?.coep,
+      config.session.boot?.reuseBootInstance,
       focusPane,
       getPersistedHomeActiveSessionMode,
       getPreferredPaneId,
       importTerminalDiff,
+      networkEnabled,
+      overlayArchiveUrl,
+      overlayEnabled,
       releaseAllPaneShellSessions,
       releaseHostBridgeSession,
       releasePersistedHomeSyncSession,
@@ -1890,6 +1922,7 @@ export function TerminalPanel({
       spawnShellSession,
       startPersistedHomeSync,
       teardownWebContainer,
+      upstreamProxyBaseUrl,
       writeTerminal,
       workdirName,
     ],
@@ -2041,11 +2074,11 @@ export function TerminalPanel({
   }, [workdirName]);
 
   const openSplitTerminal = useCallback(() => {
-    if (splitOpen) return;
+    if (splitOpen || maxPaneCount < 2) return;
     const nextPaneId = otherPaneId(singlePaneIdRef.current);
     setSplitOpen(true);
     setActivePaneId(nextPaneId);
-  }, [splitOpen]);
+  }, [maxPaneCount, splitOpen]);
 
   const closeSplitPane = useCallback(
     (position: 'top' | 'bottom') => {
@@ -2071,23 +2104,23 @@ export function TerminalPanel({
   );
 
   useEffect(() => {
-    registerImportHandler?.((options) => importTerminalDiff(options));
+    registerImportHandler?.((options) => importTerminalDiff(options, 'manual'));
     return () => {
       registerImportHandler?.(null);
     };
   }, [importTerminalDiff, registerImportHandler]);
 
   useEffect(() => {
-    if (!fsReady || !baseFilesReady) return;
+    if (!importFromContainerEnabled || !fsReady || !baseFilesReady || importFromContainerIntervalMs === false) return;
     const intervalId = window.setInterval(() => {
-      void importTerminalDiff({ silent: true }).catch((err) => {
+      void importTerminalDiff({ silent: true }, 'interval').catch((err) => {
         console.error('[terminal] background import failed', err);
       });
-    }, TERMINAL_AUTO_IMPORT_INTERVAL_MS);
+    }, importFromContainerIntervalMs);
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [baseFilesReady, fsReady, importTerminalDiff]);
+  }, [baseFilesReady, fsReady, importFromContainerEnabled, importFromContainerIntervalMs, importTerminalDiff]);
 
   useEffect(() => {
     if (!splitOpen) {
@@ -2116,7 +2149,7 @@ export function TerminalPanel({
   }, [baseFilesLoadError, ensurePaneSurface, renderBaseFilesLoadError, visible]);
 
   useEffect(() => {
-    if (!visible || startedRef.current || !baseFilesReady) return;
+    if (!autostart || !visible || startedRef.current || !baseFilesReady) return;
     if (!apiKey && !isLocalhostHostname()) {
       setError('VITE_WEBCONTAINERS_API_KEY is not set.');
       return;
@@ -2143,7 +2176,7 @@ export function TerminalPanel({
         startedRef.current = false;
       }
     })();
-  }, [apiKey, baseFilesReady, ensurePaneSurface, initializeWebContainerSession, visible]);
+  }, [apiKey, autostart, baseFilesReady, ensurePaneSurface, initializeWebContainerSession, visible]);
 
   useEffect(() => {
     if (!visible || !startedRef.current) return;
@@ -2181,7 +2214,7 @@ export function TerminalPanel({
   }, [fitPane, focusPane, visible, visiblePaneIds]);
 
   useEffect(() => {
-    if (!fsReady || !baseFilesReady) return;
+    if (!syncToContainerEnabled || !fsReady || !baseFilesReady) return;
     const wc = wcRef.current;
     if (!wc) return;
     const previous = lastWrittenRef.current;
@@ -2214,10 +2247,10 @@ export function TerminalPanel({
         }
       }
     });
-  }, [baseFiles, liveFilePath, fsReady, baseFilesReady]);
+  }, [baseFiles, liveFilePath, fsReady, baseFilesReady, syncToContainerEnabled]);
 
   useEffect(() => {
-    if (!fsReady || liveFilePath === null || liveFileContent === null) return;
+    if (!syncToContainerEnabled || !fsReady || liveFilePath === null || liveFileContent === null) return;
     if (lastWrittenRef.current.get(liveFilePath) === liveFileContent) return;
     const wc = wcRef.current;
     if (!wc) return;
@@ -2235,14 +2268,14 @@ export function TerminalPanel({
           console.error('[terminal] live sync write failed', liveFilePath, err);
         }
       });
-    }, LIVE_FILE_DEBOUNCE_MS);
+    }, liveSyncDebounceMs);
     return () => {
       if (liveSyncTimerRef.current !== null) {
         window.clearTimeout(liveSyncTimerRef.current);
         liveSyncTimerRef.current = null;
       }
     };
-  }, [fsReady, liveFileContent, liveFilePath]);
+  }, [fsReady, liveFileContent, liveFilePath, liveSyncDebounceMs, syncToContainerEnabled]);
 
   useEffect(() => {
     return () => {
@@ -2262,8 +2295,8 @@ export function TerminalPanel({
       } else {
         void flushPersistedHomeState({ force: true });
       }
-      if (!skipImportOnUnmount) {
-        void importTerminalDiff({ silent: true }).catch((err) => {
+      if (!skipImportOnUnmount && importOnUnmount && importFromContainerEnabled) {
+        void importTerminalDiff({ silent: true }, 'unmount').catch((err) => {
           console.error('[terminal] import on unmount failed', err);
         });
       }
@@ -2286,7 +2319,11 @@ export function TerminalPanel({
       paneRuntimesRef.current.primary.disposeSurface?.();
       paneRuntimesRef.current.secondary.disposeSurface?.();
       startedRef.current = false;
-      wcRef.current = null;
+      if (stopOnUnmount) {
+        teardownWebContainer(wcRef.current);
+      } else {
+        wcRef.current = null;
+      }
       setFsReady(false);
       setShellReadyByPane({ primary: false, secondary: false });
       setResetBannerPaneId(null);
@@ -2300,10 +2337,14 @@ export function TerminalPanel({
     flushPersistedHomeState,
     getPersistedHomeActiveSessionMode,
     importTerminalDiff,
+    importFromContainerEnabled,
+    importOnUnmount,
     releaseAllPaneShellSessions,
     releasePersistedHomeSyncSession,
     releaseHostBridgeSession,
     setPersistedHomeActiveSessionMode,
+    stopOnUnmount,
+    teardownWebContainer,
   ]);
 
   useEffect(() => {
@@ -2326,7 +2367,7 @@ export function TerminalPanel({
 
   const activeShellReady = shellReadyByPane[activePaneId];
   const activeShellSessionId = paneRuntimesRef.current[activePaneId].shellSessionId;
-  const canManageSplit = !error && !restartingWebContainer && !resettingShell;
+  const canManageSplit = maxPaneCount > 1 && !error && !restartingWebContainer && !resettingShell;
   const canResetTerminal =
     !error && fsReady && !resettingShell && !restartingWebContainer && (activeShellReady || activeShellSessionId > 0);
   const canRestartWebContainer =
