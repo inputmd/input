@@ -13,10 +13,7 @@ import {
   readPersistedHomeTrustDecision,
   writePersistedHomeTrustDecision,
 } from '../repo_workspace/persisted_home_trust.ts';
-import type {
-  WebContainerTerminalPersistedHomeMode,
-  WebContainerTerminalPersistedHomePrompt,
-} from '../terminal/config.ts';
+import type { WebContainerTerminalPersistedHomeMode, WebContainerTerminalPersistedHomePrompt } from './config.ts';
 
 const PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS = 250;
 
