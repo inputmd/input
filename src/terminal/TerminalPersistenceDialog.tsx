@@ -1,8 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ChevronRight, FileText, FolderClosed, FolderOpen } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import type { PersistedHomeEntry, PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
-import { parseSyncedJsonl } from '../synced_jsonl.ts';
 import {
   buildDirectoryTree,
   DIRECTORY_TREE_CHEVRON_SIZE,
@@ -11,10 +9,12 @@ import {
   type DirectoryTreeFileNode,
   type DirectoryTreeFolderNode,
   findFirstDirectoryTreeFile,
-} from './DirectoryTree';
-import { SyncedJsonlTreeView } from './SyncedJsonlTreeView';
+} from '../components/DirectoryTree';
+import { SyncedJsonlTreeView } from '../components/SyncedJsonlTreeView.tsx';
+import type { PersistedHomeEntry, PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
+import { parseSyncedJsonl } from '../synced_jsonl.ts';
 
-interface TerminalPersistenceDialogProps {
+export interface TerminalPersistenceDialogProps {
   open: boolean;
   loading: boolean;
   error: string | null;
