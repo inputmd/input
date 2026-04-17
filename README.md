@@ -1,5 +1,7 @@
 # Input & Webterm
 
+![pasted-20260417-193705-g60f8l.png](./.assets/pasted-20260417-193705-g60f8l.png "input-size=2466x1516")
+
 **Input** is a multi-file Markdown document editor, where every workspace is a Git repo connected via the GitHub API. It's like Obsidian in the browser, or Notion based on text files.
 
 You can also view any public GitHub repo inside Input by replacing github.com with input.md.
@@ -7,7 +9,6 @@ You can also view any public GitHub repo inside Input by replacing github.com wi
 **Webterm** is a WebAssembly-based terminal that runs Node.js in the browser. You can also use it to run coding assistants like `claude`, `pi`, and `gemini`.
 
 It's built on WebContainers, with custom networking/filesystem bridges, and a set of CLI tools including `find`, `grep`, `nano` (more to come soon).
-
 
 ## Features
 
