@@ -10,7 +10,7 @@ You can also view any public GitHub repo inside Input by replacing github.com wi
 
 It's built on WebContainers, with custom networking/filesystem bridges, and a set of CLI tools including `find`, `grep`, `nano` (more to come soon).
 
-## Features
+## Editor Features
 
 - **Multi-file**: Each gist or repo directory is a collection of `.md` files.
   Create, rename, or delete files.
