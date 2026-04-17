@@ -21,6 +21,7 @@ import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
 import { parseDocumentEditorsFromMarkdown, parseMarkdownFrontMatterBlock } from './document_permissions.ts';
 import { createGistDocumentStore, createRepoDocumentStore, findRepoDocFile, type RepoDocFile } from './document_store';
+import { waitForCriticalAppFonts } from './font_loading';
 import { resolveForkTargetInstallationId, resolveForkTargetRepoFullName } from './fork_repo';
 import { markGistRecentlyCreated, markGistRecentlyDeleted } from './gist_consistency';
 import {
@@ -3489,11 +3490,13 @@ export function App() {
     initialized.current = true;
 
     (async () => {
+      const criticalFontsReady = waitForCriticalAppFonts();
       const handledSetup = await tryHandleGitHubAppSetupRedirect();
       const auth = await tryRestoreAuth();
       if (!handledSetup && !auth.navigated) {
         await handleRoute(route, auth.authenticated);
       }
+      await criticalFontsReady;
       document.getElementById('app')!.classList.add('ready');
     })();
   }, [handleRoute, route, tryHandleGitHubAppSetupRedirect, tryRestoreAuth]);
