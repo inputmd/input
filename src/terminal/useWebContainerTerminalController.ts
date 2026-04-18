@@ -1,20 +1,15 @@
 import type { WebContainer } from '@webcontainer/api';
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useRef, useState } from 'preact/hooks';
 import type { PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
 import type { PersistedHomeTransitionReason } from '../repo_workspace/persisted_home_trust.ts';
-import { WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL } from '../webcontainer_home_overlay.ts';
 import type { WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
-import type {
-  WebContainerTerminalConfig,
-  WebContainerTerminalPaneId,
-  WebContainerTerminalPersistedHomePrompt,
-} from './config.ts';
-import { DEFAULT_AUTO_IMPORT_INTERVAL_MS, DEFAULT_LIVE_FILE_DEBOUNCE_MS } from './filesystem.ts';
+import type { WebContainerTerminalConfig, WebContainerTerminalPaneId } from './config.ts';
 import { readPersistedHomeEntriesForWorkspace } from './provisioning.ts';
-import { getDocumentThemeMode, type TerminalThemeMode } from './runtime_shared.ts';
+import { resolveWebContainerTerminalConfig } from './resolveWebContainerTerminalConfig.ts';
 import { useTerminalControllerLifecycle } from './useTerminalControllerLifecycle.ts';
 import { type PaneId, useTerminalPaneManager } from './useTerminalPaneManager.ts';
 import { type TerminalPersistedHomePromptState, useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
+import { useTerminalThemeMode } from './useTerminalThemeMode.ts';
 import { useTerminalWorkspaceSync } from './useTerminalWorkspaceSync.ts';
 import { useWebContainerTerminalSessionRuntime } from './useWebContainerTerminalSessionRuntime.ts';
 
@@ -84,50 +79,47 @@ export function useWebContainerTerminalController({
   workspaceChangesPersisted = true,
   workspaceChangesNotice = null,
 }: UseWebContainerTerminalControllerOptions): WebContainerTerminalController {
-  const workspaceKey = config.session.id;
-  const workdirName = config.session.workdirName;
-  const apiKey = config.session.apiKey;
-  const autostart = config.session.autostart ?? true;
-  const baseFiles = config.files.base;
-  const baseFilesReady = config.files.ready;
-  const baseFilesLoadError = config.files.baseLoadError ?? null;
-  const liveFile = config.files.live ?? null;
-  const importFromContainerConfig = config.files.importFromContainer;
-  const syncToContainerConfig = config.files.syncToContainer;
-  const persistedHomeConfig = config.persistedHome === false ? null : config.persistedHome;
-  const persistedHomeMode = persistedHomeConfig?.mode ?? (persistedHomeConfig ? 'ask' : 'off');
-  const includeActiveEditPathInImports = importFromContainerConfig?.includeLiveFile ?? false;
-  const onImportDiff = importFromContainerConfig?.onDiff;
-  const registerImportHandler = importFromContainerConfig?.registerHandler;
-  const persistedHomeTrustPrompt: WebContainerTerminalPersistedHomePrompt | null = persistedHomeConfig?.prompt ?? null;
-  const onToggleVisibilityShortcut = config.shortcuts?.onToggleVisibility;
-  const overlayEnabled = config.overlay !== false && (config.overlay?.enabled ?? true);
-  const overlayArchiveUrl =
-    config.overlay === false
-      ? WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL
-      : (config.overlay?.archiveUrl ?? WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL);
-  const networkEnabled = config.network !== false && (config.network?.enabled ?? true);
-  const upstreamProxyBaseUrl =
-    config.network === false ? '/api/upstream-proxy' : (config.network?.upstreamProxyBaseUrl ?? '/api/upstream-proxy');
-  const importFromContainerEnabled = importFromContainerConfig?.enabled ?? Boolean(onImportDiff);
-  const importFromContainerIntervalMs = importFromContainerConfig?.intervalMs ?? DEFAULT_AUTO_IMPORT_INTERVAL_MS;
-  const liveSyncDebounceMs = syncToContainerConfig?.debounceMs ?? DEFAULT_LIVE_FILE_DEBOUNCE_MS;
-  const syncToContainerEnabled = syncToContainerConfig?.enabled ?? true;
-  const importOnUnmount = config.lifecycle?.importOnUnmount ?? true;
-  const stopOnUnmount = config.lifecycle?.stopOnUnmount ?? true;
-  const maxPaneCount = config.panes?.max ?? 2;
+  const {
+    apiKey,
+    autostart,
+    baseFiles,
+    baseFilesLoadError,
+    baseFilesReady,
+    bootCoep,
+    bootReuseInstance,
+    importFromContainerEnabled,
+    importFromContainerIntervalMs,
+    importOnUnmount,
+    includeActiveEditPathInImports,
+    initialSplit,
+    liveFileContent,
+    liveFilePath,
+    liveSyncDebounceMs,
+    maxPaneCount,
+    networkEnabled,
+    onImportDiff,
+    onToggleVisibilityShortcut,
+    overlayArchiveUrl,
+    overlayEnabled,
+    persistedHomeMode,
+    persistedHomeTrustPrompt,
+    registerImportHandler,
+    stopOnUnmount,
+    syncToContainerEnabled,
+    upstreamProxyBaseUrl,
+    workdirName,
+    workspaceKey,
+  } = resolveWebContainerTerminalConfig(config);
   const [error, setError] = useState<string | null>(null);
   const [dismissedWorkspaceNoticeKey, setDismissedWorkspaceNoticeKey] = useState<string | null>(null);
   const [fsReady, setFsReady] = useState(false);
-  const [terminalThemeMode, setTerminalThemeMode] = useState<TerminalThemeMode>(() => getDocumentThemeMode());
+  const terminalThemeMode = useTerminalThemeMode();
   const startedRef = useRef(false);
   const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
   const unmountedRef = useRef(false);
   const wcRef = useRef<WebContainer | null>(null);
   const baseFilesLoadErrorRef = useRef(baseFilesLoadError);
   baseFilesLoadErrorRef.current = baseFilesLoadError;
-  const liveFilePath = liveFile?.path ?? null;
-  const liveFileContent = liveFile?.content ?? null;
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
   const restartShellRef = useRef<((paneId?: PaneId, options?: { clearTerminal?: boolean }) => Promise<void>) | null>(
@@ -136,29 +128,7 @@ export function useWebContainerTerminalController({
   const restartWebContainerRef = useRef<
     ((options?: { reason?: PersistedHomeTransitionReason }) => Promise<void>) | null
   >(null);
-  const lastAppliedTerminalThemeModeRef = useRef<TerminalThemeMode>(terminalThemeMode);
-
-  useEffect(() => {
-    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
-    const root = document.documentElement;
-    const syncThemeMode = () => {
-      setTerminalThemeMode((current) => {
-        const next = getDocumentThemeMode();
-        return current === next ? current : next;
-      });
-    };
-    syncThemeMode();
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
-          syncThemeMode();
-          break;
-        }
-      }
-    });
-    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => observer.disconnect();
-  }, []);
+  const lastAppliedTerminalThemeModeRef = useRef(terminalThemeMode);
 
   const workspaceNoticeKey =
     !workspaceChangesPersisted && workspaceChangesNotice ? `${workspaceKey}:${workspaceChangesNotice}` : null;
@@ -222,7 +192,7 @@ export function useWebContainerTerminalController({
     baseFilesLoadErrorRef,
     flushManagedSync,
     hostBridgeRef,
-    initialSplit: config.panes?.initialSplit,
+    initialSplit,
     maxPaneCount,
     onRequestShellRestart: requestShellRestart,
     onToggleVisibilityShortcut,
@@ -282,8 +252,8 @@ export function useWebContainerTerminalController({
     apiKey,
     baseFilesRef,
     capturePersistedHomeState,
-    configBootCoep: config.session.boot?.coep,
-    configBootReuseInstance: config.session.boot?.reuseBootInstance,
+    configBootCoep: bootCoep,
+    configBootReuseInstance: bootReuseInstance,
     focusPane,
     getPaneRuntime,
     getPersistedHomeActiveSessionMode,
