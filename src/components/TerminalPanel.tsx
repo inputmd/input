@@ -1,4 +1,4 @@
-import { WebContainerTerminalView, type WebContainerTerminalViewProps } from '../terminal/WebContainerTerminalView.tsx';
+import { WebContainerTerminalView, type WebContainerTerminalViewProps } from '../terminal/view.ts';
 import { useDialogs } from './DialogProvider.tsx';
 
 export type TerminalPanelProps = Omit<WebContainerTerminalViewProps, 'dialogs'>;
