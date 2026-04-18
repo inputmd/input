@@ -1,76 +1,24 @@
 import type { WebContainer } from '@webcontainer/api';
 import { useCallback, useRef, useState } from 'preact/hooks';
-import type { PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
 import type { PersistedHomeTransitionReason } from '../repo_workspace/persisted_home_trust.ts';
 import type { WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
-import type { WebContainerTerminalConfig, WebContainerTerminalPaneId } from './config.ts';
+import { buildWebContainerTerminalController } from './buildWebContainerTerminalController.ts';
+import type { UseWebContainerTerminalControllerOptions, WebContainerTerminalController } from './controllerTypes.ts';
 import { readPersistedHomeEntriesForWorkspace } from './provisioning.ts';
 import { resolveWebContainerTerminalConfig } from './resolveWebContainerTerminalConfig.ts';
 import { useTerminalControllerLifecycle } from './useTerminalControllerLifecycle.ts';
 import { type PaneId, useTerminalPaneManager } from './useTerminalPaneManager.ts';
-import { type TerminalPersistedHomePromptState, useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
+import { useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
 import { useTerminalThemeMode } from './useTerminalThemeMode.ts';
 import { useTerminalWorkspaceSync } from './useTerminalWorkspaceSync.ts';
 import { useWebContainerTerminalSessionRuntime } from './useWebContainerTerminalSessionRuntime.ts';
 
-export interface WebContainerTerminalControllerDialogs {
-  showAlert: (message: string) => Promise<void>;
-  showPrompt: (message: string, defaultValue?: string) => Promise<string | null>;
-}
-
-export interface UseWebContainerTerminalControllerOptions {
-  config: WebContainerTerminalConfig;
-  dialogs: WebContainerTerminalControllerDialogs;
-  visible: boolean;
-  workspaceChangesPersisted?: boolean;
-  workspaceChangesNotice?: string | null;
-}
-
-export interface WebContainerTerminalPersistenceDialogState {
-  error: string | null;
-  loading: boolean;
-  open: boolean;
-  snapshot: PersistedHomeInspectionSnapshot | null;
-}
-
-export interface WebContainerTerminalController {
-  activePaneId: WebContainerTerminalPaneId;
-  actions: {
-    closePersistenceDialog: () => void;
-    closePersistedHomePrompt: () => void;
-    closeSplitPane: (position: 'top' | 'bottom') => void;
-    downloadFromWebContainer: () => Promise<void>;
-    openPersistedHomeReconfigurePrompt: () => void;
-    openPersistenceDialog: () => Promise<void>;
-    openSplitTerminal: () => void;
-    restartShell: () => Promise<void>;
-    restartWebContainer: () => Promise<void>;
-    selectPane: (paneId: WebContainerTerminalPaneId) => void;
-    setPaneContainer: (paneId: WebContainerTerminalPaneId, node: HTMLDivElement | null) => void;
-    settlePersistedHomePrompt: (restorePersistedHome: boolean) => void;
-  };
-  canDownloadFromWebContainer: boolean;
-  canManageSplit: boolean;
-  canResetTerminal: boolean;
-  canRestartWebContainer: boolean;
-  error: string | null;
-  persistedHomePromptState: TerminalPersistedHomePromptState | null;
-  persistenceDialog: WebContainerTerminalPersistenceDialogState;
-  resetBannerPaneId: WebContainerTerminalPaneId | null;
-  resetBannerText: string | null;
-  splitOpen: boolean;
-  status: {
-    credentialSyncLabel: string;
-    credentialSyncMenuNote: string;
-    networkingLabel: string;
-  };
-  visiblePaneIds: WebContainerTerminalPaneId[];
-  workspaceNotice: {
-    dismiss: () => void;
-    message: string | null;
-    visible: boolean;
-  };
-}
+export type {
+  UseWebContainerTerminalControllerOptions,
+  WebContainerTerminalController,
+  WebContainerTerminalControllerDialogs,
+  WebContainerTerminalPersistenceDialogState,
+} from './controllerTypes.ts';
 
 export function useWebContainerTerminalController({
   config,
@@ -286,20 +234,6 @@ export function useWebContainerTerminalController({
     writeTerminal,
   });
 
-  const credentialSyncStatusLabel =
-    credentialSyncEnabled === null
-      ? 'Sync loading...'
-      : credentialSyncEnabled
-        ? 'Credential sync on'
-        : 'Credential sync off';
-  const networkingStatusLabel = hostBridgeError ? 'Networking error' : 'Networking on';
-  const credentialSyncMenuNote =
-    credentialSyncEnabled === null
-      ? 'Loading...'
-      : credentialSyncEnabled
-        ? 'Credentials and sessions are automatically synced across terminals.'
-        : 'Untrusted repo, credentials and sessions will be deleted on exit.';
-
   const restartShell = useCallback(
     async (paneId?: PaneId, options?: { clearTerminal?: boolean }): Promise<void> => {
       hideResetBanner();
@@ -367,48 +301,30 @@ export function useWebContainerTerminalController({
 
   const activeShellReady = shellReadyByPane[activePaneId];
   const activeShellSessionId = getPaneRuntime(activePaneId).shellSessionId;
-  const canManageSplit = maxPaneCount > 1 && !error && !restartingWebContainer && !resettingShell;
-  const canResetTerminal =
-    !error && fsReady && !resettingShell && !restartingWebContainer && (activeShellReady || activeShellSessionId > 0);
-  const canRestartWebContainer =
-    !error &&
-    !resettingShell &&
-    !restartingWebContainer &&
-    (fsReady || getPaneRuntime('primary').shellSessionId > 0 || getPaneRuntime('secondary').shellSessionId > 0);
-  const canDownloadFromWebContainer = !error && fsReady && !restartingWebContainer && !downloadingPath;
+  const primaryShellSessionId = getPaneRuntime('primary').shellSessionId;
+  const secondaryShellSessionId = getPaneRuntime('secondary').shellSessionId;
   const workspaceNoticeVisible = workspaceNoticeKey !== null && dismissedWorkspaceNoticeKey !== workspaceNoticeKey;
-  return {
+  return buildWebContainerTerminalController({
     activePaneId,
-    actions: {
-      closePersistenceDialog,
-      closePersistedHomePrompt() {
-        closePersistedHomePrompt();
-        focusPane();
-      },
-      closeSplitPane,
-      async downloadFromWebContainer() {
-        await downloadFromWebContainer();
-      },
-      openPersistedHomeReconfigurePrompt,
-      async openPersistenceDialog() {
-        await openPersistenceDialog();
-      },
-      openSplitTerminal,
-      async restartShell() {
-        await restartShell();
-      },
-      async restartWebContainer() {
-        await restartWebContainer();
-      },
-      selectPane,
-      setPaneContainer,
-      settlePersistedHomePrompt,
+    activeShellReady,
+    activeShellSessionId,
+    closePersistenceDialog,
+    closePersistedHomePrompt,
+    closeSplitPane,
+    credentialSyncEnabled,
+    dismissWorkspaceNotice() {
+      setDismissedWorkspaceNoticeKey(workspaceNoticeKey);
     },
-    canDownloadFromWebContainer,
-    canManageSplit,
-    canResetTerminal,
-    canRestartWebContainer,
+    downloadFromWebContainer,
+    downloadInProgress: Boolean(downloadingPath),
     error,
+    focusPane,
+    fsReady,
+    hasHostBridgeError: Boolean(hostBridgeError),
+    maxPaneCount,
+    openPersistedHomeReconfigurePrompt,
+    openPersistenceDialog,
+    openSplitTerminal,
     persistedHomePromptState,
     persistenceDialog: {
       error: persistenceDialogError,
@@ -416,21 +332,20 @@ export function useWebContainerTerminalController({
       open: persistenceDialogOpen,
       snapshot: persistenceDialogSnapshot,
     },
+    primaryShellSessionId,
     resetBannerPaneId,
     resetBannerText,
+    restartingWebContainer,
+    resettingShell,
+    restartShell,
+    restartWebContainer,
+    secondaryShellSessionId,
+    selectPane,
+    setPaneContainer,
+    settlePersistedHomePrompt,
     splitOpen,
-    status: {
-      credentialSyncLabel: credentialSyncStatusLabel,
-      credentialSyncMenuNote,
-      networkingLabel: networkingStatusLabel,
-    },
     visiblePaneIds,
-    workspaceNotice: {
-      dismiss() {
-        setDismissedWorkspaceNoticeKey(workspaceNoticeKey);
-      },
-      message: workspaceChangesNotice,
-      visible: workspaceNoticeVisible,
-    },
-  };
+    workspaceChangesNotice,
+    workspaceNoticeVisible,
+  });
 }
