@@ -2,26 +2,14 @@ import type { WebContainer } from '@webcontainer/api';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
 import type { PersistedHomeTransitionReason } from '../repo_workspace/persisted_home_trust.ts';
-import {
-  buildTerminalImportDiff,
-  type TerminalImportDiff,
-  type TerminalImportOptions,
-} from '../repo_workspace/terminal_sync.ts';
 import { WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL } from '../webcontainer_home_overlay.ts';
 import type { WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
 import type {
   WebContainerTerminalConfig,
-  WebContainerTerminalImportContext,
   WebContainerTerminalPaneId,
   WebContainerTerminalPersistedHomePrompt,
 } from './config.ts';
-import {
-  buildManagedFiles,
-  DEFAULT_AUTO_IMPORT_INTERVAL_MS,
-  DEFAULT_LIVE_FILE_DEBOUNCE_MS,
-  snapshotTerminalTextFiles,
-  writeTextFile,
-} from './filesystem.ts';
+import { DEFAULT_AUTO_IMPORT_INTERVAL_MS, DEFAULT_LIVE_FILE_DEBOUNCE_MS } from './filesystem.ts';
 import { readPersistedHomeEntriesForWorkspace } from './provisioning.ts';
 import {
   didRecentHotReload,
@@ -32,6 +20,7 @@ import {
 } from './runtime_shared.ts';
 import { otherPaneId, type PaneId, useTerminalPaneManager } from './useTerminalPaneManager.ts';
 import { type TerminalPersistedHomePromptState, useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
+import { useTerminalWorkspaceSync } from './useTerminalWorkspaceSync.ts';
 import { useWebContainerTerminalSessionRuntime } from './useWebContainerTerminalSessionRuntime.ts';
 
 export interface WebContainerTerminalControllerDialogs {
@@ -134,33 +123,18 @@ export function useWebContainerTerminalController({
   const maxPaneCount = config.panes?.max ?? 2;
   const [error, setError] = useState<string | null>(null);
   const [dismissedWorkspaceNoticeKey, setDismissedWorkspaceNoticeKey] = useState<string | null>(null);
+  const [fsReady, setFsReady] = useState(false);
   const [terminalThemeMode, setTerminalThemeMode] = useState<TerminalThemeMode>(() => getDocumentThemeMode());
   const startedRef = useRef(false);
   const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
   const unmountedRef = useRef(false);
   const wcRef = useRef<WebContainer | null>(null);
-  const lastWrittenRef = useRef<Map<string, string>>(new Map());
-  const baseFilesRef = useRef(baseFiles);
-  baseFilesRef.current = baseFiles;
   const baseFilesLoadErrorRef = useRef(baseFilesLoadError);
   baseFilesLoadErrorRef.current = baseFilesLoadError;
-  const baseFilesReadyRef = useRef(baseFilesReady);
-  baseFilesReadyRef.current = baseFilesReady;
   const liveFilePath = liveFile?.path ?? null;
   const liveFileContent = liveFile?.content ?? null;
-  const liveFilePathRef = useRef<string | null>(liveFilePath);
-  liveFilePathRef.current = liveFilePath;
-  const liveFileContentRef = useRef<string | null>(liveFileContent);
-  liveFileContentRef.current = liveFileContent;
-  const includeActiveEditPathInImportsRef = useRef(includeActiveEditPathInImports);
-  includeActiveEditPathInImportsRef.current = includeActiveEditPathInImports;
-  const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const liveSyncTimerRef = useRef<number | null>(null);
-  const onImportDiffRef = useRef(onImportDiff);
-  onImportDiffRef.current = onImportDiff;
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
-  const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
   const restartShellRef = useRef<((paneId?: PaneId, options?: { clearTerminal?: boolean }) => Promise<void>) | null>(
     null,
   );
@@ -194,28 +168,31 @@ export function useWebContainerTerminalController({
   const workspaceNoticeKey =
     !workspaceChangesPersisted && workspaceChangesNotice ? `${workspaceKey}:${workspaceChangesNotice}` : null;
 
-  const flushManagedSync = useCallback(async (): Promise<void> => {
-    const wc = wcRef.current;
-    if (!wc) return;
-    if (liveSyncTimerRef.current !== null) {
-      window.clearTimeout(liveSyncTimerRef.current);
-      liveSyncTimerRef.current = null;
-      const pendingPath = liveFilePathRef.current;
-      const pendingContent = liveFileContentRef.current;
-      if (pendingPath !== null && pendingContent !== null) {
-        syncQueueRef.current = syncQueueRef.current.then(async () => {
-          if (unmountedRef.current) return;
-          try {
-            await writeTextFile(wc, pendingPath, pendingContent);
-            lastWrittenRef.current.set(pendingPath, pendingContent);
-          } catch (err) {
-            console.error('[terminal] live sync flush failed', pendingPath, err);
-          }
-        });
-      }
-    }
-    await syncQueueRef.current;
-  }, []);
+  const {
+    baseFilesRef,
+    disposeWorkspaceSync,
+    flushManagedSync,
+    importTerminalDiff,
+    liveFileContentRef,
+    liveFilePathRef,
+    replaceManagedFileSnapshot,
+  } = useTerminalWorkspaceSync({
+    baseFiles,
+    baseFilesReady,
+    fsReady,
+    importFromContainerEnabled,
+    importFromContainerIntervalMs,
+    includeActiveEditPathInImports,
+    liveFileContent,
+    liveFilePath,
+    liveSyncDebounceMs,
+    onImportDiff,
+    registerImportHandler,
+    syncToContainerEnabled,
+    unmountedRef,
+    wcRef,
+    workspaceKeyRef,
+  });
 
   const requestShellRestart = useCallback((paneId: PaneId) => {
     void restartShellRef.current?.(paneId, { clearTerminal: true });
@@ -294,52 +271,9 @@ export function useWebContainerTerminalController({
     workspaceKeyRef,
   });
 
-  const importTerminalDiff = useCallback(
-    async (
-      options?: TerminalImportOptions,
-      reason: WebContainerTerminalImportContext['reason'] = 'manual',
-    ): Promise<TerminalImportDiff | null> => {
-      if (importInFlightRef.current) return importInFlightRef.current;
-      const pendingImport = (async (): Promise<TerminalImportDiff | null> => {
-        const wc = wcRef.current;
-        if (!wc || !baseFilesReadyRef.current || !onImportDiffRef.current) return null;
-        await flushManagedSync();
-        const managedFiles = buildManagedFiles(
-          baseFilesRef.current,
-          liveFilePathRef.current,
-          liveFileContentRef.current,
-        );
-        const actualFiles = await snapshotTerminalTextFiles(wc);
-        const diff = buildTerminalImportDiff({
-          managedFiles,
-          actualFiles,
-          activeEditPath: liveFilePathRef.current,
-          includeActiveEditPath: includeActiveEditPathInImportsRef.current,
-        });
-        if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return null;
-        await onImportDiffRef.current(diff, {
-          options,
-          reason,
-          sessionId: workspaceKeyRef.current,
-        });
-        return diff;
-      })();
-      importInFlightRef.current = pendingImport;
-      try {
-        return await pendingImport;
-      } finally {
-        if (importInFlightRef.current === pendingImport) {
-          importInFlightRef.current = null;
-        }
-      }
-    },
-    [flushManagedSync],
-  );
-
   const {
     downloadFromWebContainer,
     downloadingPath,
-    fsReady,
     hostBridgeError,
     invalidateSessionRuntime,
     releaseHostBridgeSession,
@@ -347,7 +281,6 @@ export function useWebContainerTerminalController({
     restartWebContainer: restartWebContainerRuntime,
     restartingWebContainer,
     resettingShell,
-    setFsReady,
     startSession,
     teardownWebContainer,
   } = useWebContainerTerminalSessionRuntime({
@@ -362,7 +295,6 @@ export function useWebContainerTerminalController({
     getPreferredPaneId,
     hostBridgeRef,
     importTerminalDiff,
-    lastWrittenRef,
     liveFileContentRef,
     liveFilePathRef,
     networkEnabled,
@@ -372,8 +304,10 @@ export function useWebContainerTerminalController({
     releasePersistedHomeSyncSession,
     resolvePersistedHomeMode,
     resetPaneSurface,
+    replaceManagedFileSnapshot,
     setPersistedHomeActiveSessionMode,
     setPersistedHomeScriptPath,
+    setFsReady,
     showAlert: dialogs.showAlert,
     showPrompt: dialogs.showPrompt,
     spawnShellSession,
@@ -470,25 +404,6 @@ export function useWebContainerTerminalController({
   }, [closePersistedHomePrompt, focusPane, persistedHomePromptState]);
 
   useEffect(() => {
-    registerImportHandler?.((options) => importTerminalDiff(options, 'manual'));
-    return () => {
-      registerImportHandler?.(null);
-    };
-  }, [importTerminalDiff, registerImportHandler]);
-
-  useEffect(() => {
-    if (!importFromContainerEnabled || !fsReady || !baseFilesReady || importFromContainerIntervalMs === false) return;
-    const intervalId = window.setInterval(() => {
-      void importTerminalDiff({ silent: true }, 'interval').catch((err) => {
-        console.error('[terminal] background import failed', err);
-      });
-    }, importFromContainerIntervalMs);
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [baseFilesReady, fsReady, importFromContainerEnabled, importFromContainerIntervalMs, importTerminalDiff]);
-
-  useEffect(() => {
     if (!splitOpen) {
       disposePaneRuntime(otherPaneId(singlePaneId));
     }
@@ -579,70 +494,6 @@ export function useWebContainerTerminalController({
   }, [fitPane, focusPane, visible, visiblePaneIds]);
 
   useEffect(() => {
-    if (!syncToContainerEnabled || !fsReady || !baseFilesReady) return;
-    const wc = wcRef.current;
-    if (!wc) return;
-    const previous = lastWrittenRef.current;
-    const next = new Map(Object.entries(buildManagedFiles(baseFiles, liveFilePath, liveFileContentRef.current)));
-    const writes: Array<[string, string]> = [];
-    const removes: string[] = [];
-    for (const [path, contents] of next) {
-      if (previous.get(path) !== contents) writes.push([path, contents]);
-    }
-    for (const path of previous.keys()) {
-      if (!next.has(path)) removes.push(path);
-    }
-    if (writes.length === 0 && removes.length === 0) return;
-    syncQueueRef.current = syncQueueRef.current.then(async () => {
-      if (unmountedRef.current) return;
-      for (const path of removes) {
-        try {
-          await wc.fs.rm(path, { force: true, recursive: true });
-          lastWrittenRef.current.delete(path);
-        } catch (err) {
-          console.error('[terminal] sync rm failed', path, err);
-        }
-      }
-      for (const [path, contents] of writes) {
-        try {
-          await writeTextFile(wc, path, contents);
-          lastWrittenRef.current.set(path, contents);
-        } catch (err) {
-          console.error('[terminal] sync write failed', path, err);
-        }
-      }
-    });
-  }, [baseFiles, liveFilePath, fsReady, baseFilesReady, syncToContainerEnabled]);
-
-  useEffect(() => {
-    if (!syncToContainerEnabled || !fsReady || liveFilePath === null || liveFileContent === null) return;
-    if (lastWrittenRef.current.get(liveFilePath) === liveFileContent) return;
-    const wc = wcRef.current;
-    if (!wc) return;
-    if (liveSyncTimerRef.current !== null) {
-      window.clearTimeout(liveSyncTimerRef.current);
-    }
-    liveSyncTimerRef.current = window.setTimeout(() => {
-      liveSyncTimerRef.current = null;
-      syncQueueRef.current = syncQueueRef.current.then(async () => {
-        if (unmountedRef.current) return;
-        try {
-          await writeTextFile(wc, liveFilePath, liveFileContent);
-          lastWrittenRef.current.set(liveFilePath, liveFileContent);
-        } catch (err) {
-          console.error('[terminal] live sync write failed', liveFilePath, err);
-        }
-      });
-    }, liveSyncDebounceMs);
-    return () => {
-      if (liveSyncTimerRef.current !== null) {
-        window.clearTimeout(liveSyncTimerRef.current);
-        liveSyncTimerRef.current = null;
-      }
-    };
-  }, [fsReady, liveFileContent, liveFilePath, liveSyncDebounceMs, syncToContainerEnabled]);
-
-  useEffect(() => {
     return () => {
       unmountedRef.current = true;
       const skipImportOnUnmount = didRecentHotReload();
@@ -660,15 +511,7 @@ export function useWebContainerTerminalController({
       } else {
         void flushPersistedHomeState({ force: true });
       }
-      if (!skipImportOnUnmount && importOnUnmount && importFromContainerEnabled) {
-        void importTerminalDiff({ silent: true }, 'unmount').catch((err) => {
-          console.error('[terminal] import on unmount failed', err);
-        });
-      }
-      if (liveSyncTimerRef.current !== null) {
-        window.clearTimeout(liveSyncTimerRef.current);
-        liveSyncTimerRef.current = null;
-      }
+      disposeWorkspaceSync({ importOnUnmount: !skipImportOnUnmount && importOnUnmount && importFromContainerEnabled });
       hideResetBanner();
       invalidateSessionRuntime();
       setPersistedHomeActiveSessionMode(null);
@@ -685,16 +528,15 @@ export function useWebContainerTerminalController({
         wcRef.current = null;
       }
       setFsReady(false);
-      lastWrittenRef.current = new Map();
     };
   }, [
     capturePersistedHomeState,
+    disposeWorkspaceSync,
     disposePersistedHomePrompt,
     flushPersistedHomeState,
     getPersistedHomeActiveSessionMode,
     getPaneRuntime,
     invalidateSessionRuntime,
-    importTerminalDiff,
     importFromContainerEnabled,
     importOnUnmount,
     hideResetBanner,
@@ -702,7 +544,6 @@ export function useWebContainerTerminalController({
     releasePersistedHomeSyncSession,
     releaseHostBridgeSession,
     setPersistedHomeActiveSessionMode,
-    setFsReady,
     stopOnUnmount,
     teardownWebContainer,
   ]);

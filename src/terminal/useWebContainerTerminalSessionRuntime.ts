@@ -63,6 +63,7 @@ export interface UseWebContainerTerminalSessionRuntimeOptions {
   resetPaneSurface: (paneId: PaneId) => void;
   setPersistedHomeActiveSessionMode: (mode: PersistedHomeMode | null) => void;
   setPersistedHomeScriptPath: (path: string | null) => void;
+  setFsReady: (ready: boolean) => void;
   showAlert: (message: string) => Promise<void>;
   showPrompt: (message: string, defaultValue?: string) => Promise<string | null>;
   spawnShellSession: (
@@ -70,6 +71,7 @@ export interface UseWebContainerTerminalSessionRuntimeOptions {
     options?: { announceReady?: boolean; clearTerminal?: boolean; syncManagedFiles?: boolean },
   ) => Promise<void>;
   startPersistedHomeSync: (wc: WebContainer) => Promise<void>;
+  replaceManagedFileSnapshot: (files: Record<string, string>) => void;
   unmountedRef: RefValue<boolean>;
   upstreamProxyBaseUrl: string;
   visiblePaneIdsRef: RefValue<PaneId[]>;
@@ -81,13 +83,11 @@ export interface UseWebContainerTerminalSessionRuntimeOptions {
     data: string | Uint8Array,
     options?: { forceFollow?: boolean; newline?: boolean },
   ) => void;
-  lastWrittenRef: RefValue<Map<string, string>>;
 }
 
 export interface WebContainerTerminalSessionRuntime {
   downloadFromWebContainer: () => Promise<void>;
   downloadingPath: boolean;
-  fsReady: boolean;
   hostBridgeError: boolean;
   invalidateSessionRuntime: () => void;
   releaseHostBridgeSession: () => Promise<void>;
@@ -102,7 +102,6 @@ export interface WebContainerTerminalSessionRuntime {
     importBeforeReboot?: boolean;
     persistedHomeTransitionReason?: PersistedHomeTransitionReason;
   }) => Promise<void>;
-  setFsReady: (ready: boolean) => void;
   teardownWebContainer: (wc: WebContainer | null) => void;
 }
 
@@ -129,10 +128,12 @@ export function useWebContainerTerminalSessionRuntime({
   resetPaneSurface,
   setPersistedHomeActiveSessionMode,
   setPersistedHomeScriptPath,
+  setFsReady,
   showAlert,
   showPrompt,
   spawnShellSession,
   startPersistedHomeSync,
+  replaceManagedFileSnapshot,
   unmountedRef,
   upstreamProxyBaseUrl,
   visiblePaneIdsRef,
@@ -140,10 +141,8 @@ export function useWebContainerTerminalSessionRuntime({
   workdirName,
   workspaceKeyRef,
   writeTerminal,
-  lastWrittenRef,
 }: UseWebContainerTerminalSessionRuntimeOptions): WebContainerTerminalSessionRuntime {
   const [downloadingPath, setDownloadingPath] = useState(false);
-  const [fsReady, setFsReady] = useState(false);
   const [hostBridgeError, setHostBridgeError] = useState(false);
   const [resettingShell, setResettingShell] = useState(false);
   const [restartingWebContainer, setRestartingWebContainer] = useState(false);
@@ -303,7 +302,7 @@ export function useWebContainerTerminalSessionRuntime({
           return;
         }
 
-        lastWrittenRef.current = new Map(Object.entries(initialFiles));
+        replaceManagedFileSnapshot(initialFiles);
         wcRef.current = wc;
 
         if (overlayEnabled && overlayArchiveUrl) {
@@ -436,12 +435,12 @@ export function useWebContainerTerminalSessionRuntime({
       getPreferredPaneId,
       hostBridgeRef,
       importTerminalDiff,
-      lastWrittenRef,
       liveFileContentRef,
       liveFilePathRef,
       networkEnabled,
       overlayArchiveUrl,
       overlayEnabled,
+      replaceManagedFileSnapshot,
       releaseAllPaneShellSessions,
       releaseHostBridgeSession,
       releasePersistedHomeSyncSession,
@@ -449,6 +448,7 @@ export function useWebContainerTerminalSessionRuntime({
       resetPaneSurface,
       setPersistedHomeActiveSessionMode,
       setPersistedHomeScriptPath,
+      setFsReady,
       spawnShellSession,
       startPersistedHomeSync,
       teardownWebContainer,
@@ -589,7 +589,6 @@ export function useWebContainerTerminalSessionRuntime({
   return {
     downloadFromWebContainer,
     downloadingPath,
-    fsReady,
     hostBridgeError,
     invalidateSessionRuntime,
     releaseHostBridgeSession,
@@ -598,7 +597,6 @@ export function useWebContainerTerminalSessionRuntime({
     restartingWebContainer,
     resettingShell,
     startSession,
-    setFsReady,
     teardownWebContainer,
   };
 }
