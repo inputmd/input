@@ -11,14 +11,9 @@ import type {
 } from './config.ts';
 import { DEFAULT_AUTO_IMPORT_INTERVAL_MS, DEFAULT_LIVE_FILE_DEBOUNCE_MS } from './filesystem.ts';
 import { readPersistedHomeEntriesForWorkspace } from './provisioning.ts';
-import {
-  didRecentHotReload,
-  ensureWebContainerApiConfigured,
-  getDocumentThemeMode,
-  isLocalhostHostname,
-  type TerminalThemeMode,
-} from './runtime_shared.ts';
-import { otherPaneId, type PaneId, useTerminalPaneManager } from './useTerminalPaneManager.ts';
+import { getDocumentThemeMode, type TerminalThemeMode } from './runtime_shared.ts';
+import { useTerminalControllerLifecycle } from './useTerminalControllerLifecycle.ts';
+import { type PaneId, useTerminalPaneManager } from './useTerminalPaneManager.ts';
 import { type TerminalPersistedHomePromptState, useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
 import { useTerminalWorkspaceSync } from './useTerminalWorkspaceSync.ts';
 import { useWebContainerTerminalSessionRuntime } from './useWebContainerTerminalSessionRuntime.ts';
@@ -335,42 +330,6 @@ export function useWebContainerTerminalController({
         ? 'Credentials and sessions are automatically synced across terminals.'
         : 'Untrusted repo, credentials and sessions will be deleted on exit.';
 
-  useEffect(() => {
-    const previousThemeMode = lastAppliedTerminalThemeModeRef.current;
-    lastAppliedTerminalThemeModeRef.current = terminalThemeMode;
-    if (previousThemeMode === terminalThemeMode || !startedRef.current) return;
-    let cancelled = false;
-    void (async () => {
-      for (const paneId of ['primary', 'secondary'] as const) {
-        const runtime = getPaneRuntime(paneId);
-        const hadShell = Boolean(runtime.shell);
-        releasePaneShellSession(paneId, { invalidate: true });
-        runtime.disposeSurface?.();
-        runtime.disposeSurface = null;
-        if (!runtime.container) continue;
-        await ensurePaneSurface(paneId);
-        if (cancelled || unmountedRef.current) return;
-        fitPane(paneId);
-        if (!fsReady || !hadShell) continue;
-        await spawnShellSession(paneId, { clearTerminal: true });
-        if (cancelled || unmountedRef.current) return;
-      }
-      focusPane();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    ensurePaneSurface,
-    fitPane,
-    focusPane,
-    fsReady,
-    getPaneRuntime,
-    releasePaneShellSession,
-    spawnShellSession,
-    terminalThemeMode,
-  ]);
-
   const restartShell = useCallback(
     async (paneId?: PaneId, options?: { clearTerminal?: boolean }): Promise<void> => {
       hideResetBanner();
@@ -389,182 +348,52 @@ export function useWebContainerTerminalController({
   );
   restartWebContainerRef.current = restartWebContainer;
 
-  useEffect(() => {
-    if (!persistedHomePromptState) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      closePersistedHomePrompt();
-      focusPane();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [closePersistedHomePrompt, focusPane, persistedHomePromptState]);
-
-  useEffect(() => {
-    if (!splitOpen) {
-      disposePaneRuntime(otherPaneId(singlePaneId));
-    }
-  }, [disposePaneRuntime, singlePaneId, splitOpen]);
-
-  useEffect(() => {
-    if (!visible || !baseFilesLoadError) {
-      if (!baseFilesLoadError) {
-        renderBaseFilesLoadError('primary');
-      }
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const paneId = visiblePaneIdsRef.current[0] ?? 'primary';
-      await ensurePaneSurface(paneId);
-      if (cancelled || unmountedRef.current) return;
-      renderBaseFilesLoadError(paneId);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [baseFilesLoadError, ensurePaneSurface, renderBaseFilesLoadError, visible]);
-
-  useEffect(() => {
-    if (!autostart || !visible || startedRef.current || !baseFilesReady) return;
-    if (!apiKey && !isLocalhostHostname()) {
-      setError('VITE_WEBCONTAINERS_API_KEY is not set.');
-      return;
-    }
-    if (typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated) {
-      setError('Page is not cross-origin isolated. WebContainers requires COOP/COEP headers.');
-      return;
-    }
-
-    setError(null);
-    startedRef.current = true;
-
-    void (async () => {
-      try {
-        await ensureWebContainerApiConfigured(apiKey);
-        if (unmountedRef.current) return;
-        await ensurePaneSurface(visiblePaneIdsRef.current[0] ?? 'primary');
-        if (unmountedRef.current) return;
-        await startSession({ clearTerminal: true });
-      } catch (err) {
-        if (unmountedRef.current) return;
-        const message = err instanceof Error ? err.message : String(err);
-        setError(`Failed to start terminal: ${message}`);
-        startedRef.current = false;
-      }
-    })();
-  }, [apiKey, autostart, baseFilesReady, ensurePaneSurface, startSession, visible]);
-
-  useEffect(() => {
-    if (!visible || !startedRef.current) return;
-    let cancelled = false;
-    void (async () => {
-      for (const paneId of visiblePaneIds) {
-        await ensurePaneSurface(paneId);
-        if (cancelled || unmountedRef.current) return;
-        fitPane(paneId);
-      }
-      if (fsReady) {
-        for (const paneId of visiblePaneIds) {
-          const runtime = getPaneRuntime(paneId);
-          if (runtime.shell || !runtime.terminal) continue;
-          await spawnShellSession(paneId);
-          if (cancelled || unmountedRef.current) return;
-        }
-      }
-      focusPane();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [ensurePaneSurface, fitPane, focusPane, fsReady, getPaneRuntime, spawnShellSession, visible, visiblePaneIds]);
-
-  useEffect(() => {
-    if (!visible) return;
-    const frameId = window.requestAnimationFrame(() => {
-      for (const paneId of visiblePaneIds) {
-        fitPane(paneId);
-      }
-      focusPane();
-    });
-    return () => window.cancelAnimationFrame(frameId);
-  }, [fitPane, focusPane, visible, visiblePaneIds]);
-
-  useEffect(() => {
-    return () => {
-      unmountedRef.current = true;
-      const skipImportOnUnmount = didRecentHotReload();
-      const currentWc = wcRef.current;
-      const allowPersistedHomeCapture = getPersistedHomeActiveSessionMode() === 'include';
-      if (currentWc && allowPersistedHomeCapture) {
-        // Pin the workspace key before the async capture — the ref can drift
-        // after unmount if the parent re-renders with a new workspace.
-        const targetWorkspaceKey = workspaceKeyRef.current;
-        void capturePersistedHomeState(currentWc, { immediate: true, allowPersist: true, targetWorkspaceKey }).finally(
-          () => {
-            void flushPersistedHomeState({ force: true });
-          },
-        );
-      } else {
-        void flushPersistedHomeState({ force: true });
-      }
-      disposeWorkspaceSync({ importOnUnmount: !skipImportOnUnmount && importOnUnmount && importFromContainerEnabled });
-      hideResetBanner();
-      invalidateSessionRuntime();
-      setPersistedHomeActiveSessionMode(null);
-      disposePersistedHomePrompt();
-      releasePersistedHomeSyncSession();
-      void releaseHostBridgeSession();
-      releaseAllPaneShellSessions({ invalidate: true });
-      getPaneRuntime('primary').disposeSurface?.();
-      getPaneRuntime('secondary').disposeSurface?.();
-      startedRef.current = false;
-      if (stopOnUnmount) {
-        teardownWebContainer(wcRef.current);
-      } else {
-        wcRef.current = null;
-      }
-      setFsReady(false);
-    };
-  }, [
+  useTerminalControllerLifecycle({
+    apiKey,
+    autostart,
+    baseFilesLoadError,
+    baseFilesReady,
     capturePersistedHomeState,
-    disposeWorkspaceSync,
+    closePersistedHomePrompt,
+    disposePaneRuntime,
     disposePersistedHomePrompt,
+    disposeWorkspaceSync,
+    ensurePaneSurface,
+    fitPane,
     flushPersistedHomeState,
-    getPersistedHomeActiveSessionMode,
+    focusPane,
+    fsReady,
     getPaneRuntime,
-    invalidateSessionRuntime,
+    getPersistedHomeActiveSessionMode,
+    hideResetBanner,
     importFromContainerEnabled,
     importOnUnmount,
-    hideResetBanner,
+    invalidateSessionRuntime,
+    lastAppliedTerminalThemeModeRef,
+    persistedHomePromptState,
     releaseAllPaneShellSessions,
-    releasePersistedHomeSyncSession,
     releaseHostBridgeSession,
+    releasePaneShellSession,
+    releasePersistedHomeSyncSession,
+    renderBaseFilesLoadError,
+    setError,
+    setFsReady,
     setPersistedHomeActiveSessionMode,
+    singlePaneId,
+    spawnShellSession,
+    splitOpen,
+    startSession,
+    startedRef,
     stopOnUnmount,
     teardownWebContainer,
-  ]);
-
-  useEffect(() => {
-    const handlePageHide = () => {
-      const currentWc = wcRef.current;
-      if (currentWc) {
-        const targetWorkspaceKey = workspaceKeyRef.current;
-        void capturePersistedHomeState(currentWc, { immediate: true, targetWorkspaceKey }).finally(() => {
-          void flushPersistedHomeState({ force: true });
-        });
-        return;
-      }
-      void flushPersistedHomeState({ force: true });
-    };
-    window.addEventListener('pagehide', handlePageHide);
-    return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-    };
-  }, [capturePersistedHomeState, flushPersistedHomeState]);
+    terminalThemeMode,
+    unmountedRef,
+    visible,
+    visiblePaneIds,
+    visiblePaneIdsRef,
+    wcRef,
+    workspaceKeyRef,
+  });
 
   const activeShellReady = shellReadyByPane[activePaneId];
   const activeShellSessionId = getPaneRuntime(activePaneId).shellSessionId;
