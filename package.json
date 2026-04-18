@@ -3,6 +3,12 @@
   "private": true,
   "version": "1.0",
   "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./terminal": "./src/terminal/index.ts",
+    "./terminal/core": "./src/terminal/core.ts",
+    "./terminal/view": "./src/terminal/view.ts"
+  },
   "scripts": {
     "server": "tsx server/index.ts",
     "codex-bridge": "tsx server/codex_bridge.ts",
