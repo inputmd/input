@@ -1,17 +1,14 @@
 import type { WebContainer } from '@webcontainer/api';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
-import {
-  type PersistedHomeTransitionReason,
-  resolvePersistedHomeSessionTransition,
-} from '../repo_workspace/persisted_home_trust.ts';
+import type { PersistedHomeTransitionReason } from '../repo_workspace/persisted_home_trust.ts';
 import {
   buildTerminalImportDiff,
   type TerminalImportDiff,
   type TerminalImportOptions,
 } from '../repo_workspace/terminal_sync.ts';
 import { WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL } from '../webcontainer_home_overlay.ts';
-import { startWebContainerHostBridge, type WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
+import type { WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
 import type {
   WebContainerTerminalConfig,
   WebContainerTerminalImportContext,
@@ -19,36 +16,23 @@ import type {
   WebContainerTerminalPersistedHomePrompt,
 } from './config.ts';
 import {
-  buildFileSystemTree,
   buildManagedFiles,
-  clearWorkdir,
   DEFAULT_AUTO_IMPORT_INTERVAL_MS,
   DEFAULT_LIVE_FILE_DEBOUNCE_MS,
   snapshotTerminalTextFiles,
-  terminalDownloadName,
-  triggerBrowserDownload,
   writeTextFile,
 } from './filesystem.ts';
+import { readPersistedHomeEntriesForWorkspace } from './provisioning.ts';
 import {
-  createPersistedHomeSupportFiles,
-  createTerminalBootPerfLogger,
-  formatTerminalBootError,
-  provisionHomeOverlay,
-  readPersistedHomeEntriesForWorkspace,
-  restorePersistedHomeForWorkspace,
-} from './provisioning.ts';
-import {
-  bootWebContainer,
   didRecentHotReload,
   ensureWebContainerApiConfigured,
   getDocumentThemeMode,
   isLocalhostHostname,
-  resetBootWebContainerState,
   type TerminalThemeMode,
-  waitForNextAnimationFrame,
 } from './runtime_shared.ts';
 import { otherPaneId, type PaneId, useTerminalPaneManager } from './useTerminalPaneManager.ts';
 import { type TerminalPersistedHomePromptState, useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
+import { useWebContainerTerminalSessionRuntime } from './useWebContainerTerminalSessionRuntime.ts';
 
 export interface WebContainerTerminalControllerDialogs {
   showAlert: (message: string) => Promise<void>;
@@ -149,14 +133,10 @@ export function useWebContainerTerminalController({
   const stopOnUnmount = config.lifecycle?.stopOnUnmount ?? true;
   const maxPaneCount = config.panes?.max ?? 2;
   const [error, setError] = useState<string | null>(null);
-  const [hostBridgeError, setHostBridgeError] = useState(false);
   const [dismissedWorkspaceNoticeKey, setDismissedWorkspaceNoticeKey] = useState<string | null>(null);
   const [terminalThemeMode, setTerminalThemeMode] = useState<TerminalThemeMode>(() => getDocumentThemeMode());
   const startedRef = useRef(false);
   const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
-  const webContainerSessionIdRef = useRef(0);
-  const restartInFlightRef = useRef<Promise<void> | null>(null);
-  const restartWebContainerInFlightRef = useRef<Promise<void> | null>(null);
   const unmountedRef = useRef(false);
   const wcRef = useRef<WebContainer | null>(null);
   const lastWrittenRef = useRef<Map<string, string>>(new Map());
@@ -176,19 +156,11 @@ export function useWebContainerTerminalController({
   includeActiveEditPathInImportsRef.current = includeActiveEditPathInImports;
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const liveSyncTimerRef = useRef<number | null>(null);
-  const [fsReady, setFsReady] = useState(false);
-  const [resettingShell, setResettingShell] = useState(false);
-  const [restartingWebContainer, setRestartingWebContainer] = useState(false);
   const onImportDiffRef = useRef(onImportDiff);
   onImportDiffRef.current = onImportDiff;
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
   const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
-  const [downloadingPath, setDownloadingPath] = useState(false);
-  const showAlertRef = useRef(dialogs.showAlert);
-  showAlertRef.current = dialogs.showAlert;
-  const showPromptRef = useRef(dialogs.showPrompt);
-  showPromptRef.current = dialogs.showPrompt;
   const restartShellRef = useRef<((paneId?: PaneId, options?: { clearTerminal?: boolean }) => Promise<void>) | null>(
     null,
   );
@@ -322,43 +294,6 @@ export function useWebContainerTerminalController({
     workspaceKeyRef,
   });
 
-  const credentialSyncStatusLabel =
-    credentialSyncEnabled === null
-      ? 'Sync loading...'
-      : credentialSyncEnabled
-        ? 'Credential sync on'
-        : 'Credential sync off';
-  const networkingStatusLabel = hostBridgeError ? 'Networking error' : 'Networking on';
-  const credentialSyncMenuNote =
-    credentialSyncEnabled === null
-      ? 'Loading...'
-      : credentialSyncEnabled
-        ? 'Credentials and sessions are automatically synced across terminals.'
-        : 'Untrusted repo, credentials and sessions will be deleted on exit.';
-
-  const releaseHostBridgeSession = useCallback(async () => {
-    const hostBridge = hostBridgeRef.current;
-    hostBridgeRef.current = null;
-    await hostBridge?.stop();
-  }, []);
-
-  const teardownWebContainer = useCallback((wc: WebContainer | null) => {
-    if (!wc) {
-      resetBootWebContainerState();
-      return;
-    }
-    try {
-      wc.teardown();
-    } catch (err) {
-      console.error('[terminal] webcontainer teardown failed', err);
-    } finally {
-      if (wcRef.current === wc) {
-        wcRef.current = null;
-      }
-      resetBootWebContainerState();
-    }
-  }, []);
-
   const importTerminalDiff = useCallback(
     async (
       options?: TerminalImportOptions,
@@ -401,6 +336,71 @@ export function useWebContainerTerminalController({
     [flushManagedSync],
   );
 
+  const {
+    downloadFromWebContainer,
+    downloadingPath,
+    fsReady,
+    hostBridgeError,
+    invalidateSessionRuntime,
+    releaseHostBridgeSession,
+    restartShell: restartShellRuntime,
+    restartWebContainer: restartWebContainerRuntime,
+    restartingWebContainer,
+    resettingShell,
+    setFsReady,
+    startSession,
+    teardownWebContainer,
+  } = useWebContainerTerminalSessionRuntime({
+    apiKey,
+    baseFilesRef,
+    capturePersistedHomeState,
+    configBootCoep: config.session.boot?.coep,
+    configBootReuseInstance: config.session.boot?.reuseBootInstance,
+    focusPane,
+    getPaneRuntime,
+    getPersistedHomeActiveSessionMode,
+    getPreferredPaneId,
+    hostBridgeRef,
+    importTerminalDiff,
+    lastWrittenRef,
+    liveFileContentRef,
+    liveFilePathRef,
+    networkEnabled,
+    overlayArchiveUrl,
+    overlayEnabled,
+    releaseAllPaneShellSessions,
+    releasePersistedHomeSyncSession,
+    resolvePersistedHomeMode,
+    resetPaneSurface,
+    setPersistedHomeActiveSessionMode,
+    setPersistedHomeScriptPath,
+    showAlert: dialogs.showAlert,
+    showPrompt: dialogs.showPrompt,
+    spawnShellSession,
+    startPersistedHomeSync,
+    unmountedRef,
+    upstreamProxyBaseUrl,
+    visiblePaneIdsRef,
+    wcRef,
+    workdirName,
+    workspaceKeyRef,
+    writeTerminal,
+  });
+
+  const credentialSyncStatusLabel =
+    credentialSyncEnabled === null
+      ? 'Sync loading...'
+      : credentialSyncEnabled
+        ? 'Credential sync on'
+        : 'Credential sync off';
+  const networkingStatusLabel = hostBridgeError ? 'Networking error' : 'Networking on';
+  const credentialSyncMenuNote =
+    credentialSyncEnabled === null
+      ? 'Loading...'
+      : credentialSyncEnabled
+        ? 'Credentials and sessions are automatically synced across terminals.'
+        : 'Untrusted repo, credentials and sessions will be deleted on exit.';
+
   useEffect(() => {
     const previousThemeMode = lastAppliedTerminalThemeModeRef.current;
     lastAppliedTerminalThemeModeRef.current = terminalThemeMode;
@@ -437,387 +437,21 @@ export function useWebContainerTerminalController({
     terminalThemeMode,
   ]);
 
-  const initializeWebContainerSession = useCallback(
-    async (options?: {
-      forceReboot?: boolean;
-      importBeforeReboot?: boolean;
-      clearTerminal?: boolean;
-      announceRestart?: boolean;
-      persistedHomeTransitionReason?: PersistedHomeTransitionReason;
-    }): Promise<void> => {
-      const logPaneId = getPreferredPaneId();
-      const terminal = getPaneRuntime(logPaneId).terminal;
-      if (!terminal) {
-        throw new Error('Terminal is not ready.');
-      }
-      const bootPerf = createTerminalBootPerfLogger(workspaceKeyRef.current, workdirName);
-      let bootStatus: 'cancelled' | 'error' | 'ok' = 'ok';
-      // Snapshot the workspace key before any async work so that the previous
-      // session's state is persisted under its own key, not the (potentially
-      // different) key that workspaceKeyRef points to after a render.
-      const previousWorkspaceKey = workspaceKeyRef.current;
-      // Claim the session counter before the potentially-blocking trust prompt
-      // so that any concurrent invocation will see the updated counter and the
-      // stale session can be detected after the await.
-      const sessionId = webContainerSessionIdRef.current + 1;
-      webContainerSessionIdRef.current = sessionId;
-      const configuredPersistedHomeMode = await resolvePersistedHomeMode();
-      if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
-        bootStatus = 'cancelled';
-        return;
-      }
-      const persistedHomeTransition = resolvePersistedHomeSessionTransition({
-        activeSessionMode: getPersistedHomeActiveSessionMode(),
-        configuredMode: configuredPersistedHomeMode,
-        reason: options?.persistedHomeTransitionReason,
-      });
-      const includePersistedHomeSync = persistedHomeTransition.includePersistedHomeSync;
-      const enableNetworkingBridge = persistedHomeTransition.enableNetworkingBridge;
-
-      const previousWc = wcRef.current;
-      restartInFlightRef.current = null;
-      releasePersistedHomeSyncSession();
-      await releaseHostBridgeSession();
-      releaseAllPaneShellSessions({ invalidate: true });
-      setFsReady(false);
-
-      if (options?.clearTerminal) {
-        for (const paneId of visiblePaneIdsRef.current) {
-          resetPaneSurface(paneId);
-        }
-      }
-      if (options?.announceRestart) {
-        writeTerminal(logPaneId, 'Restarting...\r\n', { forceFollow: true });
-      }
-
-      if (options?.importBeforeReboot && previousWc) {
-        try {
-          await importTerminalDiff({ silent: true }, 'restart');
-          await waitForNextAnimationFrame();
-        } catch (err) {
-          console.error('[terminal] import before restart failed', err);
-        }
-      }
-
-      if (previousWc && persistedHomeTransition.captureActiveSessionState) {
-        await capturePersistedHomeState(previousWc, {
-          immediate: true,
-          allowPersist: true,
-          targetWorkspaceKey: previousWorkspaceKey,
-        });
-      }
-      setPersistedHomeActiveSessionMode(null);
-
-      if (options?.forceReboot) {
-        teardownWebContainer(previousWc);
-      }
-
-      try {
-        writeTerminal(logPaneId, 'Booting container...\r\n', { forceFollow: true });
-        const wc = await bootPerf.measure('bootWebContainer', () =>
-          bootWebContainer(apiKey, workdirName, {
-            coep: config.session.boot?.coep,
-            reuseBootInstance: config.session.boot?.reuseBootInstance,
-          }),
-        );
-        if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
-          bootStatus = 'cancelled';
-          return;
-        }
-
-        await bootPerf.measure('clearWorkspace', () => clearWorkdir(wc));
-        if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
-          bootStatus = 'cancelled';
-          return;
-        }
-
-        const initialFilesStartedAt =
-          typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
-        const initialFiles = buildManagedFiles(
-          baseFilesRef.current,
-          liveFilePathRef.current,
-          liveFileContentRef.current,
-        );
-        const initialFileCount = Object.keys(initialFiles).length;
-        const initialTree = buildFileSystemTree(initialFiles);
-        bootPerf.record(
-          'prepareWorkspaceTree',
-          (typeof performance !== 'undefined' && typeof performance.now === 'function'
-            ? performance.now()
-            : Date.now()) - initialFilesStartedAt,
-          {
-            managed_file_count: initialFileCount,
-          },
-        );
-
-        writeTerminal(logPaneId, 'Mounting workspace files...\r\n', { forceFollow: true });
-        try {
-          await bootPerf.measure('mountWorkspace', () => wc.mount(initialTree), {
-            managed_file_count: initialFileCount,
-          });
-        } catch (mountErr) {
-          console.error('[terminal] initial mount failed', mountErr);
-        }
-        if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
-          bootStatus = 'cancelled';
-          return;
-        }
-
-        lastWrittenRef.current = new Map(Object.entries(initialFiles));
-        wcRef.current = wc;
-
-        if (overlayEnabled && overlayArchiveUrl) {
-          try {
-            writeTerminal(logPaneId, 'Mounting binaries...\r\n', { forceFollow: true });
-            const overlayResult = await provisionHomeOverlay(wc, overlayArchiveUrl, bootPerf);
-            bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
-          } catch (err) {
-            console.error('[terminal] failed to provision home overlay', err);
-            writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to provision home overlay', err), {
-              forceFollow: true,
-            });
-          }
-        }
-
-        try {
-          writeTerminal(logPaneId, 'Restoring config files...\r\n', { forceFollow: true });
-          const persistedHomeSupport = await bootPerf.measure('persistedHome.prepareSupportFiles', () =>
-            createPersistedHomeSupportFiles(wc),
-          );
-          const { homeDir, scriptPath: persistedHomeScriptPath } = persistedHomeSupport;
-          setPersistedHomeScriptPath(persistedHomeScriptPath);
-          const persistedHomeResult = await restorePersistedHomeForWorkspace(
-            wc,
-            workspaceKeyRef.current,
-            homeDir,
-            persistedHomeScriptPath,
-            {
-              includePersistedHome: includePersistedHomeSync,
-              bootPerf,
-            },
-          );
-          bootPerf.record('persistedHome.summary', 0, { entry_count: persistedHomeResult.entryCount });
-        } catch (err) {
-          setPersistedHomeScriptPath(null);
-          console.error('[terminal] failed to restore managed home state', err);
-          writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to restore managed home state', err), {
-            forceFollow: true,
-          });
-        }
-        setPersistedHomeActiveSessionMode(persistedHomeTransition.nextSessionMode);
-
-        if (!includePersistedHomeSync) {
-          writeTerminal(logPaneId, 'Credential sync disabled.\r\n', { forceFollow: true });
-        }
-
-        if (enableNetworkingBridge && networkEnabled) {
-          try {
-            writeTerminal(logPaneId, 'Starting networking...\r\n', { forceFollow: true });
-            hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
-              startWebContainerHostBridge({
-                onLog(message) {
-                  console.error(message);
-                  try {
-                    writeTerminal(logPaneId, `${message}\r\n`);
-                  } catch {
-                    // ignore
-                  }
-                },
-                upstreamProxyBaseUrl,
-                wc,
-              }),
-            );
-            setHostBridgeError(false);
-          } catch (err) {
-            console.error('[terminal] failed to start host bridge', err);
-            writeTerminal(
-              logPaneId,
-              `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
-              { forceFollow: true },
-            );
-            setHostBridgeError(true);
-          }
-        } else {
-          setHostBridgeError(false);
-          writeTerminal(logPaneId, 'Terminal networking disabled.\r\n', { forceFollow: true });
-        }
-
-        await bootPerf.measure(
-          'spawnShellSessions',
-          async () => {
-            for (const [index, paneId] of visiblePaneIdsRef.current.entries()) {
-              await spawnShellSession(paneId, { announceReady: index === 0 });
-              if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
-                bootStatus = 'cancelled';
-                return;
-              }
-            }
-          },
-          {
-            pane_count: visiblePaneIdsRef.current.length,
-          },
-        );
-        if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
-          bootStatus = 'cancelled';
-          return;
-        }
-
-        try {
-          await bootPerf.measure('startPersistedHomeWatcher', () => startPersistedHomeSync(wc));
-        } catch (err) {
-          console.error('[terminal] failed to start managed home state watcher', err);
-          writeTerminal(
-            logPaneId,
-            `[terminal] failed to start managed home state watcher: ${err instanceof Error ? err.message : String(err)}\r\n`,
-            { forceFollow: true },
-          );
-        }
-
-        setFsReady(true);
-        focusPane(logPaneId);
-      } catch (err) {
-        bootStatus = 'error';
-        throw err;
-      } finally {
-        bootPerf.complete(bootStatus, {
-          visible_pane_count: visiblePaneIdsRef.current.length,
-        });
-      }
-    },
-    [
-      apiKey,
-      capturePersistedHomeState,
-      config.session.boot?.coep,
-      config.session.boot?.reuseBootInstance,
-      focusPane,
-      getPaneRuntime,
-      getPersistedHomeActiveSessionMode,
-      getPreferredPaneId,
-      importTerminalDiff,
-      networkEnabled,
-      overlayArchiveUrl,
-      overlayEnabled,
-      releaseAllPaneShellSessions,
-      releaseHostBridgeSession,
-      releasePersistedHomeSyncSession,
-      resolvePersistedHomeMode,
-      resetPaneSurface,
-      setPersistedHomeActiveSessionMode,
-      setPersistedHomeScriptPath,
-      spawnShellSession,
-      startPersistedHomeSync,
-      teardownWebContainer,
-      upstreamProxyBaseUrl,
-      writeTerminal,
-      workdirName,
-    ],
-  );
-
   const restartShell = useCallback(
     async (paneId?: PaneId, options?: { clearTerminal?: boolean }): Promise<void> => {
-      if (restartInFlightRef.current) {
-        return await restartInFlightRef.current;
-      }
-
-      const pendingRestart = (async () => {
-        const targetPaneId = paneId ?? getPreferredPaneId();
-        const terminal = getPaneRuntime(targetPaneId).terminal;
-        const wc = wcRef.current;
-        if (!terminal || !wc || unmountedRef.current) return;
-
-        hideResetBanner();
-        setResettingShell(true);
-        try {
-          if (!options?.clearTerminal) {
-            writeTerminal(targetPaneId, '\r\n', { forceFollow: true });
-          }
-          await spawnShellSession(targetPaneId, {
-            clearTerminal: options?.clearTerminal,
-            syncManagedFiles: true,
-          });
-          focusPane(targetPaneId);
-        } catch (err) {
-          console.error('[terminal] reset failed', err);
-          const message = err instanceof Error ? err.message : String(err);
-          try {
-            writeTerminal(targetPaneId, `[terminal] failed to reset shell: ${message}`, {
-              forceFollow: true,
-              newline: true,
-            });
-          } catch {
-            // ignore
-          }
-        } finally {
-          setResettingShell(false);
-        }
-      })();
-
-      restartInFlightRef.current = pendingRestart;
-      try {
-        await pendingRestart;
-      } finally {
-        if (restartInFlightRef.current === pendingRestart) {
-          restartInFlightRef.current = null;
-        }
-      }
+      hideResetBanner();
+      await restartShellRuntime(paneId, options);
     },
-    [focusPane, getPaneRuntime, getPreferredPaneId, hideResetBanner, spawnShellSession, writeTerminal],
+    [hideResetBanner, restartShellRuntime],
   );
   restartShellRef.current = restartShell;
 
   const restartWebContainer = useCallback(
     async (options?: { reason?: PersistedHomeTransitionReason }): Promise<void> => {
-      if (restartWebContainerInFlightRef.current) {
-        return await restartWebContainerInFlightRef.current;
-      }
-
-      // Eagerly invalidate any in-flight boot so its next stale-session check
-      // detects that a restart was requested and bails out.
-      webContainerSessionIdRef.current += 1;
-
-      const pendingRestart = (async () => {
-        const targetPaneId = getPreferredPaneId();
-        if (!getPaneRuntime(targetPaneId).terminal || unmountedRef.current) return;
-
-        hideResetBanner();
-        setRestartingWebContainer(true);
-        try {
-          await initializeWebContainerSession({
-            clearTerminal: true,
-            forceReboot: true,
-            importBeforeReboot: true,
-            announceRestart: true,
-            persistedHomeTransitionReason: options?.reason,
-          });
-        } catch (err) {
-          console.error('[terminal] webcontainer restart failed', err);
-          const terminal = getPaneRuntime(getPreferredPaneId()).terminal;
-          const message = err instanceof Error ? err.message : String(err);
-          if (terminal) {
-            try {
-              writeTerminal(getPreferredPaneId(), `[terminal] failed to restart WebContainer: ${message}`, {
-                forceFollow: true,
-                newline: true,
-              });
-            } catch {
-              // ignore
-            }
-          }
-        } finally {
-          setRestartingWebContainer(false);
-        }
-      })();
-
-      restartWebContainerInFlightRef.current = pendingRestart;
-      try {
-        await pendingRestart;
-      } finally {
-        if (restartWebContainerInFlightRef.current === pendingRestart) {
-          restartWebContainerInFlightRef.current = null;
-        }
-      }
+      hideResetBanner();
+      await restartWebContainerRuntime(options);
     },
-    [getPaneRuntime, getPreferredPaneId, hideResetBanner, initializeWebContainerSession, writeTerminal],
+    [hideResetBanner, restartWebContainerRuntime],
   );
   restartWebContainerRef.current = restartWebContainer;
 
@@ -834,28 +468,6 @@ export function useWebContainerTerminalController({
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [closePersistedHomePrompt, focusPane, persistedHomePromptState]);
-
-  const downloadFromWebContainer = useCallback(async (): Promise<void> => {
-    const wc = wcRef.current;
-    if (!wc) return;
-    const requestedPath = await showPromptRef.current('Download path:', '.');
-    const normalizedPath = requestedPath?.trim();
-    if (!normalizedPath) return;
-
-    setDownloadingPath(true);
-    try {
-      const archiveBytes = await wc.export(normalizedPath, { format: 'zip' });
-      const blobBytes = Uint8Array.from(archiveBytes);
-      triggerBrowserDownload(
-        new Blob([blobBytes], { type: 'application/zip' }),
-        terminalDownloadName(normalizedPath, workdirName),
-      );
-    } catch (err) {
-      await showAlertRef.current(err instanceof Error ? err.message : `Failed to download ${normalizedPath}`);
-    } finally {
-      setDownloadingPath(false);
-    }
-  }, [workdirName]);
 
   useEffect(() => {
     registerImportHandler?.((options) => importTerminalDiff(options, 'manual'));
@@ -921,7 +533,7 @@ export function useWebContainerTerminalController({
         if (unmountedRef.current) return;
         await ensurePaneSurface(visiblePaneIdsRef.current[0] ?? 'primary');
         if (unmountedRef.current) return;
-        await initializeWebContainerSession({ clearTerminal: true });
+        await startSession({ clearTerminal: true });
       } catch (err) {
         if (unmountedRef.current) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -929,7 +541,7 @@ export function useWebContainerTerminalController({
         startedRef.current = false;
       }
     })();
-  }, [apiKey, autostart, baseFilesReady, ensurePaneSurface, initializeWebContainerSession, visible]);
+  }, [apiKey, autostart, baseFilesReady, ensurePaneSurface, startSession, visible]);
 
   useEffect(() => {
     if (!visible || !startedRef.current) return;
@@ -1058,9 +670,7 @@ export function useWebContainerTerminalController({
         liveSyncTimerRef.current = null;
       }
       hideResetBanner();
-      restartInFlightRef.current = null;
-      restartWebContainerInFlightRef.current = null;
-      webContainerSessionIdRef.current += 1;
+      invalidateSessionRuntime();
       setPersistedHomeActiveSessionMode(null);
       disposePersistedHomePrompt();
       releasePersistedHomeSyncSession();
@@ -1075,8 +685,6 @@ export function useWebContainerTerminalController({
         wcRef.current = null;
       }
       setFsReady(false);
-      setResettingShell(false);
-      setRestartingWebContainer(false);
       lastWrittenRef.current = new Map();
     };
   }, [
@@ -1085,6 +693,7 @@ export function useWebContainerTerminalController({
     flushPersistedHomeState,
     getPersistedHomeActiveSessionMode,
     getPaneRuntime,
+    invalidateSessionRuntime,
     importTerminalDiff,
     importFromContainerEnabled,
     importOnUnmount,
@@ -1093,6 +702,7 @@ export function useWebContainerTerminalController({
     releasePersistedHomeSyncSession,
     releaseHostBridgeSession,
     setPersistedHomeActiveSessionMode,
+    setFsReady,
     stopOnUnmount,
     teardownWebContainer,
   ]);
