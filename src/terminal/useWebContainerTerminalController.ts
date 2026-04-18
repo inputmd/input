@@ -6,6 +6,7 @@ import { buildWebContainerTerminalController } from './buildWebContainerTerminal
 import type { UseWebContainerTerminalControllerOptions, WebContainerTerminalController } from './controllerTypes.ts';
 import { readPersistedHomeEntriesForWorkspace } from './provisioning.ts';
 import { resolveWebContainerTerminalConfig } from './resolveWebContainerTerminalConfig.ts';
+import { resolveWebContainerTerminalDialogs } from './resolveWebContainerTerminalDialogs.ts';
 import { useTerminalControllerLifecycle } from './useTerminalControllerLifecycle.ts';
 import { type PaneId, useTerminalPaneManager } from './useTerminalPaneManager.ts';
 import { useTerminalPersistedHome } from './useTerminalPersistedHome.ts';
@@ -27,6 +28,7 @@ export function useWebContainerTerminalController({
   workspaceChangesPersisted = true,
   workspaceChangesNotice = null,
 }: UseWebContainerTerminalControllerOptions): WebContainerTerminalController {
+  const resolvedDialogs = resolveWebContainerTerminalDialogs(dialogs);
   const {
     apiKey,
     autostart,
@@ -221,8 +223,8 @@ export function useWebContainerTerminalController({
     setPersistedHomeActiveSessionMode,
     setPersistedHomeScriptPath,
     setFsReady,
-    showAlert: dialogs.showAlert,
-    showPrompt: dialogs.showPrompt,
+    showAlert: resolvedDialogs.showAlert,
+    showPrompt: resolvedDialogs.showPrompt,
     spawnShellSession,
     startPersistedHomeSync,
     unmountedRef,

@@ -11,7 +11,7 @@ import {
 export interface WebContainerTerminalViewProps {
   className?: string;
   config: WebContainerTerminalConfig;
-  dialogs: WebContainerTerminalControllerDialogs;
+  dialogs?: Partial<WebContainerTerminalControllerDialogs> | null;
   visible: boolean;
   workspaceChangesPersisted?: boolean;
   workspaceChangesNotice?: string | null;

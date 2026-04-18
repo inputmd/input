@@ -9,7 +9,7 @@ export interface WebContainerTerminalControllerDialogs {
 
 export interface UseWebContainerTerminalControllerOptions {
   config: WebContainerTerminalConfig;
-  dialogs: WebContainerTerminalControllerDialogs;
+  dialogs?: Partial<WebContainerTerminalControllerDialogs> | null;
   visible: boolean;
   workspaceChangesPersisted?: boolean;
   workspaceChangesNotice?: string | null;
