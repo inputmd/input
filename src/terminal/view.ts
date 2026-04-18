@@ -1,2 +1,1 @@
-export * from './TerminalPersistenceDialog.tsx';
-export * from './WebContainerTerminalView.tsx';
+export * from './view/index.ts';

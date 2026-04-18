@@ -4,7 +4,7 @@ import {
   buildTerminalImportDiff,
   type TerminalImportDiff,
   type TerminalImportOptions,
-} from '../repo_workspace/terminal_sync.ts';
+} from '../../repo_workspace/terminal_sync.ts';
 import type {
   WebContainerTerminalFileDiff,
   WebContainerTerminalImportContext,

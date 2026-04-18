@@ -1,6 +1,6 @@
 import type { WebContainer } from '@webcontainer/api';
 import { useEffect } from 'preact/hooks';
-import type { PersistedHomeMode } from '../repo_workspace/persisted_home_trust.ts';
+import type { PersistedHomeMode } from '../../repo_workspace/persisted_home_trust.ts';
 import {
   didRecentHotReload,
   ensureWebContainerApiConfigured,

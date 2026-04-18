@@ -9,10 +9,10 @@ import {
   type DirectoryTreeFileNode,
   type DirectoryTreeFolderNode,
   findFirstDirectoryTreeFile,
-} from '../components/DirectoryTree';
-import { SyncedJsonlTreeView } from '../components/SyncedJsonlTreeView.tsx';
-import type { PersistedHomeEntry, PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
-import { parseSyncedJsonl } from '../synced_jsonl.ts';
+} from '../../components/DirectoryTree';
+import { SyncedJsonlTreeView } from '../../components/SyncedJsonlTreeView.tsx';
+import type { PersistedHomeEntry, PersistedHomeInspectionSnapshot } from '../../persisted_home_state.ts';
+import { parseSyncedJsonl } from '../../synced_jsonl.ts';
 
 export interface TerminalPersistenceDialogProps {
   open: boolean;

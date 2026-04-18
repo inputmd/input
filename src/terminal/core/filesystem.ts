@@ -1,6 +1,6 @@
 import type { FileSystemTree, WebContainer } from '@webcontainer/api';
-import { isLikelyBinaryBytes } from '../path_utils.ts';
-import { shouldImportTerminalPath } from '../repo_workspace/terminal_sync.ts';
+import { isLikelyBinaryBytes } from '../../path_utils.ts';
+import { shouldImportTerminalPath } from '../../repo_workspace/terminal_sync.ts';
 
 export const DEFAULT_LIVE_FILE_DEBOUNCE_MS = 300;
 export const DEFAULT_AUTO_IMPORT_INTERVAL_MS = 3000;

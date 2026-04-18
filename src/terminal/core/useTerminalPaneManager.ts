@@ -1,10 +1,10 @@
 import type { WebContainer } from '@webcontainer/api';
 import type { Terminal as GhosttyTerminal } from 'ghostty-web';
 import { useCallback, useMemo, useRef, useState } from 'preact/hooks';
-import { resetTerminalSurface } from '../components/terminal_surface_reset.ts';
-import { consumeTerminalPixelWheelDelta } from '../components/terminal_wheel.ts';
-import { matchesControlShortcut, shouldBypassTerminalMetaShortcut } from '../keyboard_shortcuts.ts';
-import type { WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
+import { resetTerminalSurface } from '../../components/terminal_surface_reset.ts';
+import { consumeTerminalPixelWheelDelta } from '../../components/terminal_wheel.ts';
+import { matchesControlShortcut, shouldBypassTerminalMetaShortcut } from '../../keyboard_shortcuts.ts';
+import type { WebContainerHostBridgeSession } from '../../webcontainer_host_bridge.ts';
 import type { WebContainerTerminalPaneId } from './config.ts';
 import { fitTerminal, getTerminalTheme, loadGhosttyWeb, type TerminalThemeMode } from './runtime_shared.ts';
 

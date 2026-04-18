@@ -3,7 +3,7 @@ import type { RepoDocFile } from '../document_store';
 import type { GistFile } from '../github';
 import type { RepoFileEntry } from '../github_app';
 import type { Route } from '../routing';
-import type { WebContainerTerminalConfig } from '../terminal/config.ts';
+import type { WebContainerTerminalConfig } from '../terminal/core.ts';
 import type { EditSessionViewProps } from '../views/EditSessionView';
 import type { PublicRepoRef } from '../wiki_links';
 import type { TerminalImportDiff, TerminalImportedWorkspaceChanges } from './terminal_sync';

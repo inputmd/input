@@ -1,4 +1,4 @@
-import type { PersistedHomeInspectionSnapshot } from '../persisted_home_state.ts';
+import type { PersistedHomeInspectionSnapshot } from '../../persisted_home_state.ts';
 import type { WebContainerTerminalConfig, WebContainerTerminalPaneId } from './config.ts';
 import type { TerminalPersistedHomePromptState } from './useTerminalPersistedHome.ts';
 

@@ -7,8 +7,8 @@ import {
   PERSISTED_HOME_SEED_FILENAME,
   PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
   type PersistedHomeEntry,
-} from '../persisted_home_state.ts';
-import { buildWebContainerHomeOverlayProvisionScript } from '../webcontainer_home_overlay.ts';
+} from '../../persisted_home_state.ts';
+import { buildWebContainerHomeOverlayProvisionScript } from '../../webcontainer_home_overlay.ts';
 import { isLocalhostHostname } from './runtime_shared.ts';
 
 const ANSI_ESCAPE_SEQUENCE_RE = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;

@@ -6,13 +6,13 @@ import {
   type PersistedHomeEntry,
   type PersistedHomeInspectionSnapshot,
   persistPersistedHomeEntries,
-} from '../persisted_home_state.ts';
+} from '../../persisted_home_state.ts';
 import {
   type PersistedHomeMode,
   type PersistedHomeTransitionReason,
   readPersistedHomeTrustDecision,
   writePersistedHomeTrustDecision,
-} from '../repo_workspace/persisted_home_trust.ts';
+} from '../../repo_workspace/persisted_home_trust.ts';
 import type { WebContainerTerminalPersistedHomeMode, WebContainerTerminalPersistedHomePrompt } from './config.ts';
 
 const PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS = 250;

@@ -1,4 +1,4 @@
-import { WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL } from '../webcontainer_home_overlay.ts';
+import { WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL } from '../../webcontainer_home_overlay.ts';
 import type {
   WebContainerTerminalConfig,
   WebContainerTerminalPersistedHomeMode,

@@ -1,7 +1,7 @@
 import type { WebContainer } from '@webcontainer/api';
 import { useCallback, useRef, useState } from 'preact/hooks';
-import type { PersistedHomeTransitionReason } from '../repo_workspace/persisted_home_trust.ts';
-import type { WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
+import type { PersistedHomeTransitionReason } from '../../repo_workspace/persisted_home_trust.ts';
+import type { WebContainerHostBridgeSession } from '../../webcontainer_host_bridge.ts';
 import { buildWebContainerTerminalController } from './buildWebContainerTerminalController.ts';
 import type { UseWebContainerTerminalControllerOptions, WebContainerTerminalController } from './controllerTypes.ts';
 import { readPersistedHomeEntriesForWorkspace } from './provisioning.ts';

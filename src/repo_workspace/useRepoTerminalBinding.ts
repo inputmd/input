@@ -3,7 +3,7 @@ import { ApiError } from '../api_error';
 import type { GistFile } from '../github';
 import type { LinkedInstallation } from '../github_app';
 import { getPublicRepoTarball, getRepoTarball } from '../github_app';
-import type { WebContainerTerminalConfig } from '../terminal/config.ts';
+import type { WebContainerTerminalConfig } from '../terminal/core.ts';
 import { WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL } from '../webcontainer_home_overlay.ts';
 import type { PublicRepoRef } from '../wiki_links';
 import { applyRepoWorkspaceMutationsToTerminalFiles, buildGistTerminalBaseFiles } from './helpers';

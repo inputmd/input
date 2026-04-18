@@ -1,10 +1,10 @@
 import type { WebContainer } from '@webcontainer/api';
 import { useCallback, useRef, useState } from 'preact/hooks';
-import type { PersistedHomeMode, PersistedHomeTransitionReason } from '../repo_workspace/persisted_home_trust.ts';
-import { resolvePersistedHomeSessionTransition } from '../repo_workspace/persisted_home_trust.ts';
-import type { TerminalImportDiff } from '../repo_workspace/terminal_sync.ts';
-import type { WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
-import { startWebContainerHostBridge } from '../webcontainer_host_bridge.ts';
+import type { PersistedHomeMode, PersistedHomeTransitionReason } from '../../repo_workspace/persisted_home_trust.ts';
+import { resolvePersistedHomeSessionTransition } from '../../repo_workspace/persisted_home_trust.ts';
+import type { TerminalImportDiff } from '../../repo_workspace/terminal_sync.ts';
+import type { WebContainerHostBridgeSession } from '../../webcontainer_host_bridge.ts';
+import { startWebContainerHostBridge } from '../../webcontainer_host_bridge.ts';
 import type { WebContainerTerminalImportContext, WebContainerTerminalImportOptions } from './config.ts';
 import {
   buildFileSystemTree,

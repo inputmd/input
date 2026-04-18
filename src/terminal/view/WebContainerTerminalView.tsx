@@ -1,12 +1,12 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Power, Zap } from 'lucide-react';
-import { blurOnClose } from '../dom_utils.ts';
-import type { WebContainerTerminalConfig } from './config.ts';
-import { TerminalPersistenceDialog } from './TerminalPersistenceDialog.tsx';
+import { blurOnClose } from '../../dom_utils.ts';
 import {
   useWebContainerTerminalController,
+  type WebContainerTerminalConfig,
   type WebContainerTerminalControllerDialogs,
-} from './useWebContainerTerminalController.ts';
+} from '../core.ts';
+import { TerminalPersistenceDialog } from './TerminalPersistenceDialog.tsx';
 
 export interface WebContainerTerminalViewProps {
   className?: string;
