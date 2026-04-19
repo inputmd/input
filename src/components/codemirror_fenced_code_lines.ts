@@ -1,4 +1,4 @@
-import { syntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { type EditorState, RangeSetBuilder } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
@@ -12,7 +12,7 @@ function hasAncestorNamed(node: SyntaxNode | null, name: string): boolean {
 
 export function isFencedCodeLine(viewOrState: EditorView | EditorState, lineFrom: number, lineTo: number): boolean {
   const state = viewOrState instanceof EditorView ? viewOrState.state : viewOrState;
-  const tree = syntaxTree(state);
+  const tree = ensureSyntaxTree(state, Math.max(lineFrom, lineTo), 50) ?? syntaxTree(state);
   const endPos = Math.max(lineFrom, lineTo - 1);
   return (
     hasAncestorNamed(tree.resolveInner(lineFrom, 1), 'FencedCode') ||
