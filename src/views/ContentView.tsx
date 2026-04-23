@@ -1,6 +1,6 @@
 import * as Popover from '@radix-ui/react-popover';
 import { ExternalLink, Highlighter, Pin } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { ContentAlert } from '../components/ContentAlert';
 import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlightsPopover';
 import { PromptAnswerCommentComposer } from '../components/PromptAnswerCommentComposer';
@@ -290,7 +290,7 @@ export function ContentView({
     };
   }, [markdown, markdownFontsPending]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = renderedMarkdownRef.current;
     if (!markdown || markdownFontsPending || !html || !root) return;
 

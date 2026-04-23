@@ -1307,7 +1307,7 @@ export function EditView({
     };
   }, [canRenderPreview, markdown, previewFontsPending, previewVisible]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = renderedMarkdownRef.current;
     if (!markdown || previewFontsPending || !previewVisible || !previewHtml || !root) return;
 
