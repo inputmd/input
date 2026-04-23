@@ -121,6 +121,14 @@ test('shared overlay fd and find commands support basic file discovery', async (
   const findHidden = await runCommand('find', ['.', '-name', '.env'], { cwd });
   t.is(findHidden.code, 0, findHidden.stderr);
   t.deepEqual(outputLines(findHidden.stdout), ['.env']);
+
+  const findMaxDepth = await runCommand('find', ['.', '-maxdepth', '1', '-type', 'f'], { cwd });
+  t.is(findMaxDepth.code, 0, findMaxDepth.stderr);
+  t.deepEqual(outputLines(findMaxDepth.stdout), ['.env', 'README.md']);
+
+  const findPrint0 = await runCommand('find', ['.', '-maxdepth', '1', '-type', 'f', '-print0'], { cwd });
+  t.is(findPrint0.code, 0, findPrint0.stderr);
+  t.is(findPrint0.stdout, '.env\0README.md\0');
 });
 
 test('shared overlay fd and find commands expose help, version, and debug output', async (t) => {
@@ -151,6 +159,8 @@ test('shared overlay fd and find commands expose help, version, and debug output
   t.is(findHelp.code, 0, findHelp.stderr);
   t.true(findHelp.stdout.includes('usage: find [path] [options]'));
   t.true(findHelp.stdout.includes('--debug'));
+  t.true(findHelp.stdout.includes('-maxdepth <n>'));
+  t.true(findHelp.stdout.includes('-print0'));
 
   const findVersion = await runCommand('find', ['--version'], { cwd });
   t.is(findVersion.code, 0, findVersion.stderr);

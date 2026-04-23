@@ -420,8 +420,10 @@ function parseFdArgs(args) {
 function parseFindArgs(args) {
   const options = {
     debug: false,
+    maxDepth: null,
     name: null,
     paths: [],
+    print0: false,
     type: null,
   };
 
@@ -438,6 +440,20 @@ function parseFindArgs(args) {
       continue;
     }
     if (arg === '-print') {
+      continue;
+    }
+    if (arg === '-print0') {
+      options.print0 = true;
+      continue;
+    }
+    if (arg === '-maxdepth') {
+      const value = readOptionValue('find', args, index, arg);
+      const parsedValue = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+        throw new Error(`find: invalid value for -maxdepth: ${value}`);
+      }
+      options.maxDepth = parsedValue;
+      index += 1;
       continue;
     }
     if (arg === '-name') {
@@ -531,7 +547,9 @@ function printHelp(stdout, command) {
     [
       'usage: find [path] [options]',
       '  --debug',
+      '  -maxdepth <n>',
       '  -name <glob>',
+      '  -print0',
       '  -type <f|d>',
     ],
     stdout,
@@ -894,8 +912,10 @@ function runFind(args, io) {
     argv: args,
     command: 'find',
     cwd,
+    maxDepth: parsed.options.maxDepth,
     name: parsed.options.name,
     paths: parsed.options.paths,
+    print0: parsed.options.print0,
     type: parsed.options.type,
   });
 
@@ -912,7 +932,7 @@ function runFind(args, io) {
       includeHidden: true,
       includeIgnored: true,
       includeRoot: true,
-      maxDepth: null,
+      maxDepth: parsed.options.maxDepth,
     });
     debugLog(parsed.options.debug, io.stderr, {
       command: 'find',
@@ -931,7 +951,13 @@ function runFind(args, io) {
 
   results.sort((left, right) => left.localeCompare(right));
   debugLog(parsed.options.debug, io.stderr, Object.assign({ command: 'find' }, summarizeResults(results)));
-  printLines(results, io.stdout);
+  if (parsed.options.print0) {
+    if (results.length > 0) {
+      io.stdout.write(`${results.join('\0')}\0`);
+    }
+  } else {
+    printLines(results, io.stdout);
+  }
   return 0;
 }
 
