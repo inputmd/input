@@ -58,11 +58,12 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd and find commands are executable', async (t) => {
+test('shared overlay fd, find, and printf commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'grep'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'printf'))).mode & 0o777, 0o755);
 });
 
 test('shared overlay fd and find commands support basic file discovery', async (t) => {
@@ -364,4 +365,43 @@ test('shared overlay rg supports Claude and Pi compatible flags', async (t) => {
       ['match', 'src/nested/deep/too-deep.md', 1],
     ],
   );
+});
+
+test('shared overlay printf command supports basic formatting and errors', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-printf-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  const literal = await runCommand('printf', ['hello'], { cwd });
+  t.is(literal.code, 0, literal.stderr);
+  t.is(literal.stdout, 'hello');
+
+  const newline = await runCommand('printf', ['%s\\n', 'world'], { cwd });
+  t.is(newline.code, 0, newline.stderr);
+  t.is(newline.stdout, 'world\n');
+
+  const nulTerminated = await runCommand('printf', ['%s\\0', 'hi'], { cwd });
+  t.is(nulTerminated.code, 0, nulTerminated.stderr);
+  t.is(nulTerminated.stdout, 'hi\0');
+
+  const roundedPercent = await runCommand('printf', ['5h: %.0f%%', '42.2'], { cwd });
+  t.is(roundedPercent.code, 0, roundedPercent.stderr);
+  t.is(roundedPercent.stdout, '5h: 42%');
+
+  const repeatedFormat = await runCommand('printf', ['<%s>', 'a', 'b'], { cwd });
+  t.is(repeatedFormat.code, 0, repeatedFormat.stderr);
+  t.is(repeatedFormat.stdout, '<a><b>');
+
+  const unsupportedFormat = await runCommand('printf', ['%q', 'value'], { cwd });
+  t.is(unsupportedFormat.code, 1);
+  t.true(unsupportedFormat.stderr.includes('printf: unsupported format %q'));
+
+  const invalidNumber = await runCommand('printf', ['%.0f', 'not-a-number'], { cwd });
+  t.is(invalidNumber.code, 1);
+  t.true(invalidNumber.stderr.includes('printf: invalid number: not-a-number'));
+
+  const missingFormat = await runCommand('printf', [], { cwd });
+  t.is(missingFormat.code, 1);
+  t.true(missingFormat.stderr.includes('printf: missing format string'));
 });
