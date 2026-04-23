@@ -60,7 +60,7 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, printf, wc, uniq, sed, and awk commands are executable', async (t) => {
+test('shared overlay fd, find, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
@@ -70,6 +70,7 @@ test('shared overlay fd, find, printf, wc, uniq, sed, and awk commands are execu
   t.is((await stat(path.join(overlayBinDir, 'uniq'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'sed'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'awk'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'xargs'))).mode & 0o777, 0o755);
 });
 
 test('shared overlay fd and find commands support basic file discovery', async (t) => {
@@ -553,4 +554,39 @@ test('shared overlay awk command supports print-only scripts and filters', async
   const unsupportedAction = await runCommand('awk', ['{sum += $1}', 'flags.txt'], { cwd });
   t.is(unsupportedAction.code, 1);
   t.true(unsupportedAction.stderr.includes('awk: only print actions are supported'));
+});
+
+test('shared overlay xargs command supports null-delimited pipelines and chunking', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-xargs-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await writeFile(path.join(cwd, 'alpha.txt'), 'alpha beta\n', 'utf8');
+  await writeFile(path.join(cwd, 'beta.txt'), 'one two three\n', 'utf8');
+
+  const nullDelimited = await runCommand('xargs', ['-0', 'wc', '-w'], {
+    cwd,
+    input: './alpha.txt\0./beta.txt\0',
+  });
+  t.is(nullDelimited.code, 0, nullDelimited.stderr);
+  t.is(nullDelimited.stdout, '       2 ./alpha.txt\n       3 ./beta.txt\n       5 total\n');
+
+  const chunked = await runCommand('xargs', ['-0', '-n', '1', 'printf', '[%s]\\n'], {
+    cwd,
+    input: 'first\0second\0',
+  });
+  t.is(chunked.code, 0, chunked.stderr);
+  t.is(chunked.stdout, '[first]\n[second]\n');
+
+  const noRunIfEmpty = await runCommand('xargs', ['-r', 'printf', '[%s]\\n'], {
+    cwd,
+    input: '',
+  });
+  t.is(noRunIfEmpty.code, 0, noRunIfEmpty.stderr);
+  t.is(noRunIfEmpty.stdout, '');
+
+  const unsupportedOption = await runCommand('xargs', ['-I', '{}', 'printf', '%s\n'], { cwd });
+  t.is(unsupportedOption.code, 1);
+  t.true(unsupportedOption.stderr.includes('xargs: unsupported option -I'));
 });
