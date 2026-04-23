@@ -1,4 +1,5 @@
 export const APP_SHORTCUTS_ALLOWED_ATTR = 'data-allow-app-shortcuts';
+export const TERMINAL_OPTION_ENTER_SEQUENCE = '\x1b\r';
 
 export function isEditableShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -20,4 +21,11 @@ export function shouldBypassTerminalMetaShortcut(event: KeyboardEvent): boolean 
   if (event.code === 'KeyC' || event.code === 'KeyV') return false;
   if (!event.ctrlKey && !event.altKey && !event.shiftKey && event.code === 'KeyK') return false;
   return true;
+}
+
+export function getTerminalInputOverride(event: KeyboardEvent): string | null {
+  if (event.isComposing) return null;
+  if (event.key !== 'Enter') return null;
+  if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return null;
+  return TERMINAL_OPTION_ENTER_SEQUENCE;
 }

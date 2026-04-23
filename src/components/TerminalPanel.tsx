@@ -5,7 +5,11 @@ import ghosttyWasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { Power, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils.ts';
-import { matchesControlShortcut, shouldBypassTerminalMetaShortcut } from '../keyboard_shortcuts.ts';
+import {
+  getTerminalInputOverride,
+  matchesControlShortcut,
+  shouldBypassTerminalMetaShortcut,
+} from '../keyboard_shortcuts.ts';
 import { isLikelyBinaryBytes } from '../path_utils.ts';
 import {
   buildPersistedHomeSeed,
@@ -1466,7 +1470,52 @@ export function TerminalPanel({
         return true;
       });
 
-      const onMetaKeyDown = (event: KeyboardEvent) => {
+      const writeShellInput = (data: string) => {
+        const shellWriter = runtime.shellWriter;
+        if (!shellWriter) return;
+        shellWriter.write(data).catch((err) => {
+          console.error('[terminal] input write failed', err);
+        });
+      };
+
+      const handleTerminalInput = (data: string) => {
+        setActivePaneId(paneId);
+        if (data === '\x03') {
+          if (handleResetHotkey(paneId, 'ctrl-c')) {
+            return;
+          }
+        } else if (data === '\x1c') {
+          if (handleResetHotkey(paneId, 'ctrl-backslash')) {
+            return;
+          }
+        } else if (data === '\x1a') {
+          resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
+          const now = Date.now();
+          if (now - lastCtrlZNoticeAtRef.current > CTRL_Z_NOTICE_WINDOW_MS) {
+            lastCtrlZNoticeAtRef.current = now;
+            try {
+              writeTerminal(paneId, '[terminal] Ctrl-Z job control is not supported in this terminal.', {
+                newline: true,
+              });
+            } catch {
+              // ignore
+            }
+          }
+          return;
+        } else if (resetWarningStateRef.current.paneId === paneId) {
+          resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
+        }
+        writeShellInput(data);
+      };
+
+      const onContainerKeyDown = (event: KeyboardEvent) => {
+        const overrideData = getTerminalInputOverride(event);
+        if (overrideData !== null) {
+          event.preventDefault();
+          event.stopPropagation();
+          handleTerminalInput(overrideData);
+          return;
+        }
         if (matchesControlShortcut(event, 't')) {
           event.preventDefault();
           event.stopPropagation();
@@ -1476,7 +1525,7 @@ export function TerminalPanel({
         if (!shouldBypassTerminalMetaShortcut(event)) return;
         event.stopPropagation();
       };
-      container.addEventListener('keydown', onMetaKeyDown, true);
+      container.addEventListener('keydown', onContainerKeyDown, true);
 
       let resizeFrameId: number | null = null;
       let dragResizeTimeoutId: number | null = null;
@@ -1526,37 +1575,7 @@ export function TerminalPanel({
       window.addEventListener(LAYOUT_SETTLED_EVENT, onLayoutSettled);
 
       const onDataDispose = terminal.onData((data) => {
-        setActivePaneId(paneId);
-        if (data === '\x03') {
-          if (handleResetHotkey(paneId, 'ctrl-c')) {
-            return;
-          }
-        } else if (data === '\x1c') {
-          if (handleResetHotkey(paneId, 'ctrl-backslash')) {
-            return;
-          }
-        } else if (data === '\x1a') {
-          resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
-          const now = Date.now();
-          if (now - lastCtrlZNoticeAtRef.current > CTRL_Z_NOTICE_WINDOW_MS) {
-            lastCtrlZNoticeAtRef.current = now;
-            try {
-              writeTerminal(paneId, '[terminal] Ctrl-Z job control is not supported in this terminal.', {
-                newline: true,
-              });
-            } catch {
-              // ignore
-            }
-          }
-          return;
-        } else if (resetWarningStateRef.current.paneId === paneId) {
-          resetWarningStateRef.current = { paneId: null, key: null, stage: 0, at: 0 };
-        }
-        const shellWriter = runtime.shellWriter;
-        if (!shellWriter) return;
-        shellWriter.write(data).catch((err) => {
-          console.error('[terminal] input write failed', err);
-        });
+        handleTerminalInput(data);
       });
 
       const onResizeDispose = terminal.onResize(({ cols, rows }) => {
@@ -1589,7 +1608,7 @@ export function TerminalPanel({
         onDataDispose.dispose();
         onResizeDispose.dispose();
         onScrollDispose.dispose();
-        container.removeEventListener('keydown', onMetaKeyDown, true);
+        container.removeEventListener('keydown', onContainerKeyDown, true);
         if (runtime.terminal === terminal) {
           runtime.terminal = null;
         }
