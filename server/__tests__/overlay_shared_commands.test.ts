@@ -60,12 +60,13 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, eval, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
+test('shared overlay fd, find, eval, shopt, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'grep'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'eval'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'shopt'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'printf'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'wc'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'uniq'))).mode & 0o777, 0o755);
@@ -444,6 +445,28 @@ test('shared overlay eval command re-runs joined arguments in a shell', async (t
 
   const shellFailure = await runCommand('eval', ['missing-command-name'], { cwd });
   t.not(shellFailure.code, 0);
+});
+
+test('shared overlay shopt command is a no-op for Claude-compatible invocations', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-shopt-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  const listOptions = await runCommand('shopt', ['-p'], { cwd });
+  t.is(listOptions.code, 0, listOptions.stderr);
+  t.is(listOptions.stdout, '');
+  t.is(listOptions.stderr, '');
+
+  const setOption = await runCommand('shopt', ['-s', 'expand_aliases'], { cwd });
+  t.is(setOption.code, 0, setOption.stderr);
+  t.is(setOption.stdout, '');
+  t.is(setOption.stderr, '');
+
+  const unsetOption = await runCommand('shopt', ['-u', 'extglob'], { cwd });
+  t.is(unsetOption.code, 0, unsetOption.stderr);
+  t.is(unsetOption.stdout, '');
+  t.is(unsetOption.stderr, '');
 });
 
 test('shared overlay wc command supports files, stdin, and standard flags', async (t) => {
