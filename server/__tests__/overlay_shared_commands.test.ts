@@ -60,7 +60,7 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, printf, wc, and uniq commands are executable', async (t) => {
+test('shared overlay fd, find, printf, wc, uniq, and sed commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
@@ -68,6 +68,7 @@ test('shared overlay fd, find, printf, wc, and uniq commands are executable', as
   t.is((await stat(path.join(overlayBinDir, 'printf'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'wc'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'uniq'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'sed'))).mode & 0o777, 0o755);
 });
 
 test('shared overlay fd and find commands support basic file discovery', async (t) => {
@@ -484,4 +485,41 @@ test('shared overlay uniq command supports stdin, files, and count filtering', a
   const unsupportedOutputFile = await runCommand('uniq', ['items.txt', 'out.txt'], { cwd });
   t.is(unsupportedOutputFile.code, 1);
   t.true(unsupportedOutputFile.stderr.includes('uniq: output files are not supported'));
+});
+
+test('shared overlay sed command supports range printing and substitutions', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-sed-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await writeFile(path.join(cwd, 'lines.txt'), 'one\ntwo\nthree\nfour\n', 'utf8');
+  await writeFile(path.join(cwd, 'html.txt'), '<input name="token" value="abc123">\n<p>skip</p>\n', 'utf8');
+
+  const printedRange = await runCommand('sed', ['-n', '2,3p', 'lines.txt'], { cwd });
+  t.is(printedRange.code, 0, printedRange.stderr);
+  t.is(printedRange.stdout, 'two\nthree\n');
+
+  const substituted = await runCommand('sed', ['s/two/TWO/', 'lines.txt'], { cwd });
+  t.is(substituted.code, 0, substituted.stderr);
+  t.is(substituted.stdout, 'one\nTWO\nthree\nfour\n');
+
+  const capturePrint = await runCommand(
+    'sed',
+    ['-n', 's/.*name=\\"token\\" value=\\"\\([^\\"]*\\)\\".*/\\1/p', 'html.txt'],
+    { cwd },
+  );
+  t.is(capturePrint.code, 0, capturePrint.stderr);
+  t.is(capturePrint.stdout, 'abc123\n');
+
+  const stdinPrint = await runCommand('sed', ['-n', '1p'], {
+    cwd,
+    input: 'alpha\nbeta\n',
+  });
+  t.is(stdinPrint.code, 0, stdinPrint.stderr);
+  t.is(stdinPrint.stdout, 'alpha\n');
+
+  const unsupportedInPlace = await runCommand('sed', ['-i', 's/a/b/', 'lines.txt'], { cwd });
+  t.is(unsupportedInPlace.code, 1);
+  t.true(unsupportedInPlace.stderr.includes('sed: in-place editing is not supported'));
 });
