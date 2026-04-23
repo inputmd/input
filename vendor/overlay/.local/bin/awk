@@ -1,0 +1,13 @@
+#!/usr/bin/env node
+'use strict';
+
+try {
+  const { runAwk } = require('../lib/input-awk.cjs');
+  process.exitCode = runAwk(process.argv.slice(2), {
+    stderr: process.stderr,
+    stdout: process.stdout,
+  });
+} catch (err) {
+  process.stderr.write(`awk: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+  process.exitCode = 1;
+}

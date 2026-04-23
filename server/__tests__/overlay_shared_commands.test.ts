@@ -60,7 +60,7 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, printf, wc, uniq, and sed commands are executable', async (t) => {
+test('shared overlay fd, find, printf, wc, uniq, sed, and awk commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
@@ -69,6 +69,7 @@ test('shared overlay fd, find, printf, wc, uniq, and sed commands are executable
   t.is((await stat(path.join(overlayBinDir, 'wc'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'uniq'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'sed'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'awk'))).mode & 0o777, 0o755);
 });
 
 test('shared overlay fd and find commands support basic file discovery', async (t) => {
@@ -522,4 +523,34 @@ test('shared overlay sed command supports range printing and substitutions', asy
   const unsupportedInPlace = await runCommand('sed', ['-i', 's/a/b/', 'lines.txt'], { cwd });
   t.is(unsupportedInPlace.code, 1);
   t.true(unsupportedInPlace.stderr.includes('sed: in-place editing is not supported'));
+});
+
+test('shared overlay awk command supports print-only scripts and filters', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-awk-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await writeFile(path.join(cwd, 'flags.txt'), 'monitor on\nnotify off\n', 'utf8');
+  await writeFile(path.join(cwd, 'colon.txt'), 'alpha:one\nbeta:two\n', 'utf8');
+
+  const firstField = await runCommand('awk', ['{print $1}', 'flags.txt'], { cwd });
+  t.is(firstField.code, 0, firstField.stderr);
+  t.is(firstField.stdout, 'monitor\nnotify\n');
+
+  const formatted = await runCommand('awk', ['/on/ {print "set -o " $1}', 'flags.txt'], { cwd });
+  t.is(formatted.code, 0, formatted.stderr);
+  t.is(formatted.stdout, 'set -o monitor\n');
+
+  const secondRecord = await runCommand('awk', ['NR==2 {print $0}', 'flags.txt'], { cwd });
+  t.is(secondRecord.code, 0, secondRecord.stderr);
+  t.is(secondRecord.stdout, 'notify off\n');
+
+  const customSeparator = await runCommand('awk', ['-F:', '{print $2}', 'colon.txt'], { cwd });
+  t.is(customSeparator.code, 0, customSeparator.stderr);
+  t.is(customSeparator.stdout, 'one\ntwo\n');
+
+  const unsupportedAction = await runCommand('awk', ['{sum += $1}', 'flags.txt'], { cwd });
+  t.is(unsupportedAction.code, 1);
+  t.true(unsupportedAction.stderr.includes('awk: only print actions are supported'));
 });
