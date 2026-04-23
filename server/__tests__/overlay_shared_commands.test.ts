@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
@@ -508,6 +508,82 @@ test('shared overlay bash shim strips Claude-style dev-null redirects and closes
     command: 'printf %s ok',
     stdin: 'parent-stdin',
   });
+});
+
+test('shared overlay bash shim falls back when a delegate shell probe hangs', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-bash-timeout-'));
+  const hangingShellPath = path.join(cwd, 'hanging-shell.cjs');
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await writeFile(
+    hangingShellPath,
+    ['#!/usr/bin/env node', "'use strict';", 'setTimeout(() => {}, 10_000);', ''].join('\n'),
+    'utf8',
+  );
+  await chmod(hangingShellPath, 0o755);
+
+  const startedAt = Date.now();
+  const result = await runCommand('bash', ['-c', 'printf %s ok'], {
+    cwd,
+    env: {
+      INPUT_BASH_SHIM_SHELL: hangingShellPath,
+    },
+  });
+  const elapsedMs = Date.now() - startedAt;
+
+  t.is(result.code, 0, result.stderr);
+  t.is(result.stdout, 'ok');
+  t.true(elapsedMs < 5_000);
+});
+
+test('shared overlay bash shim creates Claude shell snapshots without delegating to a shell', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-bash-snapshot-'));
+  const fakeShellPath = path.join(cwd, 'delegate-should-not-run.cjs');
+  const snapshotPath = path.join(cwd, 'snapshot-bash-test.sh');
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await writeFile(
+    fakeShellPath,
+    [
+      '#!/usr/bin/env node',
+      "'use strict';",
+      "process.stderr.write('delegate was called\\n');",
+      'process.exit(9);',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await chmod(fakeShellPath, 0o755);
+
+  const snapshotScript = [
+    `SNAPSHOT_FILE=${snapshotPath}`,
+    '# No user config file to source',
+    'echo "# Snapshot file" >| "$SNAPSHOT_FILE"',
+    'cat >> "$SNAPSHOT_FILE" << \'RIPGREP_FUNC_END\'',
+    'this heredoc should not be parsed by the delegate shell',
+    'RIPGREP_FUNC_END',
+    'if [ ! -f "$SNAPSHOT_FILE" ]; then',
+    '  exit 1',
+    'fi',
+  ].join('\n');
+
+  const snapshot = await runCommand('bash', ['-c', '-l', snapshotScript], {
+    cwd,
+    env: {
+      INPUT_BASH_SHIM_SHELL: fakeShellPath,
+    },
+  });
+  t.is(snapshot.code, 0, snapshot.stderr);
+  t.is(snapshot.stdout, '');
+  t.is(snapshot.stderr, '');
+
+  const snapshotContent = await readFile(snapshotPath, 'utf8');
+  t.true(snapshotContent.includes('# Snapshot file'));
+  t.true(snapshotContent.includes('export PATH='));
 });
 
 test('shared overlay shopt command is a no-op for Claude-compatible invocations', async (t) => {

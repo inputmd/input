@@ -1,6 +1,8 @@
 'use strict';
 
 const { spawnSync } = require('node:child_process');
+const { mkdirSync, writeFileSync } = require('node:fs');
+const { dirname } = require('node:path');
 
 function writeError(stderr, message) {
   stderr.write(`bash: ${message}\n`);
@@ -11,7 +13,7 @@ function resolveDelegateShell() {
   if (typeof process.env.INPUT_BASH_SHIM_SHELL === 'string' && process.env.INPUT_BASH_SHIM_SHELL.trim()) {
     candidates.push(process.env.INPUT_BASH_SHIM_SHELL.trim());
   }
-  candidates.push('jsh', 'sh');
+  candidates.push('sh');
 
   const tried = new Set();
   for (const candidate of candidates) {
@@ -21,13 +23,14 @@ function resolveDelegateShell() {
     const probe = spawnSync(candidate, ['-c', ''], {
       encoding: 'utf8',
       stdio: 'ignore',
+      timeout: 500,
     });
-    if (!probe.error) {
+    if (!probe.error && probe.status === 0) {
       return candidate;
     }
   }
 
-  return candidates[0] ?? 'jsh';
+  return candidates[0] ?? 'sh';
 }
 
 function parseInvocation(args) {
@@ -175,6 +178,39 @@ function stripDevNullRedirects(command) {
   };
 }
 
+function shellQuote(value) {
+  const stringValue = String(value);
+  if (stringValue === '') return "''";
+  if (/^[A-Za-z0-9_./:=@+,-]+$/.test(stringValue)) return stringValue;
+  return `'${stringValue.replaceAll("'", `'"'"'`)}'`;
+}
+
+function parseSnapshotFileAssignment(command) {
+  const match = command.match(/^\s*SNAPSHOT_FILE=(?:"([^"]*)"|'([^']*)'|([^\s;]+))/);
+  if (!match) return null;
+  return match[1] ?? match[2] ?? match[3] ?? null;
+}
+
+function maybeCreateClaudeSnapshot(command) {
+  const snapshotFile = parseSnapshotFileAssignment(command);
+  if (!snapshotFile) return false;
+  if (!command.includes('echo "# Snapshot file" >| "$SNAPSHOT_FILE"')) return false;
+
+  mkdirSync(dirname(snapshotFile), { recursive: true });
+  writeFileSync(
+    snapshotFile,
+    [
+      '# Snapshot file',
+      'unalias -a 2>/dev/null || true',
+      'shopt -s expand_aliases 2>/dev/null || true',
+      `export PATH=${shellQuote(process.env.PATH ?? '')}`,
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  return true;
+}
+
 function formatHelp() {
   return [
     'usage: bash [-lc command] | [-c command]',
@@ -200,6 +236,10 @@ async function runBashShim(args, io) {
   if (parsed.kind !== 'command') {
     writeError(io.stderr, parsed.message);
     return 2;
+  }
+
+  if (maybeCreateClaudeSnapshot(parsed.command)) {
+    return 0;
   }
 
   const delegateShell = resolveDelegateShell();
