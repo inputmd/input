@@ -1,5 +1,6 @@
 import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const PI_PACKAGE_ROOT = path.resolve(
   process.cwd(),
@@ -376,6 +377,22 @@ const TRIMMED_CLI_ENV_BLOCK = `  ANTHROPIC_API_KEY                - Anthropic Cl
   PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes
   PI_SHARE_VIEWER_URL              - Base URL for /share command (default: https://pi.dev/session/)`;
 
+const PI_CLI_IMPORT_MARKER = 'import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";';
+const PI_CLI_EMIT_WARNING_MARKER = 'process.emitWarning = (() => { });\n';
+const PI_CLI_DISPATCHER_MARKER = 'setGlobalDispatcher(new EnvHttpProxyAgent());\n';
+const PI_CLI_CWD_PATCH = `function syncCwdFromPwdEnv() {
+    const shellPwd = process.env.PWD;
+    if (!shellPwd)
+        return;
+    try {
+        if (shellPwd !== process.cwd() && existsSync(shellPwd)) {
+            process.chdir(shellPwd);
+        }
+    }
+    catch { }
+}
+`;
+
 function shouldDeleteFile(name) {
   if (PRUNE_FILE_BASENAMES.has(name)) return true;
   if (name.endsWith('.map')) return true;
@@ -421,6 +438,31 @@ async function writeFileIfChanged(relativePath, nextSource) {
   await writeFile(filePath, nextSource);
 }
 
+export function rewritePiCliEntrypointSource(source) {
+  if (source.includes('process.env.PWD')) return source;
+  let nextSource = source;
+
+  if (!nextSource.includes(PI_CLI_IMPORT_MARKER)) {
+    throw new Error('Failed to find pi cli import marker while applying cwd patch.');
+  }
+  nextSource = nextSource.replace(
+    PI_CLI_IMPORT_MARKER,
+    `import { existsSync } from "node:fs";\n${PI_CLI_IMPORT_MARKER}`,
+  );
+
+  if (!nextSource.includes(PI_CLI_EMIT_WARNING_MARKER)) {
+    throw new Error('Failed to find pi cli emitWarning marker while applying cwd patch.');
+  }
+  nextSource = nextSource.replace(PI_CLI_EMIT_WARNING_MARKER, `${PI_CLI_EMIT_WARNING_MARKER}${PI_CLI_CWD_PATCH}`);
+
+  if (!nextSource.includes(PI_CLI_DISPATCHER_MARKER)) {
+    throw new Error('Failed to find pi cli dispatcher marker while applying cwd patch.');
+  }
+  nextSource = nextSource.replace(PI_CLI_DISPATCHER_MARKER, `syncCwdFromPwdEnv();\n${PI_CLI_DISPATCHER_MARKER}`);
+
+  return nextSource;
+}
+
 async function applyPhase2Trims() {
   await writeFileIfChanged('node_modules/@mariozechner/pi-ai/dist/models.js', REWRITTEN_MODELS_JS);
   await writeFileIfChanged(
@@ -462,6 +504,13 @@ async function applyPhase2Trims() {
     await writeFile(cliArgsPath, rewrittenCliArgsSource);
   }
 
+  const piCliPath = path.join(PI_PACKAGE_ROOT, 'dist/cli.js');
+  const piCliSource = await readFile(piCliPath, 'utf8');
+  const rewrittenPiCliSource = rewritePiCliEntrypointSource(piCliSource);
+  if (rewrittenPiCliSource !== piCliSource) {
+    await writeFile(piCliPath, rewrittenPiCliSource);
+  }
+
   for (const relativePath of PHASE_2_FILE_PATHS) {
     await rm(path.join(PI_PACKAGE_ROOT, relativePath), { force: true });
   }
@@ -501,4 +550,6 @@ async function main() {
   });
 }
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}

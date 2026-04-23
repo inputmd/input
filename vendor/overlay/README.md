@@ -1,7 +1,8 @@
 # Keto-Friendly Pi
 
 This overlay contains a vendored `@mariozechner/pi-coding-agent` tree
-with three local modifications to reduce overlay size.
+with four local modifications to reduce overlay size and keep its cwd in
+sync with the terminal shell.
 
 ## 1. Recursive import fix
 
@@ -56,6 +57,25 @@ Primary cut points:
 This phase **did** rewrite a small number of registry / entrypoint files so the deleted provider SDKs became unreachable.
 
 It did **not** rewrite general callsites across the rest of the codebase; most code still imports from `@mariozechner/pi-ai`, but those imports now resolve through the trimmed registries above.
+
+## 4. Shell cwd sync
+
+Applied by:
+- `scripts/prune_pi_overlay.mjs`
+
+Cut point:
+- `vendor/overlay/.local/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js`
+
+What changed:
+- on startup, `pi` now prefers `$PWD` over Node's inherited `process.cwd()`
+  when they diverge and `$PWD` points at a real directory
+
+Why:
+- inside the WebContainer terminal, external Node processes can inherit a
+  cwd that differs from the shell's visible working directory
+- `pi` binds its built-in `ls`/`bash`/`read` tools to `process.cwd()` at
+  startup, so that mismatch made tool calls inspect an empty directory even
+  while direct shell commands were in the correct repo
 
 ## Reapplying
 
