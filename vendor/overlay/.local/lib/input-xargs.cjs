@@ -1,6 +1,7 @@
 'use strict';
 
 const { spawnSync } = require('node:child_process');
+const { readStdinBuffer } = require('./input-stdin.cjs');
 
 function writeError(stderr, message) {
   stderr.write(`xargs: ${message}\n`);
@@ -115,7 +116,7 @@ function runChild(command, commandArgs, io) {
   return child.status ?? 1;
 }
 
-function runXargs(args, io) {
+async function runXargs(args, io) {
   let options;
   try {
     options = parseArgs(args);
@@ -126,7 +127,7 @@ function runXargs(args, io) {
 
   let input;
   try {
-    input = require('node:fs').readFileSync(0);
+    input = await readStdinBuffer(io.stdin);
   } catch (err) {
     writeError(io.stderr, err instanceof Error ? err.message : String(err));
     return 1;

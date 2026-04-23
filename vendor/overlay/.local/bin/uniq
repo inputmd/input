@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 
-try {
-  const { runUniq } = require('../lib/input-uniq.cjs');
-  process.exitCode = runUniq(process.argv.slice(2), {
-    stderr: process.stderr,
-    stdout: process.stdout,
-  });
-} catch (err) {
-  process.stderr.write(`uniq: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
-  process.exitCode = 1;
-}
+void (async () => {
+  try {
+    const { runUniq } = require('../lib/input-uniq.cjs');
+    process.exitCode = await runUniq(process.argv.slice(2), {
+      stderr: process.stderr,
+      stdin: process.stdin,
+      stdout: process.stdout,
+    });
+  } catch (err) {
+    process.stderr.write(`uniq: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  }
+})();

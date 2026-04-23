@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 
-try {
-  const { runXargs } = require('../lib/input-xargs.cjs');
-  process.exitCode = runXargs(process.argv.slice(2), {
-    stderr: process.stderr,
-    stdout: process.stdout,
-  });
-} catch (err) {
-  process.stderr.write(`xargs: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
-  process.exitCode = 1;
-}
+void (async () => {
+  try {
+    const { runXargs } = require('../lib/input-xargs.cjs');
+    process.exitCode = await runXargs(process.argv.slice(2), {
+      stderr: process.stderr,
+      stdin: process.stdin,
+      stdout: process.stdout,
+    });
+  } catch (err) {
+    process.stderr.write(`xargs: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  }
+})();

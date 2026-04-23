@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const { readStdinText } = require('./input-stdin.cjs');
 
 function writeError(stderr, message) {
   stderr.write(`uniq: ${message}\n`);
@@ -59,9 +60,9 @@ function normalizeForCompare(value, ignoreCase) {
   return ignoreCase ? value.toLowerCase() : value;
 }
 
-function readInput(filePath) {
+async function readInput(filePath, stdin) {
   if (!filePath || filePath === '-') {
-    return fs.readFileSync(0, 'utf8');
+    return await readStdinText(stdin);
   }
   return fs.readFileSync(filePath, 'utf8');
 }
@@ -84,7 +85,7 @@ function renderGroup(line, count, options) {
   return line;
 }
 
-function runUniq(args, io) {
+async function runUniq(args, io) {
   let options;
   try {
     options = parseArgs(args);
@@ -95,7 +96,7 @@ function runUniq(args, io) {
 
   let text;
   try {
-    text = readInput(options.files[0]);
+    text = await readInput(options.files[0], io.stdin);
   } catch (err) {
     const label = options.files[0] ?? 'stdin';
     writeError(io.stderr, `${label}: ${err instanceof Error ? err.message : String(err)}`);

@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 
-try {
-  const { runSed } = require('../lib/input-sed.cjs');
-  process.exitCode = runSed(process.argv.slice(2), {
-    stderr: process.stderr,
-    stdout: process.stdout,
-  });
-} catch (err) {
-  process.stderr.write(`sed: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
-  process.exitCode = 1;
-}
+void (async () => {
+  try {
+    const { runSed } = require('../lib/input-sed.cjs');
+    process.exitCode = await runSed(process.argv.slice(2), {
+      stderr: process.stderr,
+      stdin: process.stdin,
+      stdout: process.stdout,
+    });
+  } catch (err) {
+    process.stderr.write(`sed: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  }
+})();

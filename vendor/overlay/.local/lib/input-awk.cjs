@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const { readStdinText } = require('./input-stdin.cjs');
 
 function writeError(stderr, message) {
   stderr.write(`awk: ${message}\n`);
@@ -326,9 +327,9 @@ function evaluateToken(token, context) {
   }
 }
 
-function readText(filePath) {
+async function readText(filePath, stdin) {
   if (!filePath || filePath === '-') {
-    return fs.readFileSync(0, 'utf8');
+    return await readStdinText(stdin);
   }
   return fs.readFileSync(filePath, 'utf8');
 }
@@ -340,7 +341,7 @@ function splitLines(text) {
   return lines;
 }
 
-function runAwk(args, io) {
+async function runAwk(args, io) {
   let options;
   try {
     options = parseArgs(args);
@@ -364,7 +365,7 @@ function runAwk(args, io) {
   for (const target of targets) {
     let text;
     try {
-      text = readText(target);
+      text = await readText(target, io.stdin);
     } catch (err) {
       writeError(io.stderr, `${target ?? 'stdin'}: ${err instanceof Error ? err.message : String(err)}`);
       return 1;

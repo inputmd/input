@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const { readStdinBuffer } = require('./input-stdin.cjs');
 
 function writeError(stderr, message) {
   stderr.write(`wc: ${message}\n`);
@@ -99,9 +100,9 @@ function summarizeBuffer(buffer) {
   };
 }
 
-function readInput(filePath) {
+async function readInput(filePath, stdin) {
   if (filePath === '-') {
-    return fs.readFileSync(0);
+    return await readStdinBuffer(stdin);
   }
   return fs.readFileSync(filePath);
 }
@@ -137,7 +138,7 @@ function mergeSummaries(left, right) {
   };
 }
 
-function runWc(args, io) {
+async function runWc(args, io) {
   let options;
   try {
     options = parseArgs(args);
@@ -151,7 +152,7 @@ function runWc(args, io) {
 
   for (const target of targets) {
     try {
-      const buffer = readInput(target);
+      const buffer = await readInput(target, io.stdin);
       summaries.push({
         label: target === '-' && options.files.length === 0 ? '' : target,
         summary: summarizeBuffer(buffer),
