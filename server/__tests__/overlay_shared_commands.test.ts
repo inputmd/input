@@ -20,6 +20,7 @@ async function runCommand(
   options: {
     cwd: string;
     env?: Record<string, string>;
+    input?: Buffer | string;
   },
 ): Promise<{ code: number; stderr: string; stdout: string }> {
   return await new Promise((resolve, reject) => {
@@ -30,10 +31,11 @@ async function runCommand(
         PATH: [overlayBinDir, process.env.PATH ?? ''].filter(Boolean).join(':'),
         ...options.env,
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
     let stderr = '';
+    child.stdin.end(options.input ?? '');
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk);
     });
@@ -58,12 +60,13 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, and printf commands are executable', async (t) => {
+test('shared overlay fd, find, printf, and wc commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'grep'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'printf'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'wc'))).mode & 0o777, 0o755);
 });
 
 test('shared overlay fd and find commands support basic file discovery', async (t) => {
@@ -404,4 +407,44 @@ test('shared overlay printf command supports basic formatting and errors', async
   const missingFormat = await runCommand('printf', [], { cwd });
   t.is(missingFormat.code, 1);
   t.true(missingFormat.stderr.includes('printf: missing format string'));
+});
+
+test('shared overlay wc command supports files, stdin, and standard flags', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-wc-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await writeFile(path.join(cwd, 'alpha.txt'), 'alpha beta\ngamma\n', 'utf8');
+  await writeFile(path.join(cwd, 'beta.txt'), 'one\ntwo three\n', 'utf8');
+
+  const defaultCounts = await runCommand('wc', ['alpha.txt'], { cwd });
+  t.is(defaultCounts.code, 0, defaultCounts.stderr);
+  t.is(defaultCounts.stdout, '       2       3      17 alpha.txt\n');
+
+  const lineCount = await runCommand('wc', ['-l', 'alpha.txt'], { cwd });
+  t.is(lineCount.code, 0, lineCount.stderr);
+  t.is(lineCount.stdout, '       2 alpha.txt\n');
+
+  const longestLine = await runCommand('wc', ['-L', 'alpha.txt'], { cwd });
+  t.is(longestLine.code, 0, longestLine.stderr);
+  t.is(longestLine.stdout, '      10 alpha.txt\n');
+
+  const stdinCounts = await runCommand('wc', ['-w'], {
+    cwd,
+    input: 'red blue green\n',
+  });
+  t.is(stdinCounts.code, 0, stdinCounts.stderr);
+  t.is(stdinCounts.stdout, '       3\n');
+
+  const totals = await runCommand('wc', ['alpha.txt', 'beta.txt'], { cwd });
+  t.is(totals.code, 0, totals.stderr);
+  t.is(
+    totals.stdout,
+    '       2       3      17 alpha.txt\n       2       3      14 beta.txt\n       4       6      31 total\n',
+  );
+
+  const unsupportedOption = await runCommand('wc', ['-z'], { cwd });
+  t.is(unsupportedOption.code, 1);
+  t.true(unsupportedOption.stderr.includes('wc: unsupported option -z'));
 });
