@@ -155,6 +155,7 @@ export function buildWebContainerSpawnEnv(homeDir: string, currentPath: string):
 
   return {
     COLORTERM: 'truecolor',
+    DISABLE_AUTOUPDATER: '1',
     EDITOR: 'nano',
     INPUT_HOST_BRIDGE_URL: HOST_BRIDGE_DEFAULT_URL,
     NODE_OPTIONS: `--require=${normalizedHomeDir}/host_rewrite.mjs`,
