@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
@@ -60,7 +60,8 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, eval, shopt, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
+test('shared overlay bash, fd, find, eval, shopt, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
+  t.is((await stat(path.join(overlayBinDir, 'bash'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
@@ -445,6 +446,68 @@ test('shared overlay eval command re-runs joined arguments in a shell', async (t
 
   const shellFailure = await runCommand('eval', ['missing-command-name'], { cwd });
   t.not(shellFailure.code, 0);
+});
+
+test('shared overlay bash shim strips Claude-style dev-null redirects and closes stdin', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-bash-'));
+  const fakeShellPath = path.join(cwd, 'fake-shell.cjs');
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await writeFile(
+    fakeShellPath,
+    [
+      '#!/usr/bin/env node',
+      "'use strict';",
+      'const args = process.argv.slice(2);',
+      "const commandIndex = args.indexOf('-c');",
+      "const command = commandIndex >= 0 ? args[commandIndex + 1] ?? '' : '';",
+      "let stdin = '';",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', (chunk) => { stdin += chunk; });",
+      "process.stdin.on('end', () => {",
+      "  if (command.includes('< /dev/null') || command.includes('</dev/null')) {",
+      "    process.stderr.write('unstripped redirect\\n');",
+      '    process.exit(7);',
+      '    return;',
+      '  }',
+      '  process.stdout.write(JSON.stringify({ args, command, stdin }));',
+      '});',
+      'process.stdin.resume();',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await chmod(fakeShellPath, 0o755);
+
+  const stripped = await runCommand('bash', ['-c', '-l', 'printf %s ok < /dev/null'], {
+    cwd,
+    env: {
+      INPUT_BASH_SHIM_SHELL: fakeShellPath,
+    },
+    input: 'parent-stdin',
+  });
+  t.is(stripped.code, 0, stripped.stderr);
+  t.deepEqual(JSON.parse(stripped.stdout), {
+    args: ['-c', 'printf %s ok'],
+    command: 'printf %s ok',
+    stdin: '',
+  });
+
+  const preserved = await runCommand('bash', ['-c', 'printf %s ok'], {
+    cwd,
+    env: {
+      INPUT_BASH_SHIM_SHELL: fakeShellPath,
+    },
+    input: 'parent-stdin',
+  });
+  t.is(preserved.code, 0, preserved.stderr);
+  t.deepEqual(JSON.parse(preserved.stdout), {
+    args: ['-c', 'printf %s ok'],
+    command: 'printf %s ok',
+    stdin: 'parent-stdin',
+  });
 });
 
 test('shared overlay shopt command is a no-op for Claude-compatible invocations', async (t) => {

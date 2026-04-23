@@ -1,0 +1,15 @@
+#!/usr/bin/env node
+'use strict';
+
+void (async () => {
+  try {
+    const { runBashShim } = require('../lib/input-bash-shim.cjs');
+    process.exitCode = await runBashShim(process.argv.slice(2), {
+      stderr: process.stderr,
+      stdout: process.stdout,
+    });
+  } catch (err) {
+    process.stderr.write(`bash: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  }
+})();

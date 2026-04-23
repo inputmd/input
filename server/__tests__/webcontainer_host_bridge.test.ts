@@ -3,6 +3,7 @@ import { buildWebContainerSpawnEnv } from '../../src/webcontainer_host_bridge.ts
 
 test('buildWebContainerSpawnEnv prefixes the overlay bin directory', (t) => {
   t.deepEqual(buildWebContainerSpawnEnv('/home/project', '/usr/bin:/bin'), {
+    CLAUDE_CODE_SHELL: '/home/project/.local/bin/bash',
     COLORTERM: 'truecolor',
     DISABLE_AUTOUPDATER: '1',
     EDITOR: 'nano',
@@ -17,6 +18,7 @@ test('buildWebContainerSpawnEnv prefixes the overlay bin directory', (t) => {
 
 test('buildWebContainerSpawnEnv does not duplicate the overlay bin directory', (t) => {
   t.deepEqual(buildWebContainerSpawnEnv('/home/project/', '/home/project/.local/bin:/usr/bin:/bin'), {
+    CLAUDE_CODE_SHELL: '/home/project/.local/bin/bash',
     COLORTERM: 'truecolor',
     DISABLE_AUTOUPDATER: '1',
     EDITOR: 'nano',

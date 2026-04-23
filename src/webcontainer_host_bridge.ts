@@ -146,6 +146,7 @@ async function resolveWebContainerHomeDirectory(wc: WebContainer): Promise<strin
 export function buildWebContainerSpawnEnv(homeDir: string, currentPath: string): Record<string, string> {
   const normalizedHomeDir = trimTrailingSlashes(homeDir);
   const localBinDir = `${normalizedHomeDir}/.local/bin`;
+  const bashShimPath = `${localBinDir}/bash`;
   const pathEntries = currentPath
     .split(':')
     .map((entry) => entry.trim())
@@ -154,6 +155,7 @@ export function buildWebContainerSpawnEnv(homeDir: string, currentPath: string):
   const hasLocalBinDir = pathEntries.some((entry) => trimTrailingSlashes(entry) === normalizedLocalBinDir);
 
   return {
+    CLAUDE_CODE_SHELL: bashShimPath,
     COLORTERM: 'truecolor',
     DISABLE_AUTOUPDATER: '1',
     EDITOR: 'nano',
