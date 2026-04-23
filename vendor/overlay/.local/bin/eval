@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+'use strict';
+
+void (async () => {
+  try {
+    const { runEval } = require('../lib/input-eval.cjs');
+    process.exitCode = await runEval(process.argv.slice(2), {
+      stderr: process.stderr,
+      stdin: process.stdin,
+      stdout: process.stdout,
+    });
+  } catch (err) {
+    process.stderr.write(`eval: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  }
+})();

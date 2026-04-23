@@ -60,11 +60,12 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
+test('shared overlay fd, find, eval, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'grep'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'eval'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'printf'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'wc'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'uniq'))).mode & 0o777, 0o755);
@@ -421,6 +422,28 @@ test('shared overlay printf command supports basic formatting and errors', async
   const missingFormat = await runCommand('printf', [], { cwd });
   t.is(missingFormat.code, 1);
   t.true(missingFormat.stderr.includes('printf: missing format string'));
+});
+
+test('shared overlay eval command re-runs joined arguments in a shell', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-eval-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  const noOp = await runCommand('eval', [], { cwd });
+  t.is(noOp.code, 0, noOp.stderr);
+  t.is(noOp.stdout, '');
+
+  const simpleCommand = await runCommand('eval', ['printf %s', 'hello'], { cwd });
+  t.is(simpleCommand.code, 0, simpleCommand.stderr);
+  t.is(simpleCommand.stdout, 'hello');
+
+  const reparsedOperators = await runCommand('eval', ['printf %s first', '&&', 'printf %s second'], { cwd });
+  t.is(reparsedOperators.code, 0, reparsedOperators.stderr);
+  t.is(reparsedOperators.stdout, 'firstsecond');
+
+  const shellFailure = await runCommand('eval', ['missing-command-name'], { cwd });
+  t.not(shellFailure.code, 0);
 });
 
 test('shared overlay wc command supports files, stdin, and standard flags', async (t) => {
