@@ -60,13 +60,14 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, printf, and wc commands are executable', async (t) => {
+test('shared overlay fd, find, printf, wc, and uniq commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'grep'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'printf'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'wc'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'uniq'))).mode & 0o777, 0o755);
 });
 
 test('shared overlay fd and find commands support basic file discovery', async (t) => {
@@ -447,4 +448,40 @@ test('shared overlay wc command supports files, stdin, and standard flags', asyn
   const unsupportedOption = await runCommand('wc', ['-z'], { cwd });
   t.is(unsupportedOption.code, 1);
   t.true(unsupportedOption.stderr.includes('wc: unsupported option -z'));
+});
+
+test('shared overlay uniq command supports stdin, files, and count filtering', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-uniq-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+
+  await writeFile(path.join(cwd, 'items.txt'), 'a\na\nb\nB\nc\nc\n', 'utf8');
+
+  const defaultOutput = await runCommand('uniq', ['items.txt'], { cwd });
+  t.is(defaultOutput.code, 0, defaultOutput.stderr);
+  t.is(defaultOutput.stdout, 'a\nb\nB\nc\n');
+
+  const counted = await runCommand('uniq', ['-c', 'items.txt'], { cwd });
+  t.is(counted.code, 0, counted.stderr);
+  t.is(counted.stdout, '      2 a\n      1 b\n      1 B\n      2 c\n');
+
+  const duplicatesOnly = await runCommand('uniq', ['-d', 'items.txt'], { cwd });
+  t.is(duplicatesOnly.code, 0, duplicatesOnly.stderr);
+  t.is(duplicatesOnly.stdout, 'a\nc\n');
+
+  const uniqueOnly = await runCommand('uniq', ['-u', 'items.txt'], { cwd });
+  t.is(uniqueOnly.code, 0, uniqueOnly.stderr);
+  t.is(uniqueOnly.stdout, 'b\nB\n');
+
+  const ignoreCase = await runCommand('uniq', ['-i', '-c'], {
+    cwd,
+    input: 'Alpha\nalpha\nbeta\n',
+  });
+  t.is(ignoreCase.code, 0, ignoreCase.stderr);
+  t.is(ignoreCase.stdout, '      2 Alpha\n      1 beta\n');
+
+  const unsupportedOutputFile = await runCommand('uniq', ['items.txt', 'out.txt'], { cwd });
+  t.is(unsupportedOutputFile.code, 1);
+  t.true(unsupportedOutputFile.stderr.includes('uniq: output files are not supported'));
 });
