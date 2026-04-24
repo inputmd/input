@@ -1902,7 +1902,7 @@ export function TerminalPanel({
         // parallel host-bridge setup to settle before continuing.
         await hostBridgePromise;
 
-        await bootPerf.measure(
+        const spawnShellsPromise = bootPerf.measure(
           'spawnShellSessions',
           async () => {
             const paneIds = visiblePaneIdsRef.current;
@@ -1917,20 +1917,25 @@ export function TerminalPanel({
             pane_count: visiblePaneIdsRef.current.length,
           },
         );
+
+        // The persisted-home watcher only needs `wc` + the already-written
+        // support script, so it can come up alongside the shells instead of
+        // serializing behind them.
+        const watcherPromise = bootPerf
+          .measure('startPersistedHomeWatcher', () => startPersistedHomeSync(wc))
+          .catch((err) => {
+            console.error('[terminal] failed to start managed home state watcher', err);
+            writeTerminal(
+              logPaneId,
+              `[terminal] failed to start managed home state watcher: ${err instanceof Error ? err.message : String(err)}\r\n`,
+              { forceFollow: true },
+            );
+          });
+
+        await Promise.all([spawnShellsPromise, watcherPromise]);
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
           return;
-        }
-
-        try {
-          await bootPerf.measure('startPersistedHomeWatcher', () => startPersistedHomeSync(wc));
-        } catch (err) {
-          console.error('[terminal] failed to start managed home state watcher', err);
-          writeTerminal(
-            logPaneId,
-            `[terminal] failed to start managed home state watcher: ${err instanceof Error ? err.message : String(err)}\r\n`,
-            { forceFollow: true },
-          );
         }
 
         setFsReady(true);
