@@ -526,10 +526,13 @@ async function provisionHomeOverlay(
   wc: WebContainer,
   bootPerf: TerminalBootPerfLogger | undefined,
   archiveSource: Promise<Uint8Array<ArrayBuffer>>,
+  homeDirSource: string | Promise<string>,
 ): Promise<{ archiveBytes: number; homeDir: string }> {
   const [archive, homeDir] = await Promise.all([
     measureBootStage(bootPerf, 'overlay.awaitArchive', () => archiveSource),
-    measureBootStage(bootPerf, 'overlay.resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc)),
+    typeof homeDirSource === 'string'
+      ? Promise.resolve(homeDirSource)
+      : measureBootStage(bootPerf, 'overlay.resolveHomeDirectory', () => homeDirSource),
   ]);
   const archivePath = joinHomePath(homeDir, HOME_OVERLAY_ARCHIVE_FILENAME);
   const provisionScriptPath = joinHomePath(homeDir, HOME_OVERLAY_PROVISION_FILENAME);
@@ -577,34 +580,44 @@ async function provisionHomeOverlay(
   return { archiveBytes: archive.byteLength, homeDir };
 }
 
-async function preparePersistedHomeSupportFiles(wc: WebContainer, homeDir: string): Promise<string> {
-  const scriptPath = joinHomePath(homeDir, PERSISTED_HOME_SYNC_SCRIPT_FILENAME);
-  const seedPath = joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME);
-  await writeContainerFile(wc, scriptPath, buildPersistedHomeSyncScript(seedPath));
-  return scriptPath;
-}
-
-async function restorePersistedHomeForWorkspace(
+async function preparePersistedHomeRestore(
   wc: WebContainer,
   workspaceKey: string,
   homeDir: string,
-  scriptPath: string,
   options?: { includePersistedHome?: boolean; bootPerf?: TerminalBootPerfLogger },
-): Promise<{ entryCount: number }> {
-  const entries =
+): Promise<{ scriptPath: string; entries: PersistedHomeEntry[] }> {
+  const scriptPath = joinHomePath(homeDir, PERSISTED_HOME_SYNC_SCRIPT_FILENAME);
+  const seedPath = joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME);
+  // Loading entries, writing the sync support script, and then writing the seed
+  // file can happen concurrently with the overlay extraction (they touch
+  // dedicated dotfile paths that overlays don't ship). Kick the entry load and
+  // support-script write off in parallel; the seed write depends on the loaded
+  // entries.
+  const entriesPromise =
     options?.includePersistedHome === false
-      ? []
-      : await measureBootStage(options?.bootPerf, 'persistedHome.loadEntries', () =>
-          loadPersistedHomeEntries(workspaceKey),
-        );
+      ? Promise.resolve([] as PersistedHomeEntry[])
+      : measureBootStage(options?.bootPerf, 'persistedHome.loadEntries', () => loadPersistedHomeEntries(workspaceKey));
+  const supportScriptPromise = measureBootStage(options?.bootPerf, 'persistedHome.writeSupportScript', () =>
+    writeContainerFile(wc, scriptPath, buildPersistedHomeSyncScript(seedPath)),
+  );
+  const [entries] = await Promise.all([entriesPromise, supportScriptPromise]);
   await measureBootStage(
     options?.bootPerf,
     'persistedHome.writeSeedFile',
-    () => writeContainerFile(wc, joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME), buildPersistedHomeSeed(entries)),
+    () => writeContainerFile(wc, seedPath, buildPersistedHomeSeed(entries)),
     {
       entry_count: entries.length,
     },
   );
+  return { scriptPath, entries };
+}
+
+async function applyPersistedHomeRestore(
+  wc: WebContainer,
+  scriptPath: string,
+  entries: PersistedHomeEntry[],
+  options?: { bootPerf?: TerminalBootPerfLogger },
+): Promise<{ entryCount: number }> {
   await measureBootStage(
     options?.bootPerf,
     'persistedHome.restoreEntries',
@@ -1786,45 +1799,61 @@ export function TerminalPanel({
         lastWrittenRef.current = new Map(Object.entries(initialFiles));
         wcRef.current = wc;
 
-        let overlayHomeDir: string | null = null;
-        try {
-          writeTerminal(logPaneId, 'Mounting binaries...\r\n', { forceFollow: true });
-          const overlayResult = await provisionHomeOverlay(wc, bootPerf, overlayArchivePromise);
-          overlayHomeDir = overlayResult.homeDir;
-          bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
-        } catch (err) {
-          console.error('[terminal] failed to provision home overlay', err);
-          writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to provision home overlay', err), {
-            forceFollow: true,
-          });
-        }
+        // Resolve HOME once so the overlay branch and the persisted-home branch
+        // can both consume it without racing on two separate node spawns.
+        const homeDirPromise = bootPerf.measure('resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc));
+        homeDirPromise.catch(() => {});
 
-        try {
-          writeTerminal(logPaneId, 'Restoring config files...\r\n', { forceFollow: true });
-          const homeDir =
-            overlayHomeDir ??
-            (await bootPerf.measure('persistedHome.resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc)));
-          const persistedHomeScriptPath = await bootPerf.measure('persistedHome.writeSupportScript', () =>
-            preparePersistedHomeSupportFiles(wc, homeDir),
-          );
-          setPersistedHomeScriptPath(persistedHomeScriptPath);
-          const persistedHomeResult = await restorePersistedHomeForWorkspace(
-            wc,
-            workspaceKeyRef.current,
-            homeDir,
-            persistedHomeScriptPath,
-            {
+        writeTerminal(logPaneId, 'Mounting binaries and restoring config files...\r\n', { forceFollow: true });
+
+        const overlayPromise = (async () => {
+          try {
+            const overlayResult = await provisionHomeOverlay(wc, bootPerf, overlayArchivePromise, homeDirPromise);
+            bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
+          } catch (err) {
+            console.error('[terminal] failed to provision home overlay', err);
+            writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to provision home overlay', err), {
+              forceFollow: true,
+            });
+          }
+        })();
+
+        const persistedHomePrepPromise = (async () => {
+          try {
+            const homeDir = await homeDirPromise;
+            return await preparePersistedHomeRestore(wc, workspaceKeyRef.current, homeDir, {
               includePersistedHome: includePersistedHomeSync,
               bootPerf,
-            },
-          );
-          bootPerf.record('persistedHome.summary', 0, { entry_count: persistedHomeResult.entryCount });
-        } catch (err) {
+            });
+          } catch (err) {
+            console.error('[terminal] failed to prepare managed home state', err);
+            writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to prepare managed home state', err), {
+              forceFollow: true,
+            });
+            return null;
+          }
+        })();
+
+        const [, persistedHomePrep] = await Promise.all([overlayPromise, persistedHomePrepPromise]);
+
+        if (persistedHomePrep) {
+          setPersistedHomeScriptPath(persistedHomePrep.scriptPath);
+          try {
+            const persistedHomeResult = await applyPersistedHomeRestore(
+              wc,
+              persistedHomePrep.scriptPath,
+              persistedHomePrep.entries,
+              { bootPerf },
+            );
+            bootPerf.record('persistedHome.summary', 0, { entry_count: persistedHomeResult.entryCount });
+          } catch (err) {
+            console.error('[terminal] failed to restore managed home state', err);
+            writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to restore managed home state', err), {
+              forceFollow: true,
+            });
+          }
+        } else {
           setPersistedHomeScriptPath(null);
-          console.error('[terminal] failed to restore managed home state', err);
-          writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to restore managed home state', err), {
-            forceFollow: true,
-          });
         }
         setPersistedHomeActiveSessionMode(persistedHomeTransition.nextSessionMode);
 
