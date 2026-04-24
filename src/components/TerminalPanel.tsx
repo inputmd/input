@@ -35,7 +35,11 @@ import {
   buildWebContainerHomeOverlayProvisionScript,
   WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL,
 } from '../webcontainer_home_overlay.ts';
-import { startWebContainerHostBridge, type WebContainerHostBridgeSession } from '../webcontainer_host_bridge.ts';
+import {
+  resolveWebContainerEnvValue,
+  startWebContainerHostBridge,
+  type WebContainerHostBridgeSession,
+} from '../webcontainer_host_bridge.ts';
 import { useDialogs } from './DialogProvider';
 import { TerminalPersistenceDialog } from './TerminalPersistenceDialog.tsx';
 import { resetTerminalSurface } from './terminal_surface_reset.ts';
@@ -435,12 +439,7 @@ async function measureBootStage<T>(
 }
 
 async function resolveWebContainerHomeDirectory(wc: WebContainer): Promise<string> {
-  const process = await wc.spawn('node', ['-p', 'process.env.HOME']);
-  const [output, exitCode] = await Promise.all([readStreamFully(process.output), process.exit]);
-  if (exitCode !== 0) {
-    throw new Error(`node -p process.env.HOME exited with code ${exitCode}`);
-  }
-  const homeDir = output.trim();
+  const homeDir = await resolveWebContainerEnvValue(wc, 'HOME');
   if (!homeDir) {
     throw new Error('WebContainer HOME is empty');
   }
@@ -524,26 +523,32 @@ async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBu
 
 async function provisionHomeOverlay(
   wc: WebContainer,
-  bootPerf?: TerminalBootPerfLogger,
-): Promise<{ archiveBytes: number }> {
+  bootPerf: TerminalBootPerfLogger | undefined,
+  archiveSource: Promise<Uint8Array<ArrayBuffer>>,
+  homeDirSource: string | Promise<string>,
+): Promise<{ archiveBytes: number; homeDir: string }> {
   const [archive, homeDir] = await Promise.all([
-    measureBootStage(bootPerf, 'overlay.fetchArchive', () => fetchWebContainerHomeOverlayArchive()),
-    measureBootStage(bootPerf, 'overlay.resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc)),
+    measureBootStage(bootPerf, 'overlay.awaitArchive', () => archiveSource),
+    typeof homeDirSource === 'string'
+      ? Promise.resolve(homeDirSource)
+      : measureBootStage(bootPerf, 'overlay.resolveHomeDirectory', () => homeDirSource),
   ]);
   const archivePath = joinHomePath(homeDir, HOME_OVERLAY_ARCHIVE_FILENAME);
   const provisionScriptPath = joinHomePath(homeDir, HOME_OVERLAY_PROVISION_FILENAME);
   const provisionScript = buildWebContainerHomeOverlayProvisionScript(HOME_OVERLAY_ARCHIVE_FILENAME);
-  await measureBootStage(bootPerf, 'overlay.writeArchive', () => writeContainerBytesFile(wc, archivePath, archive), {
-    archive_bytes: archive.byteLength,
-  });
-  await measureBootStage(
-    bootPerf,
-    'overlay.writeProvisionScript',
-    () => writeContainerFile(wc, provisionScriptPath, provisionScript),
-    {
-      script_bytes: provisionScript.length,
-    },
-  );
+  await Promise.all([
+    measureBootStage(bootPerf, 'overlay.writeArchive', () => writeContainerBytesFile(wc, archivePath, archive), {
+      archive_bytes: archive.byteLength,
+    }),
+    measureBootStage(
+      bootPerf,
+      'overlay.writeProvisionScript',
+      () => writeContainerFile(wc, provisionScriptPath, provisionScript),
+      {
+        script_bytes: provisionScript.length,
+      },
+    ),
+  ]);
   try {
     await measureBootStage(
       bootPerf,
@@ -571,37 +576,47 @@ async function provisionHomeOverlay(
       // best-effort cleanup
     }
   }
-  return { archiveBytes: archive.byteLength };
+  return { archiveBytes: archive.byteLength, homeDir };
 }
 
-async function preparePersistedHomeSupportFiles(wc: WebContainer, homeDir: string): Promise<string> {
-  const scriptPath = joinHomePath(homeDir, PERSISTED_HOME_SYNC_SCRIPT_FILENAME);
-  const seedPath = joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME);
-  await writeContainerFile(wc, scriptPath, buildPersistedHomeSyncScript(seedPath));
-  return scriptPath;
-}
-
-async function restorePersistedHomeForWorkspace(
+async function preparePersistedHomeRestore(
   wc: WebContainer,
   workspaceKey: string,
   homeDir: string,
-  scriptPath: string,
   options?: { includePersistedHome?: boolean; bootPerf?: TerminalBootPerfLogger },
-): Promise<{ entryCount: number }> {
-  const entries =
+): Promise<{ scriptPath: string; entries: PersistedHomeEntry[] }> {
+  const scriptPath = joinHomePath(homeDir, PERSISTED_HOME_SYNC_SCRIPT_FILENAME);
+  const seedPath = joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME);
+  // Loading entries, writing the sync support script, and then writing the seed
+  // file can happen concurrently with the overlay extraction (they touch
+  // dedicated dotfile paths that overlays don't ship). Kick the entry load and
+  // support-script write off in parallel; the seed write depends on the loaded
+  // entries.
+  const entriesPromise =
     options?.includePersistedHome === false
-      ? []
-      : await measureBootStage(options?.bootPerf, 'persistedHome.loadEntries', () =>
-          loadPersistedHomeEntries(workspaceKey),
-        );
+      ? Promise.resolve([] as PersistedHomeEntry[])
+      : measureBootStage(options?.bootPerf, 'persistedHome.loadEntries', () => loadPersistedHomeEntries(workspaceKey));
+  const supportScriptPromise = measureBootStage(options?.bootPerf, 'persistedHome.writeSupportScript', () =>
+    writeContainerFile(wc, scriptPath, buildPersistedHomeSyncScript(seedPath)),
+  );
+  const [entries] = await Promise.all([entriesPromise, supportScriptPromise]);
   await measureBootStage(
     options?.bootPerf,
     'persistedHome.writeSeedFile',
-    () => writeContainerFile(wc, joinHomePath(homeDir, PERSISTED_HOME_SEED_FILENAME), buildPersistedHomeSeed(entries)),
+    () => writeContainerFile(wc, seedPath, buildPersistedHomeSeed(entries)),
     {
       entry_count: entries.length,
     },
   );
+  return { scriptPath, entries };
+}
+
+async function applyPersistedHomeRestore(
+  wc: WebContainer,
+  scriptPath: string,
+  entries: PersistedHomeEntry[],
+  options?: { bootPerf?: TerminalBootPerfLogger },
+): Promise<{ entryCount: number }> {
   await measureBootStage(
     options?.bootPerf,
     'persistedHome.restoreEntries',
@@ -877,6 +892,7 @@ export function TerminalPanel({
   baseFilesLoadErrorRef.current = baseFilesLoadError;
   const baseFilesReadyRef = useRef(baseFilesReady);
   baseFilesReadyRef.current = baseFilesReady;
+  const baseFilesReadyWaitersRef = useRef<Set<() => void>>(new Set());
   const liveFilePath = liveFile?.path ?? null;
   const liveFileContent = liveFile?.content ?? null;
   const liveFilePathRef = useRef<string | null>(liveFilePath);
@@ -969,6 +985,34 @@ export function TerminalPanel({
 
   const workspaceNoticeKey =
     !workspaceChangesPersisted && workspaceChangesNotice ? `${workspaceKey}:${workspaceChangesNotice}` : null;
+
+  const notifyBaseFilesReadyWaiters = useCallback(() => {
+    const waiters = baseFilesReadyWaitersRef.current;
+    if (waiters.size === 0) return;
+    baseFilesReadyWaitersRef.current = new Set();
+    for (const resolve of waiters) {
+      resolve();
+    }
+  }, []);
+
+  const waitForBaseFilesReady = useCallback(async (): Promise<void> => {
+    while (!baseFilesReadyRef.current) {
+      if (unmountedRef.current) return;
+      const loadError = baseFilesLoadErrorRef.current;
+      if (loadError) {
+        throw new Error(loadError);
+      }
+      await new Promise<void>((resolve) => {
+        baseFilesReadyWaitersRef.current.add(resolve);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (baseFilesReady || baseFilesLoadError) {
+      notifyBaseFilesReadyWaiters();
+    }
+  }, [baseFilesLoadError, baseFilesReady, notifyBaseFilesReadyWaiters]);
 
   const getPreferredPaneId = useCallback((): PaneId => {
     if (visiblePaneIdsRef.current.includes(activePaneIdRef.current)) return activePaneIdRef.current;
@@ -1662,10 +1706,6 @@ export function TerminalPanel({
       persistedHomeTransitionReason?: PersistedHomeTransitionReason;
     }): Promise<void> => {
       const logPaneId = getPreferredPaneId();
-      const terminal = paneRuntimesRef.current[logPaneId].terminal;
-      if (!terminal) {
-        throw new Error('Terminal is not ready.');
-      }
       const bootPerf = createTerminalBootPerfLogger(workspaceKeyRef.current, workdirName);
       let bootStatus: 'cancelled' | 'error' | 'ok' = 'ok';
       // Snapshot the workspace key before any async work so that the previous
@@ -1733,9 +1773,23 @@ export function TerminalPanel({
         teardownWebContainer(previousWc);
       }
 
+      // Kick off the overlay archive download eagerly so its network latency
+      // overlaps with bootWebContainer + clearWorkspace + mount.
+      const overlayArchivePromise = bootPerf.measure('overlay.fetchArchive', () =>
+        fetchWebContainerHomeOverlayArchive(),
+      );
+      // Swallow unhandled rejection — the real consumer below will observe it.
+      overlayArchivePromise.catch(() => {});
+
       try {
         writeTerminal(logPaneId, 'Booting container...\r\n', { forceFollow: true });
         const wc = await bootPerf.measure('bootWebContainer', () => bootWebContainer(apiKey, workdirName));
+        if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
+          bootStatus = 'cancelled';
+          return;
+        }
+
+        await bootPerf.measure('waitForBaseFilesReady', () => waitForBaseFilesReady());
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
           return;
@@ -1775,43 +1829,106 @@ export function TerminalPanel({
         lastWrittenRef.current = new Map(Object.entries(initialFiles));
         wcRef.current = wc;
 
-        try {
-          writeTerminal(logPaneId, 'Mounting binaries...\r\n', { forceFollow: true });
-          const overlayResult = await provisionHomeOverlay(wc, bootPerf);
-          bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
-        } catch (err) {
-          console.error('[terminal] failed to provision home overlay', err);
-          writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to provision home overlay', err), {
-            forceFollow: true,
-          });
-        }
+        // Resolve HOME once so the overlay branch and the persisted-home branch
+        // can both consume it without racing on two separate node spawns.
+        const homeDirPromise = bootPerf.measure('resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc));
+        homeDirPromise.catch(() => {});
+        const currentPathPromise = bootPerf.measure('resolvePath', () => resolveWebContainerEnvValue(wc, 'PATH'));
+        currentPathPromise.catch(() => {});
 
-        try {
-          writeTerminal(logPaneId, 'Restoring config files...\r\n', { forceFollow: true });
-          const homeDir = await bootPerf.measure('persistedHome.resolveHomeDirectory', () =>
-            resolveWebContainerHomeDirectory(wc),
-          );
-          const persistedHomeScriptPath = await bootPerf.measure('persistedHome.writeSupportScript', () =>
-            preparePersistedHomeSupportFiles(wc, homeDir),
-          );
-          setPersistedHomeScriptPath(persistedHomeScriptPath);
-          const persistedHomeResult = await restorePersistedHomeForWorkspace(
-            wc,
-            workspaceKeyRef.current,
-            homeDir,
-            persistedHomeScriptPath,
-            {
+        writeTerminal(logPaneId, 'Mounting binaries and restoring config files...\r\n', { forceFollow: true });
+
+        const overlayPromise = (async () => {
+          try {
+            const overlayResult = await provisionHomeOverlay(wc, bootPerf, overlayArchivePromise, homeDirPromise);
+            bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
+          } catch (err) {
+            console.error('[terminal] failed to provision home overlay', err);
+            writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to provision home overlay', err), {
+              forceFollow: true,
+            });
+          }
+        })();
+
+        const persistedHomePrepPromise = (async () => {
+          try {
+            const homeDir = await homeDirPromise;
+            return await preparePersistedHomeRestore(wc, workspaceKeyRef.current, homeDir, {
               includePersistedHome: includePersistedHomeSync,
               bootPerf,
-            },
-          );
-          bootPerf.record('persistedHome.summary', 0, { entry_count: persistedHomeResult.entryCount });
-        } catch (err) {
+            });
+          } catch (err) {
+            console.error('[terminal] failed to prepare managed home state', err);
+            writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to prepare managed home state', err), {
+              forceFollow: true,
+            });
+            return null;
+          }
+        })();
+
+        await overlayPromise;
+
+        // The bridge daemon and NODE_OPTIONS rewrite file are provided by the
+        // home overlay, so networking can only start after overlay provisioning
+        // has finished. It can still overlap the persisted-home preparation and
+        // restore below.
+        const hostBridgePromise: Promise<void> = enableNetworkingBridge
+          ? (async () => {
+              writeTerminal(logPaneId, 'Starting networking...\r\n', { forceFollow: true });
+              try {
+                const [homeDir, currentPath] = await Promise.all([homeDirPromise, currentPathPromise]);
+                hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
+                  startWebContainerHostBridge({
+                    currentPath,
+                    homeDir,
+                    onLog(message) {
+                      console.error(message);
+                      try {
+                        writeTerminal(logPaneId, `${message}\r\n`);
+                      } catch {
+                        // ignore
+                      }
+                    },
+                    wc,
+                  }),
+                );
+                setHostBridgeError(false);
+              } catch (err) {
+                console.error('[terminal] failed to start host bridge', err);
+                writeTerminal(
+                  logPaneId,
+                  `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
+                  { forceFollow: true },
+                );
+                setHostBridgeError(true);
+              }
+            })()
+          : (async () => {
+              setHostBridgeError(false);
+              writeTerminal(logPaneId, 'Terminal networking disabled.\r\n', { forceFollow: true });
+            })();
+        hostBridgePromise.catch(() => {});
+
+        const persistedHomePrep = await persistedHomePrepPromise;
+
+        if (persistedHomePrep) {
+          setPersistedHomeScriptPath(persistedHomePrep.scriptPath);
+          try {
+            const persistedHomeResult = await applyPersistedHomeRestore(
+              wc,
+              persistedHomePrep.scriptPath,
+              persistedHomePrep.entries,
+              { bootPerf },
+            );
+            bootPerf.record('persistedHome.summary', 0, { entry_count: persistedHomeResult.entryCount });
+          } catch (err) {
+            console.error('[terminal] failed to restore managed home state', err);
+            writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to restore managed home state', err), {
+              forceFollow: true,
+            });
+          }
+        } else {
           setPersistedHomeScriptPath(null);
-          console.error('[terminal] failed to restore managed home state', err);
-          writeTerminal(logPaneId, formatTerminalBootError('[terminal] failed to restore managed home state', err), {
-            forceFollow: true,
-          });
         }
         setPersistedHomeActiveSessionMode(persistedHomeTransition.nextSessionMode);
 
@@ -1819,66 +1936,51 @@ export function TerminalPanel({
           writeTerminal(logPaneId, 'Credential sync disabled.\r\n', { forceFollow: true });
         }
 
-        if (enableNetworkingBridge) {
-          try {
-            writeTerminal(logPaneId, 'Starting networking...\r\n', { forceFollow: true });
-            hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
-              startWebContainerHostBridge({
-                onLog(message) {
-                  console.error(message);
-                  try {
-                    writeTerminal(logPaneId, `${message}\r\n`);
-                  } catch {
-                    // ignore
-                  }
-                },
-                wc,
-              }),
-            );
-            setHostBridgeError(false);
-          } catch (err) {
-            console.error('[terminal] failed to start host bridge', err);
-            writeTerminal(
-              logPaneId,
-              `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
-              { forceFollow: true },
-            );
-            setHostBridgeError(true);
-          }
-        } else {
-          setHostBridgeError(false);
-          writeTerminal(logPaneId, 'Terminal networking disabled.\r\n', { forceFollow: true });
-        }
+        // Shell spawn depends on hostBridgeRef.current?.env; wait for the
+        // post-overlay host-bridge setup to settle before continuing.
+        await hostBridgePromise;
 
-        await bootPerf.measure(
+        await bootPerf.measure('ensureTerminalSurfaces', async () => {
+          await Promise.all(visiblePaneIdsRef.current.map((paneId) => ensurePaneSurface(paneId)));
+          for (const paneId of visiblePaneIdsRef.current) {
+            fitPane(paneId);
+          }
+        });
+
+        const spawnShellsPromise = bootPerf.measure(
           'spawnShellSessions',
           async () => {
-            for (const [index, paneId] of visiblePaneIdsRef.current.entries()) {
-              await spawnShellSession(paneId, { announceReady: index === 0 });
-              if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
-                bootStatus = 'cancelled';
-                return;
-              }
+            const paneIds = visiblePaneIdsRef.current;
+            await Promise.all(
+              paneIds.map((paneId, index) => spawnShellSession(paneId, { announceReady: index === 0 })),
+            );
+            if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
+              bootStatus = 'cancelled';
             }
           },
           {
             pane_count: visiblePaneIdsRef.current.length,
           },
         );
+
+        // The persisted-home watcher only needs `wc` + the already-written
+        // support script, so it can come up alongside the shells instead of
+        // serializing behind them.
+        const watcherPromise = bootPerf
+          .measure('startPersistedHomeWatcher', () => startPersistedHomeSync(wc))
+          .catch((err) => {
+            console.error('[terminal] failed to start managed home state watcher', err);
+            writeTerminal(
+              logPaneId,
+              `[terminal] failed to start managed home state watcher: ${err instanceof Error ? err.message : String(err)}\r\n`,
+              { forceFollow: true },
+            );
+          });
+
+        await Promise.all([spawnShellsPromise, watcherPromise]);
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
           return;
-        }
-
-        try {
-          await bootPerf.measure('startPersistedHomeWatcher', () => startPersistedHomeSync(wc));
-        } catch (err) {
-          console.error('[terminal] failed to start managed home state watcher', err);
-          writeTerminal(
-            logPaneId,
-            `[terminal] failed to start managed home state watcher: ${err instanceof Error ? err.message : String(err)}\r\n`,
-            { forceFollow: true },
-          );
         }
 
         setFsReady(true);
@@ -1895,6 +1997,8 @@ export function TerminalPanel({
     [
       apiKey,
       capturePersistedHomeState,
+      ensurePaneSurface,
+      fitPane,
       focusPane,
       getPersistedHomeActiveSessionMode,
       getPreferredPaneId,
@@ -1909,6 +2013,7 @@ export function TerminalPanel({
       spawnShellSession,
       startPersistedHomeSync,
       teardownWebContainer,
+      waitForBaseFilesReady,
       writeTerminal,
       workdirName,
     ],
@@ -2134,8 +2239,12 @@ export function TerminalPanel({
     };
   }, [baseFilesLoadError, ensurePaneSurface, renderBaseFilesLoadError, visible]);
 
+  const baseFilesStartupSignal = `${baseFilesReady ? 'ready' : 'pending'}:${baseFilesLoadError ?? ''}`;
+
   useEffect(() => {
-    if (!visible || startedRef.current || !baseFilesReady) return;
+    // This signal makes startup retry when an earlier base-file load error clears.
+    void baseFilesStartupSignal;
+    if (!visible || startedRef.current) return;
     if (!apiKey && !isLocalhostHostname()) {
       setError('VITE_WEBCONTAINERS_API_KEY is not set.');
       return;
@@ -2150,11 +2259,11 @@ export function TerminalPanel({
 
     void (async () => {
       try {
+        const surfacePromise = ensurePaneSurface(singlePaneIdRef.current);
+        surfacePromise.catch(() => {});
         await ensureWebContainerApiConfigured(apiKey);
         if (unmountedRef.current) return;
-        await ensurePaneSurface(singlePaneIdRef.current);
-        if (unmountedRef.current) return;
-        await initializeWebContainerSession({ clearTerminal: true });
+        await Promise.all([surfacePromise, initializeWebContainerSession({ clearTerminal: true })]);
       } catch (err) {
         if (unmountedRef.current) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -2162,7 +2271,7 @@ export function TerminalPanel({
         startedRef.current = false;
       }
     })();
-  }, [apiKey, baseFilesReady, ensurePaneSurface, initializeWebContainerSession, visible]);
+  }, [apiKey, baseFilesStartupSignal, ensurePaneSurface, initializeWebContainerSession, visible]);
 
   useEffect(() => {
     if (!visible || !startedRef.current) return;
@@ -2266,6 +2375,7 @@ export function TerminalPanel({
   useEffect(() => {
     return () => {
       unmountedRef.current = true;
+      notifyBaseFilesReadyWaiters();
       const skipImportOnUnmount = didRecentHotReload();
       const currentWc = wcRef.current;
       const allowPersistedHomeCapture = getPersistedHomeActiveSessionMode() === 'include';
@@ -2319,6 +2429,7 @@ export function TerminalPanel({
     flushPersistedHomeState,
     getPersistedHomeActiveSessionMode,
     importTerminalDiff,
+    notifyBaseFilesReadyWaiters,
     releaseAllPaneShellSessions,
     releasePersistedHomeSyncSession,
     releaseHostBridgeSession,

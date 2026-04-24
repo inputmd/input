@@ -48,6 +48,8 @@ export interface WebContainerHostBridgeSession {
 }
 
 interface StartWebContainerHostBridgeOptions {
+  currentPath?: string;
+  homeDir?: string;
   onLog?: (message: string) => void;
   wc: WebContainer;
 }
@@ -122,7 +124,7 @@ async function readProcessStdout(process: SpawnedProcessLike): Promise<string> {
   return result;
 }
 
-async function resolveWebContainerEnvValue(wc: WebContainer, name: string): Promise<string> {
+export async function resolveWebContainerEnvValue(wc: WebContainer, name: string): Promise<string> {
   const process = (await wc.spawn('node', [
     '-e',
     'process.stdout.write(process.env[process.argv[1]] || "")',
@@ -171,12 +173,16 @@ function createProxyFetchUrl(targetHost: string, path: string): string {
 }
 
 export async function startWebContainerHostBridge({
+  currentPath: providedCurrentPath,
+  homeDir: providedHomeDir,
   wc,
   onLog,
 }: StartWebContainerHostBridgeOptions): Promise<WebContainerHostBridgeSession> {
   const proxySessionId = crypto.randomUUID();
-  const homeDir = await resolveWebContainerHomeDirectory(wc);
-  const currentPath = await resolveWebContainerEnvValue(wc, 'PATH');
+  const [homeDir, currentPath] = await Promise.all([
+    providedHomeDir ?? resolveWebContainerHomeDirectory(wc),
+    providedCurrentPath ?? resolveWebContainerEnvValue(wc, 'PATH'),
+  ]);
   const daemonPath = `${trimTrailingSlashes(homeDir)}/host_bridge.mjs`;
   const daemon = (await wc.spawn('node', [daemonPath], {
     env: {
