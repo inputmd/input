@@ -109,10 +109,12 @@ async function runLoop(currentContext, newMessages, config, signal, emit, stream
             }
             // Check for tool calls
             const toolCalls = message.content.filter((c) => c.type === "toolCall");
-            hasMoreToolCalls = toolCalls.length > 0;
             const toolResults = [];
-            if (hasMoreToolCalls) {
-                toolResults.push(...(await executeToolCalls(currentContext, message, config, signal, emit)));
+            hasMoreToolCalls = false;
+            if (toolCalls.length > 0) {
+                const executedToolBatch = await executeToolCalls(currentContext, message, config, signal, emit);
+                toolResults.push(...executedToolBatch.messages);
+                hasMoreToolCalls = !executedToolBatch.terminate;
                 for (const result of toolResults) {
                     currentContext.messages.push(result);
                     newMessages.push(result);
@@ -221,13 +223,15 @@ async function streamAssistantResponse(context, config, signal, emit, streamFn) 
  */
 async function executeToolCalls(currentContext, assistantMessage, config, signal, emit) {
     const toolCalls = assistantMessage.content.filter((c) => c.type === "toolCall");
-    if (config.toolExecution === "sequential") {
+    const hasSequentialToolCall = toolCalls.some((tc) => currentContext.tools?.find((t) => t.name === tc.name)?.executionMode === "sequential");
+    if (config.toolExecution === "sequential" || hasSequentialToolCall) {
         return executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit);
     }
     return executeToolCallsParallel(currentContext, assistantMessage, toolCalls, config, signal, emit);
 }
 async function executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit) {
-    const results = [];
+    const finalizedCalls = [];
+    const messages = [];
     for (const toolCall of toolCalls) {
         await emit({
             type: "tool_execution_start",
@@ -236,19 +240,31 @@ async function executeToolCallsSequential(currentContext, assistantMessage, tool
             args: toolCall.arguments,
         });
         const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
+        let finalized;
         if (preparation.kind === "immediate") {
-            results.push(await emitToolCallOutcome(toolCall, preparation.result, preparation.isError, emit));
+            finalized = {
+                toolCall,
+                result: preparation.result,
+                isError: preparation.isError,
+            };
         }
         else {
             const executed = await executePreparedToolCall(preparation, signal, emit);
-            results.push(await finalizeExecutedToolCall(currentContext, assistantMessage, preparation, executed, config, signal, emit));
+            finalized = await finalizeExecutedToolCall(currentContext, assistantMessage, preparation, executed, config, signal);
         }
+        await emitToolExecutionEnd(finalized, emit);
+        const toolResultMessage = createToolResultMessage(finalized);
+        await emitToolResultMessage(toolResultMessage, emit);
+        finalizedCalls.push(finalized);
+        messages.push(toolResultMessage);
     }
-    return results;
+    return {
+        messages,
+        terminate: shouldTerminateToolBatch(finalizedCalls),
+    };
 }
 async function executeToolCallsParallel(currentContext, assistantMessage, toolCalls, config, signal, emit) {
-    const results = [];
-    const runnableCalls = [];
+    const finalizedCalls = [];
     for (const toolCall of toolCalls) {
         await emit({
             type: "tool_execution_start",
@@ -258,21 +274,36 @@ async function executeToolCallsParallel(currentContext, assistantMessage, toolCa
         });
         const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
         if (preparation.kind === "immediate") {
-            results.push(await emitToolCallOutcome(toolCall, preparation.result, preparation.isError, emit));
+            const finalized = {
+                toolCall,
+                result: preparation.result,
+                isError: preparation.isError,
+            };
+            await emitToolExecutionEnd(finalized, emit);
+            finalizedCalls.push(finalized);
+            continue;
         }
-        else {
-            runnableCalls.push(preparation);
-        }
+        finalizedCalls.push(async () => {
+            const executed = await executePreparedToolCall(preparation, signal, emit);
+            const finalized = await finalizeExecutedToolCall(currentContext, assistantMessage, preparation, executed, config, signal);
+            await emitToolExecutionEnd(finalized, emit);
+            return finalized;
+        });
     }
-    const runningCalls = runnableCalls.map((prepared) => ({
-        prepared,
-        execution: executePreparedToolCall(prepared, signal, emit),
-    }));
-    for (const running of runningCalls) {
-        const executed = await running.execution;
-        results.push(await finalizeExecutedToolCall(currentContext, assistantMessage, running.prepared, executed, config, signal, emit));
+    const orderedFinalizedCalls = await Promise.all(finalizedCalls.map((entry) => (typeof entry === "function" ? entry() : Promise.resolve(entry))));
+    const messages = [];
+    for (const finalized of orderedFinalizedCalls) {
+        const toolResultMessage = createToolResultMessage(finalized);
+        await emitToolResultMessage(toolResultMessage, emit);
+        messages.push(toolResultMessage);
     }
-    return results;
+    return {
+        messages,
+        terminate: shouldTerminateToolBatch(orderedFinalizedCalls),
+    };
+}
+function shouldTerminateToolBatch(finalizedCalls) {
+    return finalizedCalls.length > 0 && finalizedCalls.every((finalized) => finalized.result.terminate === true);
 }
 function prepareToolCallArguments(tool, toolCall) {
     if (!tool.prepareArguments) {
@@ -352,27 +383,38 @@ async function executePreparedToolCall(prepared, signal, emit) {
         };
     }
 }
-async function finalizeExecutedToolCall(currentContext, assistantMessage, prepared, executed, config, signal, emit) {
+async function finalizeExecutedToolCall(currentContext, assistantMessage, prepared, executed, config, signal) {
     let result = executed.result;
     let isError = executed.isError;
     if (config.afterToolCall) {
-        const afterResult = await config.afterToolCall({
-            assistantMessage,
-            toolCall: prepared.toolCall,
-            args: prepared.args,
-            result,
-            isError,
-            context: currentContext,
-        }, signal);
-        if (afterResult) {
-            result = {
-                content: afterResult.content ?? result.content,
-                details: afterResult.details ?? result.details,
-            };
-            isError = afterResult.isError ?? isError;
+        try {
+            const afterResult = await config.afterToolCall({
+                assistantMessage,
+                toolCall: prepared.toolCall,
+                args: prepared.args,
+                result,
+                isError,
+                context: currentContext,
+            }, signal);
+            if (afterResult) {
+                result = {
+                    content: afterResult.content ?? result.content,
+                    details: afterResult.details ?? result.details,
+                    terminate: afterResult.terminate ?? result.terminate,
+                };
+                isError = afterResult.isError ?? isError;
+            }
+        }
+        catch (error) {
+            result = createErrorToolResult(error instanceof Error ? error.message : String(error));
+            isError = true;
         }
     }
-    return await emitToolCallOutcome(prepared.toolCall, result, isError, emit);
+    return {
+        toolCall: prepared.toolCall,
+        result,
+        isError,
+    };
 }
 function createErrorToolResult(message) {
     return {
@@ -380,25 +422,28 @@ function createErrorToolResult(message) {
         details: {},
     };
 }
-async function emitToolCallOutcome(toolCall, result, isError, emit) {
+async function emitToolExecutionEnd(finalized, emit) {
     await emit({
         type: "tool_execution_end",
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-        result,
-        isError,
+        toolCallId: finalized.toolCall.id,
+        toolName: finalized.toolCall.name,
+        result: finalized.result,
+        isError: finalized.isError,
     });
-    const toolResultMessage = {
+}
+function createToolResultMessage(finalized) {
+    return {
         role: "toolResult",
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-        content: result.content,
-        details: result.details,
-        isError,
+        toolCallId: finalized.toolCall.id,
+        toolName: finalized.toolCall.name,
+        content: finalized.result.content,
+        details: finalized.result.details,
+        isError: finalized.isError,
         timestamp: Date.now(),
     };
+}
+async function emitToolResultMessage(toolResultMessage, emit) {
     await emit({ type: "message_start", message: toolResultMessage });
     await emit({ type: "message_end", message: toolResultMessage });
-    return toolResultMessage;
 }
 //# sourceMappingURL=agent-loop.js.map

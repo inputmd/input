@@ -258,6 +258,14 @@ export class RpcClient {
         return this.getData(response);
     }
     /**
+     * Clone the current active branch into a new session.
+     * @returns Object with `cancelled: true` if an extension cancelled the clone
+     */
+    async clone() {
+        const response = await this.send({ type: "clone" });
+        return this.getData(response);
+    }
+    /**
      * Get messages available for forking.
      */
     async getForkMessages() {

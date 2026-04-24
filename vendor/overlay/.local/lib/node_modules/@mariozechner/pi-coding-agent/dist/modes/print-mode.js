@@ -6,6 +6,7 @@
  * - `pi --mode json "prompt"` - JSON event stream
  */
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.js";
+import { killTrackedDetachedChildren } from "../utils/shell.js";
 /**
  * Run in print (single-shot) mode.
  * Sends prompts to the agent and outputs the result.
@@ -15,23 +16,43 @@ export async function runPrintMode(runtimeHost, options) {
     let exitCode = 0;
     let session = runtimeHost.session;
     let unsubscribe;
+    let disposed = false;
+    const signalCleanupHandlers = [];
+    const disposeRuntime = async () => {
+        if (disposed)
+            return;
+        disposed = true;
+        unsubscribe?.();
+        await runtimeHost.dispose();
+    };
+    const registerSignalHandlers = () => {
+        const signals = ["SIGTERM"];
+        if (process.platform !== "win32") {
+            signals.push("SIGHUP");
+        }
+        for (const signal of signals) {
+            const handler = () => {
+                killTrackedDetachedChildren();
+                void disposeRuntime().finally(() => {
+                    process.exit(signal === "SIGHUP" ? 129 : 143);
+                });
+            };
+            process.on(signal, handler);
+            signalCleanupHandlers.push(() => process.off(signal, handler));
+        }
+    };
+    registerSignalHandlers();
+    runtimeHost.setRebindSession(async () => {
+        await rebindSession();
+    });
     const rebindSession = async () => {
         session = runtimeHost.session;
         await session.bindExtensions({
             commandContextActions: {
                 waitForIdle: () => session.agent.waitForIdle(),
-                newSession: async (newSessionOptions) => {
-                    const result = await runtimeHost.newSession(newSessionOptions);
-                    if (!result.cancelled) {
-                        await rebindSession();
-                    }
-                    return result;
-                },
-                fork: async (entryId) => {
-                    const result = await runtimeHost.fork(entryId);
-                    if (!result.cancelled) {
-                        await rebindSession();
-                    }
+                newSession: async (newSessionOptions) => runtimeHost.newSession(newSessionOptions),
+                fork: async (entryId, forkOptions) => {
+                    const result = await runtimeHost.fork(entryId, forkOptions);
                     return { cancelled: result.cancelled };
                 },
                 navigateTree: async (targetId, navigateOptions) => {
@@ -43,12 +64,8 @@ export async function runPrintMode(runtimeHost, options) {
                     });
                     return { cancelled: result.cancelled };
                 },
-                switchSession: async (sessionPath) => {
-                    const result = await runtimeHost.switchSession(sessionPath);
-                    if (!result.cancelled) {
-                        await rebindSession();
-                    }
-                    return result;
+                switchSession: async (sessionPath, switchOptions) => {
+                    return runtimeHost.switchSession(sessionPath, switchOptions);
                 },
                 reload: async () => {
                     await session.reload();
@@ -104,8 +121,10 @@ export async function runPrintMode(runtimeHost, options) {
         return 1;
     }
     finally {
-        unsubscribe?.();
-        await runtimeHost.dispose();
+        for (const cleanup of signalCleanupHandlers) {
+            cleanup();
+        }
+        await disposeRuntime();
         await flushRawStdout();
     }
 }

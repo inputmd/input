@@ -93,6 +93,7 @@ export class Agent {
     streamFn;
     getApiKey;
     onPayload;
+    onResponse;
     beforeToolCall;
     afterToolCall;
     activeRun;
@@ -113,6 +114,7 @@ export class Agent {
         this.streamFn = options.streamFn ?? streamSimple;
         this.getApiKey = options.getApiKey;
         this.onPayload = options.onPayload;
+        this.onResponse = options.onResponse;
         this.beforeToolCall = options.beforeToolCall;
         this.afterToolCall = options.afterToolCall;
         this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? "one-at-a-time");
@@ -278,6 +280,7 @@ export class Agent {
             reasoning: this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel,
             sessionId: this.sessionId,
             onPayload: this.onPayload,
+            onResponse: this.onResponse,
             transport: this.transport,
             thinkingBudgets: this.thinkingBudgets,
             maxRetryDelayMs: this.maxRetryDelayMs,

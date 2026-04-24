@@ -46,6 +46,9 @@ export class BorderedLoader extends Container {
         if ("dispose" in this.loader && typeof this.loader.dispose === "function") {
             this.loader.dispose();
         }
+        else if ("stop" in this.loader && typeof this.loader.stop === "function") {
+            this.loader.stop();
+        }
     }
 }
 //# sourceMappingURL=bordered-loader.js.map

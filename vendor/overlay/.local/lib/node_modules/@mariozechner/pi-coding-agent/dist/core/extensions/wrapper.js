@@ -4,7 +4,7 @@
  * These wrappers only adapt tool execution so extension tools receive the runner context.
  * Tool call and tool result interception is handled by AgentSession via agent-core hooks.
  */
-import { wrapToolDefinition } from "../tools/tool-definition-wrapper.js";
+import { wrapToolDefinition, wrapToolDefinitions } from "../tools/tool-definition-wrapper.js";
 /**
  * Wrap a RegisteredTool into an AgentTool.
  * Uses the runner's createContext() for consistent context across tools and event handlers.
@@ -17,6 +17,6 @@ export function wrapRegisteredTool(registeredTool, runner) {
  * Uses the runner's createContext() for consistent context across tools and event handlers.
  */
 export function wrapRegisteredTools(registeredTools, runner) {
-    return registeredTools.map((rt) => wrapRegisteredTool(rt, runner));
+    return wrapToolDefinitions(registeredTools.map((registeredTool) => registeredTool.definition), () => runner.createContext());
 }
 //# sourceMappingURL=wrapper.js.map

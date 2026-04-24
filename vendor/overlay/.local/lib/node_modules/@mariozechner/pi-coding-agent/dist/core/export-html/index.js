@@ -114,8 +114,8 @@ function generateHtml(sessionData, themeName) {
         .replace("{{MARKED_JS}}", markedJs)
         .replace("{{HIGHLIGHT_JS}}", hljsJs);
 }
-/** Built-in tool names that have custom rendering in template.js */
-const BUILTIN_TOOLS = new Set(["bash", "read", "write", "edit", "ls", "find", "grep"]);
+/** Tools rendered directly by the HTML template (not pre-rendered via TUI→ANSI→HTML pipeline) */
+const TEMPLATE_RENDERED_TOOLS = new Set(["bash", "read", "write", "edit", "ls"]);
 /**
  * Pre-render custom tools to HTML using their TUI renderers.
  */
@@ -128,7 +128,7 @@ function preRenderCustomTools(entries, toolRenderer) {
         // Find tool calls in assistant messages
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
             for (const block of msg.content) {
-                if (block.type === "toolCall" && !BUILTIN_TOOLS.has(block.name)) {
+                if (block.type === "toolCall" && !TEMPLATE_RENDERED_TOOLS.has(block.name)) {
                     const callHtml = toolRenderer.renderCall(block.id, block.name, block.arguments);
                     if (callHtml) {
                         renderedTools[block.id] = { callHtml };
@@ -139,9 +139,9 @@ function preRenderCustomTools(entries, toolRenderer) {
         // Find tool results
         if (msg.role === "toolResult" && msg.toolCallId) {
             const toolName = msg.toolName || "";
-            // Only render if we have a pre-rendered call OR it's not a built-in tool
+            // Only render if we have a pre-rendered call OR it's not template-rendered
             const existing = renderedTools[msg.toolCallId];
-            if (existing || !BUILTIN_TOOLS.has(toolName)) {
+            if (existing || !TEMPLATE_RENDERED_TOOLS.has(toolName)) {
                 const rendered = toolRenderer.renderResult(msg.toolCallId, toolName, msg.content, msg.details, msg.isError || false);
                 if (rendered) {
                     renderedTools[msg.toolCallId] = {

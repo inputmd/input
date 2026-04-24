@@ -1,6 +1,26 @@
-import { marked } from "marked";
-import { isImageLine } from "../terminal-image.js";
+import { Marked, Tokenizer } from "marked";
+import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.js";
 import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.js";
+const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
+class StrictStrikethroughTokenizer extends Tokenizer {
+    del(src) {
+        const match = STRICT_STRIKETHROUGH_REGEX.exec(src);
+        if (!match) {
+            return undefined;
+        }
+        const text = match[2];
+        return {
+            type: "del",
+            raw: match[0],
+            text,
+            tokens: this.lexer.inlineTokens(text),
+        };
+    }
+}
+const markdownParser = new Marked();
+markdownParser.setOptions({
+    tokenizer: new StrictStrikethroughTokenizer(),
+});
 export class Markdown {
     text;
     paddingX; // Left/right padding
@@ -47,7 +67,7 @@ export class Markdown {
         // Replace tabs with 3 spaces for consistent rendering
         const normalizedText = this.text.replace(/\t/g, "   ");
         // Parse markdown to HTML-like tokens
-        const tokens = marked.lexer(normalizedText);
+        const tokens = markdownParser.lexer(normalizedText);
         // Convert tokens to styled terminal output
         const renderedLines = [];
         for (let i = 0; i < tokens.length; i++) {
@@ -347,19 +367,24 @@ export class Markdown {
                     break;
                 case "link": {
                     const linkText = this.renderInlineTokens(token.tokens || [], resolvedStyleContext);
-                    // If link text matches href, only show the link once
-                    // Compare raw text (token.text) not styled text (linkText) since linkText has ANSI codes
-                    // For mailto: links, strip the prefix before comparing (autolinked emails have
-                    // text="foo@bar.com" but href="mailto:foo@bar.com")
-                    const hrefForComparison = token.href.startsWith("mailto:") ? token.href.slice(7) : token.href;
-                    if (token.text === token.href || token.text === hrefForComparison) {
-                        result += this.theme.link(this.theme.underline(linkText)) + stylePrefix;
+                    const styledLink = this.theme.link(this.theme.underline(linkText));
+                    if (getCapabilities().hyperlinks) {
+                        // OSC 8: render as a clickable hyperlink. The URL is not printed inline,
+                        // so we always show only the link text regardless of whether it matches href.
+                        result += hyperlink(styledLink, token.href) + stylePrefix;
                     }
                     else {
-                        result +=
-                            this.theme.link(this.theme.underline(linkText)) +
-                                this.theme.linkUrl(` (${token.href})`) +
-                                stylePrefix;
+                        // Fallback: print URL in parentheses when text differs from href.
+                        // Compare raw token.text (not styled) against href for the equality check.
+                        // For mailto: links strip the prefix (autolinked emails use text="foo@bar.com"
+                        // but href="mailto:foo@bar.com").
+                        const hrefForComparison = token.href.startsWith("mailto:") ? token.href.slice(7) : token.href;
+                        if (token.text === token.href || token.text === hrefForComparison) {
+                            result += styledLink + stylePrefix;
+                        }
+                        else {
+                            result += styledLink + this.theme.linkUrl(` (${token.href})`) + stylePrefix;
+                        }
                     }
                     break;
                 }

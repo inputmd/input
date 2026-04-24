@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
-import { CONFIG_DIR_NAME, getPromptsDir } from "../config.js";
+import { CONFIG_DIR_NAME } from "../config.js";
 import { parseFrontmatter } from "../utils/frontmatter.js";
 import { createSyntheticSourceInfo } from "./source-info.js";
 /**
@@ -99,6 +99,7 @@ function loadTemplateFromFile(filePath, sourceInfo) {
         return {
             name,
             description,
+            ...(frontmatter["argument-hint"] && { argumentHint: frontmatter["argument-hint"] }),
             content: body,
             sourceInfo,
             filePath,
@@ -165,11 +166,11 @@ function resolvePromptPath(p, cwd) {
  * 2. Project: cwd/{CONFIG_DIR_NAME}/prompts/
  * 3. Explicit prompt paths
  */
-export function loadPromptTemplates(options = {}) {
-    const resolvedCwd = options.cwd ?? process.cwd();
-    const resolvedAgentDir = options.agentDir ?? getPromptsDir();
-    const promptPaths = options.promptPaths ?? [];
-    const includeDefaults = options.includeDefaults ?? true;
+export function loadPromptTemplates(options) {
+    const resolvedCwd = options.cwd;
+    const resolvedAgentDir = options.agentDir;
+    const promptPaths = options.promptPaths;
+    const includeDefaults = options.includeDefaults;
     const templates = [];
     const globalPromptsDir = options.agentDir ? join(options.agentDir, "prompts") : resolvedAgentDir;
     const projectPromptsDir = resolve(resolvedCwd, CONFIG_DIR_NAME, "prompts");

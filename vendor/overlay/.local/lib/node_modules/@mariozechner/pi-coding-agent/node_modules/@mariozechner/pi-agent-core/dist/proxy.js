@@ -35,6 +35,20 @@ class ProxyMessageEventStream extends EventStream {
  * });
  * ```
  */
+function buildProxyRequestOptions(options) {
+    return {
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+        reasoning: options.reasoning,
+        cacheRetention: options.cacheRetention,
+        sessionId: options.sessionId,
+        headers: options.headers,
+        metadata: options.metadata,
+        transport: options.transport,
+        thinkingBudgets: options.thinkingBudgets,
+        maxRetryDelayMs: options.maxRetryDelayMs,
+    };
+}
 export function streamProxy(model, context, options) {
     const stream = new ProxyMessageEventStream();
     (async () => {
@@ -75,11 +89,7 @@ export function streamProxy(model, context, options) {
                 body: JSON.stringify({
                     model,
                     context,
-                    options: {
-                        temperature: options.temperature,
-                        maxTokens: options.maxTokens,
-                        reasoning: options.reasoning,
-                    },
+                    options: buildProxyRequestOptions(options),
                 }),
                 signal: options.signal,
             });

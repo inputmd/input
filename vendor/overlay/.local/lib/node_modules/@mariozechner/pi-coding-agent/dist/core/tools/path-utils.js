@@ -7,7 +7,7 @@ function normalizeUnicodeSpaces(str) {
     return str.replace(UNICODE_SPACES, " ");
 }
 function tryMacOSScreenshotPath(filePath) {
-    return filePath.replace(/ (AM|PM)\./g, `${NARROW_NO_BREAK_SPACE}$1.`);
+    return filePath.replace(/ (AM|PM)\./gi, `${NARROW_NO_BREAK_SPACE}$1.`);
 }
 function tryNFDVariant(filePath) {
     // macOS stores filenames in NFD (decomposed) form, try converting user input to NFD

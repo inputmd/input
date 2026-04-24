@@ -1,7 +1,7 @@
 import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
 import { existsSync, readdirSync, statSync } from "fs";
 import nodePath from "path";
+import { Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
 import { resolveToCwd } from "./path-utils.js";
 import { getTextOutput, invalidArgText, shortenPath, str } from "./render-utils.js";
@@ -166,7 +166,4 @@ export function createLsToolDefinition(cwd, options) {
 export function createLsTool(cwd, options) {
     return wrapToolDefinition(createLsToolDefinition(cwd, options));
 }
-/** Default ls tool using process.cwd() for backwards compatibility. */
-export const lsToolDefinition = createLsToolDefinition(process.cwd());
-export const lsTool = createLsTool(process.cwd());
 //# sourceMappingURL=ls.js.map

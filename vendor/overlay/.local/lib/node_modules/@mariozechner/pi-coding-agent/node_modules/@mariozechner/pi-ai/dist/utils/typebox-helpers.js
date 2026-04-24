@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 /**
  * Creates a string enum schema compatible with Google's API and other providers
  * that don't support anyOf/const patterns.

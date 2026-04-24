@@ -1,4 +1,4 @@
-# Keto-Friendly Pi
+# Sugar-free Pi
 
 This overlay contains a vendored `@mariozechner/pi-coding-agent` tree
 with four local modifications to reduce overlay size and keep its cwd in
@@ -7,6 +7,9 @@ sync with the terminal shell.
 ## 1. Recursive import fix
 
 Originally added in commit `c3045492` (`fix: patch @mariozechner/pi-coding-agent to avoid recursive import error`).
+
+Applied by:
+- `scripts/patch_pi_compat.mjs`
 
 Cut point:
 - `vendor/overlay/.local/lib/node_modules/@mariozechner/pi-coding-agent/dist/core/sdk.js`
@@ -24,14 +27,14 @@ Why:
 ## 2. Size trim
 
 Applied by:
-- `scripts/prune_pi_overlay.mjs`
+- `scripts/prune_pi_overlay_providers.mjs`
 
 This phase did **not** rewrite imports in other files. It only removes files and optional package directories that are not required by the runtime path we use in this app.
 
 ## 3. Provider trim
 
 Applied by:
-- `scripts/prune_pi_overlay.mjs`
+- `scripts/prune_pi_overlay_providers.mjs`
 
 Keeps provider families:
 - `anthropic`
@@ -61,7 +64,7 @@ It did **not** rewrite general callsites across the rest of the codebase; most c
 ## 4. Shell cwd sync
 
 Applied by:
-- `scripts/prune_pi_overlay.mjs`
+- `scripts/patch_pi_compat.mjs`
 
 Cut point:
 - `vendor/overlay/.local/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js`
@@ -76,11 +79,3 @@ Why:
 - `pi` binds its built-in `ls`/`bash`/`read` tools to `process.cwd()` at
   startup, so that mismatch made tool calls inspect an empty directory even
   while direct shell commands were in the correct repo
-
-## Reapplying
-
-Run:
-
-```sh
-node scripts/prune_pi_overlay.mjs
-```

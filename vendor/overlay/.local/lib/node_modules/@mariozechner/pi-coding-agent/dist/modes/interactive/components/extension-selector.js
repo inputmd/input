@@ -24,11 +24,11 @@ export class ExtensionSelectorComponent extends Container {
         this.baseTitle = title;
         this.addChild(new DynamicBorder());
         this.addChild(new Spacer(1));
-        this.titleText = new Text(theme.fg("accent", title), 1, 0);
+        this.titleText = new Text(theme.fg("accent", theme.bold(title)), 1, 0);
         this.addChild(this.titleText);
         this.addChild(new Spacer(1));
         if (opts?.timeout && opts.timeout > 0 && opts.tui) {
-            this.countdown = new CountdownTimer(opts.timeout, opts.tui, (s) => this.titleText.setText(theme.fg("accent", `${this.baseTitle} (${s}s)`)), () => this.onCancelCallback());
+            this.countdown = new CountdownTimer(opts.timeout, opts.tui, (s) => this.titleText.setText(theme.fg("accent", theme.bold(`${this.baseTitle} (${s}s)`))), () => this.onCancelCallback());
         }
         this.listContainer = new Container();
         this.addChild(this.listContainer);

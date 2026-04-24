@@ -1,9 +1,9 @@
-import { Container, Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Box, Container, Spacer, Text } from "@mariozechner/pi-tui";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
+import { Type } from "typebox";
 import { renderDiff } from "../../modes/interactive/components/diff.js";
-import { applyEditsToNormalizedContent, detectLineEnding, generateDiffString, normalizeToLF, restoreLineEndings, stripBom, } from "./edit-diff.js";
+import { applyEditsToNormalizedContent, computeEditsDiff, detectLineEnding, generateDiffString, normalizeToLF, restoreLineEndings, stripBom, } from "./edit-diff.js";
 import { withFileMutationQueue } from "./file-mutation-queue.js";
 import { resolveToCwd } from "./path-utils.js";
 import { invalidArgText, shortenPath, str } from "./render-utils.js";
@@ -30,12 +30,22 @@ function prepareEditArguments(input) {
         return input;
     }
     const args = input;
-    if (typeof args.oldText !== "string" || typeof args.newText !== "string") {
-        return input;
+    // Some models (Opus 4.6, GLM-5.1) send edits as a JSON string instead of an array
+    if (typeof args.edits === "string") {
+        try {
+            const parsed = JSON.parse(args.edits);
+            if (Array.isArray(parsed))
+                args.edits = parsed;
+        }
+        catch { }
     }
-    const edits = Array.isArray(args.edits) ? [...args.edits] : [];
-    edits.push({ oldText: args.oldText, newText: args.newText });
-    const { oldText: _oldText, newText: _newText, ...rest } = args;
+    const legacy = args;
+    if (typeof legacy.oldText !== "string" || typeof legacy.newText !== "string") {
+        return args;
+    }
+    const edits = Array.isArray(legacy.edits) ? [...legacy.edits] : [];
+    edits.push({ oldText: legacy.oldText, newText: legacy.newText });
+    const { oldText: _oldText, newText: _newText, ...rest } = legacy;
     return { ...rest, edits };
 }
 function validateEditInput(input) {
@@ -44,6 +54,45 @@ function validateEditInput(input) {
     }
     return { path: input.path, edits: input.edits };
 }
+function createEditCallRenderComponent() {
+    return Object.assign(new Box(1, 1, (text) => text), {
+        preview: undefined,
+        previewArgsKey: undefined,
+        previewPending: false,
+        settledError: false,
+    });
+}
+function getEditCallRenderComponent(state, lastComponent) {
+    if (lastComponent instanceof Box) {
+        const component = lastComponent;
+        state.callComponent = component;
+        return component;
+    }
+    if (state.callComponent) {
+        return state.callComponent;
+    }
+    const component = createEditCallRenderComponent();
+    state.callComponent = component;
+    return component;
+}
+function getRenderablePreviewInput(args) {
+    if (!args) {
+        return null;
+    }
+    const path = typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : null;
+    if (!path) {
+        return null;
+    }
+    if (Array.isArray(args.edits) &&
+        args.edits.length > 0 &&
+        args.edits.every((edit) => typeof edit?.oldText === "string" && typeof edit?.newText === "string")) {
+        return { path, edits: args.edits };
+    }
+    if (typeof args.oldText === "string" && typeof args.newText === "string") {
+        return { path, edits: [{ oldText: args.oldText, newText: args.newText }] };
+    }
+    return null;
+}
 function formatEditCall(args, theme) {
     const invalidArg = invalidArgText(theme);
     const rawPath = str(args?.file_path ?? args?.path);
@@ -51,23 +100,63 @@ function formatEditCall(args, theme) {
     const pathDisplay = path === null ? invalidArg : path ? theme.fg("accent", path) : theme.fg("toolOutput", "...");
     return `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
 }
-function formatEditResult(args, result, theme, isError) {
+function formatEditResult(args, preview, result, theme, isError) {
     const rawPath = str(args?.file_path ?? args?.path);
+    const previewDiff = preview && !("error" in preview) ? preview.diff : undefined;
+    const previewError = preview && "error" in preview ? preview.error : undefined;
     if (isError) {
         const errorText = result.content
             .filter((c) => c.type === "text")
             .map((c) => c.text || "")
             .join("\n");
-        if (!errorText) {
+        if (!errorText || errorText === previewError) {
             return undefined;
         }
-        return `\n${theme.fg("error", errorText)}`;
+        return theme.fg("error", errorText);
     }
     const resultDiff = result.details?.diff;
-    if (!resultDiff) {
-        return undefined;
+    if (resultDiff && resultDiff !== previewDiff) {
+        return renderDiff(resultDiff, { filePath: rawPath ?? undefined });
     }
-    return `\n${renderDiff(resultDiff, { filePath: rawPath ?? undefined })}`;
+    return undefined;
+}
+function getEditHeaderBg(preview, settledError, theme) {
+    if (preview) {
+        if ("error" in preview) {
+            return (text) => theme.bg("toolErrorBg", text);
+        }
+        return (text) => theme.bg("toolSuccessBg", text);
+    }
+    if (settledError) {
+        return (text) => theme.bg("toolErrorBg", text);
+    }
+    return (text) => theme.bg("toolPendingBg", text);
+}
+function buildEditCallComponent(component, args, theme) {
+    component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
+    component.clear();
+    component.addChild(new Text(formatEditCall(args, theme), 0, 0));
+    if (!component.preview) {
+        return component;
+    }
+    const body = "error" in component.preview ? theme.fg("error", component.preview.error) : renderDiff(component.preview.diff);
+    component.addChild(new Spacer(1));
+    component.addChild(new Text(body, 0, 0));
+    return component;
+}
+function setEditPreview(component, preview, argsKey) {
+    const current = component.preview;
+    const changed = current === undefined ||
+        ("error" in current && "error" in preview
+            ? current.error !== preview.error
+            : "error" in current !== "error" in preview) ||
+        (!("error" in current) &&
+            !("error" in preview) &&
+            (current.diff !== preview.diff || current.firstChangedLine !== preview.firstChangedLine));
+    component.preview = preview;
+    component.previewArgsKey = argsKey;
+    component.previewPending = false;
+    return changed;
 }
 export function createEditToolDefinition(cwd, options) {
     const ops = options?.operations ?? defaultEditOperations;
@@ -83,6 +172,7 @@ export function createEditToolDefinition(cwd, options) {
             "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
         ],
         parameters: editSchema,
+        renderShell: "self",
         prepareArguments: prepareEditArguments,
         async execute(_toolCallId, input, signal, _onUpdate, _ctx) {
             const { path, edits } = validateEditInput(input);
@@ -170,27 +260,64 @@ export function createEditToolDefinition(cwd, options) {
             }));
         },
         renderCall(args, theme, context) {
-            const text = context.lastComponent ?? new Text("", 0, 0);
-            text.setText(formatEditCall(args, theme));
-            return text;
+            const component = getEditCallRenderComponent(context.state, context.lastComponent);
+            const previewInput = getRenderablePreviewInput(args);
+            const argsKey = previewInput
+                ? JSON.stringify({ path: previewInput.path, edits: previewInput.edits })
+                : undefined;
+            if (component.previewArgsKey !== argsKey) {
+                component.preview = undefined;
+                component.previewArgsKey = argsKey;
+                component.previewPending = false;
+                component.settledError = false;
+            }
+            if (context.argsComplete && previewInput && !component.preview && !component.previewPending) {
+                component.previewPending = true;
+                const requestKey = argsKey;
+                void computeEditsDiff(previewInput.path, previewInput.edits, context.cwd).then((preview) => {
+                    if (component.previewArgsKey === requestKey) {
+                        setEditPreview(component, preview, requestKey);
+                        context.invalidate();
+                    }
+                });
+            }
+            return buildEditCallComponent(component, args, theme);
         },
         renderResult(result, _options, theme, context) {
-            const output = formatEditResult(context.args, result, theme, context.isError);
+            const callComponent = context.state.callComponent;
+            const previewInput = getRenderablePreviewInput(context.args);
+            const argsKey = previewInput
+                ? JSON.stringify({ path: previewInput.path, edits: previewInput.edits })
+                : undefined;
+            const typedResult = result;
+            const resultDiff = !context.isError ? typedResult.details?.diff : undefined;
+            let changed = false;
+            if (callComponent) {
+                if (typeof resultDiff === "string") {
+                    changed =
+                        setEditPreview(callComponent, { diff: resultDiff, firstChangedLine: typedResult.details?.firstChangedLine }, argsKey) || changed;
+                }
+                if (callComponent.settledError !== context.isError) {
+                    callComponent.settledError = context.isError;
+                    changed = true;
+                }
+                if (changed) {
+                    context.invalidate();
+                }
+            }
+            const output = formatEditResult(context.args, callComponent?.preview, typedResult, theme, context.isError);
+            const component = context.lastComponent ?? new Container();
+            component.clear();
             if (!output) {
-                const component = context.lastComponent ?? new Container();
-                component.clear();
                 return component;
             }
-            const text = context.lastComponent ?? new Text("", 0, 0);
-            text.setText(output);
-            return text;
+            component.addChild(new Spacer(1));
+            component.addChild(new Text(output, 1, 0));
+            return component;
         },
     };
 }
 export function createEditTool(cwd, options) {
     return wrapToolDefinition(createEditToolDefinition(cwd, options));
 }
-/** Default edit tool using process.cwd() for backwards compatibility. */
-export const editToolDefinition = createEditToolDefinition(process.cwd());
-export const editTool = createEditTool(process.cwd());
 //# sourceMappingURL=edit.js.map

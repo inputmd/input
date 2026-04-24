@@ -1,7 +1,7 @@
 import { Container, Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
 import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
+import { Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
 import { getLanguageFromPath, highlightCode } from "../../modes/interactive/theme/theme.js";
 import { withFileMutationQueue } from "./file-mutation-queue.js";
@@ -210,7 +210,4 @@ export function createWriteToolDefinition(cwd, options) {
 export function createWriteTool(cwd, options) {
     return wrapToolDefinition(createWriteToolDefinition(cwd, options));
 }
-/** Default write tool using process.cwd() for backwards compatibility. */
-export const writeToolDefinition = createWriteToolDefinition(process.cwd());
-export const writeTool = createWriteTool(process.cwd());
 //# sourceMappingURL=write.js.map

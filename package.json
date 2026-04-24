@@ -13,7 +13,6 @@
     "lint": "biome check --config-path . src server vite.config.ts",
     "lint:fix": "biome check --config-path . --fix src server vite.config.ts",
     "check:claude-overlay-compat": "node scripts/check-claude-overlay-compat.mjs",
-    "prune:pi-overlay": "node scripts/prune_pi_overlay.mjs",
     "update:claude-vendor": "node scripts/update-claude-vendor.mjs",
     "test": "ava"
   },

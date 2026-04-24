@@ -1,4 +1,4 @@
-import { Container, getKeybindings, Input, matchesKey, Spacer, Text, TruncatedText, truncateToWidth, } from "@mariozechner/pi-tui";
+import { Container, getKeybindings, Input, Spacer, Text, TruncatedText, truncateToWidth, } from "@mariozechner/pi-tui";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyHint, keyText } from "./keybinding-hints.js";
@@ -812,37 +812,37 @@ class TreeList {
                 this.onCancel?.();
             }
         }
-        else if (matchesKey(keyData, "ctrl+d")) {
+        else if (kb.matches(keyData, "app.tree.filter.default")) {
             // Direct filter: default
             this.filterMode = "default";
             this.foldedNodes.clear();
             this.applyFilter();
         }
-        else if (matchesKey(keyData, "ctrl+t")) {
+        else if (kb.matches(keyData, "app.tree.filter.noTools")) {
             // Toggle filter: no-tools ↔ default
             this.filterMode = this.filterMode === "no-tools" ? "default" : "no-tools";
             this.foldedNodes.clear();
             this.applyFilter();
         }
-        else if (matchesKey(keyData, "ctrl+u")) {
+        else if (kb.matches(keyData, "app.tree.filter.userOnly")) {
             // Toggle filter: user-only ↔ default
             this.filterMode = this.filterMode === "user-only" ? "default" : "user-only";
             this.foldedNodes.clear();
             this.applyFilter();
         }
-        else if (matchesKey(keyData, "ctrl+l")) {
+        else if (kb.matches(keyData, "app.tree.filter.labeledOnly")) {
             // Toggle filter: labeled-only ↔ default
             this.filterMode = this.filterMode === "labeled-only" ? "default" : "labeled-only";
             this.foldedNodes.clear();
             this.applyFilter();
         }
-        else if (matchesKey(keyData, "ctrl+a")) {
+        else if (kb.matches(keyData, "app.tree.filter.all")) {
             // Toggle filter: all ↔ default
             this.filterMode = this.filterMode === "all" ? "default" : "all";
             this.foldedNodes.clear();
             this.applyFilter();
         }
-        else if (matchesKey(keyData, "shift+ctrl+o")) {
+        else if (kb.matches(keyData, "app.tree.filter.cycleBackward")) {
             // Cycle filter backwards
             const modes = ["default", "no-tools", "user-only", "labeled-only", "all"];
             const currentIndex = modes.indexOf(this.filterMode);
@@ -850,7 +850,7 @@ class TreeList {
             this.foldedNodes.clear();
             this.applyFilter();
         }
-        else if (matchesKey(keyData, "ctrl+o")) {
+        else if (kb.matches(keyData, "app.tree.filter.cycleForward")) {
             // Cycle filter forwards: default → no-tools → user-only → labeled-only → all → default
             const modes = ["default", "no-tools", "user-only", "labeled-only", "all"];
             const currentIndex = modes.indexOf(this.filterMode);
@@ -1037,7 +1037,15 @@ export class TreeSelectorComponent extends Container {
         this.addChild(new Spacer(1));
         this.addChild(new DynamicBorder());
         this.addChild(new Text(theme.bold("  Session Tree"), 1, 0));
-        this.addChild(new TruncatedText(theme.fg("muted", `  ↑/↓: move. ←/→: page. ^←/^→ or Alt+←/Alt+→: fold/branch. ${keyText("app.tree.editLabel")}: label. ^D/^T/^U/^L/^A: filters (^O/⇧^O cycle). ${keyText("app.tree.toggleLabelTimestamp")}: label time`), 0, 0));
+        const filterKeys = [
+            keyText("app.tree.filter.default"),
+            keyText("app.tree.filter.noTools"),
+            keyText("app.tree.filter.userOnly"),
+            keyText("app.tree.filter.labeledOnly"),
+            keyText("app.tree.filter.all"),
+        ].join("/");
+        const cycleKeys = `${keyText("app.tree.filter.cycleForward")}/${keyText("app.tree.filter.cycleBackward")}`;
+        this.addChild(new TruncatedText(theme.fg("muted", `  ↑/↓: move. ←/→: page. ^←/^→ or Alt+←/Alt+→: fold/branch. ${keyText("app.tree.editLabel")}: label. ${filterKeys}: filters (${cycleKeys} cycle). ${keyText("app.tree.toggleLabelTimestamp")}: label time`), 0, 0));
         this.addChild(new SearchLine(this.treeList));
         this.addChild(new DynamicBorder());
         this.addChild(new Spacer(1));

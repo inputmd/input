@@ -11,26 +11,24 @@ export { createExtensionRuntime, defineTool, discoverAndLoadExtensions, Extensio
 export { convertToLlm } from "./core/messages.js";
 export { ModelRegistry } from "./core/model-registry.js";
 export { DefaultPackageManager } from "./core/package-manager.js";
-export { DefaultResourceLoader } from "./core/resource-loader.js";
+export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.js";
 // SDK for programmatic usage
 export { AgentSessionRuntime, 
 // Factory
 createAgentSession, createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, createBashTool, 
 // Tool factories (for custom cwd)
-createCodingTools, createEditTool, createFindTool, createGrepTool, createLsTool, createReadOnlyTools, createReadTool, createWriteTool, 
-// Pre-built tools (use process.cwd())
-readOnlyTools, } from "./core/sdk.js";
+createCodingTools, createEditTool, createFindTool, createGrepTool, createLsTool, createReadOnlyTools, createReadTool, createWriteTool, } from "./core/sdk.js";
 export { buildSessionContext, CURRENT_SESSION_VERSION, getLatestCompactionEntry, migrateSessionEntries, parseSessionEntries, SessionManager, } from "./core/session-manager.js";
 export { SettingsManager, } from "./core/settings-manager.js";
 // Skills
 export { formatSkillsForPrompt, loadSkills, loadSkillsFromDir, } from "./core/skills.js";
 export { createSyntheticSourceInfo } from "./core/source-info.js";
 // Tools
-export { bashTool, bashToolDefinition, codingTools, createBashToolDefinition, createEditToolDefinition, createFindToolDefinition, createGrepToolDefinition, createLocalBashOperations, createLsToolDefinition, createReadToolDefinition, createWriteToolDefinition, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, editTool, editToolDefinition, findTool, findToolDefinition, formatSize, grepTool, grepToolDefinition, lsTool, lsToolDefinition, readTool, readToolDefinition, truncateHead, truncateLine, truncateTail, withFileMutationQueue, writeTool, writeToolDefinition, } from "./core/tools/index.js";
+export { createBashToolDefinition, createEditToolDefinition, createFindToolDefinition, createGrepToolDefinition, createLocalBashOperations, createLsToolDefinition, createReadToolDefinition, createWriteToolDefinition, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead, truncateLine, truncateTail, withFileMutationQueue, } from "./core/tools/index.js";
 // Main entry point
 export { main } from "./main.js";
 // Run modes for programmatic SDK usage
-export { InteractiveMode, runPrintMode, runRpcMode, } from "./modes/index.js";
+export { InteractiveMode, RpcClient, runPrintMode, runRpcMode, } from "./modes/index.js";
 // UI components for extensions
 export { ArminComponent, AssistantMessageComponent, BashExecutionComponent, BorderedLoader, BranchSummaryMessageComponent, CompactionSummaryMessageComponent, CustomEditor, CustomMessageComponent, DynamicBorder, ExtensionEditorComponent, ExtensionInputComponent, ExtensionSelectorComponent, FooterComponent, keyHint, keyText, LoginDialogComponent, ModelSelectorComponent, OAuthSelectorComponent, rawKeyHint, renderDiff, SessionSelectorComponent, SettingsSelectorComponent, ShowImagesSelectorComponent, SkillInvocationMessageComponent, ThemeSelectorComponent, ThinkingSelectorComponent, ToolExecutionComponent, TreeSelectorComponent, truncateToVisualLines, UserMessageComponent, UserMessageSelectorComponent, } from "./modes/interactive/components/index.js";
 // Theme utilities for custom tools and extensions

@@ -4,7 +4,7 @@
 export { AgentSession, } from "./agent-session.js";
 export { AgentSessionRuntime, createAgentSessionRuntime, } from "./agent-session-runtime.js";
 export { createAgentSessionFromServices, createAgentSessionServices, } from "./agent-session-services.js";
-export { executeBash, executeBashWithOperations } from "./bash-executor.js";
+export { executeBashWithOperations } from "./bash-executor.js";
 export { createEventBus } from "./event-bus.js";
 // Extensions system
 export { defineTool, discoverAndLoadExtensions, ExtensionRunner, } from "./extensions/index.js";

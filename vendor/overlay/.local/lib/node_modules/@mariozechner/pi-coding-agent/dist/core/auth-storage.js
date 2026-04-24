@@ -5,7 +5,7 @@
  * Uses file locking to prevent race conditions when multiple pi instances
  * try to refresh tokens simultaneously.
  */
-import { getEnvApiKey, } from "@mariozechner/pi-ai";
+import { findEnvKeys, getEnvApiKey, } from "@mariozechner/pi-ai";
 import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@mariozechner/pi-ai/oauth";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -279,6 +279,25 @@ export class AuthStorage {
         if (this.fallbackResolver?.(provider))
             return true;
         return false;
+    }
+    /**
+     * Return auth status without exposing credential values or refreshing tokens.
+     */
+    getAuthStatus(provider) {
+        if (this.data[provider]) {
+            return { configured: true, source: "stored" };
+        }
+        if (this.runtimeOverrides.has(provider)) {
+            return { configured: false, source: "runtime", label: "--api-key" };
+        }
+        const envKeys = findEnvKeys(provider);
+        if (envKeys?.[0]) {
+            return { configured: false, source: "environment", label: envKeys[0] };
+        }
+        if (this.fallbackResolver?.(provider)) {
+            return { configured: false, source: "fallback", label: "custom provider config" };
+        }
+        return { configured: false };
     }
     /**
      * Get all credentials (for passing to getOAuthApiKey).

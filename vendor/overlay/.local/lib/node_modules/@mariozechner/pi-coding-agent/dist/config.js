@@ -18,17 +18,17 @@ export function detectInstallMethod() {
     if (isBunBinary) {
         return "bun-binary";
     }
-    const resolvedPath = `${__dirname}\0${process.execPath || ""}`.toLowerCase();
-    if (resolvedPath.includes("/pnpm/") || resolvedPath.includes("/.pnpm/") || resolvedPath.includes("\\pnpm\\")) {
+    const resolvedPath = `${__dirname}\0${process.execPath || ""}`.toLowerCase().replace(/\\/g, "/");
+    if (resolvedPath.includes("/pnpm/") || resolvedPath.includes("/.pnpm/")) {
         return "pnpm";
     }
-    if (resolvedPath.includes("/yarn/") || resolvedPath.includes("/.yarn/") || resolvedPath.includes("\\yarn\\")) {
+    if (resolvedPath.includes("/yarn/") || resolvedPath.includes("/.yarn/")) {
         return "yarn";
     }
     if (isBunRuntime) {
         return "bun";
     }
-    if (resolvedPath.includes("/npm/") || resolvedPath.includes("/node_modules/") || resolvedPath.includes("\\npm\\")) {
+    if (resolvedPath.includes("/npm/") || resolvedPath.includes("/node_modules/")) {
         return "npm";
     }
     return "unknown";
@@ -92,7 +92,7 @@ export function getPackageDir() {
  */
 export function getThemesDir() {
     if (isBunBinary) {
-        return join(dirname(process.execPath), "theme");
+        return join(getPackageDir(), "theme");
     }
     // Theme is in modes/interactive/theme/ relative to src/ or dist/
     const packageDir = getPackageDir();
@@ -107,7 +107,7 @@ export function getThemesDir() {
  */
 export function getExportTemplateDir() {
     if (isBunBinary) {
-        return join(dirname(process.execPath), "export-html");
+        return join(getPackageDir(), "export-html");
     }
     const packageDir = getPackageDir();
     const srcOrDist = existsSync(join(packageDir, "src")) ? "src" : "dist";
@@ -141,7 +141,7 @@ export function getChangelogPath() {
  */
 export function getInteractiveAssetsDir() {
     if (isBunBinary) {
-        return join(dirname(process.execPath), "assets");
+        return join(getPackageDir(), "assets");
     }
     const packageDir = getPackageDir();
     const srcOrDist = existsSync(join(packageDir, "src")) ? "src" : "dist";
@@ -155,7 +155,9 @@ export function getBundledInteractiveAssetPath(name) {
 // App Config (from package.json piConfig)
 // =============================================================================
 const pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8"));
-export const APP_NAME = pkg.piConfig?.name || "pi";
+const piConfigName = pkg.piConfig?.name;
+export const APP_NAME = piConfigName || "pi";
+export const APP_TITLE = piConfigName ? APP_NAME : "π";
 export const CONFIG_DIR_NAME = pkg.piConfig?.configDir || ".pi";
 export const VERSION = pkg.version;
 // e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR

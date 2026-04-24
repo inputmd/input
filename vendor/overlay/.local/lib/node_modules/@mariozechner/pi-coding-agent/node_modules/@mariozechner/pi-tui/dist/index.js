@@ -25,7 +25,7 @@ export { StdinBuffer } from "./stdin-buffer.js";
 // Terminal interface and implementations
 export { ProcessTerminal } from "./terminal.js";
 // Terminal image support
-export { allocateImageId, calculateImageRows, deleteAllKittyImages, deleteKittyImage, detectCapabilities, encodeITerm2, encodeKitty, getCapabilities, getCellDimensions, getGifDimensions, getImageDimensions, getJpegDimensions, getPngDimensions, getWebpDimensions, imageFallback, renderImage, resetCapabilitiesCache, setCellDimensions, } from "./terminal-image.js";
+export { allocateImageId, calculateImageRows, deleteAllKittyImages, deleteKittyImage, detectCapabilities, encodeITerm2, encodeKitty, getCapabilities, getCellDimensions, getGifDimensions, getImageDimensions, getJpegDimensions, getPngDimensions, getWebpDimensions, hyperlink, imageFallback, renderImage, resetCapabilitiesCache, setCapabilities, setCellDimensions, } from "./terminal-image.js";
 export { Container, CURSOR_MARKER, isFocusable, TUI, } from "./tui.js";
 // Utilities
 export { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./utils.js";

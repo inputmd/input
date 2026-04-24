@@ -1,7 +1,7 @@
 import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
+import { Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
 import { getLanguageFromPath, highlightCode } from "../../modes/interactive/theme/theme.js";
 import { formatDimensionNote, resizeImage } from "../../utils/image-resize.js";
@@ -41,6 +41,12 @@ function trimTrailingEmptyLines(lines) {
     }
     return lines.slice(0, end);
 }
+function getNonVisionImageNote(model) {
+    if (!model || model.input.includes("image")) {
+        return undefined;
+    }
+    return "[Current model does not support images. The image will be omitted from this request.]";
+}
 function formatReadResult(args, result, options, theme, showImages) {
     const rawPath = str(args?.file_path ?? args?.path);
     const output = getTextOutput(result, showImages);
@@ -78,7 +84,7 @@ export function createReadToolDefinition(cwd, options) {
         promptSnippet: "Read file contents",
         promptGuidelines: ["Use read to examine files instead of cat or sed."],
         parameters: readSchema,
-        async execute(_toolCallId, { path, offset, limit }, signal, _onUpdate, _ctx) {
+        async execute(_toolCallId, { path, offset, limit }, signal, _onUpdate, ctx) {
             const absolutePath = resolveReadPath(path, cwd);
             return new Promise((resolve, reject) => {
                 if (signal?.aborted) {
@@ -100,6 +106,7 @@ export function createReadToolDefinition(cwd, options) {
                         const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
                         let content;
                         let details;
+                        const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
                         if (mimeType) {
                             // Read image as binary.
                             const buffer = await ops.readFile(absolutePath);
@@ -108,18 +115,18 @@ export function createReadToolDefinition(cwd, options) {
                                 // Resize image if needed before sending it back to the model.
                                 const resized = await resizeImage({ type: "image", data: base64, mimeType });
                                 if (!resized) {
-                                    content = [
-                                        {
-                                            type: "text",
-                                            text: `Read image file [${mimeType}]\n[Image omitted: could not be resized below the inline image size limit.]`,
-                                        },
-                                    ];
+                                    let textNote = `Read image file [${mimeType}]\n[Image omitted: could not be resized below the inline image size limit.]`;
+                                    if (nonVisionImageNote)
+                                        textNote += `\n${nonVisionImageNote}`;
+                                    content = [{ type: "text", text: textNote }];
                                 }
                                 else {
                                     const dimensionNote = formatDimensionNote(resized);
                                     let textNote = `Read image file [${resized.mimeType}]`;
                                     if (dimensionNote)
                                         textNote += `\n${dimensionNote}`;
+                                    if (nonVisionImageNote)
+                                        textNote += `\n${nonVisionImageNote}`;
                                     content = [
                                         { type: "text", text: textNote },
                                         { type: "image", data: resized.data, mimeType: resized.mimeType },
@@ -127,8 +134,11 @@ export function createReadToolDefinition(cwd, options) {
                                 }
                             }
                             else {
+                                let textNote = `Read image file [${mimeType}]`;
+                                if (nonVisionImageNote)
+                                    textNote += `\n${nonVisionImageNote}`;
                                 content = [
-                                    { type: "text", text: `Read image file [${mimeType}]` },
+                                    { type: "text", text: textNote },
                                     { type: "image", data: base64, mimeType },
                                 ];
                             }
@@ -219,7 +229,4 @@ export function createReadToolDefinition(cwd, options) {
 export function createReadTool(cwd, options) {
     return wrapToolDefinition(createReadToolDefinition(cwd, options));
 }
-/** Default read tool using process.cwd() for backwards compatibility. */
-export const readToolDefinition = createReadToolDefinition(process.cwd());
-export const readTool = createReadTool(process.cwd());
 //# sourceMappingURL=read.js.map

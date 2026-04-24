@@ -270,7 +270,7 @@ export async function showDeprecationWarnings(warnings) {
  *
  * @returns Object with migration results and deprecation warnings
  */
-export function runMigrations(cwd = process.cwd()) {
+export function runMigrations(cwd) {
     const migratedAuthProviders = migrateAuthToAuthJson();
     migrateSessionsFromAgentRoot();
     migrateToolsToBin();

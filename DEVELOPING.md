@@ -218,3 +218,17 @@ bypass per-IP rate limits.
 
 `www`, `api`, `app`, `mail`, `ftp`, `admin`, `blog`, `docs`, `status`,
 `cdn`, `staging`, and `dev` are reserved and bypass subdomain routing.
+
+### Upgrading vendored agents
+
+```
+npm install -g --prefix vendor/overlay/.local @mariozechner/pi-coding-agent@latest
+node scripts/prune_pi_overlay_providers.mjs
+node scripts/patch_pi_compat.mjs
+
+# Verify:
+vendor/overlay/.local/bin/pi --version
+npx ava server/__tests__/prune_pi_overlay.test.ts
+npx biome check .
+npx tsc
+```

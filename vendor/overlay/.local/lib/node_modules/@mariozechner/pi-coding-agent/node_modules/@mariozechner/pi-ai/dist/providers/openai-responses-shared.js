@@ -92,14 +92,11 @@ export function convertResponsesMessages(model, context, allowedToolCallProvider
                         image_url: `data:${item.mimeType};base64,${item.data}`,
                     };
                 });
-                const filteredContent = !model.input.includes("image")
-                    ? content.filter((c) => c.type !== "input_image")
-                    : content;
-                if (filteredContent.length === 0)
+                if (content.length === 0)
                     continue;
                 messages.push({
                     role: "user",
-                    content: filteredContent,
+                    content,
                 });
             }
         }
@@ -393,12 +390,22 @@ export async function processResponsesStream(openaiStream, output, stream, model
                 const args = currentBlock?.type === "toolCall" && currentBlock.partialJson
                     ? parseStreamingJson(currentBlock.partialJson)
                     : parseStreamingJson(item.arguments || "{}");
-                const toolCall = {
-                    type: "toolCall",
-                    id: `${item.call_id}|${item.id}`,
-                    name: item.name,
-                    arguments: args,
-                };
+                let toolCall;
+                if (currentBlock?.type === "toolCall") {
+                    // Finalize in-place and strip the scratch buffer so replay only
+                    // carries parsed arguments.
+                    currentBlock.arguments = args;
+                    delete currentBlock.partialJson;
+                    toolCall = currentBlock;
+                }
+                else {
+                    toolCall = {
+                        type: "toolCall",
+                        id: `${item.call_id}|${item.id}`,
+                        name: item.name,
+                        arguments: args,
+                    };
+                }
                 currentBlock = null;
                 stream.push({ type: "toolcall_end", contentIndex: blockIndex(), toolCall, partial: output });
             }
@@ -422,7 +429,9 @@ export async function processResponsesStream(openaiStream, output, stream, model
             }
             calculateCost(model, output.usage);
             if (options?.applyServiceTierPricing) {
-                const serviceTier = response?.service_tier ?? options.serviceTier;
+                const serviceTier = options.resolveServiceTier
+                    ? options.resolveServiceTier(response?.service_tier, options.serviceTier)
+                    : (response?.service_tier ?? options.serviceTier);
                 options.applyServiceTierPricing(output.usage, serviceTier);
             }
             // Map status to stop reason

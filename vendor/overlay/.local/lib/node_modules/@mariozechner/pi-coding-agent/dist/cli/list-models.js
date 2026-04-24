@@ -2,6 +2,8 @@
  * List available models with optional fuzzy search
  */
 import { fuzzyFilter } from "@mariozechner/pi-tui";
+import chalk from "chalk";
+import { formatNoModelsAvailableMessage } from "../core/auth-guidance.js";
 /**
  * Format a number as human-readable (e.g., 200000 -> "200K", 1000000 -> "1M")
  */
@@ -20,9 +22,13 @@ function formatTokenCount(count) {
  * List available models, optionally filtered by search pattern
  */
 export async function listModels(modelRegistry, searchPattern) {
+    const loadError = modelRegistry.getError();
+    if (loadError) {
+        console.error(chalk.yellow(`Warning: errors loading models.json:\n${loadError}`));
+    }
     const models = modelRegistry.getAvailable();
     if (models.length === 0) {
-        console.log("No models available. Set API keys in environment variables.");
+        console.log(formatNoModelsAvailableMessage());
         return;
     }
     // Apply fuzzy filter if search pattern provided

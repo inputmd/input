@@ -1,37 +1,233 @@
-import AjvModule from "ajv";
-import addFormatsModule from "ajv-formats";
-// Handle both default and named exports
-const Ajv = AjvModule.default || AjvModule;
-const addFormats = addFormatsModule.default || addFormatsModule;
-// Detect if we're in a browser extension environment with strict CSP
-// Chrome extensions with Manifest V3 don't allow eval/Function constructor
-const isBrowserExtension = typeof globalThis !== "undefined" && globalThis.chrome?.runtime?.id !== undefined;
-function canUseRuntimeCodegen() {
-    if (isBrowserExtension) {
-        return false;
+import { Compile } from "typebox/compile";
+import { Value } from "typebox/value";
+const validatorCache = new WeakMap();
+const TYPEBOX_KIND = Symbol.for("TypeBox.Kind");
+function isRecord(value) {
+    return typeof value === "object" && value !== null;
+}
+function isJsonSchemaObject(value) {
+    return isRecord(value);
+}
+function hasTypeBoxMetadata(schema) {
+    return isRecord(schema) && Object.getOwnPropertySymbols(schema).includes(TYPEBOX_KIND);
+}
+function getSchemaTypes(schema) {
+    if (typeof schema.type === "string") {
+        return [schema.type];
     }
-    try {
-        new Function("return true;");
-        return true;
+    if (Array.isArray(schema.type)) {
+        return schema.type.filter((type) => typeof type === "string");
     }
-    catch {
-        return false;
+    return [];
+}
+function matchesJsonType(value, type) {
+    switch (type) {
+        case "number":
+            return typeof value === "number";
+        case "integer":
+            return typeof value === "number" && Number.isInteger(value);
+        case "boolean":
+            return typeof value === "boolean";
+        case "string":
+            return typeof value === "string";
+        case "null":
+            return value === null;
+        case "array":
+            return Array.isArray(value);
+        case "object":
+            return isRecord(value) && !Array.isArray(value);
+        default:
+            return false;
     }
 }
-// Create a singleton AJV instance with formats only when runtime code generation is available.
-let ajv = null;
-if (canUseRuntimeCodegen()) {
+function isValidatorSchema(value) {
+    return isRecord(value);
+}
+function getSubSchemaValidator(schema) {
+    if (!isValidatorSchema(schema)) {
+        return undefined;
+    }
     try {
-        ajv = new Ajv({
-            allErrors: true,
-            strict: false,
-            coerceTypes: true,
-        });
-        addFormats(ajv);
+        return getValidator(schema);
     }
-    catch (_e) {
-        console.warn("AJV validation disabled due to CSP restrictions");
+    catch {
+        return undefined;
     }
+}
+function coercePrimitiveByType(value, type) {
+    switch (type) {
+        case "number": {
+            if (value === null) {
+                return 0;
+            }
+            if (typeof value === "string" && value.trim() !== "") {
+                const parsed = Number(value);
+                if (Number.isFinite(parsed)) {
+                    return parsed;
+                }
+            }
+            if (typeof value === "boolean") {
+                return value ? 1 : 0;
+            }
+            return value;
+        }
+        case "integer": {
+            if (value === null) {
+                return 0;
+            }
+            if (typeof value === "string" && value.trim() !== "") {
+                const parsed = Number(value);
+                if (Number.isInteger(parsed)) {
+                    return parsed;
+                }
+            }
+            if (typeof value === "boolean") {
+                return value ? 1 : 0;
+            }
+            return value;
+        }
+        case "boolean": {
+            if (value === null) {
+                return false;
+            }
+            if (typeof value === "string") {
+                if (value === "true") {
+                    return true;
+                }
+                if (value === "false") {
+                    return false;
+                }
+            }
+            if (typeof value === "number") {
+                if (value === 1) {
+                    return true;
+                }
+                if (value === 0) {
+                    return false;
+                }
+            }
+            return value;
+        }
+        case "string": {
+            if (value === null) {
+                return "";
+            }
+            if (typeof value === "number" || typeof value === "boolean") {
+                return String(value);
+            }
+            return value;
+        }
+        case "null": {
+            if (value === "" || value === 0 || value === false) {
+                return null;
+            }
+            return value;
+        }
+        default:
+            return value;
+    }
+}
+function applySchemaObjectCoercion(value, schema) {
+    const properties = schema.properties;
+    const definedKeys = new Set(properties ? Object.keys(properties) : []);
+    if (properties) {
+        for (const [key, propertySchema] of Object.entries(properties)) {
+            if (!(key in value)) {
+                continue;
+            }
+            value[key] = coerceWithJsonSchema(value[key], propertySchema);
+        }
+    }
+    if (schema.additionalProperties && isJsonSchemaObject(schema.additionalProperties)) {
+        for (const [key, propertyValue] of Object.entries(value)) {
+            if (definedKeys.has(key)) {
+                continue;
+            }
+            value[key] = coerceWithJsonSchema(propertyValue, schema.additionalProperties);
+        }
+    }
+}
+function applySchemaArrayCoercion(value, schema) {
+    if (Array.isArray(schema.items)) {
+        for (let index = 0; index < value.length; index++) {
+            const itemSchema = schema.items[index];
+            if (!itemSchema) {
+                continue;
+            }
+            value[index] = coerceWithJsonSchema(value[index], itemSchema);
+        }
+        return;
+    }
+    if (isJsonSchemaObject(schema.items)) {
+        for (let index = 0; index < value.length; index++) {
+            value[index] = coerceWithJsonSchema(value[index], schema.items);
+        }
+    }
+}
+function coerceWithUnionSchema(value, schemas) {
+    for (const schema of schemas) {
+        const candidate = structuredClone(value);
+        const coerced = coerceWithJsonSchema(candidate, schema);
+        const validator = getSubSchemaValidator(schema);
+        if (validator?.Check(coerced)) {
+            return coerced;
+        }
+    }
+    return value;
+}
+function coerceWithJsonSchema(value, schema) {
+    let nextValue = value;
+    if (Array.isArray(schema.allOf)) {
+        for (const nested of schema.allOf) {
+            nextValue = coerceWithJsonSchema(nextValue, nested);
+        }
+    }
+    if (Array.isArray(schema.anyOf)) {
+        nextValue = coerceWithUnionSchema(nextValue, schema.anyOf);
+    }
+    if (Array.isArray(schema.oneOf)) {
+        nextValue = coerceWithUnionSchema(nextValue, schema.oneOf);
+    }
+    const schemaTypes = getSchemaTypes(schema);
+    const matchesUnionMember = schemaTypes.length > 1 && schemaTypes.some((schemaType) => matchesJsonType(nextValue, schemaType));
+    if (schemaTypes.length > 0 && !matchesUnionMember) {
+        for (const schemaType of schemaTypes) {
+            const candidate = coercePrimitiveByType(nextValue, schemaType);
+            if (candidate !== nextValue) {
+                nextValue = candidate;
+                break;
+            }
+        }
+    }
+    if (schemaTypes.includes("object") && isRecord(nextValue) && !Array.isArray(nextValue)) {
+        applySchemaObjectCoercion(nextValue, schema);
+    }
+    if (schemaTypes.includes("array") && Array.isArray(nextValue)) {
+        applySchemaArrayCoercion(nextValue, schema);
+    }
+    return nextValue;
+}
+function getValidator(schema) {
+    const key = schema;
+    const cached = validatorCache.get(key);
+    if (cached) {
+        return cached;
+    }
+    const validator = Compile(schema);
+    validatorCache.set(key, validator);
+    return validator;
+}
+function formatValidationPath(error) {
+    if (error.keyword === "required") {
+        const requiredProperties = error.params.requiredProperties;
+        const requiredProperty = requiredProperties?.[0];
+        if (requiredProperty) {
+            const basePath = error.instancePath.replace(/^\//, "").replace(/\//g, ".");
+            return basePath ? `${basePath}.${requiredProperty}` : requiredProperty;
+        }
+    }
+    const path = error.instancePath.replace(/^\//, "").replace(/\//g, ".");
+    return path || "root";
 }
 /**
  * Finds a tool by name and validates the tool call arguments against its TypeBox schema
@@ -55,24 +251,29 @@ export function validateToolCall(tools, toolCall) {
  * @throws Error with formatted message if validation fails
  */
 export function validateToolArguments(tool, toolCall) {
-    // Skip validation in environments where runtime code generation is unavailable.
-    if (!ajv || !canUseRuntimeCodegen()) {
-        return toolCall.arguments;
-    }
-    // Compile the schema.
-    const validate = ajv.compile(tool.parameters);
-    // Clone arguments so AJV can safely mutate for type coercion
     const args = structuredClone(toolCall.arguments);
-    // Validate the arguments (AJV mutates args in-place for type coercion)
-    if (validate(args)) {
+    Value.Convert(tool.parameters, args);
+    const validator = getValidator(tool.parameters);
+    if (!hasTypeBoxMetadata(tool.parameters) && isJsonSchemaObject(tool.parameters)) {
+        const coerced = coerceWithJsonSchema(args, tool.parameters);
+        if (coerced !== args) {
+            if (isRecord(args) && isRecord(coerced)) {
+                for (const key of Object.keys(args)) {
+                    delete args[key];
+                }
+                Object.assign(args, coerced);
+            }
+            else {
+                return validator.Check(coerced) ? coerced : args;
+            }
+        }
+    }
+    if (validator.Check(args)) {
         return args;
     }
-    // Format validation errors nicely
-    const errors = validate.errors
-        ?.map((err) => {
-        const path = err.instancePath ? err.instancePath.substring(1) : err.params.missingProperty || "root";
-        return `  - ${path}: ${err.message}`;
-    })
+    const errors = validator
+        .Errors(args)
+        .map((error) => `  - ${formatValidationPath(error)}: ${error.message}`)
         .join("\n") || "Unknown validation error";
     const errorMessage = `Validation failed for tool "${toolCall.name}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(toolCall.arguments, null, 2)}`;
     throw new Error(errorMessage);

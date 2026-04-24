@@ -107,7 +107,7 @@ async function walkDirectoryWithFd(baseDir, fdPath, query, maxResults, signal) {
         "f",
         "--type",
         "d",
-        "--full-path",
+        "--follow",
         "--hidden",
         "--exclude",
         ".git",
@@ -116,6 +116,9 @@ async function walkDirectoryWithFd(baseDir, fdPath, query, maxResults, signal) {
         "--exclude",
         ".git/**",
     ];
+    if (toDisplayPath(query).includes("/")) {
+        args.push("--full-path");
+    }
     if (query) {
         args.push(buildFdPathQuery(query));
     }
@@ -177,7 +180,7 @@ export class CombinedAutocompleteProvider {
     commands;
     basePath;
     fdPath;
-    constructor(commands = [], basePath = process.cwd(), fdPath = null) {
+    constructor(commands = [], basePath, fdPath = null) {
         this.commands = commands;
         this.basePath = basePath;
         this.fdPath = fdPath;
@@ -203,11 +206,17 @@ export class CombinedAutocompleteProvider {
             const spaceIndex = textBeforeCursor.indexOf(" ");
             if (spaceIndex === -1) {
                 const prefix = textBeforeCursor.slice(1);
-                const commandItems = this.commands.map((cmd) => ({
-                    name: "name" in cmd ? cmd.name : cmd.value,
-                    label: "name" in cmd ? cmd.name : cmd.label,
-                    description: cmd.description,
-                }));
+                const commandItems = this.commands.map((cmd) => {
+                    const name = "name" in cmd ? cmd.name : cmd.value;
+                    const hint = "argumentHint" in cmd && cmd.argumentHint ? cmd.argumentHint : undefined;
+                    const desc = cmd.description ?? "";
+                    const fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
+                    return {
+                        name,
+                        label: name,
+                        description: fullDesc || undefined,
+                    };
+                });
                 const filtered = fuzzyFilter(commandItems, prefix, (item) => item.name).map((item) => ({
                     value: item.name,
                     label: item.label,

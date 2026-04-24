@@ -12,6 +12,7 @@
  */
 import * as crypto from "node:crypto";
 import { takeOverStdout, writeRawStdout } from "../../core/output-guard.js";
+import { killTrackedDetachedChildren } from "../../utils/shell.js";
 import { theme } from "../interactive/theme/theme.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 /**
@@ -38,6 +39,8 @@ export async function runRpcMode(runtimeHost) {
     const pendingExtensionRequests = new Map();
     // Shutdown request flag
     let shutdownRequested = false;
+    let shuttingDown = false;
+    const signalCleanupHandlers = [];
     /** Helper for dialog methods with signal/timeout support */
     function createDialogPromise(opts, defaultValue, request, parseResponse) {
         if (opts?.signal?.aborted)
@@ -105,6 +108,9 @@ export async function runRpcMode(runtimeHost) {
         },
         setWorkingMessage(_message) {
             // Working message not supported in RPC mode - requires TUI loader access
+        },
+        setWorkingIndicator(_options) {
+            // Working indicator customization not supported in RPC mode - requires TUI loader access
         },
         setHiddenThinkingLabel(_label) {
             // Hidden thinking label not supported in RPC mode - requires TUI message rendering access
@@ -180,6 +186,9 @@ export async function runRpcMode(runtimeHost) {
                 output({ type: "extension_ui_request", id, method: "editor", title, prefill });
             });
         },
+        addAutocompleteProvider() {
+            // Autocomplete provider composition is not supported in RPC mode
+        },
         setEditorComponent() {
             // Custom editor components not supported in RPC mode
         },
@@ -204,24 +213,18 @@ export async function runRpcMode(runtimeHost) {
             // Tool expansion not supported in RPC mode - no TUI
         },
     });
+    runtimeHost.setRebindSession(async () => {
+        await rebindSession();
+    });
     const rebindSession = async () => {
         session = runtimeHost.session;
         await session.bindExtensions({
             uiContext: createExtensionUIContext(),
             commandContextActions: {
                 waitForIdle: () => session.agent.waitForIdle(),
-                newSession: async (options) => {
-                    const result = await runtimeHost.newSession(options);
-                    if (!result.cancelled) {
-                        await rebindSession();
-                    }
-                    return result;
-                },
-                fork: async (entryId) => {
-                    const result = await runtimeHost.fork(entryId);
-                    if (!result.cancelled) {
-                        await rebindSession();
-                    }
+                newSession: async (options) => runtimeHost.newSession(options),
+                fork: async (entryId, forkOptions) => {
+                    const result = await runtimeHost.fork(entryId, forkOptions);
                     return { cancelled: result.cancelled };
                 },
                 navigateTree: async (targetId, options) => {
@@ -233,12 +236,8 @@ export async function runRpcMode(runtimeHost) {
                     });
                     return { cancelled: result.cancelled };
                 },
-                switchSession: async (sessionPath) => {
-                    const result = await runtimeHost.switchSession(sessionPath);
-                    if (!result.cancelled) {
-                        await rebindSession();
-                    }
-                    return result;
+                switchSession: async (sessionPath, options) => {
+                    return runtimeHost.switchSession(sessionPath, options);
                 },
                 reload: async () => {
                     await session.reload();
@@ -256,7 +255,22 @@ export async function runRpcMode(runtimeHost) {
             output(event);
         });
     };
+    const registerSignalHandlers = () => {
+        const signals = ["SIGTERM"];
+        if (process.platform !== "win32") {
+            signals.push("SIGHUP");
+        }
+        for (const signal of signals) {
+            const handler = () => {
+                killTrackedDetachedChildren();
+                void shutdown(signal === "SIGHUP" ? 129 : 143);
+            };
+            process.on(signal, handler);
+            signalCleanupHandlers.push(() => process.off(signal, handler));
+        }
+    };
     await rebindSession();
+    registerSignalHandlers();
     // Handle a single command
     const handleCommand = async (command) => {
         const id = command.id;
@@ -265,17 +279,27 @@ export async function runRpcMode(runtimeHost) {
             // Prompting
             // =================================================================
             case "prompt": {
-                // Don't await - events will stream
-                // Extension commands are executed immediately, file prompt templates are expanded
-                // If streaming and streamingBehavior specified, queues via steer/followUp
-                session
+                // Start prompt handling immediately, but emit the authoritative response only after
+                // prompt preflight succeeds. Queued and immediately handled prompts also count as success.
+                let preflightSucceeded = false;
+                void session
                     .prompt(command.message, {
                     images: command.images,
                     streamingBehavior: command.streamingBehavior,
                     source: "rpc",
+                    preflightResult: (didSucceed) => {
+                        if (didSucceed) {
+                            preflightSucceeded = true;
+                            output(success(id, "prompt"));
+                        }
+                    },
                 })
-                    .catch((e) => output(error(id, "prompt", e.message)));
-                return success(id, "prompt");
+                    .catch((e) => {
+                    if (!preflightSucceeded) {
+                        output(error(id, "prompt", e.message));
+                    }
+                });
+                return undefined;
             }
             case "steer": {
                 await session.steer(command.message, command.images);
@@ -423,6 +447,17 @@ export async function runRpcMode(runtimeHost) {
                 }
                 return success(id, "fork", { text: result.selectedText, cancelled: result.cancelled });
             }
+            case "clone": {
+                const leafId = session.sessionManager.getLeafId();
+                if (!leafId) {
+                    return error(id, "clone", "Cannot clone session: no current entry selected");
+                }
+                const result = await runtimeHost.fork(leafId, { position: "at" });
+                if (!result.cancelled) {
+                    await rebindSession();
+                }
+                return success(id, "clone", { cancelled: result.cancelled });
+            }
             case "get_fork_messages": {
                 const messages = session.getUserMessagesForForking();
                 return success(id, "get_fork_messages", { messages });
@@ -450,7 +485,7 @@ export async function runRpcMode(runtimeHost) {
             // =================================================================
             case "get_commands": {
                 const commands = [];
-                for (const command of session.extensionRunner?.getRegisteredCommands() ?? []) {
+                for (const command of session.extensionRunner.getRegisteredCommands()) {
                     commands.push({
                         name: command.invocationName,
                         description: command.description,
@@ -487,12 +522,19 @@ export async function runRpcMode(runtimeHost) {
      * Called after handling each command when waiting for the next command.
      */
     let detachInput = () => { };
-    async function shutdown() {
+    async function shutdown(exitCode = 0) {
+        if (shuttingDown) {
+            process.exit(exitCode);
+        }
+        shuttingDown = true;
+        for (const cleanup of signalCleanupHandlers) {
+            cleanup();
+        }
         unsubscribe?.();
         await runtimeHost.dispose();
         detachInput();
         process.stdin.pause();
-        process.exit(0);
+        process.exit(exitCode);
     }
     async function checkShutdownRequested() {
         if (!shutdownRequested)
@@ -524,7 +566,9 @@ export async function runRpcMode(runtimeHost) {
         const command = parsed;
         try {
             const response = await handleCommand(command);
-            output(response);
+            if (response) {
+                output(response);
+            }
             await checkShutdownRequested();
         }
         catch (commandError) {

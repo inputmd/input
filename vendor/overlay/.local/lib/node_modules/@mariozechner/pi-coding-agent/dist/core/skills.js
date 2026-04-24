@@ -305,8 +305,8 @@ function resolveSkillPath(p, cwd) {
  * Load skills from all configured locations.
  * Returns skills and any validation diagnostics.
  */
-export function loadSkills(options = {}) {
-    const { cwd = process.cwd(), agentDir, skillPaths = [], includeDefaults = true } = options;
+export function loadSkills(options) {
+    const { cwd, agentDir, skillPaths, includeDefaults } = options;
     // Resolve agentDir - if not provided, use default from config
     const resolvedAgentDir = agentDir ?? getAgentDir();
     const skillMap = new Map();

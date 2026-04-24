@@ -224,12 +224,12 @@ export const streamSimpleGoogle = (model, context, options) => {
     }
     const effort = clampReasoning(options.reasoning);
     const googleModel = model;
-    if (isGemini3ProModel(googleModel) || isGemini3FlashModel(googleModel)) {
+    if (isGemini3ProModel(googleModel) || isGemini3FlashModel(googleModel) || isGemma4Model(googleModel)) {
         return streamGoogle(model, context, {
             ...base,
             thinking: {
                 enabled: true,
-                level: getGemini3ThinkingLevel(effort, googleModel),
+                level: getThinkingLevel(effort, googleModel),
             },
         });
     }
@@ -306,6 +306,9 @@ function buildParams(model, context, options = {}) {
     };
     return params;
 }
+function isGemma4Model(model) {
+    return /gemma-?4/.test(model.id.toLowerCase());
+}
 function isGemini3ProModel(model) {
     return /gemini-3(?:\.\d+)?-pro/.test(model.id.toLowerCase());
 }
@@ -322,15 +325,28 @@ function getDisabledThinkingConfig(model) {
     if (isGemini3FlashModel(model)) {
         return { thinkingLevel: "MINIMAL" };
     }
+    if (isGemma4Model(model)) {
+        return { thinkingLevel: "MINIMAL" };
+    }
     // Gemini 2.x supports disabling via thinkingBudget = 0.
     return { thinkingBudget: 0 };
 }
-function getGemini3ThinkingLevel(effort, model) {
+function getThinkingLevel(effort, model) {
     if (isGemini3ProModel(model)) {
         switch (effort) {
             case "minimal":
             case "low":
                 return "LOW";
+            case "medium":
+            case "high":
+                return "HIGH";
+        }
+    }
+    if (isGemma4Model(model)) {
+        switch (effort) {
+            case "minimal":
+            case "low":
+                return "MINIMAL";
             case "medium":
             case "high":
                 return "HIGH";
@@ -357,6 +373,15 @@ function getGoogleBudget(model, effort, customBudgets) {
             low: 2048,
             medium: 8192,
             high: 32768,
+        };
+        return budgets[effort];
+    }
+    if (model.id.includes("2.5-flash-lite")) {
+        const budgets = {
+            minimal: 512,
+            low: 2048,
+            medium: 8192,
+            high: 24576,
         };
         return budgets[effort];
     }

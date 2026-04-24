@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-process.title = "pi";
+import { APP_NAME } from "../config.js";
+process.title = APP_NAME;
 process.emitWarning = (() => { });
 await import("./register-bedrock.js");
 await import("../cli.js");
-export {};
 //# sourceMappingURL=cli.js.map

@@ -3,13 +3,13 @@ import { createWriteStream, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Container, Text, truncateToWidth } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
 import { spawn } from "child_process";
+import { Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
 import { truncateToVisualLines } from "../../modes/interactive/components/visual-truncate.js";
 import { theme } from "../../modes/interactive/theme/theme.js";
 import { waitForChildProcess } from "../../utils/child-process.js";
-import { getShellConfig, getShellEnv, killProcessTree } from "../../utils/shell.js";
+import { getShellConfig, getShellEnv, killProcessTree, trackDetachedChildPid, untrackDetachedChildPid, } from "../../utils/shell.js";
 import { getTextOutput, invalidArgText, str } from "./render-utils.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateTail } from "./truncate.js";
@@ -30,11 +30,11 @@ const bashSchema = Type.Object({
  * This is useful for extensions that intercept user_bash and still want pi's
  * standard local shell behavior while wrapping or rewriting commands.
  */
-export function createLocalBashOperations() {
+export function createLocalBashOperations(options) {
     return {
         exec: (command, cwd, { onData, signal, timeout, env }) => {
             return new Promise((resolve, reject) => {
-                const { shell, args } = getShellConfig();
+                const { shell, args } = getShellConfig(options?.shellPath);
                 if (!existsSync(cwd)) {
                     reject(new Error(`Working directory does not exist: ${cwd}\nCannot execute bash commands.`));
                     return;
@@ -45,6 +45,8 @@ export function createLocalBashOperations() {
                     env: env ?? getShellEnv(),
                     stdio: ["ignore", "pipe", "pipe"],
                 });
+                if (child.pid)
+                    trackDetachedChildPid(child.pid);
                 let timedOut = false;
                 let timeoutHandle;
                 // Set timeout if provided.
@@ -73,6 +75,8 @@ export function createLocalBashOperations() {
                 // on inherited stdio handles held by detached descendants.
                 waitForChildProcess(child)
                     .then((code) => {
+                    if (child.pid)
+                        untrackDetachedChildPid(child.pid);
                     if (timeoutHandle)
                         clearTimeout(timeoutHandle);
                     if (signal)
@@ -88,6 +92,8 @@ export function createLocalBashOperations() {
                     resolve({ exitCode: code });
                 })
                     .catch((err) => {
+                    if (child.pid)
+                        untrackDetachedChildPid(child.pid);
                     if (timeoutHandle)
                         clearTimeout(timeoutHandle);
                     if (signal)
@@ -180,7 +186,7 @@ function rebuildBashResultRenderComponent(component, result, options, showImages
     }
 }
 export function createBashToolDefinition(cwd, options) {
-    const ops = options?.operations ?? createLocalBashOperations();
+    const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
     const commandPrefix = options?.commandPrefix;
     const spawnHook = options?.spawnHook;
     return {
@@ -346,7 +352,4 @@ export function createBashToolDefinition(cwd, options) {
 export function createBashTool(cwd, options) {
     return wrapToolDefinition(createBashToolDefinition(cwd, options));
 }
-/** Default bash tool using process.cwd() for backwards compatibility. */
-export const bashToolDefinition = createBashToolDefinition(process.cwd());
-export const bashTool = createBashTool(process.cwd());
 //# sourceMappingURL=bash.js.map

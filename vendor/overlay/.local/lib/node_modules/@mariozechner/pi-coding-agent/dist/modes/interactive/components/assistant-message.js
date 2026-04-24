@@ -1,5 +1,8 @@
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
+const OSC133_ZONE_START = "\x1b]133;A\x07";
+const OSC133_ZONE_END = "\x1b]133;B\x07";
+const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 /**
  * Component that renders a complete assistant message
  */
@@ -9,6 +12,7 @@ export class AssistantMessageComponent extends Container {
     markdownTheme;
     hiddenThinkingLabel;
     lastMessage;
+    hasToolCalls = false;
     constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = "Thinking...") {
         super();
         this.hideThinkingBlock = hideThinkingBlock;
@@ -38,6 +42,15 @@ export class AssistantMessageComponent extends Container {
         if (this.lastMessage) {
             this.updateContent(this.lastMessage);
         }
+    }
+    render(width) {
+        const lines = super.render(width);
+        if (this.hasToolCalls || lines.length === 0) {
+            return lines;
+        }
+        lines[0] = OSC133_ZONE_START + lines[0];
+        lines[lines.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + lines[lines.length - 1];
+        return lines;
     }
     updateContent(message) {
         this.lastMessage = message;
@@ -83,6 +96,7 @@ export class AssistantMessageComponent extends Container {
         // Check if aborted - show after partial content
         // But only if there are no tool calls (tool execution components will show the error)
         const hasToolCalls = message.content.some((c) => c.type === "toolCall");
+        this.hasToolCalls = hasToolCalls;
         if (!hasToolCalls) {
             if (message.stopReason === "aborted") {
                 const abortMessage = message.errorMessage && message.errorMessage !== "Request was aborted"

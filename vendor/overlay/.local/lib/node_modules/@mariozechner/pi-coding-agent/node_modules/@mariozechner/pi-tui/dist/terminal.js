@@ -4,6 +4,9 @@ import * as path from "node:path";
 import { setKittyProtocolActive } from "./keys.js";
 import { StdinBuffer } from "./stdin-buffer.js";
 const cjsRequire = createRequire(import.meta.url);
+const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
+const TERMINAL_PROGRESS_ACTIVE_SEQUENCE = "\x1b]9;4;3\x07";
+const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\x1b]9;4;0;\x07";
 /**
  * Real terminal using process.stdin/stdout
  */
@@ -15,6 +18,7 @@ export class ProcessTerminal {
     _modifyOtherKeysActive = false;
     stdinBuffer;
     stdinDataHandler;
+    progressInterval;
     writeLogPath = (() => {
         const env = process.env.PI_TUI_WRITE_LOG || "";
         if (!env)
@@ -198,6 +202,9 @@ export class ProcessTerminal {
         }
     }
     stop() {
+        if (this.clearProgressInterval()) {
+            process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
+        }
         // Disable bracketed paste mode
         process.stdout.write("\x1b[?2004l");
         // Disable Kitty keyboard protocol if not already done by drainInput()
@@ -280,6 +287,29 @@ export class ProcessTerminal {
     setTitle(title) {
         // OSC 0;title BEL - set terminal window title
         process.stdout.write(`\x1b]0;${title}\x07`);
+    }
+    setProgress(active) {
+        if (active) {
+            // OSC 9;4;3 - indeterminate progress
+            process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
+            if (!this.progressInterval) {
+                this.progressInterval = setInterval(() => {
+                    process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
+                }, TERMINAL_PROGRESS_KEEPALIVE_MS);
+            }
+        }
+        else {
+            this.clearProgressInterval();
+            // OSC 9;4;0 - clear progress
+            process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
+        }
+    }
+    clearProgressInterval() {
+        if (!this.progressInterval)
+            return false;
+        clearInterval(this.progressInterval);
+        this.progressInterval = undefined;
+        return true;
     }
 }
 //# sourceMappingURL=terminal.js.map
