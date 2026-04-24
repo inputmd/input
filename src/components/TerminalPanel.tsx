@@ -1804,6 +1804,43 @@ export function TerminalPanel({
         const homeDirPromise = bootPerf.measure('resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc));
         homeDirPromise.catch(() => {});
 
+        // Kick off the host bridge in parallel with home setup. It only needs
+        // `wc` and runs a separate daemon process, so it doesn't race with the
+        // overlay or persisted-home writes. Shell spawn waits on it below.
+        const hostBridgePromise: Promise<void> = enableNetworkingBridge
+          ? (async () => {
+              writeTerminal(logPaneId, 'Starting networking...\r\n', { forceFollow: true });
+              try {
+                hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
+                  startWebContainerHostBridge({
+                    onLog(message) {
+                      console.error(message);
+                      try {
+                        writeTerminal(logPaneId, `${message}\r\n`);
+                      } catch {
+                        // ignore
+                      }
+                    },
+                    wc,
+                  }),
+                );
+                setHostBridgeError(false);
+              } catch (err) {
+                console.error('[terminal] failed to start host bridge', err);
+                writeTerminal(
+                  logPaneId,
+                  `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
+                  { forceFollow: true },
+                );
+                setHostBridgeError(true);
+              }
+            })()
+          : (async () => {
+              setHostBridgeError(false);
+              writeTerminal(logPaneId, 'Terminal networking disabled.\r\n', { forceFollow: true });
+            })();
+        hostBridgePromise.catch(() => {});
+
         writeTerminal(logPaneId, 'Mounting binaries and restoring config files...\r\n', { forceFollow: true });
 
         const overlayPromise = (async () => {
@@ -1861,36 +1898,9 @@ export function TerminalPanel({
           writeTerminal(logPaneId, 'Credential sync disabled.\r\n', { forceFollow: true });
         }
 
-        if (enableNetworkingBridge) {
-          try {
-            writeTerminal(logPaneId, 'Starting networking...\r\n', { forceFollow: true });
-            hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
-              startWebContainerHostBridge({
-                onLog(message) {
-                  console.error(message);
-                  try {
-                    writeTerminal(logPaneId, `${message}\r\n`);
-                  } catch {
-                    // ignore
-                  }
-                },
-                wc,
-              }),
-            );
-            setHostBridgeError(false);
-          } catch (err) {
-            console.error('[terminal] failed to start host bridge', err);
-            writeTerminal(
-              logPaneId,
-              `[terminal] failed to start host bridge: ${err instanceof Error ? err.message : String(err)}\r\n`,
-              { forceFollow: true },
-            );
-            setHostBridgeError(true);
-          }
-        } else {
-          setHostBridgeError(false);
-          writeTerminal(logPaneId, 'Terminal networking disabled.\r\n', { forceFollow: true });
-        }
+        // Shell spawn depends on hostBridgeRef.current?.env; wait for the
+        // parallel host-bridge setup to settle before continuing.
+        await hostBridgePromise;
 
         await bootPerf.measure(
           'spawnShellSessions',
