@@ -434,12 +434,41 @@ test('parseMarkdownToHtml renders role labels and collapsed assistant paragraph 
     const answer = template.content.querySelector<HTMLElement>('li.prompt-answer');
 
     t.is(question?.querySelector('.prompt-message-label')?.textContent, 'user: ');
-    t.is(question?.querySelector('.prompt-answer-summary-line')?.textContent, 'First question line.');
-    t.is(question?.querySelector('.prompt-answer-summary-continuation')?.textContent, '[1 more paragraph]');
+    t.truthy(question?.querySelector('.prompt-answer-summary--user'));
+    t.is(
+      question?.querySelector('.prompt-answer-summary-line')?.textContent,
+      'First question line. Second question paragraph.',
+    );
+    t.falsy(question?.querySelector('.prompt-answer-summary-continuation'));
     t.is(answer?.querySelector('.prompt-answer-summary .prompt-message-label')?.textContent, 'assistant: ');
     t.is(answer?.querySelector('.prompt-answer-summary-line')?.textContent, 'First line.');
     t.is(answer?.querySelector('.prompt-answer-summary-continuation')?.textContent, '[3 more paragraphs]');
     t.truthy(answer?.querySelector('.prompt-answer-summary-text'));
+  });
+});
+
+test('parseMarkdownToHtml renders up to three collapsed user message lines', (t) => {
+  withDom(() => {
+    const html = parseMarkdownToHtml(
+      [
+        '~ First question line.',
+        '  ',
+        '  Second question paragraph.',
+        '  ',
+        '  Third question paragraph.',
+        '  ',
+        '  Fourth question paragraph.',
+        '⏺ Answer.',
+      ].join('\n'),
+    );
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const question = template.content.querySelector<HTMLElement>('li.prompt-question');
+    const summaryLine = question?.querySelector('.prompt-answer-summary-line');
+
+    t.is(summaryLine?.textContent, 'First question line. Second question paragraph. Third question paragraph.');
+    t.false(summaryLine?.textContent?.includes('Fourth question paragraph.'));
+    t.is(question?.querySelector('.prompt-answer-summary-continuation')?.textContent, '[1 more paragraph]');
   });
 });
 
@@ -474,13 +503,21 @@ test('parseMarkdownToHtml counts collapsed assistant markdown block groups as pa
   });
 });
 
-test('parseMarkdownToHtml only marks prompt-list trees as branched when the topology branches', (t) => {
+test('parseMarkdownToHtml renders branch topology as indented branch sets', (t) => {
   withDom(() => {
     const linear = parseMarkdownToHtml(['~ one', '⏺ answer', '~ two', '⏺ next'].join('\n'));
     const branched = parseMarkdownToHtml(['~ root', '  ⏺ branch answer', '⏺ root answer'].join('\n'));
+    const staggered = parseMarkdownToHtml(
+      ['~ root', '    ⏺ doubly indented answer', '  ⏺ singly indented answer', '⏺ unindented answer'].join('\n'),
+    );
 
     t.false(linear.includes('prompt-list-tree--branched'));
-    t.true(branched.includes('class="prompt-list prompt-list-tree prompt-list-tree--branched"'));
+    t.true(branched.includes('class="prompt-list prompt-list-tree"'));
+    t.false(branched.includes('class="prompt-list prompt-list-tree prompt-list-tree--branched"'));
+    t.true(branched.includes('<li class="prompt-list-branch-set">'));
+    t.true(branched.includes('class="prompt-list-tree prompt-list-tree--branched"'));
+    t.is((branched.match(/class="prompt-answer prompt-list-branch-start"/g) ?? []).length, 2);
+    t.is((staggered.match(/class="prompt-answer prompt-list-branch-start"/g) ?? []).length, 3);
   });
 });
 
@@ -588,7 +625,14 @@ test('prompt-list collapsed assistant styles do not shrink messages with font or
     ),
   );
   t.true(css.includes('.rendered-markdown .prompt-answer-summary-text'));
+  t.true(css.includes('.rendered-markdown .prompt-answer-summary--user'));
+  t.true(css.includes('-webkit-line-clamp: 3;'));
   t.true(css.includes('flex: none'));
+  t.false(css.includes('.rendered-markdown :is(li.prompt-question, li.prompt-continue)::before'));
+  t.true(css.includes('.rendered-markdown .prompt-list-branch-start::before'));
+  t.true(css.includes('.rendered-markdown li.prompt-list-branch-set'));
+  t.false(css.includes('.rendered-markdown li.prompt-list-branch::before'));
+  t.true(css.includes('left: calc(var(--prompt-list-indent-step) + var(--prompt-list-guide-offset) - 1px);'));
   t.false(css.includes('[data-theme="light"] .rendered-markdown li.prompt-answer'));
   t.false(css.includes('[data-theme="dark"] .rendered-markdown li.prompt-answer'));
   t.true(css.includes('.rendered-markdown .prompt-list-tree--branched::before'));

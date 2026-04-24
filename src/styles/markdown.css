@@ -347,7 +347,7 @@
   position: absolute;
   top: calc(var(--prompt-list-rail-center-y) - 3px);
   bottom: var(--prompt-list-guide-end-gap);
-  left: calc(var(--prompt-list-guide-offset) - 1px);
+  left: calc(var(--prompt-list-indent-step) + var(--prompt-list-guide-offset) - 1px);
   width: 1px;
   background: var(--prompt-list-guide-color);
 }
@@ -362,14 +362,11 @@
   padding-left: var(--prompt-list-indent-step);
 }
 
-.rendered-markdown li.prompt-list-branch::before {
-  content: "";
-  position: absolute;
-  top: calc(var(--prompt-list-rail-center-y) - 4px);
-  left: calc(var(--prompt-list-guide-offset));
-  width: var(--prompt-list-indent-step);
-  height: 1px;
-  background: var(--prompt-list-guide-color);
+.rendered-markdown li.prompt-list-branch-set {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .rendered-markdown li.prompt-list-branch > ul {
@@ -416,7 +413,7 @@
   opacity: 0.96;
 }
 
-.rendered-markdown :is(li.prompt-question, li.prompt-continue)::before {
+.rendered-markdown .prompt-list-branch-start::before {
   content: "";
   position: absolute;
   top: calc(var(--prompt-list-node-center-y) - 3px);
@@ -427,20 +424,6 @@
   border-radius: 1px;
   background: var(--prompt-list-guide-color);
   transform: translate(-50%, -50%);
-}
-
-.rendered-markdown .prompt-list-tree--branched > :is(li.prompt-question, li.prompt-continue):last-child::before {
-  top: calc(var(--prompt-list-node-center-y));
-}
-
-.rendered-markdown .prompt-list-tree--branched > :is(li.prompt-question, li.prompt-continue):last-child::after {
-  content: "";
-  position: absolute;
-  top: calc(var(--prompt-list-rail-center-y) + 1px);
-  left: calc((var(--prompt-list-tree-gutter) * -1) + var(--prompt-list-guide-offset) - 1px);
-  width: 2px;
-  height: calc(100% - var(--prompt-list-rail-center-y) + var(--prompt-list-guide-end-gap));
-  background: var(--bg);
 }
 
 [data-theme="light"] .rendered-markdown li.prompt-question {
@@ -574,6 +557,24 @@
 .rendered-markdown .prompt-answer-summary-continuation {
   flex: none;
   color: color-mix(in srgb, var(--text-secondary) 64%, transparent);
+}
+
+.rendered-markdown .prompt-answer-summary--user {
+  display: block;
+  white-space: normal;
+}
+
+.rendered-markdown .prompt-answer-summary--user .prompt-answer-summary-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  text-overflow: clip;
+  white-space: pre-line;
+}
+
+.rendered-markdown .prompt-answer-summary--user .prompt-answer-summary-continuation {
+  display: block;
+  margin-top: 2px;
 }
 
 .rendered-markdown .prompt-message-label {

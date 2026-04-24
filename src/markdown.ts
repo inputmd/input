@@ -31,28 +31,21 @@ interface PromptListToken extends Tokens.Generic {
     className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
     sourceText: string;
     depth: number;
+    indentWidth: number;
     renderAsBlock: boolean;
     tokens: Token[];
   }>;
 }
 
-type PromptListRenderNode =
-  | {
-      type: 'item';
-      className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
-      contentHtml: string;
-      itemIndex: number;
-      blockCount: number;
-      sourceText: string;
-    }
-  | {
-      type: 'continue';
-      afterItemIndex: number;
-    }
-  | {
-      type: 'branch';
-      children: PromptListRenderNode[];
-    };
+interface PromptListRenderNode {
+  className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
+  contentHtml: string;
+  depth: number;
+  itemIndex: number;
+  blockCount: number;
+  sourceText: string;
+  children: PromptListRenderNode[];
+}
 
 interface CriticMarkupToken extends Tokens.Generic {
   type: 'criticMarkup';
@@ -367,6 +360,7 @@ marked.use({
                   : 'prompt-comment',
             sourceText: content,
             depth: depths[index] ?? 0,
+            indentWidth: countIndent(item.match.indent),
             renderAsBlock,
             tokens,
           });
@@ -396,7 +390,7 @@ marked.use({
             return {
               className: item.className,
               contentHtml,
-              depth: item.depth,
+              depth: item.indentWidth,
               itemIndex,
               blockCount: item.renderAsBlock
                 ? countPromptListSummaryBlocks(item.tokens)
@@ -416,7 +410,6 @@ marked.use({
         const duplicateIndex = promptListConversationDuplicateCounts.get(promptHash) ?? 0;
         promptListConversationDuplicateCounts.set(promptHash, duplicateIndex + 1);
         const promptListId = `${promptHash}-${duplicateIndex}`;
-        appendPromptListContinueNodes(promptListTree);
         const itemsHtml = renderPromptListTree(promptListTree, promptListId);
         if (itemCount <= 1) {
           return `<ul class="${promptListTreeClassName(promptListTree, true)}" data-prompt-list-id="${promptListId}">${itemsHtml}</ul>`;
@@ -923,48 +916,45 @@ function buildPromptListTree(
   }>,
 ): PromptListRenderNode[] {
   const root: PromptListRenderNode[] = [];
-  const stack: PromptListRenderNode[][] = [root];
+  const depthSlots: Array<PromptListRenderNode | undefined> = [];
+  let previous: PromptListRenderNode | undefined;
 
   for (const item of items) {
-    while (stack.length - 1 > item.depth) stack.pop();
-    while (stack.length - 1 < item.depth) {
-      const branch: PromptListRenderNode = { type: 'branch', children: [] };
-      stack[stack.length - 1].push(branch);
-      stack.push(branch.children);
-    }
-
-    stack[stack.length - 1].push({
-      type: 'item',
+    const node: PromptListRenderNode = {
       className: item.className,
       contentHtml: item.contentHtml,
+      depth: item.depth,
       itemIndex: item.itemIndex,
       blockCount: item.blockCount,
       sourceText: item.sourceText,
-    });
+      children: [],
+    };
+
+    let parent: PromptListRenderNode | undefined;
+    if (!previous) {
+      parent = undefined;
+    } else if (item.depth >= previous.depth) {
+      parent = previous;
+    } else {
+      for (let depth = item.depth; depth >= 0; depth -= 1) {
+        parent = depthSlots[depth];
+        if (parent) break;
+      }
+    }
+
+    if (parent) parent.children.push(node);
+    else root.push(node);
+
+    depthSlots[item.depth] = node;
+    depthSlots.length = item.depth + 1;
+    previous = node;
   }
 
   return root;
 }
 
-function appendPromptListContinueNodes(nodes: PromptListRenderNode[]): void {
-  for (const node of nodes) {
-    if (node.type === 'branch') appendPromptListContinueNodes(node.children);
-  }
-
-  for (let index = nodes.length - 1; index >= 0; index -= 1) {
-    const node = nodes[index];
-    if (node.type !== 'item') continue;
-    if (node.className === 'prompt-answer') {
-      nodes.push({ type: 'continue', afterItemIndex: node.itemIndex });
-    } else if (node.className === 'prompt-question' && !node.contentHtml.trim()) {
-      nodes.push({ type: 'continue', afterItemIndex: node.itemIndex });
-    }
-    break;
-  }
-}
-
 function hasPromptListBranch(nodes: PromptListRenderNode[]): boolean {
-  return nodes.some((node) => node.type === 'branch');
+  return nodes.length > 1;
 }
 
 function promptListTreeClassName(nodes: PromptListRenderNode[], root = false): string {
@@ -997,38 +987,72 @@ function promptAnswerCollapsedSummary(
   };
 }
 
+function promptQuestionCollapsedSummary(
+  sourceText: string,
+  blockCount: number,
+): { previewText: string; continuation: string } {
+  const previewLines = sourceText
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const moreParagraphs = Math.max(0, blockCount - previewLines.length);
+  const continuation = moreParagraphs > 0 ? `[${moreParagraphs} more paragraph${moreParagraphs === 1 ? '' : 's'}]` : '';
+  return {
+    previewText: previewLines.join('\n'),
+    continuation,
+  };
+}
+
 function promptAnswerSummaryContinuation(summary: { continuation: string }): string {
   return summary.continuation
     ? ` <span class="prompt-answer-summary-continuation">${escapeHtmlAttr(summary.continuation)}</span>`
     : '';
 }
 
-function renderPromptListTree(nodes: PromptListRenderNode[], promptListId: string): string {
-  return nodes
-    .map((node) => {
-      if (node.type === 'item') {
-        const contentHtml = node.contentHtml.trim()
-          ? node.contentHtml
-          : '<span class="prompt-list-placeholder">Continue here</span>';
-        if (node.className === 'prompt-answer') {
-          const summary = promptAnswerCollapsedSummary(node.sourceText, node.blockCount);
-          return `<li class="${node.className}" data-prompt-list-id="${promptListId}" data-prompt-list-item-index="${node.itemIndex}" data-expanded="false" aria-expanded="false" tabindex="0"><div class="prompt-answer-summary"><span class="prompt-answer-summary-text">${promptMessageLabel('assistant')}<span class="prompt-answer-summary-line">${escapeHtmlAttr(summary.firstLine)}</span></span>${promptAnswerSummaryContinuation(summary)}</div><div class="prompt-message-content prompt-answer-body">${promptMessageLabel('assistant')}${contentHtml}</div></li><li class="prompt-ask" hidden><button type="button" class="prompt-list-action-button prompt-list-ask-button" data-prompt-list-id="${promptListId}" data-prompt-list-ask-target-item-index="${node.itemIndex}" disabled>Open editor to branch</button></li>`;
-        }
-        if (node.className === 'prompt-question') {
-          const summary = promptAnswerCollapsedSummary(node.sourceText, node.blockCount, '');
-          const summaryLine = summary.firstLine
-            ? `<span class="prompt-answer-summary-line">${escapeHtmlAttr(summary.firstLine)}</span>`
-            : '';
-          return `<li class="${node.className}" data-prompt-list-id="${promptListId}" data-prompt-list-item-index="${node.itemIndex}" data-expanded="true" aria-expanded="true" tabindex="0"><div class="prompt-answer-summary"><span class="prompt-answer-summary-text">${promptMessageLabel('user')}${summaryLine}</span>${promptAnswerSummaryContinuation(summary)}</div><div class="prompt-message-content prompt-answer-body">${promptMessageLabel('user')}${node.contentHtml.trim() ? contentHtml : ''}</div></li>`;
-        }
-        return `<li class="${node.className}">${contentHtml}</li>`;
-      }
-      if (node.type === 'continue') {
-        return `<li class="prompt-continue" hidden><button type="button" class="prompt-list-action-button prompt-list-continue-button" data-prompt-list-id="${promptListId}" data-prompt-list-continue-target-item-index="${node.afterItemIndex}" disabled>Open editor to continue</button></li>`;
-      }
-      return `<li class="prompt-list-branch"><ul class="${promptListTreeClassName(node.children)}">${renderPromptListTree(node.children, promptListId)}</ul></li>`;
-    })
+function promptListContinueNode(node: PromptListRenderNode, promptListId: string): string {
+  if (node.className === 'prompt-answer' || (node.className === 'prompt-question' && !node.contentHtml.trim())) {
+    return `<li class="prompt-continue" hidden><button type="button" class="prompt-list-action-button prompt-list-continue-button" data-prompt-list-id="${promptListId}" data-prompt-list-continue-target-item-index="${node.itemIndex}" disabled>Open editor to continue</button></li>`;
+  }
+  return '';
+}
+
+function renderPromptListItem(node: PromptListRenderNode, promptListId: string, branchStart = false): string {
+  const className = branchStart ? `${node.className} prompt-list-branch-start` : node.className;
+  const contentHtml = node.contentHtml.trim()
+    ? node.contentHtml
+    : '<span class="prompt-list-placeholder">Continue here</span>';
+  if (node.className === 'prompt-answer') {
+    const summary = promptAnswerCollapsedSummary(node.sourceText, node.blockCount);
+    return `<li class="${className}" data-prompt-list-id="${promptListId}" data-prompt-list-item-index="${node.itemIndex}" data-expanded="false" aria-expanded="false" tabindex="0"><div class="prompt-answer-summary"><span class="prompt-answer-summary-text">${promptMessageLabel('assistant')}<span class="prompt-answer-summary-line">${escapeHtmlAttr(summary.firstLine)}</span></span>${promptAnswerSummaryContinuation(summary)}</div><div class="prompt-message-content prompt-answer-body">${promptMessageLabel('assistant')}${contentHtml}</div></li><li class="prompt-ask" hidden><button type="button" class="prompt-list-action-button prompt-list-ask-button" data-prompt-list-id="${promptListId}" data-prompt-list-ask-target-item-index="${node.itemIndex}" disabled>Open editor to branch</button></li>`;
+  }
+  if (node.className === 'prompt-question') {
+    const summary = promptQuestionCollapsedSummary(node.sourceText, node.blockCount);
+    const summaryPreview = summary.previewText
+      ? `<span class="prompt-answer-summary-line prompt-answer-summary-line--multiline">${escapeHtmlAttr(summary.previewText)}</span>`
+      : '';
+    return `<li class="${className}" data-prompt-list-id="${promptListId}" data-prompt-list-item-index="${node.itemIndex}" data-expanded="true" aria-expanded="true" tabindex="0"><div class="prompt-answer-summary prompt-answer-summary--user"><span class="prompt-answer-summary-text">${promptMessageLabel('user')}${summaryPreview}</span>${promptAnswerSummaryContinuation(summary)}</div><div class="prompt-message-content prompt-answer-body">${promptMessageLabel('user')}${node.contentHtml.trim() ? contentHtml : ''}</div></li>`;
+  }
+  return `<li class="${className}">${contentHtml}</li>`;
+}
+
+function renderPromptListNode(node: PromptListRenderNode, promptListId: string, branchStart = false): string {
+  const itemHtml = renderPromptListItem(node, promptListId, branchStart);
+  if (node.children.length === 0) return `${itemHtml}${promptListContinueNode(node, promptListId)}`;
+  if (node.children.length === 1) return `${itemHtml}${renderPromptListNode(node.children[0]!, promptListId)}`;
+
+  const branchesHtml = node.children
+    .map(
+      (child) =>
+        `<li class="prompt-list-branch"><ul class="${promptListTreeClassName([child])}">${renderPromptListNode(child, promptListId, true)}</ul></li>`,
+    )
     .join('');
+  return `${itemHtml}<li class="prompt-list-branch-set"><ul class="${promptListTreeClassName(node.children)}">${branchesHtml}</ul></li>`;
+}
+
+function renderPromptListTree(nodes: PromptListRenderNode[], promptListId: string): string {
+  return nodes.map((node) => renderPromptListNode(node, promptListId)).join('');
 }
 
 // --- io code block highlighting ---
