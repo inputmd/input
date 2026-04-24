@@ -525,7 +525,7 @@ async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBu
 async function provisionHomeOverlay(
   wc: WebContainer,
   bootPerf?: TerminalBootPerfLogger,
-): Promise<{ archiveBytes: number }> {
+): Promise<{ archiveBytes: number; homeDir: string }> {
   const [archive, homeDir] = await Promise.all([
     measureBootStage(bootPerf, 'overlay.fetchArchive', () => fetchWebContainerHomeOverlayArchive()),
     measureBootStage(bootPerf, 'overlay.resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc)),
@@ -571,7 +571,7 @@ async function provisionHomeOverlay(
       // best-effort cleanup
     }
   }
-  return { archiveBytes: archive.byteLength };
+  return { archiveBytes: archive.byteLength, homeDir };
 }
 
 async function preparePersistedHomeSupportFiles(wc: WebContainer, homeDir: string): Promise<string> {
@@ -1775,9 +1775,11 @@ export function TerminalPanel({
         lastWrittenRef.current = new Map(Object.entries(initialFiles));
         wcRef.current = wc;
 
+        let overlayHomeDir: string | null = null;
         try {
           writeTerminal(logPaneId, 'Mounting binaries...\r\n', { forceFollow: true });
           const overlayResult = await provisionHomeOverlay(wc, bootPerf);
+          overlayHomeDir = overlayResult.homeDir;
           bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
         } catch (err) {
           console.error('[terminal] failed to provision home overlay', err);
@@ -1788,9 +1790,9 @@ export function TerminalPanel({
 
         try {
           writeTerminal(logPaneId, 'Restoring config files...\r\n', { forceFollow: true });
-          const homeDir = await bootPerf.measure('persistedHome.resolveHomeDirectory', () =>
-            resolveWebContainerHomeDirectory(wc),
-          );
+          const homeDir =
+            overlayHomeDir ??
+            (await bootPerf.measure('persistedHome.resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc)));
           const persistedHomeScriptPath = await bootPerf.measure('persistedHome.writeSupportScript', () =>
             preparePersistedHomeSupportFiles(wc, homeDir),
           );
