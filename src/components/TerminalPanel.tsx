@@ -533,17 +533,19 @@ async function provisionHomeOverlay(
   const archivePath = joinHomePath(homeDir, HOME_OVERLAY_ARCHIVE_FILENAME);
   const provisionScriptPath = joinHomePath(homeDir, HOME_OVERLAY_PROVISION_FILENAME);
   const provisionScript = buildWebContainerHomeOverlayProvisionScript(HOME_OVERLAY_ARCHIVE_FILENAME);
-  await measureBootStage(bootPerf, 'overlay.writeArchive', () => writeContainerBytesFile(wc, archivePath, archive), {
-    archive_bytes: archive.byteLength,
-  });
-  await measureBootStage(
-    bootPerf,
-    'overlay.writeProvisionScript',
-    () => writeContainerFile(wc, provisionScriptPath, provisionScript),
-    {
-      script_bytes: provisionScript.length,
-    },
-  );
+  await Promise.all([
+    measureBootStage(bootPerf, 'overlay.writeArchive', () => writeContainerBytesFile(wc, archivePath, archive), {
+      archive_bytes: archive.byteLength,
+    }),
+    measureBootStage(
+      bootPerf,
+      'overlay.writeProvisionScript',
+      () => writeContainerFile(wc, provisionScriptPath, provisionScript),
+      {
+        script_bytes: provisionScript.length,
+      },
+    ),
+  ]);
   try {
     await measureBootStage(
       bootPerf,
