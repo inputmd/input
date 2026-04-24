@@ -1245,6 +1245,7 @@ export function App() {
       (contentLoadPending && readerAiContentFileEligible));
   const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
   const terminalRouteEligible = resolveTerminalRouteEligibility({
+    route,
     routeView,
     readerAiContentEligible,
     currentEditingDocPath,
