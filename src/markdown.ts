@@ -42,6 +42,8 @@ type PromptListRenderNode =
       className: 'prompt-question' | 'prompt-answer' | 'prompt-comment';
       contentHtml: string;
       itemIndex: number;
+      blockCount: number;
+      sourceText: string;
     }
   | {
       type: 'continue';
@@ -396,6 +398,12 @@ marked.use({
               contentHtml,
               depth: item.depth,
               itemIndex,
+              blockCount: item.renderAsBlock
+                ? countPromptListSummaryBlocks(item.tokens)
+                : item.sourceText.trim()
+                  ? 1
+                  : 0,
+              sourceText: item.sourceText,
             };
           }),
         );
@@ -411,9 +419,9 @@ marked.use({
         appendPromptListContinueNodes(promptListTree);
         const itemsHtml = renderPromptListTree(promptListTree, promptListId);
         if (itemCount <= 1) {
-          return `<ul class="prompt-list prompt-list-tree" data-prompt-list-id="${promptListId}">${itemsHtml}</ul>`;
+          return `<ul class="${promptListTreeClassName(promptListTree, true)}" data-prompt-list-id="${promptListId}">${itemsHtml}</ul>`;
         }
-        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}" data-collapsed="false"${markdownSyncAttr(promptListToken as PromptListToken & { syncId?: string })}><div class="prompt-list-header"><div class="prompt-list-mode-toggle" role="group" aria-label="Prompt list mode"><button type="button" class="prompt-list-mode-option" data-prompt-list-mode="map" aria-pressed="false">Map Mode</button><button type="button" class="prompt-list-mode-option" data-prompt-list-mode="read" aria-pressed="true">Read Mode</button></div></div><div class="prompt-list-body"><ul class="prompt-list prompt-list-tree">${itemsHtml}</ul></div></div>`;
+        return `<div class="prompt-list-conversation" data-prompt-list-id="${promptListId}" data-prompt-list-mode="collapse-responses" data-collapsed="true"${markdownSyncAttr(promptListToken as PromptListToken & { syncId?: string })}><div class="prompt-list-header"><div class="prompt-list-mode-toggle" role="group" aria-label="Prompt list mode"><button type="button" class="prompt-list-mode-option" data-prompt-list-mode="collapse-all" aria-pressed="false">Collapse All</button><button type="button" class="prompt-list-mode-option" data-prompt-list-mode="collapse-responses" aria-pressed="true">Collapse Responses</button><button type="button" class="prompt-list-mode-option" data-prompt-list-mode="expand-all" aria-pressed="false">Expand All</button></div></div><div class="prompt-list-body"><ul class="${promptListTreeClassName(promptListTree, true)}">${itemsHtml}</ul></div></div>`;
       },
     },
     {
@@ -910,6 +918,8 @@ function buildPromptListTree(
     contentHtml: string;
     depth: number;
     itemIndex: number;
+    blockCount: number;
+    sourceText: string;
   }>,
 ): PromptListRenderNode[] {
   const root: PromptListRenderNode[] = [];
@@ -928,6 +938,8 @@ function buildPromptListTree(
       className: item.className,
       contentHtml: item.contentHtml,
       itemIndex: item.itemIndex,
+      blockCount: item.blockCount,
+      sourceText: item.sourceText,
     });
   }
 
@@ -951,6 +963,46 @@ function appendPromptListContinueNodes(nodes: PromptListRenderNode[]): void {
   }
 }
 
+function hasPromptListBranch(nodes: PromptListRenderNode[]): boolean {
+  return nodes.some((node) => node.type === 'branch');
+}
+
+function promptListTreeClassName(nodes: PromptListRenderNode[], root = false): string {
+  return `${root ? 'prompt-list ' : ''}prompt-list-tree${hasPromptListBranch(nodes) ? ' prompt-list-tree--branched' : ''}`;
+}
+
+function promptMessageLabel(role: 'user' | 'assistant'): string {
+  return `<span class="prompt-message-label prompt-message-label--${role}">${role}: </span>`;
+}
+
+function countPromptListSummaryBlocks(tokens: Token[]): number {
+  return tokens.filter((token) => token.type !== 'space' && (token.raw?.trim() || token.type === 'hr')).length;
+}
+
+function promptAnswerCollapsedSummary(
+  sourceText: string,
+  blockCount: number,
+  fallbackFirstLine = 'Continue here',
+): { firstLine: string; continuation: string } {
+  const normalized = sourceText.replace(/\r\n?/g, '\n');
+  const firstLine = normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean);
+  const moreParagraphs = Math.max(0, blockCount - 1);
+  const continuation = moreParagraphs > 0 ? `[${moreParagraphs} more paragraph${moreParagraphs === 1 ? '' : 's'}]` : '';
+  return {
+    firstLine: firstLine || fallbackFirstLine,
+    continuation,
+  };
+}
+
+function promptAnswerSummaryContinuation(summary: { continuation: string }): string {
+  return summary.continuation
+    ? ` <span class="prompt-answer-summary-continuation">${escapeHtmlAttr(summary.continuation)}</span>`
+    : '';
+}
+
 function renderPromptListTree(nodes: PromptListRenderNode[], promptListId: string): string {
   return nodes
     .map((node) => {
@@ -959,14 +1011,22 @@ function renderPromptListTree(nodes: PromptListRenderNode[], promptListId: strin
           ? node.contentHtml
           : '<span class="prompt-list-placeholder">Continue here</span>';
         if (node.className === 'prompt-answer') {
-          return `<li class="${node.className}" data-prompt-list-id="${promptListId}" data-prompt-list-item-index="${node.itemIndex}" data-expanded="false" aria-expanded="false" tabindex="0">${contentHtml}</li><li class="prompt-ask" hidden><button type="button" class="prompt-list-action-button prompt-list-ask-button" data-prompt-list-id="${promptListId}" data-prompt-list-ask-target-item-index="${node.itemIndex}" disabled>Open editor to branch</button></li>`;
+          const summary = promptAnswerCollapsedSummary(node.sourceText, node.blockCount);
+          return `<li class="${node.className}" data-prompt-list-id="${promptListId}" data-prompt-list-item-index="${node.itemIndex}" data-expanded="false" aria-expanded="false" tabindex="0"><div class="prompt-answer-summary"><span class="prompt-answer-summary-text">${promptMessageLabel('assistant')}<span class="prompt-answer-summary-line">${escapeHtmlAttr(summary.firstLine)}</span></span>${promptAnswerSummaryContinuation(summary)}</div><div class="prompt-message-content prompt-answer-body">${promptMessageLabel('assistant')}${contentHtml}</div></li><li class="prompt-ask" hidden><button type="button" class="prompt-list-action-button prompt-list-ask-button" data-prompt-list-id="${promptListId}" data-prompt-list-ask-target-item-index="${node.itemIndex}" disabled>Open editor to branch</button></li>`;
+        }
+        if (node.className === 'prompt-question') {
+          const summary = promptAnswerCollapsedSummary(node.sourceText, node.blockCount, '');
+          const summaryLine = summary.firstLine
+            ? `<span class="prompt-answer-summary-line">${escapeHtmlAttr(summary.firstLine)}</span>`
+            : '';
+          return `<li class="${node.className}" data-prompt-list-id="${promptListId}" data-prompt-list-item-index="${node.itemIndex}" data-expanded="true" aria-expanded="true" tabindex="0"><div class="prompt-answer-summary"><span class="prompt-answer-summary-text">${promptMessageLabel('user')}${summaryLine}</span>${promptAnswerSummaryContinuation(summary)}</div><div class="prompt-message-content prompt-answer-body">${promptMessageLabel('user')}${node.contentHtml.trim() ? contentHtml : ''}</div></li>`;
         }
         return `<li class="${node.className}">${contentHtml}</li>`;
       }
       if (node.type === 'continue') {
         return `<li class="prompt-continue" hidden><button type="button" class="prompt-list-action-button prompt-list-continue-button" data-prompt-list-id="${promptListId}" data-prompt-list-continue-target-item-index="${node.afterItemIndex}" disabled>Open editor to continue</button></li>`;
       }
-      return `<li class="prompt-list-branch"><ul class="prompt-list-tree">${renderPromptListTree(node.children, promptListId)}</ul></li>`;
+      return `<li class="prompt-list-branch"><ul class="${promptListTreeClassName(node.children)}">${renderPromptListTree(node.children, promptListId)}</ul></li>`;
     })
     .join('');
 }

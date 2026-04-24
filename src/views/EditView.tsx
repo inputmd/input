@@ -35,9 +35,11 @@ import {
   capturePromptListCollapsedStates,
   consumeSuppressedPromptAnswerToggle,
   hasNonCollapsedSelectionIntersectingNode,
+  type PromptAnswerExpandedStateSnapshot,
+  type PromptListCollapsedStateSnapshot,
   restorePromptAnswerExpandedStates,
   restorePromptListCollapsedStates,
-  setPromptListCollapsedState,
+  setPromptListMode,
   syncPromptAnswerExpandedStateInUrl,
   togglePromptAnswerExpandedState,
 } from '../prompt_list_state';
@@ -426,8 +428,8 @@ export function EditView({
   const pointerDownRef = useRef(false);
   const pointerDraggedRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
-  const promptListCollapsedStatesRef = useRef<Map<string, boolean> | null>(null);
-  const promptAnswerExpandedStatesRef = useRef<Map<string, boolean> | null>(null);
+  const promptListCollapsedStatesRef = useRef<PromptListCollapsedStateSnapshot | null>(null);
+  const promptAnswerExpandedStatesRef = useRef<PromptAnswerExpandedStateSnapshot | null>(null);
   const [previewScrollLocked, setPreviewScrollLocked] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
@@ -1312,7 +1314,7 @@ export function EditView({
     if (!markdown || previewFontsPending || !previewVisible || !previewHtml || !root) return;
 
     syncToggleListPersistedState(root);
-    restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, false);
+    restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, 'collapse-responses');
     restorePromptAnswerExpandedStates(root, promptAnswerExpandedStatesRef.current);
     rememberPromptListStates();
   }, [markdown, previewFontsPending, previewHtml, previewVisible, rememberPromptListStates]);
@@ -1322,7 +1324,7 @@ export function EditView({
     if (!markdown || !previewVisible || !root) return;
 
     const sync = () => {
-      restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, false);
+      restorePromptListCollapsedStates(root, promptListCollapsedStatesRef.current, 'collapse-responses');
       restorePromptAnswerExpandedStates(root, promptAnswerExpandedStatesRef.current);
       rememberPromptListStates();
     };
@@ -1728,15 +1730,16 @@ export function EditView({
       return;
     }
 
-    const answer = target?.closest('li.prompt-answer');
-    const answerToggleSuppressed = answer instanceof HTMLElement && consumeSuppressedPromptAnswerToggle(answer);
-    const answerInteractiveTarget = target?.closest('a, img, button, input, label, summary.toggle-list-summary');
-    if (answer instanceof HTMLElement && !answerInteractiveTarget) {
-      if (answerToggleSuppressed || pointerDragged || hasNonCollapsedSelectionIntersectingNode(answer)) return;
+    const promptMessage = target?.closest('li.prompt-question, li.prompt-answer');
+    const messageToggleSuppressed =
+      promptMessage instanceof HTMLElement && consumeSuppressedPromptAnswerToggle(promptMessage);
+    const promptMessageInteractiveTarget = target?.closest('a, img, button, input, label, summary.toggle-list-summary');
+    if (promptMessage instanceof HTMLElement && !promptMessageInteractiveTarget) {
+      if (messageToggleSuppressed || pointerDragged || hasNonCollapsedSelectionIntersectingNode(promptMessage)) return;
       event.preventDefault();
       claimScrollOwnership('preview');
-      togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
-      syncPromptAnswerExpandedStateInUrl(answer);
+      togglePromptAnswerExpandedState(promptMessage, { keepTopInViewOnCollapse: true });
+      if (promptMessage.matches('li.prompt-answer')) syncPromptAnswerExpandedStateInUrl(promptMessage);
       rememberPromptListStates();
       handlePreviewPromptListLayoutChange();
       return;
@@ -1757,10 +1760,12 @@ export function EditView({
       claimScrollOwnership('preview');
       const container = modeOption.closest('.prompt-list-conversation');
       if (container instanceof HTMLElement) {
-        const collapsed = modeOption.dataset.promptListMode === 'map';
-        setPromptListCollapsedState(container, collapsed);
-        rememberPromptListStates();
-        handlePreviewPromptListLayoutChange();
+        const mode = modeOption.dataset.promptListMode;
+        if (mode === 'collapse-all' || mode === 'collapse-responses' || mode === 'expand-all') {
+          setPromptListMode(container, mode);
+          rememberPromptListStates();
+          handlePreviewPromptListLayoutChange();
+        }
       }
       return;
     }
@@ -1793,12 +1798,16 @@ export function EditView({
 
   const onPreviewKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
-    const answer = target?.closest('li.prompt-answer');
-    if (answer instanceof HTMLElement && answer === target && (event.key === 'Enter' || event.key === ' ')) {
+    const promptMessage = target?.closest('li.prompt-question, li.prompt-answer');
+    if (
+      promptMessage instanceof HTMLElement &&
+      promptMessage === target &&
+      (event.key === 'Enter' || event.key === ' ')
+    ) {
       event.preventDefault();
       claimScrollOwnership('preview');
-      togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
-      syncPromptAnswerExpandedStateInUrl(answer);
+      togglePromptAnswerExpandedState(promptMessage, { keepTopInViewOnCollapse: true });
+      if (promptMessage.matches('li.prompt-answer')) syncPromptAnswerExpandedStateInUrl(promptMessage);
       rememberPromptListStates();
       handlePreviewPromptListLayoutChange();
       return;

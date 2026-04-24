@@ -10,12 +10,16 @@ import {
   restorePromptAnswerExpandedStates,
   restorePromptListCollapsedStates,
   setPromptAnswerExpandedState,
-  setPromptListCollapsedState,
+  setPromptListMode,
   syncPromptAnswerExpandedStateInUrl,
   togglePromptAnswerExpandedState,
 } from '../../src/prompt_list_state.ts';
 import { EMPTY_PROMPT_QUESTION_PLACEHOLDER } from '../../src/prompt_list_syntax.ts';
 import { syncToggleListPersistedState, toggleToggleListState } from '../../src/toggle_list_state.ts';
+
+const promptUserLabelHtml = '<span class="prompt-message-label prompt-message-label--user">user: </span>';
+const promptAssistantLabelHtml =
+  '<span class="prompt-message-label prompt-message-label--assistant">assistant: </span>';
 
 function withDom<T>(callback: () => T): T {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://input.test/doc' });
@@ -284,8 +288,16 @@ test('marked renders prompt question and answer lines as list items inside a sin
   t.true(typeof html === 'string');
   t.true(html.includes('class="prompt-list-conversation"'));
   t.true(html.includes('<ul class="prompt-list prompt-list-tree">'));
-  t.true(html.includes('<li class="prompt-question">Can you explain Solomonoff induction?</li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>Solomonoff induction is a theoretical framework\.<\/li>/);
+  t.true(
+    html.includes(
+      `<div class="prompt-message-content prompt-answer-body">${promptUserLabelHtml}Can you explain Solomonoff induction?</div>`,
+    ),
+  );
+  t.true(
+    html.includes(
+      `<div class="prompt-message-content prompt-answer-body">${promptAssistantLabelHtml}Solomonoff induction is a theoretical framework.</div>`,
+    ),
+  );
   t.true(html.includes('<li class="prompt-ask" hidden>'));
   t.true(html.includes('>Open editor to branch</button>'));
   t.true(html.includes('<li class="prompt-continue" hidden>'));
@@ -296,8 +308,8 @@ test('marked renders chevron-prefixed user messages as prompt questions', (t) =>
   const html = marked.parse('❯ Continue the conversation\n⏺ Here is the next answer.');
 
   t.true(typeof html === 'string');
-  t.true(html.includes('<li class="prompt-question">Continue the conversation</li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>Here is the next answer\.<\/li>/);
+  t.true(html.includes(`${promptUserLabelHtml}Continue the conversation`));
+  t.true(html.includes(`${promptAssistantLabelHtml}Here is the next answer.`));
 });
 
 test('marked renders comment-prefixed rows inside prompt lists', (t) => {
@@ -305,8 +317,8 @@ test('marked renders comment-prefixed rows inside prompt lists', (t) => {
 
   t.true(typeof html === 'string');
   t.true(html.includes('<li class="prompt-comment">Keep the answer concise</li>'));
-  t.true(html.includes('<li class="prompt-question">Continue</li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>Sure\.<\/li>/);
+  t.true(html.includes(`${promptUserLabelHtml}Continue`));
+  t.true(html.includes(`${promptAssistantLabelHtml}Sure.`));
 });
 
 test('marked renders tool-call-shaped assistant messages as prompt comments with only the tool name', (t) => {
@@ -327,8 +339,12 @@ test('marked renders placeholders for empty prompt question and answer rows', (t
   const html = marked.parse('~ \n⏺ ');
 
   t.true(html.includes('<span class="prompt-list-placeholder">Continue here</span>'));
-  t.true(html.includes('<li class="prompt-question"><span class="prompt-list-placeholder">Continue here</span></li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*><span class="prompt-list-placeholder">Continue here<\/span><\/li>/);
+  t.true(html.includes(`<div class="prompt-message-content prompt-answer-body">${promptUserLabelHtml}</div>`));
+  t.true(
+    html.includes(
+      `<div class="prompt-message-content prompt-answer-body">${promptAssistantLabelHtml}<span class="prompt-list-placeholder">Continue here</span></div>`,
+    ),
+  );
 });
 
 test('marked keeps liquid-style template tag lines out of prompt lists', (t) => {
@@ -371,7 +387,7 @@ test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt
 
   t.regex(
     html,
-    /<ul class="prompt-list prompt-list-tree"[^>]*><li class="prompt-question">Ask about <strong>Solomonoff induction<\/strong><\/li><\/ul>/,
+    /<ul class="prompt-list prompt-list-tree"[^>]*><li class="prompt-question"[^>]*>.*<div class="prompt-message-content prompt-answer-body"><span class="prompt-message-label prompt-message-label--user">user: <\/span>Ask about <strong>Solomonoff induction<\/strong><\/div><\/li><\/ul>/,
   );
 });
 
@@ -386,10 +402,86 @@ test('parseMarkdownToHtml renders prompt-list header metadata and collapse actio
   const html = withDom(() => parseMarkdownToHtml('~ One\n⏺ Two'));
 
   t.true(html.includes('class="prompt-list-header"'));
-  t.true(html.includes('data-prompt-list-mode="map"'));
-  t.true(html.includes('data-prompt-list-mode="read"'));
-  t.true(html.includes('Map Mode'));
-  t.true(html.includes('Read Mode'));
+  t.true(html.includes('data-collapsed="true"'));
+  t.true(html.includes('data-prompt-list-mode="collapse-all"'));
+  t.true(html.includes('data-prompt-list-mode="collapse-responses"'));
+  t.true(html.includes('data-prompt-list-mode="expand-all"'));
+  t.true(html.includes('data-prompt-list-mode="collapse-responses" aria-pressed="true"'));
+  t.true(html.includes('Collapse All'));
+  t.true(html.includes('Collapse Responses'));
+  t.true(html.includes('Expand All'));
+});
+
+test('parseMarkdownToHtml renders role labels and collapsed assistant paragraph counts', (t) => {
+  withDom(() => {
+    const html = parseMarkdownToHtml(
+      [
+        '~ First question line.',
+        '  ',
+        '  Second question paragraph.',
+        '⏺ First line.',
+        '  ',
+        '  Second paragraph.',
+        '  ',
+        '  Third paragraph.',
+        '  ',
+        '  Fourth paragraph.',
+      ].join('\n'),
+    );
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const question = template.content.querySelector<HTMLElement>('li.prompt-question');
+    const answer = template.content.querySelector<HTMLElement>('li.prompt-answer');
+
+    t.is(question?.querySelector('.prompt-message-label')?.textContent, 'user: ');
+    t.is(question?.querySelector('.prompt-answer-summary-line')?.textContent, 'First question line.');
+    t.is(question?.querySelector('.prompt-answer-summary-continuation')?.textContent, '[1 more paragraph]');
+    t.is(answer?.querySelector('.prompt-answer-summary .prompt-message-label')?.textContent, 'assistant: ');
+    t.is(answer?.querySelector('.prompt-answer-summary-line')?.textContent, 'First line.');
+    t.is(answer?.querySelector('.prompt-answer-summary-continuation')?.textContent, '[3 more paragraphs]');
+    t.truthy(answer?.querySelector('.prompt-answer-summary-text'));
+  });
+});
+
+test('parseMarkdownToHtml counts collapsed assistant markdown block groups as paragraphs', (t) => {
+  withDom(() => {
+    const html = parseMarkdownToHtml(
+      [
+        '~ Question',
+        '⏺ Intro.',
+        '  ',
+        '  - one',
+        '  - two',
+        '  ',
+        '  1. first',
+        '  2. second',
+        '  ',
+        '  ```',
+        '  alpha',
+        '  ',
+        '  beta',
+        '  ```',
+        '  ',
+        '  Closing.',
+      ].join('\n'),
+    );
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const answer = template.content.querySelector<HTMLElement>('li.prompt-answer');
+
+    t.is(answer?.querySelector('.prompt-answer-summary-line')?.textContent, 'Intro.');
+    t.is(answer?.querySelector('.prompt-answer-summary-continuation')?.textContent, '[4 more paragraphs]');
+  });
+});
+
+test('parseMarkdownToHtml only marks prompt-list trees as branched when the topology branches', (t) => {
+  withDom(() => {
+    const linear = parseMarkdownToHtml(['~ one', '⏺ answer', '~ two', '⏺ next'].join('\n'));
+    const branched = parseMarkdownToHtml(['~ root', '  ⏺ branch answer', '⏺ root answer'].join('\n'));
+
+    t.false(linear.includes('prompt-list-tree--branched'));
+    t.true(branched.includes('class="prompt-list prompt-list-tree prompt-list-tree--branched"'));
+  });
 });
 
 test('parseMarkdownToHtml renders tool-call-shaped assistant messages as comment blocks', (t) => {
@@ -404,7 +496,7 @@ test('parseMarkdownToHtml renders tool-call-shaped assistant messages as comment
     ),
   );
 
-  t.true(html.includes('<li class="prompt-question">Review this article</li>'));
+  t.true(html.includes(`${promptUserLabelHtml}Review this article`));
   t.true(html.includes('<li class="prompt-comment">Fetch</li>'));
   t.false(html.includes('Received 12.3KB'));
 });
@@ -477,9 +569,29 @@ test('prompt-list styles preserve spacing after the first visible paragraph in q
   const css = readFileSync(new URL('../../src/styles/markdown.css', import.meta.url), 'utf8');
 
   t.true(
-    css.includes('.rendered-markdown :is(li.prompt-question, li.prompt-answer) > p:first-child:not(:last-child) {'),
+    css.includes(
+      '.rendered-markdown :is(li.prompt-question .prompt-message-content, li.prompt-answer .prompt-answer-body)',
+    ),
   );
   t.true(css.includes('margin-bottom: 0.65em;'));
+});
+
+test('prompt-list collapsed assistant styles do not shrink messages with font or transform scaling', (t) => {
+  const css = readFileSync(new URL('../../src/styles/markdown.css', import.meta.url), 'utf8');
+
+  t.false(css.includes('font-size: 1px'));
+  t.false(css.includes('font-size: 1.5px'));
+  t.false(css.includes('scale(0.995)'));
+  t.false(
+    css.includes(
+      '.rendered-markdown .prompt-answer-summary {\n  display: flex;\n  align-items: baseline;\n  gap: 0.45em;\n  max-width: 100%;\n  color: color-mix',
+    ),
+  );
+  t.true(css.includes('.rendered-markdown .prompt-answer-summary-text'));
+  t.true(css.includes('flex: none'));
+  t.false(css.includes('[data-theme="light"] .rendered-markdown li.prompt-answer'));
+  t.false(css.includes('[data-theme="dark"] .rendered-markdown li.prompt-answer'));
+  t.true(css.includes('.rendered-markdown .prompt-list-tree--branched::before'));
 });
 
 test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t) => {
@@ -529,7 +641,8 @@ test('parseMarkdownToHtml keeps multiline prompt answer content inside the promp
     template.innerHTML = html;
 
     const answer = template.content.querySelector('li.prompt-answer');
-    const excerptParagraphs = Array.from(answer?.children ?? []).filter(
+    const answerBody = answer?.querySelector<HTMLElement>('.prompt-answer-body');
+    const excerptParagraphs = Array.from(answerBody?.children ?? []).filter(
       (child): child is HTMLElement => child instanceof HTMLElement && child.tagName === 'P',
     );
 
@@ -652,10 +765,10 @@ test('togglePromptAnswerExpandedState keeps collapsed prompt answers aligned bel
       value: () =>
         ({
           x: 0,
-          y: 260,
-          top: 260,
+          y: -40,
+          top: -40,
           right: 0,
-          bottom: 320,
+          bottom: 20,
           left: 0,
           width: 0,
           height: 60,
@@ -680,7 +793,53 @@ test('togglePromptAnswerExpandedState keeps collapsed prompt answers aligned bel
   });
 });
 
-test('setPromptListCollapsedState can clear conversation collapse without expanding sibling answers', (t) => {
+test('togglePromptAnswerExpandedState does not scroll when opening or when collapsing below the scroll top', (t) => {
+  withDom(() => {
+    const html = parseMarkdownToHtml(['~ Question', '⏺ Answer paragraph.', '  ', '  Hidden tail.'].join('\n'));
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `<header class="toolbar"></header><div class="content"><div class="rendered-markdown">${html}</div></div>`;
+    document.body.append(wrapper);
+
+    const answer = wrapper.querySelector<HTMLElement>('li.prompt-answer');
+    t.truthy(answer);
+    if (!answer) return;
+
+    Object.defineProperty(window, 'scrollY', { configurable: true, get: () => 300 });
+    Object.defineProperty(answer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () =>
+        ({
+          x: 0,
+          y: 260,
+          top: 260,
+          right: 0,
+          bottom: 320,
+          left: 0,
+          width: 0,
+          height: 60,
+          toJSON: () => ({}),
+        }) satisfies DOMRect,
+    });
+
+    const scrollCalls: ScrollToOptions[] = [];
+    Object.defineProperty(window, 'scrollTo', {
+      configurable: true,
+      value: (options: ScrollToOptions) => {
+        scrollCalls.push(options);
+      },
+    });
+
+    togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
+    t.is(answer.getAttribute('data-expanded'), 'true');
+    t.is(scrollCalls.length, 0);
+
+    togglePromptAnswerExpandedState(answer, { keepTopInViewOnCollapse: true });
+    t.is(answer.getAttribute('data-expanded'), 'false');
+    t.is(scrollCalls.length, 0);
+  });
+});
+
+test('setPromptListMode applies collapse-all, collapse-responses, and expand-all states', (t) => {
   withDom(() => {
     const html = parseMarkdownToHtml(
       [
@@ -698,30 +857,58 @@ test('setPromptListCollapsedState can clear conversation collapse without expand
     wrapper.innerHTML = `<div class="rendered-markdown">${html}</div>`;
 
     const conversation = wrapper.querySelector<HTMLElement>('.prompt-list-conversation');
+    const questions = Array.from(wrapper.querySelectorAll<HTMLElement>('li.prompt-question'));
     const answers = Array.from(wrapper.querySelectorAll<HTMLElement>('li.prompt-answer'));
     t.truthy(conversation);
+    t.is(questions.length, 2);
     t.is(answers.length, 2);
-    if (!conversation || answers.length !== 2) return;
+    if (!conversation || questions.length !== 2 || answers.length !== 2) return;
 
-    setPromptListCollapsedState(conversation, true);
+    setPromptListMode(conversation, 'collapse-responses');
     t.is(conversation.getAttribute('data-collapsed'), 'true');
+    t.is(conversation.getAttribute('data-prompt-list-mode'), 'collapse-responses');
+    t.deepEqual(
+      questions.map((question) => question.getAttribute('data-expanded')),
+      ['true', 'true'],
+    );
+    t.deepEqual(
+      answers.map((answer) => answer.getAttribute('data-expanded')),
+      ['false', 'false'],
+    );
+    t.is(
+      conversation
+        .querySelector<HTMLElement>('[data-prompt-list-mode="collapse-responses"]')
+        ?.getAttribute('aria-pressed'),
+      'true',
+    );
+
+    setPromptListMode(conversation, 'collapse-all');
+    t.is(conversation.getAttribute('data-collapsed'), 'true');
+    t.is(conversation.getAttribute('data-prompt-list-mode'), 'collapse-all');
+    t.deepEqual(
+      questions.map((question) => question.getAttribute('data-expanded')),
+      ['false', 'false'],
+    );
     t.deepEqual(
       answers.map((answer) => answer.getAttribute('data-expanded')),
       ['false', 'false'],
     );
 
-    setPromptListCollapsedState(conversation, false, { syncAnswers: false });
-    togglePromptAnswerExpandedState(answers[0]);
-
+    setPromptListMode(conversation, 'expand-all');
     t.is(conversation.getAttribute('data-collapsed'), 'false');
+    t.is(conversation.getAttribute('data-prompt-list-mode'), 'expand-all');
+    t.deepEqual(
+      questions.map((question) => question.getAttribute('data-expanded')),
+      ['true', 'true'],
+    );
     t.deepEqual(
       answers.map((answer) => answer.getAttribute('data-expanded')),
-      ['true', 'false'],
+      ['true', 'true'],
     );
   });
 });
 
-test('syncPromptAnswerExpandedStateInUrl persists prompt answer expansion keys while prompt lists default to read mode', (t) => {
+test('syncPromptAnswerExpandedStateInUrl persists answer expansion keys while prompt lists default to collapse responses mode', (t) => {
   withDom(() => {
     const html = parseMarkdownToHtml(['~ Question', '⏺ Answer one.', '~ Follow up', '⏺ Answer two.'].join('\n'));
     const initialWrapper = document.createElement('div');
@@ -738,17 +925,22 @@ test('syncPromptAnswerExpandedStateInUrl persists prompt answer expansion keys w
 
     const rerenderedWrapper = document.createElement('div');
     rerenderedWrapper.innerHTML = `<div class="rendered-markdown">${parseMarkdownToHtml('~ Question\n⏺ Answer one.\n~ Follow up\n⏺ Answer two.')}</div>`;
-    restorePromptListCollapsedStates(rerenderedWrapper, null, false);
+    restorePromptListCollapsedStates(rerenderedWrapper, null, 'collapse-responses');
     restorePromptAnswerExpandedStates(rerenderedWrapper);
 
     const rerenderedConversation = rerenderedWrapper.querySelector<HTMLElement>('.prompt-list-conversation');
+    const rerenderedQuestions = Array.from(rerenderedWrapper.querySelectorAll<HTMLElement>('li.prompt-question'));
     const rerenderedAnswers = Array.from(rerenderedWrapper.querySelectorAll<HTMLElement>('li.prompt-answer'));
     t.truthy(rerenderedConversation);
     t.deepEqual(
-      rerenderedAnswers.map((answer) => answer.getAttribute('data-expanded')),
+      rerenderedQuestions.map((question) => question.getAttribute('data-expanded')),
       ['true', 'true'],
     );
-    t.is(rerenderedConversation?.getAttribute('data-collapsed'), 'false');
+    t.deepEqual(
+      rerenderedAnswers.map((answer) => answer.getAttribute('data-expanded')),
+      ['true', 'false'],
+    );
+    t.is(rerenderedConversation?.getAttribute('data-collapsed'), 'true');
     t.is(
       new URLSearchParams(window.location.search).get('ple'),
       `${initialConversation.getAttribute('data-prompt-list-id')}:${initialAnswers[0]?.getAttribute('data-prompt-list-item-index')}`,
@@ -778,7 +970,7 @@ test('prompt answer expansion state survives prompt-list rerenders in read mode'
     t.is(initialAnswers.length, 2);
     if (!initialConversation || initialAnswers.length !== 2) return;
 
-    setPromptListCollapsedState(initialConversation, false);
+    setPromptListMode(initialConversation, 'expand-all');
     togglePromptAnswerExpandedState(initialAnswers[1]);
     const collapsedSnapshot = capturePromptListCollapsedStates(initialWrapper);
     const snapshot = capturePromptAnswerExpandedStates(initialWrapper);
@@ -791,6 +983,7 @@ test('prompt answer expansion state survives prompt-list rerenders in read mode'
     const rerenderedConversation = rerenderedWrapper.querySelector<HTMLElement>('.prompt-list-conversation');
     const rerenderedAnswers = Array.from(rerenderedWrapper.querySelectorAll<HTMLElement>('li.prompt-answer'));
     t.is(rerenderedConversation?.getAttribute('data-collapsed'), 'false');
+    t.is(rerenderedConversation?.getAttribute('data-prompt-list-mode'), 'expand-all');
     t.deepEqual(
       rerenderedAnswers.map((answer) => answer.getAttribute('data-expanded')),
       ['true', 'false'],
@@ -798,7 +991,7 @@ test('prompt answer expansion state survives prompt-list rerenders in read mode'
   });
 });
 
-test('prompt-list defaults to read mode on rerender when no prior snapshot exists', (t) => {
+test('prompt-list defaults to collapse responses mode on rerender when no prior snapshot exists', (t) => {
   withDom(() => {
     const markdown = ['~ Question', '⏺ First answer.', '~ Follow up', '⏺ Second answer.'].join('\n');
     const html = parseMarkdownToHtml(markdown);
@@ -809,19 +1002,25 @@ test('prompt-list defaults to read mode on rerender when no prior snapshot exist
     t.truthy(conversation);
     if (!conversation) return;
 
-    setPromptListCollapsedState(conversation, false);
+    setPromptListMode(conversation, 'expand-all');
 
     const rerenderedWrapper = document.createElement('div');
     rerenderedWrapper.innerHTML = `<div class="rendered-markdown">${parseMarkdownToHtml(markdown)}</div>`;
-    restorePromptListCollapsedStates(rerenderedWrapper, null, false);
+    restorePromptListCollapsedStates(rerenderedWrapper);
     restorePromptAnswerExpandedStates(rerenderedWrapper);
 
     const rerenderedConversation = rerenderedWrapper.querySelector<HTMLElement>('.prompt-list-conversation');
+    const rerenderedQuestions = Array.from(rerenderedWrapper.querySelectorAll<HTMLElement>('li.prompt-question'));
     const rerenderedAnswers = Array.from(rerenderedWrapper.querySelectorAll<HTMLElement>('li.prompt-answer'));
-    t.is(rerenderedConversation?.getAttribute('data-collapsed'), 'false');
+    t.is(rerenderedConversation?.getAttribute('data-collapsed'), 'true');
+    t.is(rerenderedConversation?.getAttribute('data-prompt-list-mode'), 'collapse-responses');
+    t.deepEqual(
+      rerenderedQuestions.map((question) => question.getAttribute('data-expanded')),
+      ['true', 'true'],
+    );
     t.deepEqual(
       rerenderedAnswers.map((answer) => answer.getAttribute('data-expanded')),
-      ['true', 'true'],
+      ['false', 'false'],
     );
   });
 });
@@ -829,25 +1028,31 @@ test('prompt-list defaults to read mode on rerender when no prior snapshot exist
 test('parseMarkdownToHtml leaves single-paragraph prompt answers uncollapsed', (t) => {
   const html = withDom(() => parseMarkdownToHtml(['~ Question', '⏺ Only one paragraph.'].join('\n')));
 
-  t.regex(html, /<li class="prompt-answer"[^>]*>Only one paragraph\.<\/li>/);
+  t.true(html.includes(`${promptAssistantLabelHtml}Only one paragraph.`));
+  t.false(html.includes('[Continued]'));
+  t.false(html.includes('<span class="prompt-answer-summary-continuation"></span>'));
   t.false(html.includes('prompt-answer-toggle'));
 });
 
 test('parseMarkdownToHtml renders placeholders for empty prompt question and answer rows', (t) => {
   const html = withDom(() => parseMarkdownToHtml('~ \n⏺ '));
 
-  t.true(html.includes('<li class="prompt-question"><span class="prompt-list-placeholder">Continue here</span></li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*><span class="prompt-list-placeholder">Continue here<\/span><\/li>/);
+  t.true(html.includes(`<div class="prompt-message-content prompt-answer-body">${promptUserLabelHtml}</div>`));
+  t.true(
+    html.includes(
+      `<div class="prompt-message-content prompt-answer-body">${promptAssistantLabelHtml}<span class="prompt-list-placeholder">Continue here</span></div>`,
+    ),
+  );
 });
 
 test('parseMarkdownToHtml keeps a prompt list unified across a single blank line between items', (t) => {
   const html = withDom(() => parseMarkdownToHtml(['~ one', '⏺ answer', '  ', '~ two', '⏺ next'].join('\n')));
 
   t.is((html.match(/class="prompt-list-conversation"/g) ?? []).length, 1);
-  t.true(html.includes('<li class="prompt-question">one</li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>answer<\/li>/);
-  t.true(html.includes('<li class="prompt-question">two</li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>next<\/li>/);
+  t.true(html.includes(`${promptUserLabelHtml}one`));
+  t.true(html.includes(`${promptAssistantLabelHtml}answer`));
+  t.true(html.includes(`${promptUserLabelHtml}two`));
+  t.true(html.includes(`${promptAssistantLabelHtml}next`));
 });
 
 test('parseMarkdownToHtml wraps nested prompt-list branches in nested lists', (t) => {
@@ -855,12 +1060,12 @@ test('parseMarkdownToHtml wraps nested prompt-list branches in nested lists', (t
     parseMarkdownToHtml(['~ root', '⏺ root answer', '  ~ branch', '  ⏺ branch answer', '~ next root'].join('\n')),
   );
 
-  t.true(html.includes('<li class="prompt-question">root</li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>root answer<\/li>/);
+  t.true(html.includes(`${promptUserLabelHtml}root`));
+  t.true(html.includes(`${promptAssistantLabelHtml}root answer`));
   t.true(html.includes('<li class="prompt-list-branch"><ul class="prompt-list-tree">'));
-  t.true(html.includes('<li class="prompt-question">branch</li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>branch answer<\/li>/);
-  t.true(html.includes('<li class="prompt-question">next root</li>'));
+  t.true(html.includes(`${promptUserLabelHtml}branch`));
+  t.true(html.includes(`${promptAssistantLabelHtml}branch answer`));
+  t.true(html.includes(`${promptUserLabelHtml}next root`));
 });
 
 test('parseMarkdownToHtml splits prompt lists across two blank lines between items', (t) => {
@@ -1016,8 +1221,8 @@ test('parseMarkdownToHtml keeps fenced code quotes literal when smartQuotes is e
 test('parseMarkdownToHtml renders CriticMarkup inside prompt list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('~ Review {++this++}\n⏺ Keep {--that--}'));
 
-  t.true(html.includes('<li class="prompt-question">Review <ins class="critic-addition">this</ins></li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>Keep <del class="critic-deletion">that<\/del><\/li>/);
+  t.true(html.includes(`${promptUserLabelHtml}Review <ins class="critic-addition">this</ins>`));
+  t.true(html.includes(`${promptAssistantLabelHtml}Keep <del class="critic-deletion">that</del>`));
 });
 
 test('parseMarkdownToHtml renders double-plus inline comments inside list items', (t) => {
@@ -1029,8 +1234,8 @@ test('parseMarkdownToHtml renders double-plus inline comments inside list items'
 test('parseMarkdownToHtml renders double-plus inline comments inside prompt list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('~ Ask ++private note++\n⏺ Answer ++draft thought++'));
 
-  t.true(html.includes('<li class="prompt-question">Ask <span class="inline-comment">private note</span></li>'));
-  t.regex(html, /<li class="prompt-answer"[^>]*>Answer <span class="inline-comment">draft thought<\/span><\/li>/);
+  t.true(html.includes(`${promptUserLabelHtml}Ask <span class="inline-comment">private note</span>`));
+  t.true(html.includes(`${promptAssistantLabelHtml}Answer <span class="inline-comment">draft thought</span>`));
 });
 
 test('parseMarkdownToHtml renders CriticMarkup inside footnote definitions', (t) => {

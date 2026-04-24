@@ -131,7 +131,7 @@
   --sidebar-renaming-row-bg: #10151b;
   --editor-font-size: 15px;
   --reader-markdown-font-size: 15.5px;
-  --reader-preformatted-font-size: 15px;
+  --reader-preformatted-font-size: 14.5px;
   --reader-metadata-font-size: 0.94em;
   --sidebar-font-size: 14px;
   --reader-editor-line-height: 1.6;
@@ -199,7 +199,7 @@
   --sidebar-renaming-row-bg: #e2e2e1;
   --editor-font-size: 15px;
   --reader-markdown-font-size: 15.5px;
-  --reader-preformatted-font-size: 15px;
+  --reader-preformatted-font-size: 14.5px;
   --cyan-mix: color-mix(in srgb, var(--text) 60%, var(--ansi-cyan));
   --code-content-accent: #f5b98b;
   --code-content-color: color-mix(in srgb, var(--text) 60%, var(--code-content-accent));
