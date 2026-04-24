@@ -910,7 +910,7 @@ export function TerminalPanel({
   liveFileContentRef.current = liveFileContent;
   const includeActiveEditPathInImportsRef = useRef(includeActiveEditPathInImports);
   includeActiveEditPathInImportsRef.current = includeActiveEditPathInImports;
-  const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const terminalFsQueueRef = useRef<Promise<void>>(Promise.resolve());
   const liveSyncTimerRef = useRef<number | null>(null);
   const [fsReady, setFsReady] = useState(false);
   const [shellReadyByPane, setShellReadyByPane] = useState<Record<PaneId, boolean>>({
@@ -1293,17 +1293,26 @@ export function TerminalPanel({
     [releasePaneShellSession],
   );
 
-  const flushManagedSync = useCallback(async (): Promise<void> => {
-    const wc = wcRef.current;
-    if (!wc) return;
+  const enqueueTerminalFsTask = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const run = terminalFsQueueRef.current.then(task, task);
+    terminalFsQueueRef.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }, []);
+
+  const enqueuePendingLiveSync = useCallback((): void => {
     if (liveSyncTimerRef.current !== null) {
       window.clearTimeout(liveSyncTimerRef.current);
       liveSyncTimerRef.current = null;
       const pendingPath = liveFilePathRef.current;
       const pendingContent = liveFileContentRef.current;
       if (pendingPath !== null && pendingContent !== null) {
-        syncQueueRef.current = syncQueueRef.current.then(async () => {
+        void enqueueTerminalFsTask(async () => {
+          const wc = wcRef.current;
           if (unmountedRef.current) return;
+          if (!wc) return;
           try {
             await writeTextFile(wc, pendingPath, pendingContent);
             lastWrittenRef.current.set(pendingPath, pendingContent);
@@ -1313,16 +1322,20 @@ export function TerminalPanel({
         });
       }
     }
-    await syncQueueRef.current;
-  }, []);
+  }, [enqueueTerminalFsTask]);
+
+  const flushManagedSync = useCallback(async (): Promise<void> => {
+    enqueuePendingLiveSync();
+    await enqueueTerminalFsTask(async () => undefined);
+  }, [enqueuePendingLiveSync, enqueueTerminalFsTask]);
 
   const importTerminalDiff = useCallback(
     async (options?: TerminalImportOptions): Promise<TerminalImportDiff | null> => {
       if (importInFlightRef.current) return importInFlightRef.current;
-      const pendingImport = (async (): Promise<TerminalImportDiff | null> => {
-        const wc = wcRef.current;
+      const wc = wcRef.current;
+      enqueuePendingLiveSync();
+      const pendingImport = enqueueTerminalFsTask(async (): Promise<TerminalImportDiff | null> => {
         if (!wc || !baseFilesReadyRef.current || !onImportDiffRef.current) return null;
-        await flushManagedSync();
         const managedFiles = buildManagedFiles(
           baseFilesRef.current,
           liveFilePathRef.current,
@@ -1342,7 +1355,7 @@ export function TerminalPanel({
           options,
         });
         return diff;
-      })();
+      });
       importInFlightRef.current = pendingImport;
       try {
         return await pendingImport;
@@ -1352,7 +1365,7 @@ export function TerminalPanel({
         }
       }
     },
-    [flushManagedSync],
+    [enqueuePendingLiveSync, enqueueTerminalFsTask],
   );
 
   const spawnShellSession = useCallback(
@@ -2325,22 +2338,19 @@ export function TerminalPanel({
 
   useEffect(() => {
     if (!fsReady || !baseFilesReady) return;
-    const wc = wcRef.current;
-    if (!wc) return;
-    const previous = lastWrittenRef.current;
-    const next = new Map(Object.entries(buildManagedFiles(baseFiles, liveFilePath, liveFileContentRef.current)));
-    const writes: Array<[string, string]> = [];
-    const removes: string[] = [];
-    for (const [path, contents] of next) {
-      if (previous.get(path) !== contents) writes.push([path, contents]);
-    }
-    for (const path of previous.keys()) {
-      if (!next.has(path)) removes.push(path);
-    }
-    if (writes.length === 0 && removes.length === 0) return;
-    syncQueueRef.current = syncQueueRef.current.then(async () => {
+    // Schedule on managed-input changes, but read refs when the queue task runs.
+    void baseFiles;
+    void liveFilePath;
+    void enqueueTerminalFsTask(async () => {
+      const wc = wcRef.current;
+      if (!wc) return;
       if (unmountedRef.current) return;
-      for (const path of removes) {
+      if (!baseFilesReadyRef.current) return;
+      const next = new Map(
+        Object.entries(buildManagedFiles(baseFilesRef.current, liveFilePathRef.current, liveFileContentRef.current)),
+      );
+      for (const path of [...lastWrittenRef.current.keys()]) {
+        if (next.has(path)) continue;
         try {
           await wc.fs.rm(path, { force: true, recursive: true });
           lastWrittenRef.current.delete(path);
@@ -2348,7 +2358,8 @@ export function TerminalPanel({
           console.error('[terminal] sync rm failed', path, err);
         }
       }
-      for (const [path, contents] of writes) {
+      for (const [path, contents] of next) {
+        if (lastWrittenRef.current.get(path) === contents) continue;
         try {
           await writeTextFile(wc, path, contents);
           lastWrittenRef.current.set(path, contents);
@@ -2357,7 +2368,7 @@ export function TerminalPanel({
         }
       }
     });
-  }, [baseFiles, liveFilePath, fsReady, baseFilesReady]);
+  }, [baseFiles, liveFilePath, fsReady, baseFilesReady, enqueueTerminalFsTask]);
 
   useEffect(() => {
     if (!fsReady || liveFilePath === null || liveFileContent === null) return;
@@ -2369,13 +2380,19 @@ export function TerminalPanel({
     }
     liveSyncTimerRef.current = window.setTimeout(() => {
       liveSyncTimerRef.current = null;
-      syncQueueRef.current = syncQueueRef.current.then(async () => {
+      void enqueueTerminalFsTask(async () => {
+        const wc = wcRef.current;
         if (unmountedRef.current) return;
+        if (!wc) return;
+        const path = liveFilePathRef.current;
+        const content = liveFileContentRef.current;
+        if (path === null || content === null) return;
+        if (lastWrittenRef.current.get(path) === content) return;
         try {
-          await writeTextFile(wc, liveFilePath, liveFileContent);
-          lastWrittenRef.current.set(liveFilePath, liveFileContent);
+          await writeTextFile(wc, path, content);
+          lastWrittenRef.current.set(path, content);
         } catch (err) {
-          console.error('[terminal] live sync write failed', liveFilePath, err);
+          console.error('[terminal] live sync write failed', path, err);
         }
       });
     }, LIVE_FILE_DEBOUNCE_MS);
@@ -2385,7 +2402,7 @@ export function TerminalPanel({
         liveSyncTimerRef.current = null;
       }
     };
-  }, [fsReady, liveFileContent, liveFilePath]);
+  }, [fsReady, liveFileContent, liveFilePath, enqueueTerminalFsTask]);
 
   useEffect(() => {
     return () => {
