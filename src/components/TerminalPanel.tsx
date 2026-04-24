@@ -1809,7 +1809,7 @@ export function TerminalPanel({
       overlayArchivePromise.catch(() => {});
 
       try {
-        writeTerminal(logPaneId, 'Booting container...\r\n', { forceFollow: true });
+        writeTerminal(logPaneId, 'Booting environment...\r\n', { forceFollow: true });
         const wc = await bootPerf.measure('bootWebContainer', () => bootWebContainer(apiKey, workdirName));
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
