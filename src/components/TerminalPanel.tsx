@@ -524,10 +524,11 @@ async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBu
 
 async function provisionHomeOverlay(
   wc: WebContainer,
-  bootPerf?: TerminalBootPerfLogger,
+  bootPerf: TerminalBootPerfLogger | undefined,
+  archiveSource: Promise<Uint8Array<ArrayBuffer>>,
 ): Promise<{ archiveBytes: number; homeDir: string }> {
   const [archive, homeDir] = await Promise.all([
-    measureBootStage(bootPerf, 'overlay.fetchArchive', () => fetchWebContainerHomeOverlayArchive()),
+    measureBootStage(bootPerf, 'overlay.awaitArchive', () => archiveSource),
     measureBootStage(bootPerf, 'overlay.resolveHomeDirectory', () => resolveWebContainerHomeDirectory(wc)),
   ]);
   const archivePath = joinHomePath(homeDir, HOME_OVERLAY_ARCHIVE_FILENAME);
@@ -1735,6 +1736,14 @@ export function TerminalPanel({
         teardownWebContainer(previousWc);
       }
 
+      // Kick off the overlay archive download eagerly so its network latency
+      // overlaps with bootWebContainer + clearWorkspace + mount.
+      const overlayArchivePromise = bootPerf.measure('overlay.fetchArchive', () =>
+        fetchWebContainerHomeOverlayArchive(),
+      );
+      // Swallow unhandled rejection — the real consumer below will observe it.
+      overlayArchivePromise.catch(() => {});
+
       try {
         writeTerminal(logPaneId, 'Booting container...\r\n', { forceFollow: true });
         const wc = await bootPerf.measure('bootWebContainer', () => bootWebContainer(apiKey, workdirName));
@@ -1780,7 +1789,7 @@ export function TerminalPanel({
         let overlayHomeDir: string | null = null;
         try {
           writeTerminal(logPaneId, 'Mounting binaries...\r\n', { forceFollow: true });
-          const overlayResult = await provisionHomeOverlay(wc, bootPerf);
+          const overlayResult = await provisionHomeOverlay(wc, bootPerf, overlayArchivePromise);
           overlayHomeDir = overlayResult.homeDir;
           bootPerf.record('overlay.summary', 0, { archive_bytes: overlayResult.archiveBytes });
         } catch (err) {
