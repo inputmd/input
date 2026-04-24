@@ -102,6 +102,7 @@ export interface TerminalPanelProps {
   workdirName: string;
   apiKey: string | undefined;
   baseFilesLoadError?: string | null;
+  baseFilesLoadingMessage?: string | null;
   workspaceChangesPersisted?: boolean;
   workspaceChangesNotice?: string | null;
   /**
@@ -852,6 +853,7 @@ export function TerminalPanel({
   workdirName,
   apiKey,
   baseFilesLoadError = null,
+  baseFilesLoadingMessage = null,
   workspaceChangesPersisted = true,
   workspaceChangesNotice = null,
   baseFiles,
@@ -1814,6 +1816,9 @@ export function TerminalPanel({
           return;
         }
 
+        if (!baseFilesReadyRef.current && baseFilesLoadingMessage) {
+          writeTerminal(logPaneId, `${baseFilesLoadingMessage}\r\n`, { forceFollow: true });
+        }
         await bootPerf.measure('waitForBaseFilesReady', () => waitForBaseFilesReady());
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
@@ -2023,6 +2028,7 @@ export function TerminalPanel({
     },
     [
       apiKey,
+      baseFilesLoadingMessage,
       capturePersistedHomeState,
       ensurePaneSurface,
       fitPane,
