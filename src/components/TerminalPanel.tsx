@@ -1905,12 +1905,12 @@ export function TerminalPanel({
         await bootPerf.measure(
           'spawnShellSessions',
           async () => {
-            for (const [index, paneId] of visiblePaneIdsRef.current.entries()) {
-              await spawnShellSession(paneId, { announceReady: index === 0 });
-              if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
-                bootStatus = 'cancelled';
-                return;
-              }
+            const paneIds = visiblePaneIdsRef.current;
+            await Promise.all(
+              paneIds.map((paneId, index) => spawnShellSession(paneId, { announceReady: index === 0 })),
+            );
+            if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
+              bootStatus = 'cancelled';
             }
           },
           {
