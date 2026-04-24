@@ -2308,7 +2308,7 @@
 }
 
 .terminal-panel__trust-prompt-card {
-  width: min(100%, 320px);
+  width: min(100%, 400px);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2341,8 +2341,15 @@
 }
 
 .terminal-panel__trust-prompt-actions > button {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
+}
+
+.terminal-panel__trust-prompt-actions > button svg {
+  flex-shrink: 0;
 }
 
 .terminal-panel__trust-prompt-link {

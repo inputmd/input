@@ -23,6 +23,11 @@ export interface PersistedHomeEntry {
   mtime: number | null;
 }
 
+export interface PersistedHomeCredentialPresence {
+  claude: boolean;
+  pi: boolean;
+}
+
 export interface PersistedHomeInspectionSnapshot {
   normalizedWorkspaceKey: string | null;
   globalEntries: PersistedHomeEntry[];
@@ -42,6 +47,11 @@ interface PersistedHomeRecord {
   mtime: number | null;
   updatedAt: number;
 }
+
+export const PERSISTED_HOME_CREDENTIAL_PATHS = {
+  claude: '.claude/.credentials.json',
+  pi: '.pi/agent/auth.json',
+} as const;
 
 export const PERSISTED_HOME_TARGETS: readonly PersistedHomeTarget[] = [
   { id: 'jsh-history', kind: 'file', homePath: '.jsh_history' },
@@ -168,6 +178,15 @@ function normalizePersistedHomeEntries(
     });
   }
   return [...normalizedByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+export function derivePersistedHomeCredentialPresence(
+  entries: readonly PersistedHomeEntry[],
+): PersistedHomeCredentialPresence {
+  return {
+    claude: entries.some((entry) => entry.path === PERSISTED_HOME_CREDENTIAL_PATHS.claude),
+    pi: entries.some((entry) => entry.path === PERSISTED_HOME_CREDENTIAL_PATHS.pi),
+  };
 }
 
 export function partitionPersistedHomeEntriesByScope(

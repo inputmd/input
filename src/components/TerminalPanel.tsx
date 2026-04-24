@@ -2,7 +2,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { FileSystemTree, WebContainer } from '@webcontainer/api';
 import type { Ghostty, Terminal as GhosttyTerminal } from 'ghostty-web';
 import ghosttyWasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
-import { ChevronLeft, ChevronRight, SquareTerminal, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ShieldCheck, SquareTerminal, Zap, ZapOff } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils.ts';
 import {
@@ -18,6 +18,7 @@ import {
   logPersistedHomePaths,
   PERSISTED_HOME_SEED_FILENAME,
   PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
+  type PersistedHomeCredentialPresence,
   type PersistedHomeEntry,
 } from '../persisted_home_state.ts';
 import {
@@ -837,6 +838,13 @@ function resetBannerTextForKey(key: ResetKey | null): string {
     : 'Press Ctrl-C again to reset this terminal';
 }
 
+function formatAgentCredentialPresenceLabel(presence: PersistedHomeCredentialPresence): string {
+  if (presence.claude && presence.pi) return 'Claude, Pi authenticated';
+  if (presence.claude) return 'Claude authenticated';
+  if (presence.pi) return 'Pi authenticated';
+  return 'Not authenticated';
+}
+
 export function TerminalPanel({
   className,
   visible,
@@ -1134,10 +1142,12 @@ export function TerminalPanel({
     persistenceDialogLoading,
     persistenceDialogOpen,
     persistenceDialogSnapshot,
+    persistedHomeCredentialPresence,
     persistedHomePromptState,
     releasePersistedHomeSyncSession,
     resolvePersistedHomeMode,
     setPersistedHomeActiveSessionMode,
+    setPersistedHomeCredentialPresenceFromEntries,
     setPersistedHomeScriptPath,
     settlePersistedHomePrompt,
     startPersistedHomeSync,
@@ -1157,6 +1167,7 @@ export function TerminalPanel({
       : credentialSyncEnabled
         ? 'Credential sync on'
         : 'Credential sync off';
+  const agentCredentialStatusLabel = formatAgentCredentialPresenceLabel(persistedHomeCredentialPresence);
   const networkingStatusLabel = hostBridgeError ? 'Networking error' : 'Networking on';
   const credentialSyncMenuNote =
     credentialSyncEnabled === null
@@ -1837,7 +1848,7 @@ export function TerminalPanel({
         const currentPathPromise = bootPerf.measure('resolvePath', () => resolveWebContainerEnvValue(wc, 'PATH'));
         currentPathPromise.catch(() => {});
 
-        writeTerminal(logPaneId, 'Mounting binaries and restoring config files...\r\n', { forceFollow: true });
+        writeTerminal(logPaneId, 'Mounting agent bundles...\r\n', { forceFollow: true });
 
         const overlayPromise = (async () => {
           try {
@@ -1913,6 +1924,7 @@ export function TerminalPanel({
         const persistedHomePrep = await persistedHomePrepPromise;
 
         if (persistedHomePrep) {
+          setPersistedHomeCredentialPresenceFromEntries(persistedHomePrep.entries);
           setPersistedHomeScriptPath(persistedHomePrep.scriptPath);
           try {
             const persistedHomeResult = await applyPersistedHomeRestore(
@@ -1929,6 +1941,7 @@ export function TerminalPanel({
             });
           }
         } else {
+          setPersistedHomeCredentialPresenceFromEntries([]);
           setPersistedHomeScriptPath(null);
         }
         setPersistedHomeActiveSessionMode(persistedHomeTransition.nextSessionMode);
@@ -2009,6 +2022,7 @@ export function TerminalPanel({
       releasePersistedHomeSyncSession,
       resolvePersistedHomeMode,
       setPersistedHomeActiveSessionMode,
+      setPersistedHomeCredentialPresenceFromEntries,
       setPersistedHomeScriptPath,
       setFollowOutput,
       spawnShellSession,
@@ -2541,7 +2555,8 @@ export function TerminalPanel({
                         settlePersistedHomePrompt(false);
                       }}
                     >
-                      Keep credential sync off
+                      <ZapOff size={15} aria-hidden="true" />
+                      <span>Keep credential sync off</span>
                     </button>
                     <button
                       type="button"
@@ -2550,7 +2565,8 @@ export function TerminalPanel({
                         settlePersistedHomePrompt(true);
                       }}
                     >
-                      Trust this {persistedHomePromptState.target}, enable credential sync
+                      <ShieldCheck size={15} aria-hidden="true" />
+                      <span>Trust this {persistedHomePromptState.target}, enable credential sync</span>
                     </button>
                   </div>
                   <p class="terminal-panel__trust-prompt-note">This will restart running terminals.</p>
@@ -2566,11 +2582,15 @@ export function TerminalPanel({
                     <button
                       type="button"
                       class="terminal-panel__credential-sync-trigger"
-                      aria-label={`${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
-                      title={`${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
+                      aria-label={`${agentCredentialStatusLabel}. ${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
+                      title={`${agentCredentialStatusLabel}. ${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
                     >
-                      <Zap size={14} aria-hidden="true" />
-                      <span>{credentialSyncStatusLabel}</span>
+                      {credentialSyncEnabled ? (
+                        <Zap size={14} aria-hidden="true" />
+                      ) : (
+                        <ZapOff size={14} aria-hidden="true" />
+                      )}
+                      <span>{agentCredentialStatusLabel}</span>
                     </button>
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>

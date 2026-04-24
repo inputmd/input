@@ -1,8 +1,10 @@
 import type { WebContainer } from '@webcontainer/api';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import {
+  derivePersistedHomeCredentialPresence,
   inspectPersistedHomeEntries,
   logPersistedHomePaths,
+  type PersistedHomeCredentialPresence,
   type PersistedHomeEntry,
   type PersistedHomeInspectionSnapshot,
   persistPersistedHomeEntries,
@@ -16,6 +18,7 @@ import {
 } from '../repo_workspace/persisted_home_trust.ts';
 
 const PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS = 250;
+const EMPTY_CREDENTIAL_PRESENCE: PersistedHomeCredentialPresence = { claude: false, pi: false };
 
 type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
 
@@ -50,6 +53,13 @@ interface CapturePersistedHomeStateOptions {
   targetWorkspaceKey?: string;
 }
 
+function isSameCredentialPresence(
+  left: PersistedHomeCredentialPresence,
+  right: PersistedHomeCredentialPresence,
+): boolean {
+  return left.claude === right.claude && left.pi === right.pi;
+}
+
 export function useTerminalPersistedHome({
   focusPane,
   persistedHomeTrustPrompt,
@@ -70,6 +80,8 @@ export function useTerminalPersistedHome({
   const pendingTrustResolutionPromiseRef = useRef<Promise<void> | null>(null);
   const pendingTrustResolutionResolveRef = useRef<(() => void) | null>(null);
   const [credentialSyncEnabled, setCredentialSyncEnabled] = useState<boolean | null>(null);
+  const [persistedHomeCredentialPresence, setPersistedHomeCredentialPresence] =
+    useState<PersistedHomeCredentialPresence>(EMPTY_CREDENTIAL_PRESENCE);
   const [persistedHomePromptState, setPersistedHomePromptState] = useState<TerminalPersistedHomePromptState | null>(
     null,
   );
@@ -82,7 +94,38 @@ export function useTerminalPersistedHome({
 
   const setPersistedHomeConfiguredMode = useCallback((mode: PersistedHomeMode) => {
     setCredentialSyncEnabled(mode === 'include');
+    if (mode !== 'include') {
+      setPersistedHomeCredentialPresence(EMPTY_CREDENTIAL_PRESENCE);
+    }
   }, []);
+
+  const setPersistedHomeCredentialPresenceFromEntries = useCallback((entries: readonly PersistedHomeEntry[]) => {
+    const nextPresence = derivePersistedHomeCredentialPresence(entries);
+    setPersistedHomeCredentialPresence((currentPresence) =>
+      isSameCredentialPresence(currentPresence, nextPresence) ? currentPresence : nextPresence,
+    );
+  }, []);
+
+  useEffect(() => {
+    if (credentialSyncEnabled !== true) {
+      setPersistedHomeCredentialPresence(EMPTY_CREDENTIAL_PRESENCE);
+      return;
+    }
+    let cancelled = false;
+    void inspectPersistedHomeEntries(workspaceKeyRef.current).then(
+      (snapshot) => {
+        if (cancelled) return;
+        setPersistedHomeCredentialPresenceFromEntries(snapshot.effectiveEntries);
+      },
+      (err) => {
+        if (cancelled) return;
+        console.error('[terminal] failed to inspect persisted credential presence', err);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [credentialSyncEnabled, setPersistedHomeCredentialPresenceFromEntries, workspaceKeyRef]);
 
   useEffect(() => {
     persistedHomeTrustPromptRef.current = persistedHomeTrustPrompt;
@@ -103,18 +146,22 @@ export function useTerminalPersistedHome({
     persistedHomeActiveSessionModeRef.current = mode;
   }, []);
 
-  const flushPersistedHomeState = useCallback(async (options?: { force?: boolean }) => {
-    if (persistedHomePersistTimerRef.current !== null) {
-      window.clearTimeout(persistedHomePersistTimerRef.current);
-      persistedHomePersistTimerRef.current = null;
-    }
-    const pending = pendingPersistedHomeEntriesRef.current;
-    if (pending === null) return;
-    pendingPersistedHomeEntriesRef.current = null;
-    if (!options?.force && persistedHomeActiveSessionModeRef.current !== 'include') return;
-    await persistPersistedHomeEntries(pending.workspaceKey, pending.entries);
-    logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', pending.entries);
-  }, []);
+  const flushPersistedHomeState = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (persistedHomePersistTimerRef.current !== null) {
+        window.clearTimeout(persistedHomePersistTimerRef.current);
+        persistedHomePersistTimerRef.current = null;
+      }
+      const pending = pendingPersistedHomeEntriesRef.current;
+      if (pending === null) return;
+      pendingPersistedHomeEntriesRef.current = null;
+      if (!options?.force && persistedHomeActiveSessionModeRef.current !== 'include') return;
+      await persistPersistedHomeEntries(pending.workspaceKey, pending.entries);
+      setPersistedHomeCredentialPresenceFromEntries(pending.entries);
+      logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', pending.entries);
+    },
+    [setPersistedHomeCredentialPresenceFromEntries],
+  );
 
   const persistPersistedHomeStateImmediately = useCallback(
     async (entries: PersistedHomeEntry[], options?: { allowPersist?: boolean; targetWorkspaceKey?: string }) => {
@@ -127,9 +174,10 @@ export function useTerminalPersistedHome({
       if (!allowPersist) return;
       const key = options?.targetWorkspaceKey ?? workspaceKeyRef.current;
       await persistPersistedHomeEntries(key, entries);
+      setPersistedHomeCredentialPresenceFromEntries(entries);
       logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', entries);
     },
-    [workspaceKeyRef],
+    [setPersistedHomeCredentialPresenceFromEntries, workspaceKeyRef],
   );
 
   const schedulePersistedHomeState = useCallback(
@@ -142,6 +190,7 @@ export function useTerminalPersistedHome({
         pendingPersistedHomeEntriesRef.current = null;
         return;
       }
+      setPersistedHomeCredentialPresenceFromEntries(entries);
       // Capture the workspace key now — by the time the debounce timer fires
       // the ref may point to a different workspace.
       const targetKey = workspaceKeyRef.current;
@@ -165,7 +214,7 @@ export function useTerminalPersistedHome({
         );
       }, PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS);
     },
-    [workspaceKeyRef],
+    [setPersistedHomeCredentialPresenceFromEntries, workspaceKeyRef],
   );
 
   const releasePersistedHomeSyncSession = useCallback(() => {
@@ -392,10 +441,12 @@ export function useTerminalPersistedHome({
     persistenceDialogLoading,
     persistenceDialogOpen,
     persistenceDialogSnapshot,
+    persistedHomeCredentialPresence,
     persistedHomePromptState,
     releasePersistedHomeSyncSession,
     resolvePersistedHomeMode,
     setPersistedHomeActiveSessionMode,
+    setPersistedHomeCredentialPresenceFromEntries,
     setPersistedHomeScriptPath,
     settlePersistedHomePrompt,
     startPersistedHomeSync,

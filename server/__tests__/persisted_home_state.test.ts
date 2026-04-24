@@ -6,6 +6,7 @@ import test from 'ava';
 import {
   buildPersistedHomeSeed,
   buildPersistedHomeSyncScript,
+  derivePersistedHomeCredentialPresence,
   normalizePersistedHomePath,
   PERSISTED_HOME_SEED_FILENAME,
   PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
@@ -234,5 +235,24 @@ test('persisted home target scope separates global claude config from workspace 
         { path: '.claude/sessions/example.jsonl', content: 'session\n', mtime: 4 },
       ],
     },
+  );
+});
+
+test('persisted home credential presence is derived from agent credential file paths only', (t) => {
+  t.deepEqual(
+    derivePersistedHomeCredentialPresence([
+      { path: '.claude/.credentials.json', content: '', mtime: null },
+      { path: '.pi/agent/auth.json', content: 'not validated', mtime: 1 },
+      { path: '.claude.json', content: 'config only', mtime: 2 },
+    ]),
+    { claude: true, pi: true },
+  );
+
+  t.deepEqual(
+    derivePersistedHomeCredentialPresence([
+      { path: '.claude/.config.json', content: 'config only', mtime: null },
+      { path: '.pi/agent/settings.json', content: 'settings only', mtime: null },
+    ]),
+    { claude: false, pi: false },
   );
 });
