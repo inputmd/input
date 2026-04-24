@@ -448,6 +448,10 @@ function defaultSidePaneForViewport(): SidePane {
   return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'preview' : 'none';
 }
 
+function defaultEditorSidePane(): SidePane {
+  return readStoredSidePanePreference() === 'terminal' ? 'terminal' : defaultSidePaneForViewport();
+}
+
 function readStoredSidePanePreference(): SidePane {
   if (typeof window === 'undefined') return 'none';
   try {
@@ -814,7 +818,7 @@ export function App() {
   const [contentAlertDownloadHref, setContentAlertDownloadHref] = useState<string | null>(null);
   const [contentAlertDownloadName, setContentAlertDownloadName] = useState<string | null>(null);
   const [sidePane, setSidePane] = useState<SidePane>(() =>
-    route.name === 'new' ? defaultSidePaneForViewport() : readStoredSidePanePreference(),
+    route.name === 'new' ? defaultEditorSidePane() : readStoredSidePanePreference(),
   );
   const [mountedTerminalWorkspaceKey, setMountedTerminalWorkspaceKey] = useState<string | null>(null);
   const [readerAiSource, setReaderAiSource] = useState('');
@@ -900,7 +904,7 @@ export function App() {
     if (typeof window === 'undefined') return false;
     return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
   });
-  const defaultSidePane = useCallback(() => defaultSidePaneForViewport(), []);
+  const defaultSidePane = useCallback(() => defaultEditorSidePane(), []);
   const previewVisible = sidePane === 'preview';
   const readerAiVisible = sidePane === 'reader-ai';
   const terminalVisible = sidePane === 'terminal';
@@ -3931,7 +3935,7 @@ export function App() {
   }, [defaultSidePane, route.name]);
 
   useLayoutEffect(() => {
-    if (route.name === 'new') return;
+    if (route.name === 'new' && sidePane !== 'terminal') return;
     if (sidePaneSkipPersistRef.current) {
       sidePaneSkipPersistRef.current = false;
       return;
