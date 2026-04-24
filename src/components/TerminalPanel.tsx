@@ -2,7 +2,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { FileSystemTree, WebContainer } from '@webcontainer/api';
 import type { Ghostty, Terminal as GhosttyTerminal } from 'ghostty-web';
 import ghosttyWasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
-import { Power, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, SquareTerminal, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils.ts';
 import {
@@ -876,6 +876,7 @@ export function TerminalPanel({
   });
   const [error, setError] = useState<string | null>(null);
   const [hostBridgeError, setHostBridgeError] = useState(false);
+  const [overlayControlsExpanded, setOverlayControlsExpanded] = useState(true);
   const [dismissedWorkspaceNoticeKey, setDismissedWorkspaceNoticeKey] = useState<string | null>(null);
   const [terminalThemeMode, setTerminalThemeMode] = useState<TerminalThemeMode>(() => getDocumentThemeMode());
   const startedRef = useRef(false);
@@ -2558,118 +2559,140 @@ export function TerminalPanel({
             ) : null}
           </div>
           <div class="terminal-panel__overlay-controls">
-            <DropdownMenu.Root onOpenChange={blurOnClose}>
-              <DropdownMenu.Trigger asChild>
-                <button
-                  type="button"
-                  class="terminal-panel__credential-sync-trigger"
-                  aria-label={`${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
-                  title={`${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
-                >
-                  <Zap size={14} aria-hidden="true" />
-                  <span>{credentialSyncStatusLabel}</span>
-                </button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
-                  <DropdownMenu.Label class="terminal-panel__menu-note">{credentialSyncMenuNote}</DropdownMenu.Label>
-                  <DropdownMenu.Separator class="terminal-panel__menu-separator" />
-                  <DropdownMenu.Item
-                    class="terminal-panel__menu-item"
-                    onSelect={() => {
-                      void openPersistenceDialog();
-                    }}
-                  >
-                    View synced data
-                  </DropdownMenu.Item>
-                  {showPersistedHomeTrustConfiguration ? (
-                    <DropdownMenu.Item
-                      class="terminal-panel__menu-item"
-                      onSelect={() => {
-                        openPersistedHomeReconfigurePrompt();
-                      }}
+            {overlayControlsExpanded ? (
+              <>
+                <DropdownMenu.Root onOpenChange={blurOnClose}>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      class="terminal-panel__credential-sync-trigger"
+                      aria-label={`${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
+                      title={`${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
                     >
-                      Configure credential sync
-                    </DropdownMenu.Item>
-                  ) : null}
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-            <DropdownMenu.Root onOpenChange={blurOnClose}>
-              <DropdownMenu.Trigger asChild>
-                <button
-                  type="button"
-                  class="terminal-panel__menu-trigger"
-                  aria-label="Terminal actions"
-                  title="Terminal actions"
-                >
-                  <Power size={14} aria-hidden="true" />
-                </button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
-                  <DropdownMenu.Item
-                    class="terminal-panel__menu-item"
-                    disabled={!canDownloadFromWebContainer}
-                    onSelect={() => {
-                      void downloadFromWebContainer();
-                    }}
-                  >
-                    Download files...
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Separator class="terminal-panel__menu-separator" />
-                  {!splitOpen ? (
-                    <DropdownMenu.Item
-                      class="terminal-panel__menu-item"
-                      disabled={!canManageSplit}
-                      onSelect={openSplitTerminal}
-                    >
-                      Split terminal
-                    </DropdownMenu.Item>
-                  ) : (
-                    <>
+                      <Zap size={14} aria-hidden="true" />
+                      <span>{credentialSyncStatusLabel}</span>
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
+                      <DropdownMenu.Label class="terminal-panel__menu-note">
+                        {credentialSyncMenuNote}
+                      </DropdownMenu.Label>
+                      <DropdownMenu.Separator class="terminal-panel__menu-separator" />
                       <DropdownMenu.Item
                         class="terminal-panel__menu-item"
-                        disabled={!canManageSplit}
                         onSelect={() => {
-                          closeSplitPane('top');
+                          void openPersistenceDialog();
                         }}
                       >
-                        Close top terminal
+                        View synced data
+                      </DropdownMenu.Item>
+                      {showPersistedHomeTrustConfiguration ? (
+                        <DropdownMenu.Item
+                          class="terminal-panel__menu-item"
+                          onSelect={() => {
+                            openPersistedHomeReconfigurePrompt();
+                          }}
+                        >
+                          Configure credential sync
+                        </DropdownMenu.Item>
+                      ) : null}
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+                <DropdownMenu.Root onOpenChange={blurOnClose}>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      class="terminal-panel__menu-trigger"
+                      aria-label="Terminal actions"
+                      title="Terminal actions"
+                    >
+                      <SquareTerminal size={14} aria-hidden="true" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
+                      <DropdownMenu.Item
+                        class="terminal-panel__menu-item"
+                        disabled={!canDownloadFromWebContainer}
+                        onSelect={() => {
+                          void downloadFromWebContainer();
+                        }}
+                      >
+                        Download files...
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Separator class="terminal-panel__menu-separator" />
+                      {!splitOpen ? (
+                        <DropdownMenu.Item
+                          class="terminal-panel__menu-item"
+                          disabled={!canManageSplit}
+                          onSelect={openSplitTerminal}
+                        >
+                          Split terminal
+                        </DropdownMenu.Item>
+                      ) : (
+                        <>
+                          <DropdownMenu.Item
+                            class="terminal-panel__menu-item"
+                            disabled={!canManageSplit}
+                            onSelect={() => {
+                              closeSplitPane('top');
+                            }}
+                          >
+                            Close top terminal
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            class="terminal-panel__menu-item"
+                            disabled={!canManageSplit}
+                            onSelect={() => {
+                              closeSplitPane('bottom');
+                            }}
+                          >
+                            Close bottom terminal
+                          </DropdownMenu.Item>
+                        </>
+                      )}
+                      <DropdownMenu.Separator class="terminal-panel__menu-separator" />
+                      <DropdownMenu.Item
+                        class="terminal-panel__menu-item"
+                        disabled={!canResetTerminal}
+                        onSelect={() => {
+                          void restartShellRef.current?.(undefined, { clearTerminal: true });
+                        }}
+                      >
+                        Reset terminal
                       </DropdownMenu.Item>
                       <DropdownMenu.Item
                         class="terminal-panel__menu-item"
-                        disabled={!canManageSplit}
+                        disabled={!canRestartWebContainer}
                         onSelect={() => {
-                          closeSplitPane('bottom');
+                          void restartWebContainer();
                         }}
                       >
-                        Close bottom terminal
+                        Restart WebContainer
                       </DropdownMenu.Item>
-                    </>
-                  )}
-                  <DropdownMenu.Separator class="terminal-panel__menu-separator" />
-                  <DropdownMenu.Item
-                    class="terminal-panel__menu-item"
-                    disabled={!canResetTerminal}
-                    onSelect={() => {
-                      void restartShellRef.current?.(undefined, { clearTerminal: true });
-                    }}
-                  >
-                    Reset terminal
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item
-                    class="terminal-panel__menu-item"
-                    disabled={!canRestartWebContainer}
-                    onSelect={() => {
-                      void restartWebContainer();
-                    }}
-                  >
-                    Restart WebContainer
-                  </DropdownMenu.Item>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              </>
+            ) : null}
+            <button
+              type="button"
+              class="terminal-panel__controls-toggle"
+              aria-label={overlayControlsExpanded ? 'Hide terminal controls' : 'Show terminal controls'}
+              aria-expanded={overlayControlsExpanded}
+              title={overlayControlsExpanded ? 'Hide terminal controls' : 'Show terminal controls'}
+              onClick={() => {
+                setOverlayControlsExpanded((expanded) => !expanded);
+              }}
+            >
+              {overlayControlsExpanded ? (
+                <ChevronRight size={14} aria-hidden="true" />
+              ) : (
+                <ChevronLeft size={14} aria-hidden="true" />
+              )}
+            </button>
           </div>
           <TerminalPersistenceDialog
             open={persistenceDialogOpen}

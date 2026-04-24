@@ -2380,7 +2380,7 @@
 .terminal-panel__overlay-controls {
   position: absolute;
   right: 12px;
-  bottom: var(--editor-bottom-right-overlay-bottom, 12px);
+  top: 12px;
   z-index: 2;
   display: inline-flex;
   align-items: center;
@@ -2389,6 +2389,7 @@
 }
 
 .terminal-panel__menu-trigger,
+.terminal-panel__controls-toggle,
 .terminal-panel__credential-sync-trigger {
   display: inline-flex;
   align-items: center;
@@ -2408,6 +2409,7 @@
 }
 
 .terminal-panel__menu-trigger:hover,
+.terminal-panel__controls-toggle:hover,
 .terminal-panel__credential-sync-trigger:hover {
   background: color-mix(in srgb, var(--btn-hover) 65%, var(--toolbar-bg));
   color: var(--text);
@@ -2415,6 +2417,8 @@
 
 .terminal-panel__menu-trigger:focus,
 .terminal-panel__menu-trigger:focus-visible,
+.terminal-panel__controls-toggle:focus,
+.terminal-panel__controls-toggle:focus-visible,
 .terminal-panel__credential-sync-trigger:focus,
 .terminal-panel__credential-sync-trigger:focus-visible {
   outline: none;
@@ -2429,6 +2433,10 @@
   font-weight: 400;
   line-height: 1;
   white-space: nowrap;
+}
+
+.terminal-panel__controls-toggle {
+  padding: 8px 3px 8px 4px;
 }
 
 .terminal-panel__credential-sync-trigger svg {
