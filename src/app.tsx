@@ -213,6 +213,7 @@ import {
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
 const READER_AI_VISIBLE_KEY = 'reader_ai_visible';
 const READER_AI_MODEL_KEY = 'reader_ai_model';
+const DEFAULT_READER_AI_MODEL_ID_PREFIX = 'anthropic/claude-opus';
 const READER_AI_WIDTH_KEY = 'reader_ai_width_px';
 const SIDE_PANE_MODE_KEY = 'side_pane_mode';
 const SIDE_PANE_WIDTH_KEY = 'side_pane_width_px';
@@ -487,12 +488,17 @@ function isClaudeReaderAiModel(model: ReaderAiModel): boolean {
   return `${model.id} ${model.name}`.trim().toLowerCase().includes('claude');
 }
 
+function isDefaultReaderAiModel(model: ReaderAiModel): boolean {
+  return model.id.startsWith(DEFAULT_READER_AI_MODEL_ID_PREFIX);
+}
+
 function defaultReaderAiModelId(models: ReaderAiModel[]): string {
-  return models.find(isClaudeReaderAiModel)?.id ?? models[0]?.id ?? '';
+  return models.find(isDefaultReaderAiModel)?.id ?? models.find(isClaudeReaderAiModel)?.id ?? models[0]?.id ?? '';
 }
 
 function preferredPaidReaderAiModelId(models: ReaderAiModel[]): string {
   return (
+    models.find((model) => isPaidReaderAiModel(model) && isDefaultReaderAiModel(model))?.id ??
     models.find((model) => isPaidReaderAiModel(model) && isClaudeReaderAiModel(model))?.id ??
     models.find(isPaidReaderAiModel)?.id ??
     defaultReaderAiModelId(models)
