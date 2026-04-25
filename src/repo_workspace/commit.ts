@@ -2,7 +2,12 @@ import { diffLines } from 'diff';
 import type { RepoDocFile } from '../document_store.ts';
 import type { RepoBatchCreateFile, RepoBatchMutation, RepoBatchRename, RepoBatchUpdateFile } from '../github_app.ts';
 import { fileNameFromPath } from '../path_utils.ts';
-import type { RepoWorkspaceDeletedFile, RepoWorkspaceOverlayFile, RepoWorkspaceRenamedFile } from './types.ts';
+import type {
+  RepoWorkspaceChangeTarget,
+  RepoWorkspaceDeletedFile,
+  RepoWorkspaceOverlayFile,
+  RepoWorkspaceRenamedFile,
+} from './types.ts';
 
 export interface RepoWorkspaceTextSavePlan {
   mutation: RepoBatchMutation;
@@ -10,7 +15,7 @@ export interface RepoWorkspaceTextSavePlan {
   touchedFiles: Array<{ path: string; content: string }>;
 }
 
-export interface RepoWorkspaceChangedFileDetail {
+export interface RepoWorkspaceChangedFileDetail extends RepoWorkspaceChangeTarget {
   added: number;
   binary: boolean;
   label: string;
@@ -77,27 +82,33 @@ export function buildRepoWorkspaceChangedFileDetails(
     const baseContent = baseFiles[path];
     details.push(
       typeof baseContent === 'string'
-        ? { label: path, added: 0, removed: lineCount(baseContent), binary: false }
-        : { label: path, added: 0, removed: 0, binary: true },
+        ? { path, label: path, added: 0, removed: lineCount(baseContent), binary: false, changeType: 'delete' }
+        : { path, label: path, added: 0, removed: 0, binary: true, changeType: 'delete' },
     );
   }
 
   for (const rename of mutation.renames ?? []) {
     const baseContent = baseFiles[rename.from];
     details.push({
+      path: rename.from,
+      fromPath: rename.from,
+      toPath: rename.to,
       label: `${rename.from} -> ${rename.to}`,
       added: 0,
       removed: 0,
       binary: typeof baseContent !== 'string',
+      changeType: 'rename',
     });
   }
 
   for (const file of mutation.creates ?? []) {
     details.push({
+      path: file.path,
       label: file.path,
       added: lineCount(file.content),
       removed: 0,
       binary: false,
+      changeType: 'create',
     });
   }
 
@@ -105,8 +116,14 @@ export function buildRepoWorkspaceChangedFileDetails(
     const baseContent = baseFiles[file.path];
     details.push(
       typeof baseContent === 'string'
-        ? { label: file.path, binary: false, ...summarizeLineChanges(baseContent, file.content) }
-        : { label: file.path, added: 0, removed: 0, binary: true },
+        ? {
+            path: file.path,
+            label: file.path,
+            binary: false,
+            changeType: 'update',
+            ...summarizeLineChanges(baseContent, file.content),
+          }
+        : { path: file.path, label: file.path, added: 0, removed: 0, binary: true, changeType: 'update' },
     );
   }
 

@@ -51,12 +51,12 @@ function buildPersistedHomeTrustStorageKey(args: {
 
 function buildPersistedHomeTrustMessage(target: 'gist' | 'repo' | 'workspace'): string {
   if (target === 'repo') {
-    return 'Trust this repo to sync your credentials and past sessions into this terminal.';
+    return 'Sync your coding agent credentials with those stored in the browser? Only do this with trusted repos.';
   }
   if (target === 'gist') {
-    return 'Trust this gist to sync your credentials and past sessions into this terminal.';
+    return 'Trust this gist to sync your credentials and stage workspace home files in this terminal.';
   }
-  return 'Trust this workspace to sync your credentials and past sessions into this terminal.';
+  return 'Trust this workspace to sync your credentials and stage workspace home files in this terminal.';
 }
 
 export function readPersistedHomeTrustDecision(storageKey: string): PersistedHomeMode | null {

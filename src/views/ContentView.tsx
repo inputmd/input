@@ -1,12 +1,20 @@
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
-import { ExternalLink, Highlighter, Pin } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { ArrowLeft, ChevronDown, ExternalLink, Highlighter, Pin } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { isClaudeSessionPath } from '../claude_session';
+import { ClaudeSessionTreeView } from '../components/ClaudeSessionTreeView';
 import { ContentAlert } from '../components/ContentAlert';
+import { PiSessionTreeView } from '../components/PiSessionTreeView';
 import { PreviewHighlightsPopoverContent } from '../components/PreviewHighlightsPopover';
 import { PromptAnswerCommentComposer } from '../components/PromptAnswerCommentComposer';
 import { collectPreviewHighlights, type PreviewHighlightEntry } from '../components/preview_highlights';
 import { TextCodeView } from '../components/TextCodeView';
+import { blurOnClose } from '../dom_utils';
 import { useMarkdownCustomCss } from '../hooks/useMarkdownCustomCss';
+import { parseMarkdownToHtml } from '../markdown';
+import { isNotePath, parseNoteJsonl } from '../notes';
+import { isPiSessionPath } from '../pi_session';
 import {
   findPreviewHashTarget,
   resolveInternalNavigationRoute,
@@ -25,6 +33,14 @@ import {
   togglePromptAnswerExpandedState,
 } from '../prompt_list_state';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
+import type { SessionReferenceIndex } from '../session_index';
+import { getSessionReferenceChildren, getSessionReferenceParents } from '../session_index';
+import {
+  formatSessionCardDate,
+  formatSessionCardDateTitle,
+  parseSessionCardMetadata,
+  type SessionCardMetadata,
+} from '../session_metadata';
 import { findToggleListFromTarget, syncToggleListPersistedState, toggleToggleListState } from '../toggle_list_state';
 import { isExternalHttpHref, MARKDOWN_EXT_RE } from '../util';
 import { syncPromptPaneBleedVars } from './prompt_pane_vars';
@@ -32,6 +48,15 @@ import { syncPromptPaneBleedVars } from './prompt_pane_vars';
 interface MarkdownLinkPreview {
   title: string;
   html: string;
+}
+
+export interface ContentSessionFile {
+  path: string;
+  content: string;
+}
+
+export interface ContentSessionViewFile extends ContentSessionFile {
+  deleted?: boolean;
 }
 
 interface ContentViewProps {
@@ -43,6 +68,25 @@ interface ContentViewProps {
   scrollStorageKey?: string | null;
   plainText?: string | null;
   plainTextFileName?: string | null;
+  sessionFile?: ContentSessionViewFile | null;
+  sessionFiles?: ContentSessionFile[];
+  sessionFilesLoading?: boolean;
+  claudeCredentialAvailable?: boolean | null;
+  piCredentialAvailable?: boolean | null;
+  onLaunchClaude?: () => boolean | undefined | Promise<boolean | undefined>;
+  onLaunchPi?: () => boolean | undefined | Promise<boolean | undefined>;
+  onAskClaude?: (message: string) => boolean | undefined | Promise<boolean | undefined>;
+  onAskPi?: (message: string) => boolean | undefined | Promise<boolean | undefined>;
+  onPostNote?: (message: string) => boolean | undefined | Promise<boolean | undefined>;
+  onOpenSession?: (path: string) => void;
+  onSessionHref?: (path: string) => string | null;
+  onDeleteSession?: (path: string) => void | Promise<void>;
+  onAddSessionChild?: (parentPath: string, childPath: string) => void | Promise<void>;
+  onRemoveSessionChild?: (parentPath: string, childPath: string) => void | Promise<void>;
+  sessionReferenceIndex?: SessionReferenceIndex;
+  onBackFromSession?: () => void;
+  onContinueClaudeSession?: (sessionId: string) => void;
+  onContinuePiSession?: (sessionPath: string) => void;
   goToLineRequest?: { requestKey: number; lineNumber: number } | null;
   loading?: boolean;
   imagePreview?: { src: string; alt: string } | null;
@@ -78,6 +122,21 @@ function lastPathSegment(path: string): string {
   return parts.at(-1) ?? path;
 }
 
+function formatAgentLaunchLabel(agentName: string, credentialAvailable: boolean | null): string {
+  if (credentialAvailable === null) return `Checking ${agentName}...`;
+  return credentialAvailable ? `Start empty ${agentName} session` : `Log in to ${agentName}`;
+}
+
+function formatSessionCardAgentLabel(agentName: string): string | null {
+  if (agentName === 'Note') return null;
+  return agentName;
+}
+
+function formatSessionReferenceLabel(path: string, metadata: SessionCardMetadata): string {
+  const message = metadata.firstUserMessage?.replace(/\s+/g, ' ').trim();
+  return message || lastPathSegment(path);
+}
+
 function footnoteTargetIdFromAnchor(anchor: HTMLAnchorElement): string | null {
   const href = (anchor.getAttribute('href') || '').trim();
   if (!href.startsWith('#fn-')) return null;
@@ -97,6 +156,25 @@ export function ContentView({
   scrollStorageKey = null,
   plainText = null,
   plainTextFileName = null,
+  sessionFile = null,
+  sessionFiles = [],
+  sessionFilesLoading = false,
+  claudeCredentialAvailable = null,
+  piCredentialAvailable = null,
+  onLaunchClaude,
+  onLaunchPi,
+  onAskClaude,
+  onAskPi,
+  onPostNote,
+  onOpenSession,
+  onSessionHref,
+  onDeleteSession,
+  onAddSessionChild,
+  onRemoveSessionChild,
+  sessionReferenceIndex = { version: 1, children: {} },
+  onBackFromSession,
+  onContinueClaudeSession,
+  onContinuePiSession,
   goToLineRequest = null,
   loading = false,
   imagePreview,
@@ -136,10 +214,127 @@ export function ContentView({
     url: null,
   });
   const [imagePreviewLoading, setImagePreviewLoading] = useState(true);
+  const [newSessionMessage, setNewSessionMessage] = useState('');
+  const [newSessionSubmittingAgent, setNewSessionSubmittingAgent] = useState<'claude' | 'pi' | 'note' | null>(null);
+  const [newSessionMenuOpen, setNewSessionMenuOpen] = useState(false);
+  const newSessionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { inlineCss: markdownInlineCss, pendingExternalFonts: markdownFontsPending } = useMarkdownCustomCss(
     markdown ? markdownCustomCss : null,
   );
   const isEmpty = html.trim().length === 0 && (plainText === null || plainText.length === 0) && !imagePreview;
+  const sessionMetadataByPath = useMemo(() => {
+    const metadata = new Map<string, SessionCardMetadata>();
+    for (const session of sessionFiles) {
+      metadata.set(session.path, parseSessionCardMetadata(session.path, session.content));
+    }
+    return metadata;
+  }, [sessionFiles]);
+  const sortedSessionFiles = useMemo(
+    () =>
+      [...sessionFiles].sort((left, right) => {
+        const leftDate = sessionMetadataByPath.get(left.path)?.lastMessageDate?.getTime() ?? -Infinity;
+        const rightDate = sessionMetadataByPath.get(right.path)?.lastMessageDate?.getTime() ?? -Infinity;
+        if (leftDate !== rightDate) return rightDate - leftDate;
+        return left.path.localeCompare(right.path);
+      }),
+    [sessionFiles, sessionMetadataByPath],
+  );
+  const sessionFileByPath = useMemo(
+    () => new Map(sessionFiles.map((session) => [session.path, session])),
+    [sessionFiles],
+  );
+  const sessionPaths = useMemo(() => new Set(sessionFiles.map((session) => session.path)), [sessionFiles]);
+  const sortedSessionIndexByPath = useMemo(
+    () => new Map(sortedSessionFiles.map((session, index) => [session.path, index])),
+    [sortedSessionFiles],
+  );
+  const topLevelSessionFiles = useMemo(
+    () =>
+      sortedSessionFiles.filter((session) =>
+        getSessionReferenceParents(sessionReferenceIndex, session.path).every(
+          (parentPath) => !sessionPaths.has(parentPath),
+        ),
+      ),
+    [sessionPaths, sessionReferenceIndex, sortedSessionFiles],
+  );
+  const childSessionFilesByParentPath = useMemo(() => {
+    const childFilesByParentPath = new Map<string, ContentSessionFile[]>();
+    for (const parentPath of sessionPaths) {
+      const childFiles = getSessionReferenceChildren(sessionReferenceIndex, parentPath)
+        .map((childPath) => sessionFileByPath.get(childPath))
+        .filter((childFile): childFile is ContentSessionFile => Boolean(childFile))
+        .sort((left, right) => {
+          const leftIndex = sortedSessionIndexByPath.get(left.path) ?? Number.MAX_SAFE_INTEGER;
+          const rightIndex = sortedSessionIndexByPath.get(right.path) ?? Number.MAX_SAFE_INTEGER;
+          if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+          return left.path.localeCompare(right.path);
+        });
+      if (childFiles.length > 0) childFilesByParentPath.set(parentPath, childFiles);
+    }
+    return childFilesByParentPath;
+  }, [sessionFileByPath, sessionPaths, sessionReferenceIndex, sortedSessionIndexByPath]);
+  const sessionReferenceFileByPath = useMemo(() => {
+    const filesByPath = new Map(sessionFileByPath);
+    if (sessionFile && !sessionFile.deleted) filesByPath.set(sessionFile.path, sessionFile);
+    return filesByPath;
+  }, [sessionFile, sessionFileByPath]);
+  const showSessionFile = sessionFile !== null;
+  const showSessionList = !fileSelected && isEmpty && !showSessionFile;
+  const showSessionLoading = !fileSelected && isEmpty && sessionFilesLoading && !showSessionFile;
+  const newSessionMessageTrimmed = newSessionMessage.trim();
+  const newSessionSubmitting = newSessionSubmittingAgent !== null;
+  const claudeLoginRequired = claudeCredentialAvailable === false;
+  const piLoginRequired = piCredentialAvailable === false;
+  const askClaudeDisabled = newSessionSubmitting || claudeCredentialAvailable === null || !onAskClaude;
+  const askPiDisabled = newSessionSubmitting || piCredentialAvailable === null || !onAskPi;
+  const postNoteDisabled = newSessionSubmitting || !onPostNote;
+  const showNewSessionMenu = Boolean(onLaunchClaude || onLaunchPi);
+
+  const submitNewSessionMessage = useCallback(
+    async (agent: 'claude' | 'pi') => {
+      if (newSessionSubmittingAgent !== null) return;
+      const handler = agent === 'claude' ? onAskClaude : onAskPi;
+      const loginRequired = agent === 'claude' ? claudeLoginRequired : piLoginRequired;
+      if (!handler || (!loginRequired && newSessionMessageTrimmed.length === 0)) return;
+      setNewSessionSubmittingAgent(agent);
+      try {
+        const submitted = await handler(newSessionMessageTrimmed);
+        if (!loginRequired && submitted !== false) setNewSessionMessage('');
+      } finally {
+        setNewSessionSubmittingAgent(null);
+      }
+    },
+    [claudeLoginRequired, newSessionMessageTrimmed, newSessionSubmittingAgent, onAskClaude, onAskPi, piLoginRequired],
+  );
+
+  const submitNewNote = useCallback(async () => {
+    if (newSessionSubmittingAgent !== null || !onPostNote || newSessionMessageTrimmed.length === 0) return;
+    setNewSessionSubmittingAgent('note');
+    try {
+      const posted = await onPostNote(newSessionMessageTrimmed);
+      if (posted !== false) setNewSessionMessage('');
+    } finally {
+      setNewSessionSubmittingAgent(null);
+    }
+  }, [newSessionMessageTrimmed, newSessionSubmittingAgent, onPostNote]);
+
+  const noteMarkdown = useMemo(() => {
+    if (!sessionFile || sessionFile.deleted || !isNotePath(sessionFile.path)) return null;
+    return parseNoteJsonl(sessionFile.content)?.text ?? sessionFile.content;
+  }, [sessionFile]);
+  const noteHtml = useMemo(() => (noteMarkdown === null ? '' : parseMarkdownToHtml(noteMarkdown)), [noteMarkdown]);
+
+  const resizeNewSessionTextarea = useCallback(() => {
+    const textarea = newSessionTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight + 2}px`;
+  }, []);
+
+  useLayoutEffect(() => {
+    void newSessionMessage;
+    resizeNewSessionTextarea();
+  }, [newSessionMessage, resizeNewSessionTextarea]);
 
   const scrollToHash = useCallback((hash: string, behavior: ScrollBehavior = 'auto') => {
     const target = findPreviewHashTarget(renderedMarkdownRef.current, hash);
@@ -682,10 +877,297 @@ export function ContentView({
     pointerDownPositionRef.current = null;
   }, []);
 
+  const sessionComposeForm = (
+    <form
+      class="content-session-compose"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (askPiDisabled) return;
+        void submitNewSessionMessage('pi');
+      }}
+    >
+      <textarea
+        ref={newSessionTextareaRef}
+        class="content-session-compose-input"
+        value={newSessionMessage}
+        placeholder="Start a new thread..."
+        rows={3}
+        disabled={newSessionSubmitting}
+        onInput={(event) => {
+          setNewSessionMessage(event.currentTarget.value);
+          resizeNewSessionTextarea();
+        }}
+      />
+      <div class="content-session-compose-actions">
+        <div class="content-session-compose-submit-actions">
+          <button
+            type="button"
+            disabled={postNoteDisabled}
+            onClick={() => {
+              void submitNewNote();
+            }}
+          >
+            Create note
+          </button>
+          {showNewSessionMenu ? (
+            <Popover.Root open={newSessionMenuOpen} onOpenChange={setNewSessionMenuOpen}>
+              <Popover.Trigger asChild>
+                <button
+                  type="button"
+                  class="content-session-new-menu-trigger"
+                  aria-label="New session"
+                  disabled={
+                    (claudeCredentialAvailable === null || !onLaunchClaude) &&
+                    (piCredentialAvailable === null || !onLaunchPi)
+                  }
+                >
+                  <ChevronDown size={16} aria-hidden="true" />
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal container={contentViewRef.current ?? undefined}>
+                <Popover.Content
+                  class="content-session-new-menu-content"
+                  sideOffset={6}
+                  align="start"
+                  onOpenAutoFocus={(event: Event) => {
+                    event.preventDefault();
+                  }}
+                  onCloseAutoFocus={(event: Event) => {
+                    event.preventDefault();
+                  }}
+                >
+                  <button
+                    type="button"
+                    class="content-session-new-menu-item"
+                    disabled={claudeCredentialAvailable === null || !onLaunchClaude}
+                    onClick={() => {
+                      setNewSessionMenuOpen(false);
+                      onLaunchClaude?.();
+                    }}
+                  >
+                    {formatAgentLaunchLabel('Claude', claudeCredentialAvailable)}
+                  </button>
+                  <button
+                    type="button"
+                    class="content-session-new-menu-item"
+                    disabled={piCredentialAvailable === null || !onLaunchPi}
+                    onClick={() => {
+                      setNewSessionMenuOpen(false);
+                      onLaunchPi?.();
+                    }}
+                  >
+                    {formatAgentLaunchLabel('Pi', piCredentialAvailable)}
+                  </button>
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          ) : null}
+          <button
+            type="button"
+            class="button-success-solid"
+            disabled={askClaudeDisabled}
+            onClick={() => {
+              void submitNewSessionMessage('claude');
+            }}
+          >
+            {claudeLoginRequired ? 'Log in to Claude' : 'Ask Claude'}
+          </button>
+          <button type="submit" class="button-success-solid" disabled={askPiDisabled}>
+            {piLoginRequired ? 'Log in to Pi' : 'Ask Pi'}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+
+  const handleSessionCardClick = (event: MouseEvent, path: string, href: string | null) => {
+    if (!href) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    onOpenSession?.(path);
+  };
+
+  const renderSessionCard = (session: ContentSessionFile, options?: { parentPath?: string }) => {
+    const metadata = sessionMetadataByPath.get(session.path) ?? parseSessionCardMetadata(session.path, session.content);
+    const isNewSessionCard = metadata.agentName !== 'Note' && !metadata.firstUserMessage;
+    const sessionHref = onSessionHref?.(session.path) ?? null;
+    const agentLabel = formatSessionCardAgentLabel(metadata.agentName);
+    const parentPath = options?.parentPath ?? null;
+    const canRemoveFromParent = Boolean(parentPath && onRemoveSessionChild);
+    const canShowMenu = Boolean(onDeleteSession || canRemoveFromParent);
+    const canDragSession = Boolean(onAddSessionChild);
+
+    return (
+      <a
+        class={`content-session-card${isNewSessionCard ? ' content-session-card--new' : ''}${
+          parentPath ? ' content-session-card--child' : ''
+        }`}
+        href={sessionHref ?? '#'}
+        draggable={canDragSession}
+        onClick={(event) => handleSessionCardClick(event, session.path, sessionHref)}
+        onDragStart={(event) => {
+          if (!canDragSession || !event.dataTransfer) return;
+          event.dataTransfer.effectAllowed = 'copy';
+          event.dataTransfer.setData('application/x-input-session-path', session.path);
+          event.dataTransfer.setData('text/plain', session.path);
+        }}
+        onDragOver={(event) => {
+          if (!onAddSessionChild) return;
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={(event) => {
+          if (!onAddSessionChild || !event.dataTransfer) return;
+          const childPath =
+            event.dataTransfer.getData('application/x-input-session-path') || event.dataTransfer.getData('text/plain');
+          if (!childPath || childPath === session.path) return;
+          event.preventDefault();
+          event.stopPropagation();
+          void onAddSessionChild(session.path, childPath);
+        }}
+      >
+        <span class="content-session-card-main">
+          {metadata.firstUserMessage ? (
+            <span class="content-session-card-message">{metadata.firstUserMessage}</span>
+          ) : null}
+          {canShowMenu ? (
+            <DropdownMenu.Root onOpenChange={blurOnClose}>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  class="content-session-card-menu-trigger"
+                  aria-label={`Options for ${metadata.agentName} session`}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                >
+                  <ChevronDown size={14} aria-hidden="true" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content class="content-session-card-menu-content" sideOffset={6} align="end">
+                  {parentPath && onRemoveSessionChild ? (
+                    <DropdownMenu.Item
+                      class="content-session-card-menu-item"
+                      onSelect={() => {
+                        void onRemoveSessionChild(parentPath, session.path);
+                      }}
+                    >
+                      Remove from parent
+                    </DropdownMenu.Item>
+                  ) : null}
+                  {onDeleteSession ? (
+                    <DropdownMenu.Item
+                      class="content-session-card-menu-item content-session-card-menu-item--danger"
+                      onSelect={() => {
+                        void onDeleteSession(session.path);
+                      }}
+                    >
+                      Delete
+                    </DropdownMenu.Item>
+                  ) : null}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          ) : null}
+        </span>
+        <span class="content-session-card-meta" title={formatSessionCardDateTitle(metadata.lastMessageDate)}>
+          {formatSessionCardDate(metadata.lastMessageDate)}
+          {agentLabel ? (
+            <>
+              <span aria-hidden="true"> &middot; </span>
+              <span class="content-session-card-agent">{agentLabel}</span>
+            </>
+          ) : null}
+        </span>
+      </a>
+    );
+  };
+
+  const renderSessionReferenceLinks = (path: string) => {
+    const renderLinks = (paths: string[]) => (
+      <div class="content-session-reference-list">
+        {paths.map((referencePath) => {
+          const referenceFile = sessionReferenceFileByPath.get(referencePath);
+          if (!referenceFile) return null;
+          const metadata =
+            sessionMetadataByPath.get(referencePath) ?? parseSessionCardMetadata(referencePath, referenceFile.content);
+          const href = onSessionHref?.(referencePath) ?? null;
+          const agentLabel = formatSessionCardAgentLabel(metadata.agentName);
+          return (
+            <a
+              key={referencePath}
+              class="content-session-reference-link"
+              href={href ?? '#'}
+              onClick={(event) => handleSessionCardClick(event, referencePath, href)}
+            >
+              <span class="content-session-reference-title">
+                {formatSessionReferenceLabel(referencePath, metadata)}
+              </span>
+              <span class="content-session-reference-meta">
+                {formatSessionCardDate(metadata.lastMessageDate)}
+                {agentLabel ? ` · ${agentLabel}` : ''}
+              </span>
+            </a>
+          );
+        })}
+      </div>
+    );
+    const parentPaths = getSessionReferenceParents(sessionReferenceIndex, path).filter((parentPath) =>
+      sessionReferenceFileByPath.has(parentPath),
+    );
+    const childPaths = getSessionReferenceChildren(sessionReferenceIndex, path).filter((childPath) =>
+      sessionReferenceFileByPath.has(childPath),
+    );
+    if (parentPaths.length === 0 && childPaths.length === 0) return null;
+    return (
+      <section class="content-session-references" aria-label="Session references">
+        {parentPaths.length > 0 ? (
+          <div class="content-session-reference-group">
+            <h2>Parents</h2>
+            {renderLinks(parentPaths)}
+          </div>
+        ) : null}
+        {childPaths.length > 0 ? (
+          <div class="content-session-reference-group">
+            <h2>Children</h2>
+            {renderLinks(childPaths)}
+          </div>
+        ) : null}
+      </section>
+    );
+  };
+
   return (
     <div
       ref={contentViewRef}
-      class={`content ${imagePreview ? 'content--image' : markdown ? 'content--markdown' : 'content--plain'}`}
+      class={`content ${
+        showSessionList || showSessionFile
+          ? 'content--sessions'
+          : imagePreview
+            ? 'content--image'
+            : markdown
+              ? 'content--markdown'
+              : 'content--plain'
+      }${showSessionList ? ' content--session-listing' : ''}`}
       data-markdown-custom-css-content={markdown && markdownCustomCssScope ? markdownCustomCssScope : undefined}
       data-markdown-custom-css-main={markdown && markdownCustomCssScope ? markdownCustomCssScope : undefined}
     >
@@ -699,9 +1181,109 @@ export function ContentView({
           ) : null}
         </ContentAlert>
       ) : null}
-      {loading ? (
+      {loading || showSessionLoading ? (
         <div class="content-loading-shell" role="status" aria-label="Loading content">
           <span class="content-spinner" aria-hidden="true" />
+        </div>
+      ) : sessionFile ? (
+        <div class="content-session-view">
+          {sessionFile.deleted ? (
+            <div class="pi-session">
+              {onBackFromSession ? (
+                <div class="pi-session-toolbar">
+                  <div class="pi-session-mode-tabs">
+                    <button type="button" class="pi-session-mode-tab" onClick={onBackFromSession}>
+                      <ArrowLeft size={14} aria-hidden="true" />
+                      Back
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div class="pi-session-alert">File deleted.</div>
+            </div>
+          ) : noteMarkdown !== null ? (
+            <div class="content-note">
+              {onBackFromSession ? (
+                <div class="pi-session-toolbar">
+                  <div class="pi-session-mode-tabs">
+                    <button type="button" class="pi-session-mode-tab" onClick={onBackFromSession}>
+                      <ArrowLeft size={14} aria-hidden="true" />
+                      Back
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div class="rendered-markdown content-note-body" dangerouslySetInnerHTML={{ __html: noteHtml }} />
+              {renderSessionReferenceLinks(sessionFile.path)}
+            </div>
+          ) : isPiSessionPath(sessionFile.path) ? (
+            <>
+              <PiSessionTreeView
+                content={sessionFile.content}
+                fileName={sessionFile.path}
+                onBack={onBackFromSession}
+                onContinue={onContinuePiSession}
+                piCredentialAvailable={piCredentialAvailable}
+              />
+              {renderSessionReferenceLinks(sessionFile.path)}
+            </>
+          ) : isClaudeSessionPath(sessionFile.path) ? (
+            <>
+              <ClaudeSessionTreeView
+                content={sessionFile.content}
+                fileName={sessionFile.path}
+                onBack={onBackFromSession}
+                onContinue={onContinueClaudeSession}
+                claudeCredentialAvailable={claudeCredentialAvailable}
+              />
+              {renderSessionReferenceLinks(sessionFile.path)}
+            </>
+          ) : (
+            <>
+              <div class="content-session-view-header">
+                <button type="button" class="content-session-back-btn" onClick={onBackFromSession}>
+                  <ArrowLeft size={15} aria-hidden="true" />
+                  Back
+                </button>
+                <div class="content-session-view-path">{sessionFile.path}</div>
+              </div>
+              <TextCodeView
+                content={sessionFile.content}
+                fileName={sessionFile.path}
+                scrollStorageKey={`session:${sessionFile.path}`}
+              />
+              {renderSessionReferenceLinks(sessionFile.path)}
+            </>
+          )}
+        </div>
+      ) : showSessionList ? (
+        <div class="content-session-list" role="list" aria-label="Sessions">
+          {sessionComposeForm}
+          {topLevelSessionFiles.map((session) => {
+            const childSessions = childSessionFilesByParentPath.get(session.path) ?? [];
+            return (
+              <div
+                key={session.path}
+                class={`content-session-card-group${childSessions.length > 0 ? ' content-session-card-group--with-children' : ''}`}
+                role="listitem"
+              >
+                {renderSessionCard(session)}
+                {childSessions.length > 0 ? (
+                  <div class="content-session-child-list" role="list" aria-label="Child sessions">
+                    {childSessions.map((childSession) => (
+                      <div
+                        key={`${session.path}:${childSession.path}`}
+                        class="content-session-child-list-item"
+                        role="listitem"
+                      >
+                        {renderSessionCard(childSession, { parentPath: session.path })}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : isEmpty ? (
         <p class="content-empty-placeholder">{fileSelected ? 'This file is empty' : 'No file selected'}</p>

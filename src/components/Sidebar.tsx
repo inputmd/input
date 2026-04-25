@@ -1,6 +1,5 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   Check,
   ChevronDown,
@@ -18,7 +17,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils';
-import type { RepoWorkspaceChangedFileDetail } from '../repo_workspace/commit';
 import { resolveSidebarFocusedPath, type SidebarVisibleNode } from '../sidebar_focus';
 import {
   resolveSidebarFolderRowBehavior,
@@ -54,10 +52,6 @@ export type SidebarFileFilter = 'markdown' | 'text' | 'all';
 export interface SidebarProps {
   workspaceKey: string;
   files: SidebarFile[];
-  stagedChangeCount?: number;
-  stagedChangeFiles?: RepoWorkspaceChangedFileDetail[] | null;
-  onSaveStagedChanges?: () => void | Promise<void>;
-  onDiscardStagedChanges?: () => void | Promise<void>;
   hasOpenFile?: boolean;
   markdownFileCount: number;
   textFileCount: number;
@@ -91,6 +85,7 @@ export interface SidebarProps {
 
 type SidebarFileNode = DirectoryTreeFileNode<SidebarFile>;
 type SidebarFolderNode = SidebarTreeFolderNode<SidebarFile>;
+type SidebarNode = SidebarTreeNode<SidebarFile>;
 type RenameTarget = { kind: 'file' | 'folder'; path: string } | null;
 type CreateKind = 'file' | 'directory';
 type DraggedSidebarItem = { kind: 'file' | 'folder'; path: string } | null;
@@ -172,12 +167,41 @@ function collectFolderPaths(node: SidebarFolderNode, out: Set<string>): void {
   collectDirectoryTreeFolderPaths(node, out);
 }
 
-function isSidebarFileDeemphasized(file: SidebarFile): boolean {
-  return file.deemphasized || isHiddenFolderPath(file.path);
+function collectFolderPathsFromNodes(nodes: SidebarNode[], out: Set<string>): void {
+  for (const node of nodes) {
+    if (node.kind !== 'folder') continue;
+    out.add(node.path);
+    collectFolderPaths(node, out);
+  }
+}
+
+function isSessionInputPath(path: string): boolean {
+  if (!path.endsWith('.jsonl')) return false;
+  return (
+    path.startsWith('.input/.pi/agent/sessions/') ||
+    path.startsWith('.input/.claude/projects/') ||
+    path.startsWith('.input/.notes/')
+  );
+}
+
+function countSessionInputFileNodes(nodes: SidebarNode[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    if (node.kind === 'file') {
+      if (isSessionInputPath(node.path)) count += 1;
+      continue;
+    }
+    count += countSessionInputFileNodes(node.children);
+  }
+  return count;
+}
+
+function isSidebarFileDeemphasized(file: SidebarFile, options: { ignoreHiddenPath?: boolean } = {}): boolean {
+  return file.deemphasized || (!options.ignoreHiddenPath && isHiddenFolderPath(file.path));
 }
 
 function flattenVisibleTree(
-  nodes: SidebarTreeNode[],
+  nodes: SidebarNode[],
   collapsedFolders: Record<string, true>,
   depth = 0,
   parentPath: string | null = null,
@@ -300,10 +324,6 @@ function IndentGuides({ depth }: { depth: number }) {
 export function Sidebar({
   workspaceKey,
   files,
-  stagedChangeCount = 0,
-  stagedChangeFiles = null,
-  onSaveStagedChanges,
-  onDiscardStagedChanges,
   hasOpenFile = false,
   markdownFileCount,
   textFileCount,
@@ -346,7 +366,7 @@ export function Sidebar({
   const [draggingExternalFile, setDraggingExternalFile] = useState(false);
   const [dropFolderPath, setDropFolderPath] = useState<string | null>(null);
   const [movingTarget, setMovingTarget] = useState<RenameTarget>(null);
-  const [stagedChangesTooltipOpen, setStagedChangesTooltipOpen] = useState(false);
+  const [showSessionsTree, setShowSessionsTree] = useState(false);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const focusedPathRef = useRef<string | null>(null);
   const combinedFileFocusedOnPointerDownRef = useRef<Record<string, boolean>>({});
@@ -356,18 +376,31 @@ export function Sidebar({
   const renameInFlightRef = useRef(false);
   const cancelCreateOnBlurRef = useRef(false);
   const cancelRenameOnBlurRef = useRef(false);
-  const stagedChangesTooltipCloseTimeoutRef = useRef<number | null>(null);
 
   const tree = useMemo(() => buildSidebarTree(files), [files]);
+  const inputTreeNodes = useMemo<SidebarNode[]>(() => {
+    const inputRoot = tree.children.find(
+      (node): node is SidebarFolderNode => node.kind === 'folder' && node.path === '.input',
+    );
+    return inputRoot?.children ?? [];
+  }, [tree]);
+  const inputSessionCount = useMemo(() => countSessionInputFileNodes(inputTreeNodes), [inputTreeNodes]);
+  const workspaceTreeNodes = useMemo<SidebarNode[]>(
+    () => tree.children.filter((node) => node.path !== '.input'),
+    [tree],
+  );
+  const sessionsTreeVisible = inputTreeNodes.length > 0 && showSessionsTree;
+  const displayedTreeNodes = useMemo<SidebarNode[]>(
+    () => [...inputTreeNodes, ...workspaceTreeNodes],
+    [inputTreeNodes, workspaceTreeNodes],
+  );
   const folderPaths = useMemo(() => {
     const paths = new Set<string>();
-    collectFolderPaths(tree, paths);
+    collectFolderPathsFromNodes(displayedTreeNodes, paths);
     return paths;
-  }, [tree]);
+  }, [displayedTreeNodes]);
   const defaultCollapsedPaths = useMemo(() => defaultCollapsedFolderPaths(folderPaths), [folderPaths]);
   const activeFilePath = useMemo(() => files.find((file) => file.active)?.path ?? null, [files]);
-  const stagedChangesText =
-    stagedChangeCount > 0 ? `${stagedChangeCount} file${stagedChangeCount === 1 ? '' : 's'} changed` : null;
   const activeAncestors = useMemo(() => (activeFilePath ? folderAncestors(activeFilePath) : []), [activeFilePath]);
   const initialCollapsedFoldersState = useMemo(
     () => loadSidebarCollapsedFoldersState(workspaceKey, defaultCollapsedPaths, activeAncestors),
@@ -384,7 +417,10 @@ export function Sidebar({
   const skipNextActiveAncestorsExpandRef = useRef(initialCollapsedFoldersState.loadedFromPersistence);
   const skipNextCollapsedFoldersPersistRef = useRef(false);
   const hasFolders = folderPaths.size > 0;
-  const visibleNodes = useMemo(() => flattenVisibleTree(tree.children, collapsedFolders), [tree, collapsedFolders]);
+  const visibleNodes = useMemo(
+    () => flattenVisibleTree(displayedTreeNodes, collapsedFolders),
+    [collapsedFolders, displayedTreeNodes],
+  );
   const visibleIndexByPath = useMemo(() => {
     const map = new Map<string, number>();
     for (const [index, node] of visibleNodes.entries()) {
@@ -394,40 +430,6 @@ export function Sidebar({
     return map;
   }, [visibleNodes]);
 
-  useEffect(() => {
-    return () => {
-      if (stagedChangesTooltipCloseTimeoutRef.current !== null) {
-        window.clearTimeout(stagedChangesTooltipCloseTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if ((stagedChangeFiles?.length ?? 0) > 0) return;
-    if (stagedChangesTooltipCloseTimeoutRef.current !== null) {
-      window.clearTimeout(stagedChangesTooltipCloseTimeoutRef.current);
-      stagedChangesTooltipCloseTimeoutRef.current = null;
-    }
-    setStagedChangesTooltipOpen(false);
-  }, [stagedChangeFiles]);
-
-  const openStagedChangesTooltip = (): void => {
-    if (stagedChangesTooltipCloseTimeoutRef.current !== null) {
-      window.clearTimeout(stagedChangesTooltipCloseTimeoutRef.current);
-      stagedChangesTooltipCloseTimeoutRef.current = null;
-    }
-    setStagedChangesTooltipOpen(true);
-  };
-
-  const closeStagedChangesTooltipSoon = (): void => {
-    if (stagedChangesTooltipCloseTimeoutRef.current !== null) {
-      window.clearTimeout(stagedChangesTooltipCloseTimeoutRef.current);
-    }
-    stagedChangesTooltipCloseTimeoutRef.current = window.setTimeout(() => {
-      stagedChangesTooltipCloseTimeoutRef.current = null;
-      setStagedChangesTooltipOpen(false);
-    }, 120);
-  };
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const [createContextPath, setCreateContextPath] = useState<string | null>(null);
   const [createAtRoot, setCreateAtRoot] = useState(false);
@@ -888,7 +890,21 @@ export function Sidebar({
     if (!hasOpenFile) onClearSelection?.();
   };
 
-  const renderFolderRow = (folder: SidebarFolderNode, depth: number, collapsed: boolean) => {
+  const handleSessionsHeaderClick = async (event: MouseEvent) => {
+    event.stopPropagation();
+    if (!hasOpenFile || !onClearSelection) return;
+    const cleared = await onClearSelection();
+    if (cleared === false) return;
+    setFocusedPath(null);
+    setCreateContextPath(null);
+  };
+
+  const renderFolderRow = (
+    folder: SidebarFolderNode,
+    depth: number,
+    collapsed: boolean,
+    options: { ignoreHiddenDeemphasis?: boolean } = {},
+  ) => {
     const combinedFile = folder.combinedFile;
     const combinedEntry = combinedFile?.entry ?? null;
     const combinedActive = Boolean(combinedEntry?.active);
@@ -913,6 +929,11 @@ export function Sidebar({
       renameTarget && combinedEntry && combinedEntry.editable && !combinedEntry.virtual,
     );
     const canModifyCombinedFile = Boolean(combinedFile && combinedEntry && !combinedEntry.virtual);
+    const deemphasized =
+      (folder.deemphasized && !options.ignoreHiddenDeemphasis) ||
+      (combinedEntry
+        ? isSidebarFileDeemphasized(combinedEntry, { ignoreHiddenPath: options.ignoreHiddenDeemphasis })
+        : false);
     const rowBehavior = resolveSidebarFolderRowBehavior({
       folderPath: folder.path,
       combinedFilePath: combinedFile?.path ?? null,
@@ -925,7 +946,7 @@ export function Sidebar({
     const rowName = resolveSidebarFolderRowLabel(folder.name, combinedFile?.name);
     const folderRow = (
       <div
-        class={`sidebar-file sidebar-folder${combinedFile ? ' sidebar-folder-combined' : ''}${combinedActive ? ' active' : ''}${hasCombinedDescendantActive ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${folder.deemphasized || (combinedEntry ? isSidebarFileDeemphasized(combinedEntry) : false) ? ' sidebar-file-deemphasized' : ''}${combinedEntry?.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${combinedEntry?.changeState ? ` sidebar-file-${combinedEntry.changeState}` : ''}${isDropTarget ? ' drop-target' : ''}${isDragging ? ' dragging' : ''}`}
+        class={`sidebar-file sidebar-folder${combinedFile ? ' sidebar-folder-combined' : ''}${combinedActive ? ' active' : ''}${hasCombinedDescendantActive ? ' has-active-descendant' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${deemphasized ? ' sidebar-file-deemphasized' : ''}${combinedEntry?.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${combinedEntry?.changeState ? ` sidebar-file-${combinedEntry.changeState}` : ''}${isDropTarget ? ' drop-target' : ''}${isDragging ? ' dragging' : ''}`}
         ref={(el) => {
           setRowRef(combinedFile ? [folder.path, combinedFile.path] : [folder.path], el);
         }}
@@ -1207,7 +1228,7 @@ export function Sidebar({
     );
   };
 
-  const renderFileRow = (file: SidebarFileNode, depth: number) => {
+  const renderFileRow = (file: SidebarFileNode, depth: number, options: { ignoreHiddenDeemphasis?: boolean } = {}) => {
     const entry = file.entry;
     const isRenaming = renamingTarget?.kind === 'file' && renamingTarget.path === file.path;
     const isRenamePending = renamingInFlightTarget?.kind === 'file' && renamingInFlightTarget.path === file.path;
@@ -1216,7 +1237,7 @@ export function Sidebar({
     const rootNoFolderOffset = !hasFolders && depth === 0 ? -12 : 0;
     const fileRow = (
       <div
-        class={`sidebar-file${entry.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${isSidebarFileDeemphasized(entry) ? ' sidebar-file-deemphasized' : ''}${entry.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${entry.changeState ? ` sidebar-file-${entry.changeState}` : ''}${draggingItem?.kind === 'file' && draggingItem.path === file.path ? ' dragging' : ''}`}
+        class={`sidebar-file${entry.active ? ' active' : ''}${isRenaming ? ' renaming' : ''}${isMoving ? ' moving' : ''}${isSidebarFileDeemphasized(entry, { ignoreHiddenPath: options.ignoreHiddenDeemphasis }) ? ' sidebar-file-deemphasized' : ''}${entry.virtual ? ' sidebar-file-virtual sidebar-file-deemphasized' : ''}${entry.changeState ? ` sidebar-file-${entry.changeState}` : ''}${draggingItem?.kind === 'file' && draggingItem.path === file.path ? ' dragging' : ''}`}
         ref={(el) => {
           setRowRef([file.path], el);
         }}
@@ -1395,6 +1416,25 @@ export function Sidebar({
     );
   };
 
+  const renderTree = (nodes: SidebarNode[], options: { ignoreHiddenDeemphasis?: boolean } = {}) => (
+    <DirectoryTree
+      nodes={nodes}
+      isFolderCollapsed={(folder) => Boolean(collapsedFolders[folder.path])}
+      renderFolder={(folder, depth, collapsed) =>
+        renderFolderRow(folder as SidebarFolderNode, depth, collapsed, options)
+      }
+      renderFile={(file, depth) => renderFileRow(file, depth, options)}
+      renderFolderChildren={(_folder, _depth, children) => (
+        <div class="sidebar-folder-children" role="group">
+          <div class="sidebar-folder-children-inner">{children}</div>
+        </div>
+      )}
+      renderAfterChildren={(folder, depth) =>
+        creatingNew && createParentPath === folder.path ? renderCreateRow(depth) : null
+      }
+    />
+  );
+
   if (disabled) {
     return (
       <aside class="sidebar">
@@ -1481,7 +1521,7 @@ export function Sidebar({
         )}
       </div>
       <div
-        class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}${(draggingItem || draggingExternalFile) && dropFolderPath === '' ? ' drop-target-root' : ''}${draggingExternalFile ? ' sidebar-files-uploading' : ''}`}
+        class={`sidebar-files${files.length === 0 && !creatingNew ? ' sidebar-files-empty' : ''}${sessionsTreeVisible ? ' sidebar-files--split' : ''}${(draggingItem || draggingExternalFile) && dropFolderPath === '' ? ' drop-target-root' : ''}${draggingExternalFile ? ' sidebar-files-uploading' : ''}`}
         role="tree"
         aria-label="Workspace files"
         onKeyDown={handleFilesKeyDown}
@@ -1518,118 +1558,107 @@ export function Sidebar({
           void handleDropToFolder(e, '');
         }}
       >
-        <DirectoryTree
-          nodes={tree.children}
-          isFolderCollapsed={(folder) => Boolean(collapsedFolders[folder.path])}
-          renderFolder={(folder, depth, collapsed) => renderFolderRow(folder as SidebarFolderNode, depth, collapsed)}
-          renderFile={renderFileRow}
-          renderFolderChildren={(_folder, _depth, children) => (
-            <div class="sidebar-folder-children" role="group">
-              <div class="sidebar-folder-children-inner">{children}</div>
+        <div class="sidebar-files-panel sidebar-files-panel--workspace">
+          {workspaceTreeNodes.length > 0 ? (
+            <div class="sidebar-tree-section">
+              {inputTreeNodes.length > 0 ? (
+                <div class="sidebar-tree-section-label" role="presentation">
+                  Workspace
+                </div>
+              ) : null}
+              {renderTree(workspaceTreeNodes)}
             </div>
-          )}
-          renderAfterChildren={(folder, depth) =>
-            creatingNew && createParentPath === folder.path ? renderCreateRow(depth) : null
-          }
-        />
-        {files.length === 0 && !creatingNew ? (
-          <div class="sidebar-empty-state">
-            <p class="sidebar-empty-message">No files</p>
-            {emptyFilterSuggestion ? (
-              <button
-                type="button"
-                class="sidebar-empty-action"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onFileFilterChange(emptyFilterSuggestion.nextFilter);
-                }}
-              >
-                {emptyFilterSuggestion.buttonLabel}
-              </button>
-            ) : null}
+          ) : null}
+          {files.length === 0 && !creatingNew ? (
+            <div class="sidebar-empty-state">
+              <p class="sidebar-empty-message">No files</p>
+              {emptyFilterSuggestion ? (
+                <button
+                  type="button"
+                  class="sidebar-empty-action"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onFileFilterChange(emptyFilterSuggestion.nextFilter);
+                  }}
+                >
+                  {emptyFilterSuggestion.buttonLabel}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {!readOnly && creatingNew && createParentPath === '' && renderCreateRow(0)}
+        </div>
+        {inputTreeNodes.length > 0 && !showSessionsTree ? <div class="sidebar-tree-spacer" aria-hidden="true" /> : null}
+        {inputTreeNodes.length > 0 ? (
+          <div
+            class={`sidebar-files-panel sidebar-files-panel--sessions${showSessionsTree ? ' sidebar-files-panel--sessions-visible' : ''}`}
+          >
+            <div class={`sidebar-tree-section${showSessionsTree ? ' sidebar-tree-section-session-files' : ''}`}>
+              {showSessionsTree ? (
+                <>
+                  <div
+                    class="sidebar-tree-section-label sidebar-tree-section-label-row"
+                    onClick={handleSessionsHeaderClick}
+                  >
+                    <span>Session Files</span>
+                    <button
+                      type="button"
+                      class="sidebar-tree-section-label-action"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setShowSessionsTree(false);
+                      }}
+                    >
+                      Hide
+                    </button>
+                  </div>
+                  {renderTree(inputTreeNodes, { ignoreHiddenDeemphasis: true })}
+                </>
+              ) : (
+                <div class="sidebar-session-count-button-group">
+                  <button
+                    type="button"
+                    class="sidebar-session-count-button sidebar-session-count-button-main"
+                    disabled={!hasOpenFile}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      event.currentTarget.blur();
+                      void handleSessionsHeaderClick(event);
+                    }}
+                  >
+                    Show {inputSessionCount} session{inputSessionCount === 1 ? '' : 's'}
+                  </button>
+                  <DropdownMenu.Root onOpenChange={blurOnClose}>
+                    <DropdownMenu.Trigger asChild>
+                      <button
+                        type="button"
+                        class="sidebar-session-count-button sidebar-session-count-button-menu"
+                        aria-label="Session options"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <ChevronDown size={13} aria-hidden="true" />
+                      </button>
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content class="sidebar-filter-menu" sideOffset={6} align="end">
+                        <DropdownMenu.Item
+                          class="sidebar-filter-menu-item"
+                          onSelect={() => {
+                            setShowSessionsTree(true);
+                          }}
+                        >
+                          Show session files
+                        </DropdownMenu.Item>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                </div>
+              )}
+            </div>
           </div>
         ) : null}
-        {!readOnly && creatingNew && createParentPath === '' && renderCreateRow(0)}
         {draggingExternalFile && <div class="sidebar-upload-drop-overlay">Drop to upload</div>}
       </div>
-      {stagedChangesText || showDailyNoteAction ? (
-        <div class={`sidebar-footer${stagedChangesText ? ' sidebar-footer-staged' : ''}`}>
-          {stagedChangesText ? (
-            (stagedChangeFiles?.length ?? 0) > 0 ? (
-              <Tooltip.Provider delayDuration={150}>
-                <Tooltip.Root open={stagedChangesTooltipOpen} onOpenChange={setStagedChangesTooltipOpen}>
-                  <div class="sidebar-staged-changes" aria-label="Changed files" role="status" aria-live="polite">
-                    <Tooltip.Trigger asChild>
-                      <span
-                        class="sidebar-staged-changes-text"
-                        onMouseEnter={openStagedChangesTooltip}
-                        onMouseLeave={closeStagedChangesTooltipSoon}
-                      >
-                        {stagedChangesText}
-                      </span>
-                    </Tooltip.Trigger>
-                  </div>
-                  <Tooltip.Portal>
-                    <Tooltip.Content
-                      class="toolbar-save-status-tooltip"
-                      side="top"
-                      align="center"
-                      sideOffset={8}
-                      onMouseEnter={openStagedChangesTooltip}
-                      onMouseLeave={closeStagedChangesTooltipSoon}
-                    >
-                      <div class="toolbar-save-status-tooltip-list" role="list" aria-label="Changed files">
-                        {stagedChangeFiles!.map((file, index) => (
-                          <div key={`${index}:${file.label}`} class="toolbar-save-status-tooltip-item" role="listitem">
-                            <span class="toolbar-save-status-tooltip-path">{file.label}</span>
-                            {file.binary ? (
-                              <span class="toolbar-save-status-tooltip-binary">binary</span>
-                            ) : (
-                              <span class="toolbar-save-status-tooltip-stats">
-                                <span class="toolbar-save-status-tooltip-added">+{file.added}</span>
-                                <span class="toolbar-save-status-tooltip-removed">-{file.removed}</span>
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      <Tooltip.Arrow class="toolbar-save-status-tooltip-arrow" />
-                    </Tooltip.Content>
-                  </Tooltip.Portal>
-                </Tooltip.Root>
-              </Tooltip.Provider>
-            ) : (
-              <div class="sidebar-staged-changes" aria-label="Changed files" role="status" aria-live="polite">
-                <span class="sidebar-staged-changes-text">{stagedChangesText}</span>
-              </div>
-            )
-          ) : null}
-          {stagedChangesText && (onSaveStagedChanges || onDiscardStagedChanges) ? (
-            <div class="sidebar-footer-actions">
-              {onSaveStagedChanges ? (
-                <button
-                  type="button"
-                  class="sidebar-footer-action-btn"
-                  aria-label={`Commit ${stagedChangesText}`}
-                  onClick={() => void onSaveStagedChanges()}
-                >
-                  Save Changes
-                </button>
-              ) : null}
-              {onDiscardStagedChanges ? (
-                <button
-                  type="button"
-                  class="sidebar-footer-action-btn"
-                  aria-label={`Discard ${stagedChangesText}`}
-                  onClick={() => void onDiscardStagedChanges()}
-                >
-                  Discard
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </aside>
   );
 }

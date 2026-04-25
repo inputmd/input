@@ -2,11 +2,12 @@ import type { WebContainer } from '@webcontainer/api';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import {
   derivePersistedHomeCredentialPresence,
-  inspectPersistedHomeEntries,
+  loadPersistedHomeEntries,
   logPersistedHomePaths,
   type PersistedHomeCredentialPresence,
   type PersistedHomeEntry,
-  type PersistedHomeInspectionSnapshot,
+  partitionPersistedHomeEntriesByScope,
+  persistedHomeWorkspaceEntriesToFiles,
   persistPersistedHomeEntries,
 } from '../persisted_home_state.ts';
 import {
@@ -35,10 +36,13 @@ export interface TerminalPersistedHomePromptState {
 }
 
 interface UseTerminalPersistedHomeArgs {
+  canApplyPersistedHomeCapture?: () => boolean;
   focusPane: () => void;
   persistedHomeTrustPrompt: PersistedHomeTrustPrompt | null;
+  readPersistedHomeWorkspaceFiles: () => Record<string, string>;
   readPersistedHomeEntriesForWorkspace: (wc: WebContainer, scriptPath: string) => Promise<PersistedHomeEntry[]>;
   restartWebContainerRef: RefValue<((options?: { reason?: PersistedHomeTransitionReason }) => Promise<void>) | null>;
+  stagePersistedHomeWorkspaceFiles: (files: Record<string, string>, workspaceKey?: string) => void | Promise<void>;
   unmountedRef: RefValue<boolean>;
   wcRef: RefValue<WebContainer | null>;
   workspaceKeyRef: RefValue<string>;
@@ -61,10 +65,13 @@ function isSameCredentialPresence(
 }
 
 export function useTerminalPersistedHome({
+  canApplyPersistedHomeCapture,
   focusPane,
   persistedHomeTrustPrompt,
+  readPersistedHomeWorkspaceFiles,
   readPersistedHomeEntriesForWorkspace,
   restartWebContainerRef,
+  stagePersistedHomeWorkspaceFiles,
   unmountedRef,
   wcRef,
   workspaceKeyRef,
@@ -88,9 +95,7 @@ export function useTerminalPersistedHome({
   const [persistenceDialogOpen, setPersistenceDialogOpen] = useState(false);
   const [persistenceDialogLoading, setPersistenceDialogLoading] = useState(false);
   const [persistenceDialogError, setPersistenceDialogError] = useState<string | null>(null);
-  const [persistenceDialogSnapshot, setPersistenceDialogSnapshot] = useState<PersistedHomeInspectionSnapshot | null>(
-    null,
-  );
+  const [persistenceDialogSnapshot, setPersistenceDialogSnapshot] = useState<PersistedHomeEntry[] | null>(null);
 
   const setPersistedHomeConfiguredMode = useCallback((mode: PersistedHomeMode) => {
     setCredentialSyncEnabled(mode === 'include');
@@ -106,26 +111,42 @@ export function useTerminalPersistedHome({
     );
   }, []);
 
+  const stagePersistedHomeWorkspaceEntries = useCallback(
+    async (entries: readonly PersistedHomeEntry[], workspaceKey?: string) => {
+      const { workspaceEntries } = partitionPersistedHomeEntriesByScope(entries);
+      const workspaceFiles = persistedHomeWorkspaceEntriesToFiles(workspaceEntries);
+      await Promise.resolve(stagePersistedHomeWorkspaceFiles(workspaceFiles, workspaceKey)).catch((err) => {
+        console.error('[terminal] failed to stage managed workspace home state', err);
+      });
+    },
+    [stagePersistedHomeWorkspaceFiles],
+  );
+
   useEffect(() => {
     if (credentialSyncEnabled !== true) {
       setPersistedHomeCredentialPresence(EMPTY_CREDENTIAL_PRESENCE);
       return;
     }
     let cancelled = false;
-    void inspectPersistedHomeEntries(workspaceKeyRef.current).then(
-      (snapshot) => {
+    void loadPersistedHomeEntries(workspaceKeyRef.current, readPersistedHomeWorkspaceFiles()).then(
+      (entries) => {
         if (cancelled) return;
-        setPersistedHomeCredentialPresenceFromEntries(snapshot.effectiveEntries);
+        setPersistedHomeCredentialPresenceFromEntries(entries);
       },
       (err) => {
         if (cancelled) return;
-        console.error('[terminal] failed to inspect persisted credential presence', err);
+        console.error('[terminal] failed to load persisted credential presence', err);
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [credentialSyncEnabled, setPersistedHomeCredentialPresenceFromEntries, workspaceKeyRef]);
+  }, [
+    credentialSyncEnabled,
+    readPersistedHomeWorkspaceFiles,
+    setPersistedHomeCredentialPresenceFromEntries,
+    workspaceKeyRef,
+  ]);
 
   useEffect(() => {
     persistedHomeTrustPromptRef.current = persistedHomeTrustPrompt;
@@ -156,11 +177,12 @@ export function useTerminalPersistedHome({
       if (pending === null) return;
       pendingPersistedHomeEntriesRef.current = null;
       if (!options?.force && persistedHomeActiveSessionModeRef.current !== 'include') return;
+      await stagePersistedHomeWorkspaceEntries(pending.entries, pending.workspaceKey);
       await persistPersistedHomeEntries(pending.workspaceKey, pending.entries);
       setPersistedHomeCredentialPresenceFromEntries(pending.entries);
-      logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', pending.entries);
+      logPersistedHomePaths('info', '[terminal] updated managed home entries', pending.entries);
     },
-    [setPersistedHomeCredentialPresenceFromEntries],
+    [setPersistedHomeCredentialPresenceFromEntries, stagePersistedHomeWorkspaceEntries],
   );
 
   const persistPersistedHomeStateImmediately = useCallback(
@@ -173,11 +195,12 @@ export function useTerminalPersistedHome({
       pendingPersistedHomeEntriesRef.current = null;
       if (!allowPersist) return;
       const key = options?.targetWorkspaceKey ?? workspaceKeyRef.current;
+      await stagePersistedHomeWorkspaceEntries(entries, key);
       await persistPersistedHomeEntries(key, entries);
       setPersistedHomeCredentialPresenceFromEntries(entries);
-      logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', entries);
+      logPersistedHomePaths('info', '[terminal] updated managed home entries', entries);
     },
-    [setPersistedHomeCredentialPresenceFromEntries, workspaceKeyRef],
+    [setPersistedHomeCredentialPresenceFromEntries, stagePersistedHomeWorkspaceEntries, workspaceKeyRef],
   );
 
   const schedulePersistedHomeState = useCallback(
@@ -194,6 +217,7 @@ export function useTerminalPersistedHome({
       // Capture the workspace key now — by the time the debounce timer fires
       // the ref may point to a different workspace.
       const targetKey = workspaceKeyRef.current;
+      void stagePersistedHomeWorkspaceEntries(entries, targetKey);
       pendingPersistedHomeEntriesRef.current = { entries, workspaceKey: targetKey };
       if (persistedHomePersistTimerRef.current !== null) {
         window.clearTimeout(persistedHomePersistTimerRef.current);
@@ -206,7 +230,7 @@ export function useTerminalPersistedHome({
         if (persistedHomeActiveSessionModeRef.current !== 'include') return;
         void persistPersistedHomeEntries(pending.workspaceKey, pending.entries).then(
           () => {
-            logPersistedHomePaths('info', '[terminal] updated browser persisted home entries', pending.entries);
+            logPersistedHomePaths('info', '[terminal] updated managed home entries', pending.entries);
           },
           (err) => {
             console.error('[terminal] failed to persist managed home state', err);
@@ -214,7 +238,7 @@ export function useTerminalPersistedHome({
         );
       }, PERSISTED_HOME_STATE_PERSIST_DEBOUNCE_MS);
     },
-    [setPersistedHomeCredentialPresenceFromEntries, workspaceKeyRef],
+    [setPersistedHomeCredentialPresenceFromEntries, stagePersistedHomeWorkspaceEntries, workspaceKeyRef],
   );
 
   const releasePersistedHomeSyncSession = useCallback(() => {
@@ -237,24 +261,18 @@ export function useTerminalPersistedHome({
     setPersistenceDialogSnapshot(null);
     try {
       if (credentialSyncEnabled === false) {
-        const rawWorkspaceKey = workspaceKeyRef.current.trim();
-        setPersistenceDialogSnapshot({
-          normalizedWorkspaceKey: !rawWorkspaceKey || rawWorkspaceKey === 'workspace:none' ? null : rawWorkspaceKey,
-          globalEntries: [],
-          workspaceEntries: [],
-          effectiveEntries: [],
-        });
+        setPersistenceDialogSnapshot([]);
         return;
       }
       await flushPersistedHomeState();
-      const snapshot = await inspectPersistedHomeEntries(workspaceKeyRef.current);
-      setPersistenceDialogSnapshot(snapshot);
+      const entries = await loadPersistedHomeEntries(workspaceKeyRef.current, readPersistedHomeWorkspaceFiles());
+      setPersistenceDialogSnapshot(entries);
     } catch (err) {
-      setPersistenceDialogError(err instanceof Error ? err.message : 'Failed to inspect terminal persistence');
+      setPersistenceDialogError(err instanceof Error ? err.message : 'Failed to load terminal persistence');
     } finally {
       setPersistenceDialogLoading(false);
     }
-  }, [credentialSyncEnabled, flushPersistedHomeState, workspaceKeyRef]);
+  }, [credentialSyncEnabled, flushPersistedHomeState, readPersistedHomeWorkspaceFiles, workspaceKeyRef]);
 
   const closePersistenceDialog = useCallback(() => {
     setPersistenceDialogOpen(false);
@@ -344,6 +362,7 @@ export function useTerminalPersistedHome({
       if (!scriptPath) return;
       try {
         const entries = await readPersistedHomeEntriesForWorkspace(wc, scriptPath);
+        if (canApplyPersistedHomeCapture && !canApplyPersistedHomeCapture()) return;
         if (options?.immediate) {
           await persistPersistedHomeStateImmediately(entries, {
             allowPersist,
@@ -356,7 +375,12 @@ export function useTerminalPersistedHome({
         console.error('[terminal] failed to capture managed home state', err);
       }
     },
-    [persistPersistedHomeStateImmediately, readPersistedHomeEntriesForWorkspace, schedulePersistedHomeState],
+    [
+      canApplyPersistedHomeCapture,
+      persistPersistedHomeStateImmediately,
+      readPersistedHomeEntriesForWorkspace,
+      schedulePersistedHomeState,
+    ],
   );
 
   const startPersistedHomeSync = useCallback(
@@ -411,6 +435,7 @@ export function useTerminalPersistedHome({
                       },
                     ];
                   });
+                  if (canApplyPersistedHomeCapture && !canApplyPersistedHomeCapture()) continue;
                   schedulePersistedHomeState(entries);
                 } catch (err) {
                   console.error('[terminal] failed to parse managed home state event', err);
@@ -424,7 +449,7 @@ export function useTerminalPersistedHome({
           console.error('[terminal] managed home state watcher closed', err);
         });
     },
-    [releasePersistedHomeSyncSession, schedulePersistedHomeState, unmountedRef, wcRef],
+    [canApplyPersistedHomeCapture, releasePersistedHomeSyncSession, schedulePersistedHomeState, unmountedRef, wcRef],
   );
 
   return {

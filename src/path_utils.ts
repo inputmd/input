@@ -135,7 +135,7 @@ export function isSidebarTextFileName(name: string | null | undefined): boolean 
   if (!name) return false;
   return (
     isMarkdownFileName(name) ||
-    /\.(txt|ts|js|mjs|cjs|py|tsx|jsx|json|jsonc|yml|yaml|toml|css|scss|html|sh|sql|xml|csv|mdx|rst)$/i.test(name)
+    /\.(txt|ts|js|mjs|cjs|py|tsx|jsx|json|jsonc|jsonl|yml|yaml|toml|css|scss|html|sh|sql|xml|csv|mdx|rst)$/i.test(name)
   );
 }
 

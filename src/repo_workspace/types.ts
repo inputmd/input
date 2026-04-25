@@ -38,6 +38,13 @@ export interface RepoWorkspaceRenamedFile extends RepoWorkspaceRename {
   source: RepoWorkspaceMutationSource;
 }
 
+export interface RepoWorkspaceChangeTarget {
+  changeType: 'create' | 'delete' | 'rename' | 'update';
+  path: string;
+  fromPath?: string;
+  toPath?: string;
+}
+
 export interface RepoWorkspaceIdentity {
   sidebarWorkspaceKey: string;
   scrollWorkspaceKey: string | null;
@@ -63,6 +70,7 @@ export interface RepoWorkspaceState {
   terminalSnapshotVersion: number;
   terminalBaseFiles: Record<string, string>;
   terminalBaseSnapshotKey: string | null;
+  baseSnapshotWorkspaceKey: string | null;
   getRepoMarkdownPaths: () => string[];
   getRepoSidebarPaths: () => string[];
   getRepoOverlayPaths: () => string[];
@@ -92,6 +100,13 @@ export interface RepoWorkspaceState {
   clearRepoRenamedBaseFiles: (paths: string[]) => void;
   clearAllRepoOverlayFiles: () => void;
   clearAllRepoWorkspaceChanges: () => void;
+  discardRepoWorkspaceChange: (change: RepoWorkspaceChangeTarget) => void;
+  discardAllRepoWorkspaceChanges: () => void;
+  restoreRepoWorkspaceChanges: (changes: {
+    overlayFiles: RepoWorkspaceOverlayFile[];
+    deletedBaseFiles: RepoWorkspaceDeletedFile[];
+    renamedBaseFiles: RepoWorkspaceRenamedFile[];
+  }) => void;
   getWorkspaceChangesSnapshot: () => {
     overlayFiles: RepoWorkspaceOverlayFile[];
     deletedBaseFiles: RepoWorkspaceDeletedFile[];

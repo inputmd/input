@@ -263,19 +263,31 @@ export function applyRepoWorkspaceMutationsToDocFiles(
   return applyRepoOverlayFilesToDocFiles(nextFiles, overlayFiles);
 }
 
+function isInputWorkspacePath(path: string): boolean {
+  return path === '.input' || path.startsWith('.input/');
+}
+
 export function filterRepoWorkspaceSidebarFiles(
   files: SidebarFile[],
   sidebarFileFilter: SidebarFileFilter,
   showHiddenFiles = false,
 ): SidebarFile[] {
-  const visibleFiles = showHiddenFiles ? files : files.filter((file) => isVisibleSidebarFilePath(file.path));
-  if (sidebarFileFilter === 'markdown') return visibleFiles.filter((file) => isMarkdownFileName(file.path));
-  if (sidebarFileFilter === 'text') return visibleFiles.filter((file) => isSidebarTextListPath(file.path));
+  const visibleFiles = showHiddenFiles
+    ? files
+    : files.filter((file) => isInputWorkspacePath(file.path) || isVisibleSidebarFilePath(file.path));
+  if (sidebarFileFilter === 'markdown') {
+    return visibleFiles.filter((file) => isInputWorkspacePath(file.path) || isMarkdownFileName(file.path));
+  }
+  if (sidebarFileFilter === 'text') {
+    return visibleFiles.filter((file) => isInputWorkspacePath(file.path) || isSidebarTextListPath(file.path));
+  }
   return visibleFiles;
 }
 
 export function countRepoWorkspaceSidebarFiles(files: SidebarFile[], showHiddenFiles = false): RepoWorkspaceFileCounts {
-  const visibleFiles = showHiddenFiles ? files : files.filter((file) => isVisibleSidebarFilePath(file.path));
+  const visibleFiles = showHiddenFiles
+    ? files
+    : files.filter((file) => isInputWorkspacePath(file.path) || isVisibleSidebarFilePath(file.path));
   if (visibleFiles.length === 0) return { markdown: 0, text: 0, total: 0 };
   return {
     markdown: visibleFiles.filter((file) => isMarkdownFileName(file.path)).length,
@@ -300,6 +312,18 @@ export function buildGistTerminalBaseFiles(gistFiles: Record<string, GistFile> |
     files[path] = file.content;
   }
   return files;
+}
+
+export function buildGistRepoDocFiles(gistFiles: Record<string, GistFile> | null): RepoDocFile[] {
+  if (!gistFiles) return [];
+  return Object.entries(gistFiles)
+    .map(([path, file]) => ({
+      name: file.filename || fileNameFromPath(path),
+      path,
+      sha: '',
+      size: file.size,
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export function setRepoTerminalBaseFile(

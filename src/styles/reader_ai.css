@@ -2227,11 +2227,11 @@
 .terminal-panel__notice {
   position: absolute;
   bottom: 10px;
-  left: 10px;
-  right: auto;
+  left: auto;
+  right: 10px;
   display: block;
   max-width: calc(100% - 240px);
-  min-width: 160px;
+  min-width: 200px;
   z-index: 2;
   padding: 8px 10px;
   text-align: left;
@@ -2433,13 +2433,7 @@
 }
 
 .terminal-panel__credential-sync-trigger {
-  gap: 6px;
-  padding: 8px 12px;
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 400;
   line-height: 1;
-  white-space: nowrap;
 }
 
 .terminal-panel__controls-toggle {
@@ -2464,12 +2458,25 @@
 }
 
 .terminal-panel__menu-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   padding: 4px 10px 6px;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.35;
   white-space: normal;
   user-select: none;
+}
+
+.terminal-panel__menu-note-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.terminal-panel__menu-note-line svg {
+  flex-shrink: 0;
 }
 
 .terminal-panel__menu-item {

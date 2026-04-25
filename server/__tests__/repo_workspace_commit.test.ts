@@ -109,10 +109,19 @@ test('buildRepoWorkspaceChangedFileDetails returns sorted tooltip entries with l
       },
     ),
     [
-      { label: 'docs/a.md -> docs/renamed.md', added: 0, removed: 0, binary: false },
-      { label: 'docs/b.md', added: 2, removed: 1, binary: false },
-      { label: 'docs/new.md', added: 1, removed: 0, binary: false },
-      { label: 'docs/z.md', added: 0, removed: 2, binary: false },
+      {
+        path: 'docs/a.md',
+        fromPath: 'docs/a.md',
+        toPath: 'docs/renamed.md',
+        label: 'docs/a.md -> docs/renamed.md',
+        added: 0,
+        removed: 0,
+        binary: false,
+        changeType: 'rename',
+      },
+      { path: 'docs/b.md', label: 'docs/b.md', added: 2, removed: 1, binary: false, changeType: 'update' },
+      { path: 'docs/new.md', label: 'docs/new.md', added: 1, removed: 0, binary: false, changeType: 'create' },
+      { path: 'docs/z.md', label: 'docs/z.md', added: 0, removed: 2, binary: false, changeType: 'delete' },
     ],
   );
 });
@@ -129,9 +138,43 @@ test('buildRepoWorkspaceChangedFileDetails marks unknown base content as binary'
       {},
     ),
     [
-      { label: 'docs/a.md -> docs/renamed.md', added: 0, removed: 0, binary: true },
-      { label: 'docs/b.md', added: 0, removed: 0, binary: true },
-      { label: 'docs/z.md', added: 0, removed: 0, binary: true },
+      {
+        path: 'docs/a.md',
+        fromPath: 'docs/a.md',
+        toPath: 'docs/renamed.md',
+        label: 'docs/a.md -> docs/renamed.md',
+        added: 0,
+        removed: 0,
+        binary: true,
+        changeType: 'rename',
+      },
+      { path: 'docs/b.md', label: 'docs/b.md', added: 0, removed: 0, binary: true, changeType: 'update' },
+      { path: 'docs/z.md', label: 'docs/z.md', added: 0, removed: 0, binary: true, changeType: 'delete' },
+    ],
+  );
+});
+
+test('buildRepoWorkspaceChangedFileDetails exposes paths for session and workspace files', (t) => {
+  const details = buildRepoWorkspaceChangedFileDetails(
+    {
+      message: 'Apply 2 workspace changes',
+      creates: [
+        { path: '.input/.claude/projects/project/session.jsonl', content: '{"type":"user"}\n' },
+        { path: 'docs/new.md', content: 'new\n' },
+      ],
+    },
+    {},
+  );
+
+  t.deepEqual(
+    details.map((detail) => ({ path: detail.path, label: detail.label, changeType: detail.changeType })),
+    [
+      {
+        path: '.input/.claude/projects/project/session.jsonl',
+        label: '.input/.claude/projects/project/session.jsonl',
+        changeType: 'create',
+      },
+      { path: 'docs/new.md', label: 'docs/new.md', changeType: 'create' },
     ],
   );
 });

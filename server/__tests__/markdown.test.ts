@@ -625,7 +625,7 @@ test('prompt-list collapsed assistant styles do not shrink messages with font or
   );
   t.true(css.includes('.rendered-markdown .prompt-answer-summary-text'));
   t.true(css.includes('.rendered-markdown .prompt-answer-summary--user'));
-  t.true(css.includes('-webkit-line-clamp: 3;'));
+  t.false(css.includes('-webkit-line-clamp: 3;'));
   t.true(css.includes('flex: none'));
   t.false(css.includes('.rendered-markdown :is(li.prompt-question, li.prompt-continue)::before'));
   t.true(css.includes('.rendered-markdown .prompt-list-branch-start::before'));
@@ -930,7 +930,7 @@ test('setPromptListMode applies collapse-all, collapse-responses, and expand-all
     t.is(conversation.getAttribute('data-prompt-list-mode'), 'collapse-all');
     t.deepEqual(
       questions.map((question) => question.getAttribute('data-expanded')),
-      ['false', 'false'],
+      ['true', 'true'],
     );
     t.deepEqual(
       answers.map((answer) => answer.getAttribute('data-expanded')),

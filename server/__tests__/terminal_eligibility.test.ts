@@ -81,3 +81,40 @@ test('repo documents route remains terminal-eligible without a selected file', (
     }),
   );
 });
+
+test('root gist routes remain terminal-eligible without a selected file', (t) => {
+  t.true(
+    resolveTerminalRouteEligibility({
+      route: { name: 'gist', params: { id: 'abcdef123456' } },
+      routeView: 'content',
+      readerAiContentEligible: false,
+      currentEditingDocPath: null,
+      isScratchDocument: false,
+    }),
+  );
+  t.true(
+    resolveTerminalRouteEligibility({
+      route: { name: 'edit', params: { id: 'abcdef123456' } },
+      routeView: 'edit',
+      readerAiContentEligible: false,
+      currentEditingDocPath: null,
+      isScratchDocument: false,
+    }),
+  );
+});
+
+test('workspace session transcript routes remain terminal-eligible', (t) => {
+  t.true(
+    resolveTerminalRouteEligibility({
+      route: {
+        name: 'repofile',
+        params: { owner: 'owner', repo: 'repo', path: '.input/.pi/agent/sessions/session.jsonl' },
+      },
+      routeView: 'content',
+      readerAiContentEligible: false,
+      workspaceSessionRouteEligible: true,
+      currentEditingDocPath: null,
+      isScratchDocument: false,
+    }),
+  );
+});

@@ -59,7 +59,7 @@ export function setPromptListMode(
   });
   if (options?.syncAnswers === false) return;
   container.querySelectorAll<HTMLElement>('li.prompt-question, li.prompt-answer').forEach((message) => {
-    const expanded = mode === 'expand-all' || (mode === 'collapse-responses' && message.matches('li.prompt-question'));
+    const expanded = message.matches('li.prompt-question') || mode === 'expand-all';
     setPromptAnswerExpandedState(message, expanded);
   });
 }
@@ -129,6 +129,10 @@ export function restorePromptAnswerExpandedStates(
     .forEach((message) => {
       const key = getPromptAnswerExpandedStateKey(message);
       if (!key) return;
+      if (message.matches('li.prompt-question')) {
+        setPromptAnswerExpandedState(message, true);
+        return;
+      }
       const expanded = snapshot?.get(key);
       if (expanded != null) {
         setPromptAnswerExpandedState(message, expanded);
@@ -279,6 +283,10 @@ function findPromptingQuestionForAnswer(answer: HTMLElement): HTMLElement | null
 }
 
 export function togglePromptAnswerExpandedState(container: HTMLElement, options?: TogglePromptAnswerExpandedOptions) {
+  if (container.matches('li.prompt-question')) {
+    setPromptAnswerExpandedState(container, true);
+    return;
+  }
   const expanded = container.getAttribute('data-expanded') === 'true';
   const nextExpanded = !expanded;
   const shouldRestoreScrollOnCollapse =

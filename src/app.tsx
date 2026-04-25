@@ -16,7 +16,12 @@ import type { PromptListRequest } from './components/markdown_editor_commands';
 import { formatMarkdownEditorPaste } from './components/markdown_editor_paste';
 import { ReaderAiPanel } from './components/ReaderAiPanel';
 import { Sidebar, type SidebarFileFilter } from './components/Sidebar';
-import { TerminalPanel } from './components/TerminalPanel';
+import { StagedChangesFloatingModule } from './components/StagedChangesFloatingModule';
+import {
+  type TerminalCommandRequest,
+  TerminalPanel,
+  type TerminalPanelInteractionHandle,
+} from './components/TerminalPanel';
 import { useToast } from './components/ToastProvider';
 import { type ActiveView, Toolbar } from './components/Toolbar';
 import { stripCriticMarkupComments } from './criticmarkup.ts';
@@ -40,6 +45,7 @@ import {
   logout,
   updateGist,
   updateGistDescription,
+  updateGistFiles,
 } from './github';
 import {
   applyRepoBatchMutationAtomic,
@@ -111,6 +117,7 @@ import {
 } from './image_processing';
 import { isEditableShortcutTarget, matchesControlShortcut, matchesPrimaryShortcut } from './keyboard_shortcuts';
 import { parseMarkdownDocument, parseMarkdownToHtml } from './markdown';
+import { createNoteJsonl, isNotePath } from './notes';
 import {
   commonPrefixLength,
   commonSuffixLength,
@@ -131,6 +138,13 @@ import {
   sanitizeScratchFileNameInput,
   sanitizeTitleToFileName,
 } from './path_utils';
+import {
+  derivePersistedHomeCredentialPresence,
+  isPersistedHomeWorkspaceFilePath,
+  loadPersistedHomeEntries,
+  mapWorkspacePathToPersistedHomePath,
+  type PersistedHomeCredentialPresence,
+} from './persisted_home_state.ts';
 import { previewRouteHasFragment, previewRouteHistoryPath, previewRoutePathname } from './preview_navigation';
 import { formatPromptListAnswer } from './prompt_list_format';
 import { splitPromptListStableText } from './prompt_list_streaming';
@@ -157,15 +171,27 @@ import {
 } from './reader_ai_host_adapter';
 import { buildReaderAiSelectedChange } from './reader_ai_selectors';
 import type { ReaderAiTranscriptItem } from './reader_ai_transcript';
-import { shouldKeepRepoSelectionEmpty, withKeepRepoSelectionEmpty } from './repo_selection.ts';
+import { withKeepRepoSelectionEmpty } from './repo_selection.ts';
+import type { RepoWorkspaceChangedFileDetail, RepoWorkspaceRecoveryRestoreStatus } from './repo_workspace';
 import {
+  buildGistTerminalBaseFiles,
   buildRepoWorkspaceChangedFileDetails,
   buildRepoWorkspaceIdentity,
+  buildRepoWorkspaceRecoverySnapshot,
   buildRepoWorkspaceTextSavePlan,
+  deleteRepoWorkspaceRecoverySnapshot,
+  isWorkspaceTransition,
+  loadRepoWorkspaceRecoverySnapshot,
+  pruneExpiredRepoWorkspaceRecoverySnapshots,
+  saveRepoWorkspaceRecoverySnapshot,
   useRepoEditorBinding,
   useRepoSidebarBinding,
   useRepoTerminalBinding,
   useRepoWorkspace,
+  validateRepoWorkspaceRecoverySnapshot,
+  WORKSPACE_EXTERNAL_KEY,
+  WORKSPACE_NONE_KEY,
+  workspaceKeyFromRoute,
 } from './repo_workspace';
 import type { TerminalImportDiff, TerminalImportOptions } from './repo_workspace/terminal_sync.ts';
 import { matchRoute, type Route, routePath } from './routing';
@@ -184,6 +210,15 @@ import {
   resolveRepoNewFilePath,
   writePersistedNewGistFileDraft,
 } from './scratch_files';
+import {
+  addSessionReferenceChild,
+  cleanupDeletedSessionReference,
+  parseSessionReferenceIndex,
+  removeSessionReferenceChild,
+  SESSION_REFERENCE_INDEX_PATH,
+  type SessionReferenceIndex,
+  serializeSessionReferenceIndex,
+} from './session_index';
 import { isSubdomainMode } from './subdomain';
 import { resolveTerminalRouteEligibility } from './terminal_eligibility.ts';
 import {
@@ -193,7 +228,7 @@ import {
   isMarkdownFileName,
   reusableImageSrc,
 } from './util';
-import { ContentView } from './views/ContentView';
+import { type ContentSessionFile, type ContentSessionViewFile, ContentView } from './views/ContentView';
 import { DocumentStackView } from './views/DocumentStackView';
 import { EditSessionView } from './views/EditSessionView';
 import { EditView } from './views/EditView';
@@ -207,7 +242,6 @@ import {
   type PublicRepoRef,
   parseGitHubRepoFullNameInput,
   parseRepoFullName,
-  pickPreferredRepoMarkdownFile,
 } from './wiki_links';
 
 const EDITOR_PREVIEW_VISIBLE_KEY = 'editor_preview_visible';
@@ -220,6 +254,8 @@ const SIDE_PANE_WIDTH_KEY = 'side_pane_width_px';
 const SIDEBAR_VISIBLE_KEY = 'sidebar_visible';
 const SIDEBAR_WIDTH_KEY = 'sidebar_width_px';
 const DESKTOP_MEDIA_QUERY = '(min-width: 769px)';
+const TERMINAL_COMPACT_MEDIA_QUERY = '(max-width: 1023px)';
+const TERMINAL_RECENT_INTERACTION_WINDOW_MS = 1500;
 const DRAFT_TITLE_KEY = 'draft_title';
 const DRAFT_CONTENT_KEY = 'draft_content';
 const DEFAULT_NEW_FILENAME = 'index.md';
@@ -229,7 +265,7 @@ const REPO_NEW_DRAFT_KEY_PREFIX = 'repo_new_draft_v2';
 const DEFAULT_SIDEBAR_WIDTH_PX = 220;
 const MIN_SIDEBAR_WIDTH_PX = 170;
 const MAX_SIDEBAR_WIDTH_PX = 420;
-const DEFAULT_SIDE_PANE_WIDTH_PX = 560;
+const DEFAULT_SIDE_PANE_WIDTH_PX = 460;
 const MIN_SIDE_PANE_WIDTH_PX = 170;
 const MAX_SIDE_PANE_WIDTH_PX = 720;
 const MIN_MAIN_CONTENT_WIDTH_PX = 100;
@@ -256,6 +292,15 @@ interface RecentRepoVisit {
 }
 
 type TerminalImportHandler = (options?: TerminalImportOptions) => Promise<TerminalImportDiff | null>;
+type ContentRenderMode = 'ansi' | 'markdown' | 'image' | 'session' | 'session-deleted';
+type WorkspaceTransitionConfirmMode = 'discard' | 'cache';
+type PrepareWorkspaceTransitionOptions = {
+  confirmMode?: WorkspaceTransitionConfirmMode;
+};
+type DeleteFileOptions = {
+  confirm?: boolean | 'persisted';
+  onOptimisticDelete?: () => void;
+};
 
 type SidePane = 'none' | 'preview' | 'reader-ai' | 'terminal';
 
@@ -630,6 +675,28 @@ interface PendingForkDraftState {
   filename?: string;
 }
 
+type PendingWorkspaceSessionRouteContent =
+  | {
+      mode: 'gist';
+      gistId: string;
+      path: string;
+      content: string;
+    }
+  | {
+      mode: 'installed';
+      installationId: string;
+      repoFullName: string;
+      path: string;
+      content: string;
+    }
+  | {
+      mode: 'public';
+      owner: string;
+      repo: string;
+      path: string;
+      content: string;
+    };
+
 type CommitResult =
   | {
       kind: 'repo';
@@ -659,6 +726,78 @@ function generateUnifiedDiff(path: string, oldContent: string, newContent: strin
   if (!lines.some((line) => line.startsWith('@@'))) return noChangesLabel;
   const result = lines.slice(startIndex).join('\n').trimEnd();
   return result || noChangesLabel;
+}
+
+function isWorkspaceSessionJsonlPath(path: string): boolean {
+  if (!path.endsWith('.jsonl')) return false;
+  return (
+    path.startsWith('.input/.pi/agent/sessions/') || path.startsWith('.input/.claude/projects/') || isNotePath(path)
+  );
+}
+
+function workspaceSessionJsonlPathFromRoute(route: Route): string | null {
+  if (
+    route.name === 'repofile' ||
+    route.name === 'repoedit' ||
+    route.name === 'sharefile' ||
+    route.name === 'reponew'
+  ) {
+    const path = safeDecodeURIComponent(route.params.path).replace(/^\/+/, '');
+    return isWorkspaceSessionJsonlPath(path) ? path : null;
+  }
+  if ((route.name === 'gist' || route.name === 'edit') && route.params.filename) {
+    const path = safeDecodeURIComponent(route.params.filename);
+    return isWorkspaceSessionJsonlPath(path) ? path : null;
+  }
+  return null;
+}
+
+function pendingWorkspaceSessionRouteContentMatchesRoute(
+  pending: PendingWorkspaceSessionRouteContent | null,
+  route: Route,
+): boolean {
+  if (!pending) return false;
+  const routePath = workspaceSessionJsonlPathFromRoute(route);
+  if (routePath !== pending.path) return false;
+  if (route.name === 'gist') return pending.mode === 'gist' && pending.gistId === route.params.id;
+  if (route.name !== 'repofile') return false;
+  const owner = safeDecodeURIComponent(route.params.owner);
+  const repo = safeDecodeURIComponent(route.params.repo);
+  if (pending.mode === 'public') {
+    return pending.owner === owner && pending.repo === repo;
+  }
+  if (pending.mode === 'installed') {
+    return pending.repoFullName.toLowerCase() === buildRepoFullName(owner, repo).toLowerCase();
+  }
+  return false;
+}
+
+async function fetchWorkspaceSessionText(url: string, init?: RequestInit): Promise<string> {
+  const res = await fetch(url, init);
+  recordServerLocalRateLimitFromResponse(res);
+  recordGitHubRateLimitFromResponse(res);
+  if (!res.ok) throw await responseToApiError(res);
+  return res.text();
+}
+
+function buildPiSessionContinueArgs(workspacePath: string): TerminalCommandRequest['args'] {
+  const homePath = mapWorkspacePathToPersistedHomePath(workspacePath);
+  if (homePath?.startsWith('.pi/agent/sessions/')) {
+    return ['--session', { kind: 'homePath', path: homePath }];
+  }
+  return ['--session', workspacePath];
+}
+
+function buildNoteWorkspacePath(createdAt: Date, id: string): string {
+  const timestamp = createdAt.toISOString().replace(/[:.]/g, '-');
+  return `.input/.notes/${timestamp}_${id}.jsonl`;
+}
+
+function shortRandomId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+  }
+  return Math.random().toString(36).slice(2, 10);
 }
 
 function parsePendingDraftRestore(state: unknown): PendingDraftRestoreState | null {
@@ -722,7 +861,7 @@ function mergeTrackedShareLinks(links: RepoFileShareLink[], nextLink: RepoFileSh
 }
 
 export function App() {
-  const { route, routeState, navigate, setNavigationPrompt } = useRoute();
+  const { route, routeState, navigate, setNavigationPrompt, setRouteTransitionGuard } = useRoute();
   const documentStack = useDocumentStack();
   const { showAlert, showConfirm, showDiffChoice, showPrompt } = useDialogs();
   const { showSuccessToast, showFailureToast, showWarningToast, showLoadingToast, dismissToast } = useToast();
@@ -810,16 +949,20 @@ export function App() {
   const [renderedCustomCss, setRenderedCustomCss] = useState<string | null>(null);
   const [renderedCustomCssScope, setRenderedCustomCssScope] = useState<string | null>(null);
   const [renderedText, setRenderedText] = useState<string | null>(null);
-  const [renderMode, setRenderMode] = useState<'ansi' | 'markdown' | 'image'>('ansi');
+  const [renderMode, setRenderMode] = useState<ContentRenderMode>('ansi');
   const [contentLoadPending, setContentLoadPending] = useState(false);
   const [preserveHeaderLeftControlsWhileLoading, setPreserveHeaderLeftControlsWhileLoading] = useState(false);
   const [contentImagePreview, setContentImagePreview] = useState<{ src: string; alt: string } | null>(null);
   const [contentAlertMessage, setContentAlertMessage] = useState<string | null>(null);
   const [contentAlertDownloadHref, setContentAlertDownloadHref] = useState<string | null>(null);
   const [contentAlertDownloadName, setContentAlertDownloadName] = useState<string | null>(null);
+  const [optimisticallyDeletedSessionPaths, setOptimisticallyDeletedSessionPaths] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [sidePane, setSidePane] = useState<SidePane>(() =>
     route.name === 'new' ? defaultEditorSidePane() : readStoredSidePanePreference(),
   );
+  const [terminalCommandRequest, setTerminalCommandRequest] = useState<TerminalCommandRequest | null>(null);
   const [mountedTerminalWorkspaceKey, setMountedTerminalWorkspaceKey] = useState<string | null>(null);
   const [readerAiSource, setReaderAiSource] = useState('');
   const [readerAiModels, setReaderAiModels] = useState<ReaderAiModel[]>([]);
@@ -927,6 +1070,21 @@ export function App() {
   const sidePaneSkipPersistRef = useRef(false);
   const terminalTemporarilyHiddenForCompactRef = useRef(false);
   const terminalImportHandlerRef = useRef<TerminalImportHandler | null>(null);
+  const terminalCommandRequestIdRef = useRef(0);
+  const terminalCommandRequestResolversRef = useRef(new Map<number, (value: boolean) => void>());
+  const pendingWorkspaceSessionContentRef = useRef(new Map<string, string>());
+  const pendingWorkspaceSessionRouteContentRef = useRef<PendingWorkspaceSessionRouteContent | null>(null);
+  const terminalInteractionHandleRef = useRef<TerminalPanelInteractionHandle | null>(null);
+  const terminalFocusWithinRef = useRef(false);
+  const terminalLastInteractionAtRef = useRef(0);
+  const workspaceTransitionPromptInFlightRef = useRef<Promise<boolean> | null>(null);
+  const prepareWorkspaceTransitionToKeyRef = useRef<
+    ((nextWorkspaceKey: string, options?: PrepareWorkspaceTransitionOptions) => Promise<boolean>) | null
+  >(null);
+  const workspaceRecoveryWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [workspaceRecoveryRestoreStatusByKey, setWorkspaceRecoveryRestoreStatusByKey] = useState(
+    () => new Map<string, RepoWorkspaceRecoveryRestoreStatus>(),
+  );
   const pendingGistDraftDirtyRef = useRef(false);
   const editContentRef = useRef(editContent);
   const editContentSnapshotTimerRef = useRef<number | null>(null);
@@ -1093,6 +1251,7 @@ export function App() {
     renamedBaseFiles,
     sidebarWorkspaceKey,
     sidebarFiles,
+    baseSnapshotWorkspaceKey,
     terminalBaseFiles,
     terminalBaseSnapshotKey,
     terminalSnapshotVersion,
@@ -1101,9 +1260,13 @@ export function App() {
     replaceTerminalBaseSnapshot,
     setRepoFileContent,
     removeRepoFileContents,
+    stageRepoOverlayFile,
     clearRepoOverlayFile,
     clearRepoOverlayFiles,
     clearAllRepoWorkspaceChanges,
+    discardRepoWorkspaceChange,
+    discardAllRepoWorkspaceChanges,
+    restoreRepoWorkspaceChanges,
     getWorkspaceChangesSnapshot,
     applyTerminalImportDiffToWorkspace,
     setSharedRepoFile,
@@ -1140,7 +1303,7 @@ export function App() {
       options?: TerminalImportOptions;
     }) => {
       if (workspaceKey !== sidebarWorkspaceKey) return;
-      if (repoAccessMode !== 'installed') return;
+      if (repoAccessMode !== 'installed' && currentGistId === null) return;
       const result = applyTerminalImportDiffToWorkspace(diff, resolveRepoBasePath);
       const activeImportPath = activeTerminalImportPathRef.current;
       if (activeImportPath && !hasUserTypedUnsavedChangesRef.current) {
@@ -1157,6 +1320,7 @@ export function App() {
     },
     [
       applyTerminalImportDiffToWorkspace,
+      currentGistId,
       repoAccessMode,
       resolveRepoBasePath,
       setNextEditContent,
@@ -1246,6 +1410,8 @@ export function App() {
     routeView === 'edit' && (isMarkdownFileName(currentFileName ?? editTitle) || isScratchDocument);
   const readerAiContentEligible =
     routeView === 'content' &&
+    renderMode !== 'session' &&
+    renderMode !== 'session-deleted' &&
     (((renderMode === 'markdown' || renderMode === 'ansi') && Boolean(readerAiSource)) ||
       (contentLoadPending && readerAiContentFileEligible));
   const readerAiHistoryEligible = readerAiContentEligible || readerAiEditEligible;
@@ -1253,6 +1419,7 @@ export function App() {
     route,
     routeView,
     readerAiContentEligible,
+    workspaceSessionRouteEligible: workspaceSessionJsonlPathFromRoute(route) !== null,
     currentEditingDocPath,
     isScratchDocument,
   });
@@ -1629,8 +1796,411 @@ export function App() {
     });
   }, [clearMarkdownLinkPreviewCache]);
 
-  const repoWorkspaceSaveStatus = useMemo(() => {
-    if (repoAccessMode !== 'installed') return null;
+  const workspaceChangesPersistable = repoAccessMode === 'installed' || currentGistId !== null;
+  const workspaceSaveBaseFiles = useMemo(
+    () => (currentGistId !== null ? buildGistTerminalBaseFiles(gistFiles) : terminalBaseFiles),
+    [currentGistId, gistFiles, terminalBaseFiles],
+  );
+  const workspaceSessionPaths = useMemo(() => {
+    const paths = currentGistId !== null ? Object.keys(gistFiles ?? {}) : getRepoSidebarPaths();
+    return paths.filter(isWorkspaceSessionJsonlPath).sort((left, right) => left.localeCompare(right));
+  }, [currentGistId, getRepoSidebarPaths, gistFiles]);
+  const workspaceSessionReferenceIndexFetchTarget = useMemo(() => {
+    if (currentGistId !== null) return null;
+    if (!hasRepoSidebarPath(SESSION_REFERENCE_INDEX_PATH)) return null;
+    if (overlayFiles.some((file) => file.path === SESSION_REFERENCE_INDEX_PATH)) return null;
+    if (deletedBaseFiles.some((file) => file.path === SESSION_REFERENCE_INDEX_PATH)) return null;
+    const basePath = resolveRepoBasePath(SESSION_REFERENCE_INDEX_PATH);
+    return basePath ? { path: SESSION_REFERENCE_INDEX_PATH, basePath } : null;
+  }, [currentGistId, deletedBaseFiles, hasRepoSidebarPath, overlayFiles, resolveRepoBasePath]);
+  useEffect(() => {
+    if (pendingWorkspaceSessionContentRef.current.size === 0) return;
+    for (const file of overlayFiles) {
+      pendingWorkspaceSessionContentRef.current.delete(file.path);
+    }
+  }, [overlayFiles]);
+  const workspaceSessionFetchTargets = useMemo(() => {
+    if (currentGistId !== null) return [];
+    const overlayContentByPath = new Set(overlayFiles.map((file) => file.path));
+    const targets: Array<{ path: string; basePath: string }> = [];
+    for (const path of workspaceSessionPaths) {
+      if (overlayContentByPath.has(path)) continue;
+      const basePath = resolveRepoBasePath(path);
+      if (!basePath) continue;
+      targets.push({ path, basePath });
+    }
+    return targets;
+  }, [currentGistId, overlayFiles, resolveRepoBasePath, workspaceSessionPaths]);
+  const [workspaceSessionContentSnapshot, setWorkspaceSessionContentSnapshot] = useState<{
+    workspaceKey: string | null;
+    contentByPath: Record<string, string>;
+    loading: boolean;
+  }>({ workspaceKey: null, contentByPath: {}, loading: false });
+  const workspaceSessionContentSnapshotRef = useRef(workspaceSessionContentSnapshot);
+  useEffect(() => {
+    workspaceSessionContentSnapshotRef.current = workspaceSessionContentSnapshot;
+  }, [workspaceSessionContentSnapshot]);
+  const workspaceSessionContentFetchAvailable =
+    currentGistId === null &&
+    ((repoAccessMode === 'installed' && Boolean(activeInstalledRepoInstallationId) && Boolean(selectedRepo)) ||
+      (repoAccessMode === 'public' && publicRepoRef !== null));
+  useEffect(() => {
+    if (currentGistId !== null || workspaceSessionFetchTargets.length === 0 || !workspaceSessionContentFetchAvailable) {
+      setWorkspaceSessionContentSnapshot({
+        workspaceKey: sidebarWorkspaceKey,
+        contentByPath: {},
+        loading: false,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const existingSnapshot = workspaceSessionContentSnapshotRef.current;
+    const existingContentByPath =
+      existingSnapshot.workspaceKey === sidebarWorkspaceKey ? existingSnapshot.contentByPath : {};
+    const retainedContentByPath: Record<string, string> = {};
+    const missingTargets: Array<{ path: string; basePath: string }> = [];
+    for (const target of workspaceSessionFetchTargets) {
+      const existingContent = existingContentByPath[target.path];
+      if (typeof existingContent === 'string') {
+        retainedContentByPath[target.path] = existingContent;
+      } else {
+        missingTargets.push(target);
+      }
+    }
+
+    setWorkspaceSessionContentSnapshot({
+      workspaceKey: sidebarWorkspaceKey,
+      contentByPath: retainedContentByPath,
+      loading: missingTargets.length > 0,
+    });
+    if (missingTargets.length === 0) return;
+
+    void (async () => {
+      const results = await Promise.allSettled(
+        missingTargets.map(async (target) => {
+          if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo) {
+            const content = await fetchWorkspaceSessionText(
+              repoRawFileUrl(activeInstalledRepoInstallationId, selectedRepo, target.basePath),
+              { credentials: 'same-origin' },
+            );
+            return { path: target.path, content };
+          }
+          if (repoAccessMode === 'public' && publicRepoRef) {
+            const content = await fetchWorkspaceSessionText(
+              publicRepoRawFileUrl(publicRepoRef.owner, publicRepoRef.repo, target.basePath),
+            );
+            return { path: target.path, content };
+          }
+          return null;
+        }),
+      );
+      if (cancelled) return;
+
+      const loadedContentByPath: Record<string, string> = {};
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          console.error('[sessions] failed to fetch session content', result.reason);
+          showRateLimitToastIfNeeded(result.reason);
+          continue;
+        }
+        if (result.value) {
+          loadedContentByPath[result.value.path] = result.value.content;
+        }
+      }
+
+      setWorkspaceSessionContentSnapshot((current) => {
+        const currentContentByPath = current.workspaceKey === sidebarWorkspaceKey ? current.contentByPath : {};
+        const nextContentByPath: Record<string, string> = {};
+        for (const target of workspaceSessionFetchTargets) {
+          const content = loadedContentByPath[target.path] ?? currentContentByPath[target.path];
+          if (typeof content === 'string') nextContentByPath[target.path] = content;
+        }
+        return {
+          workspaceKey: sidebarWorkspaceKey,
+          contentByPath: nextContentByPath,
+          loading: false,
+        };
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeInstalledRepoInstallationId,
+    currentGistId,
+    publicRepoRef,
+    repoAccessMode,
+    selectedRepo,
+    showRateLimitToastIfNeeded,
+    sidebarWorkspaceKey,
+    workspaceSessionContentFetchAvailable,
+    workspaceSessionFetchTargets,
+  ]);
+  const [workspaceSessionReferenceIndexSnapshot, setWorkspaceSessionReferenceIndexSnapshot] = useState<{
+    workspaceKey: string | null;
+    content: string | null;
+    loading: boolean;
+  }>({ workspaceKey: null, content: null, loading: false });
+  const workspaceSessionReferenceIndexSnapshotRef = useRef(workspaceSessionReferenceIndexSnapshot);
+  useEffect(() => {
+    workspaceSessionReferenceIndexSnapshotRef.current = workspaceSessionReferenceIndexSnapshot;
+  }, [workspaceSessionReferenceIndexSnapshot]);
+  useEffect(() => {
+    if (
+      currentGistId !== null ||
+      !workspaceSessionReferenceIndexFetchTarget ||
+      !workspaceSessionContentFetchAvailable
+    ) {
+      setWorkspaceSessionReferenceIndexSnapshot({
+        workspaceKey: sidebarWorkspaceKey,
+        content: null,
+        loading: false,
+      });
+      return;
+    }
+
+    const existingSnapshot = workspaceSessionReferenceIndexSnapshotRef.current;
+    if (
+      existingSnapshot.workspaceKey === sidebarWorkspaceKey &&
+      typeof existingSnapshot.content === 'string' &&
+      !existingSnapshot.loading
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    setWorkspaceSessionReferenceIndexSnapshot({
+      workspaceKey: sidebarWorkspaceKey,
+      content: null,
+      loading: true,
+    });
+
+    void (async () => {
+      try {
+        let content: string | null = null;
+        if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo) {
+          content = await fetchWorkspaceSessionText(
+            repoRawFileUrl(
+              activeInstalledRepoInstallationId,
+              selectedRepo,
+              workspaceSessionReferenceIndexFetchTarget.basePath,
+            ),
+            { credentials: 'same-origin' },
+          );
+        } else if (repoAccessMode === 'public' && publicRepoRef) {
+          content = await fetchWorkspaceSessionText(
+            publicRepoRawFileUrl(
+              publicRepoRef.owner,
+              publicRepoRef.repo,
+              workspaceSessionReferenceIndexFetchTarget.basePath,
+            ),
+          );
+        }
+        if (cancelled) return;
+        setWorkspaceSessionReferenceIndexSnapshot({
+          workspaceKey: sidebarWorkspaceKey,
+          content,
+          loading: false,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[sessions] failed to fetch session reference index', err);
+        showRateLimitToastIfNeeded(err);
+        setWorkspaceSessionReferenceIndexSnapshot({
+          workspaceKey: sidebarWorkspaceKey,
+          content: null,
+          loading: false,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeInstalledRepoInstallationId,
+    currentGistId,
+    publicRepoRef,
+    repoAccessMode,
+    selectedRepo,
+    showRateLimitToastIfNeeded,
+    sidebarWorkspaceKey,
+    workspaceSessionContentFetchAvailable,
+    workspaceSessionReferenceIndexFetchTarget,
+  ]);
+  const workspaceSessionFilesLoading =
+    currentGistId === null &&
+    workspaceSessionFetchTargets.length > 0 &&
+    workspaceSessionContentFetchAvailable &&
+    (workspaceSessionContentSnapshot.workspaceKey !== sidebarWorkspaceKey || workspaceSessionContentSnapshot.loading);
+  const workspaceSessionFiles = useMemo<ContentSessionFile[]>(() => {
+    const overlayContentByPath = new Map(overlayFiles.map((file) => [file.path, file.content]));
+    const sessionContentByPath =
+      workspaceSessionContentSnapshot.workspaceKey === sidebarWorkspaceKey
+        ? workspaceSessionContentSnapshot.contentByPath
+        : {};
+    const sessions: ContentSessionFile[] = [];
+    for (const path of workspaceSessionPaths) {
+      if (optimisticallyDeletedSessionPaths.has(path)) continue;
+      const gistContent = currentGistId !== null ? (gistFiles?.[path]?.content ?? null) : null;
+      const content = overlayContentByPath.get(path) ?? gistContent ?? sessionContentByPath[path];
+      if (typeof content !== 'string') continue;
+      sessions.push({ path, content });
+    }
+    return sessions;
+  }, [
+    currentGistId,
+    gistFiles,
+    optimisticallyDeletedSessionPaths,
+    overlayFiles,
+    sidebarWorkspaceKey,
+    workspaceSessionContentSnapshot,
+    workspaceSessionPaths,
+  ]);
+  const workspaceSessionReferenceIndexContent = useMemo(() => {
+    const overlayIndex = overlayFiles.find((file) => file.path === SESSION_REFERENCE_INDEX_PATH);
+    if (overlayIndex) return overlayIndex.content;
+    if (deletedBaseFiles.some((file) => file.path === SESSION_REFERENCE_INDEX_PATH)) return null;
+    if (currentGistId !== null) return gistFiles?.[SESSION_REFERENCE_INDEX_PATH]?.content ?? null;
+    return workspaceSessionReferenceIndexSnapshot.workspaceKey === sidebarWorkspaceKey
+      ? workspaceSessionReferenceIndexSnapshot.content
+      : null;
+  }, [
+    currentGistId,
+    deletedBaseFiles,
+    gistFiles,
+    overlayFiles,
+    sidebarWorkspaceKey,
+    workspaceSessionReferenceIndexSnapshot,
+  ]);
+  const workspaceSessionReferencePaths = useMemo(
+    () => new Set(workspaceSessionFiles.map((session) => session.path)),
+    [workspaceSessionFiles],
+  );
+  const workspaceSessionReferenceIndex = useMemo<SessionReferenceIndex>(
+    () => parseSessionReferenceIndex(workspaceSessionReferenceIndexContent, workspaceSessionReferencePaths),
+    [workspaceSessionReferenceIndexContent, workspaceSessionReferencePaths],
+  );
+  useEffect(() => {
+    void sidebarWorkspaceKey;
+    setOptimisticallyDeletedSessionPaths((current) => (current.size === 0 ? current : new Set()));
+  }, [sidebarWorkspaceKey]);
+  const persistedHomeWorkspaceFilesForCredentialCheck = useMemo(() => {
+    const files: Record<string, string> = {};
+    for (const [path, content] of Object.entries(workspaceSaveBaseFiles)) {
+      if (!isPersistedHomeWorkspaceFilePath(path)) continue;
+      files[path] = content;
+    }
+    for (const file of overlayFiles) {
+      if (!isPersistedHomeWorkspaceFilePath(file.path)) continue;
+      files[file.path] = file.content;
+    }
+    for (const file of deletedBaseFiles) {
+      if (!isPersistedHomeWorkspaceFilePath(file.path)) continue;
+      delete files[file.path];
+    }
+    return files;
+  }, [deletedBaseFiles, overlayFiles, workspaceSaveBaseFiles]);
+  const [agentCredentialPresence, setAgentCredentialPresence] = useState<PersistedHomeCredentialPresence | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setAgentCredentialPresence(null);
+    void loadPersistedHomeEntries(sidebarWorkspaceKey, persistedHomeWorkspaceFilesForCredentialCheck).then(
+      (entries) => {
+        if (cancelled) return;
+        setAgentCredentialPresence(derivePersistedHomeCredentialPresence(entries));
+      },
+      (err) => {
+        if (cancelled) return;
+        console.error('[sessions] failed to load agent credential presence', err);
+        setAgentCredentialPresence({ claude: false, pi: false });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [persistedHomeWorkspaceFilesForCredentialCheck, sidebarWorkspaceKey]);
+  const claudeCredentialAvailable = agentCredentialPresence?.claude ?? null;
+  const piCredentialAvailable = agentCredentialPresence?.pi ?? null;
+  const workspaceRecoveryBaseReady = useMemo(() => {
+    if (!workspaceChangesPersistable) return false;
+    if (currentGistId !== null) return gistFiles !== null;
+    if (repoAccessMode === 'installed') {
+      return Boolean(selectedRepo) && activeView !== 'loading' && baseSnapshotWorkspaceKey === sidebarWorkspaceKey;
+    }
+    return false;
+  }, [
+    activeView,
+    baseSnapshotWorkspaceKey,
+    currentGistId,
+    gistFiles,
+    repoAccessMode,
+    selectedRepo,
+    sidebarWorkspaceKey,
+    workspaceChangesPersistable,
+  ]);
+  const markWorkspaceRecoveryRestoreStatus = useCallback(
+    (workspaceKey: string, status: RepoWorkspaceRecoveryRestoreStatus) => {
+      setWorkspaceRecoveryRestoreStatusByKey((current) => {
+        const existing = current.get(workspaceKey);
+        if (existing === status) return current;
+        const next = new Map(current);
+        next.set(workspaceKey, status);
+        return next;
+      });
+    },
+    [],
+  );
+  const enqueueWorkspaceRecoveryWrite = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const run = workspaceRecoveryWriteQueueRef.current.then(task, task);
+    workspaceRecoveryWriteQueueRef.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }, []);
+  const persistCurrentWorkspaceRecoverySnapshot = useCallback(
+    async (snapshot: {
+      overlayFiles: typeof overlayFiles;
+      deletedBaseFiles: typeof deletedBaseFiles;
+      renamedBaseFiles: typeof renamedBaseFiles;
+    }): Promise<'empty' | 'saved' | 'unsafe'> => {
+      const hasChanges =
+        snapshot.overlayFiles.length > 0 ||
+        snapshot.deletedBaseFiles.length > 0 ||
+        snapshot.renamedBaseFiles.length > 0;
+      const recoverySnapshot = buildRepoWorkspaceRecoverySnapshot({
+        workspaceKey: sidebarWorkspaceKey,
+        backend: currentGistId !== null ? 'gist' : 'repo',
+        overlayFiles: snapshot.overlayFiles,
+        deletedBaseFiles: snapshot.deletedBaseFiles,
+        renamedBaseFiles: snapshot.renamedBaseFiles,
+        findBaseFile: findBaseRepoSidebarFile,
+        resolveBasePath: resolveRepoBasePath,
+        baseFileContents: workspaceSaveBaseFiles,
+      });
+      if (recoverySnapshot) {
+        await enqueueWorkspaceRecoveryWrite(() => saveRepoWorkspaceRecoverySnapshot(recoverySnapshot));
+        return 'saved';
+      }
+      if (!hasChanges) {
+        await enqueueWorkspaceRecoveryWrite(() => deleteRepoWorkspaceRecoverySnapshot(sidebarWorkspaceKey));
+        return 'empty';
+      }
+      return 'unsafe';
+    },
+    [
+      currentGistId,
+      enqueueWorkspaceRecoveryWrite,
+      findBaseRepoSidebarFile,
+      resolveRepoBasePath,
+      sidebarWorkspaceKey,
+      workspaceSaveBaseFiles,
+    ],
+  );
+  const repoWorkspaceChangeStatus = useMemo(() => {
     const workspaceSavePlan = buildRepoWorkspaceTextSavePlan({
       overlayFiles,
       deletedBaseFiles,
@@ -1638,7 +2208,7 @@ export function App() {
       findBaseRepoSidebarFile,
       resolveRepoBasePath,
     });
-    const changedFiles = buildRepoWorkspaceChangedFileDetails(workspaceSavePlan.mutation, terminalBaseFiles);
+    const changedFiles = buildRepoWorkspaceChangedFileDetails(workspaceSavePlan.mutation, workspaceSaveBaseFiles);
     if (changedFiles.length === 0) return null;
     return {
       stagedChangeCount: changedFiles.length,
@@ -1649,9 +2219,93 @@ export function App() {
     findBaseRepoSidebarFile,
     overlayFiles,
     renamedBaseFiles,
-    repoAccessMode,
     resolveRepoBasePath,
-    terminalBaseFiles,
+    workspaceSaveBaseFiles,
+  ]);
+  const repoWorkspaceSaveStatus = workspaceChangesPersistable ? repoWorkspaceChangeStatus : null;
+
+  useEffect(() => {
+    if (!workspaceChangesPersistable || !workspaceRecoveryBaseReady) return;
+    if (sidebarWorkspaceKey === WORKSPACE_NONE_KEY) return;
+    if (workspaceRecoveryRestoreStatusByKey.has(sidebarWorkspaceKey)) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        await pruneExpiredRepoWorkspaceRecoverySnapshots();
+        const snapshot = await loadRepoWorkspaceRecoverySnapshot(sidebarWorkspaceKey);
+        if (cancelled) return;
+        if (!snapshot) {
+          markWorkspaceRecoveryRestoreStatus(sidebarWorkspaceKey, 'none');
+          return;
+        }
+        const expectedBackend = currentGistId !== null ? 'gist' : 'repo';
+        const canRestore =
+          snapshot.backend === expectedBackend &&
+          validateRepoWorkspaceRecoverySnapshot({
+            snapshot,
+            findBaseFile: findBaseRepoSidebarFile,
+            baseFileContents: workspaceSaveBaseFiles,
+          });
+        if (!canRestore) {
+          markWorkspaceRecoveryRestoreStatus(sidebarWorkspaceKey, 'conflict');
+          await enqueueWorkspaceRecoveryWrite(() => deleteRepoWorkspaceRecoverySnapshot(sidebarWorkspaceKey));
+          showWarningToast('Recovered staged changes were not restored because base files changed.');
+          return;
+        }
+        restoreRepoWorkspaceChanges({
+          overlayFiles: snapshot.overlayFiles,
+          deletedBaseFiles: snapshot.deletedBaseFiles,
+          renamedBaseFiles: snapshot.renamedBaseFiles,
+        });
+        markWorkspaceRecoveryRestoreStatus(sidebarWorkspaceKey, 'restored');
+      } catch (err) {
+        console.warn('[workspace-recovery] failed to restore staged changes', err);
+        if (!cancelled) markWorkspaceRecoveryRestoreStatus(sidebarWorkspaceKey, 'none');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentGistId,
+    enqueueWorkspaceRecoveryWrite,
+    findBaseRepoSidebarFile,
+    markWorkspaceRecoveryRestoreStatus,
+    restoreRepoWorkspaceChanges,
+    showWarningToast,
+    sidebarWorkspaceKey,
+    workspaceChangesPersistable,
+    workspaceRecoveryBaseReady,
+    workspaceRecoveryRestoreStatusByKey,
+    workspaceSaveBaseFiles,
+  ]);
+
+  useEffect(() => {
+    if (!workspaceChangesPersistable || !workspaceRecoveryBaseReady) return;
+    if (sidebarWorkspaceKey === WORKSPACE_NONE_KEY) return;
+    const restoreStatus = workspaceRecoveryRestoreStatusByKey.get(sidebarWorkspaceKey);
+    if (!restoreStatus) return;
+    if (restoreStatus === 'conflict' && !hasOverlayChanges) return;
+
+    void persistCurrentWorkspaceRecoverySnapshot({
+      overlayFiles,
+      deletedBaseFiles,
+      renamedBaseFiles,
+    }).catch((err) => {
+      console.warn('[workspace-recovery] failed to persist staged changes', err);
+    });
+  }, [
+    deletedBaseFiles,
+    hasOverlayChanges,
+    overlayFiles,
+    persistCurrentWorkspaceRecoverySnapshot,
+    renamedBaseFiles,
+    sidebarWorkspaceKey,
+    workspaceChangesPersistable,
+    workspaceRecoveryBaseReady,
+    workspaceRecoveryRestoreStatusByKey,
   ]);
 
   const saveStatusText = useMemo(() => {
@@ -1670,14 +2324,14 @@ export function App() {
   }, [currentDocumentSavedContent, editContent, hasRestorableDocumentDraft, hasUnsavedChanges, isScratchDocument]);
 
   const hasEffectiveUnsavedChanges = useMemo(() => {
-    if (repoAccessMode === 'installed' && hasOverlayChanges) return true;
+    if (workspaceChangesPersistable && hasOverlayChanges) return true;
     return hasCurrentEditorUnsavedChanges;
-  }, [hasCurrentEditorUnsavedChanges, hasOverlayChanges, repoAccessMode]);
+  }, [hasCurrentEditorUnsavedChanges, hasOverlayChanges, workspaceChangesPersistable]);
 
   useEffect(() => {
-    if (repoAccessMode === 'installed') return;
+    if (workspaceChangesPersistable) return;
     clearAllRepoWorkspaceChanges();
-  }, [clearAllRepoWorkspaceChanges, repoAccessMode]);
+  }, [clearAllRepoWorkspaceChanges, workspaceChangesPersistable]);
 
   // Editor edits live only in editContent / currentDocumentSavedContent and
   // the draft mechanism. They no longer flow through the workspace overlay,
@@ -1686,11 +2340,11 @@ export function App() {
   useEffect(() => {
     setNavigationPrompt(
       (activeView === 'edit' && hasEffectiveUnsavedChanges) ||
-        (activeView === 'content' && repoAccessMode === 'installed' && hasOverlayChanges)
+        (activeView === 'content' && workspaceChangesPersistable && hasOverlayChanges)
         ? 'You have unsaved changes. Discard?'
         : null,
     );
-  }, [activeView, hasEffectiveUnsavedChanges, hasOverlayChanges, repoAccessMode, setNavigationPrompt]);
+  }, [activeView, hasEffectiveUnsavedChanges, hasOverlayChanges, setNavigationPrompt, workspaceChangesPersistable]);
 
   const clearOAuthRedirectGuard = useCallback(() => {
     try {
@@ -1747,7 +2401,13 @@ export function App() {
   }, [route, editingBackend, currentRepoDocPath, activeInstalledRepoInstallationId, editTitle, activeScratchFile]);
 
   const startGitHubSignIn = useCallback(
-    (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
+    async (returnTo: string, options?: { force?: boolean; guardKey?: string; includeGists?: boolean }) => {
+      if (
+        !(await (prepareWorkspaceTransitionToKeyRef.current?.(WORKSPACE_EXTERNAL_KEY, { confirmMode: 'cache' }) ??
+          Promise.resolve(true)))
+      ) {
+        return false;
+      }
       const normalizedReturnTo = returnTo.startsWith('/') ? returnTo : `/${returnTo}`;
       const currentPath = window.location.pathname;
       persistPendingGistDraft();
@@ -1901,6 +2561,48 @@ export function App() {
     },
     [resolveMarkdownImageSrc],
   );
+
+  const renderSessionFileContent = useCallback(
+    (content: string) => {
+      setReaderAiSource('');
+      setContentImagePreview(null);
+      setContentAlertMessage(null);
+      setContentAlertDownloadHref(null);
+      setContentAlertDownloadName(null);
+      setContentSourceViewVisible(false);
+      setRenderedHtml('');
+      setRenderedCustomCss(null);
+      setRenderedCustomCssScope(null);
+      setRenderedText(null);
+      setRenderMode('session');
+      setCurrentDocumentSavedContent(content);
+      setContentLoadPending(false);
+    },
+    [setCurrentDocumentSavedContent],
+  );
+
+  const renderDeletedSessionFileContent = useCallback(() => {
+    setReaderAiSource('');
+    setContentImagePreview(null);
+    setContentAlertMessage(null);
+    setContentAlertDownloadHref(null);
+    setContentAlertDownloadName(null);
+    setContentSourceViewVisible(false);
+    setRenderedHtml('');
+    setRenderedCustomCss(null);
+    setRenderedCustomCssScope(null);
+    setRenderedText(null);
+    setRenderMode('session-deleted');
+    setCurrentDocumentSavedContent(null);
+    setContentLoadPending(false);
+  }, [setCurrentDocumentSavedContent]);
+
+  const takePendingWorkspaceSessionRouteContent = useCallback((path: string) => {
+    const pending = pendingWorkspaceSessionRouteContentRef.current;
+    if (!pending || pending.path !== path) return null;
+    pendingWorkspaceSessionRouteContentRef.current = null;
+    return pending;
+  }, []);
 
   const renderImageFileContent = useCallback((fileName: string | null | undefined, imageSrc: string) => {
     setRenderedHtml('');
@@ -2392,7 +3094,9 @@ export function App() {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
-        const started = startGitHubSignIn(`/${routePath.workspaces()}`, { guardKey: `oauth_install_setup:${id}` });
+        const started = await startGitHubSignIn(`/${routePath.workspaces()}`, {
+          guardKey: `oauth_install_setup:${id}`,
+        });
         if (!started) {
           showError(
             'Automatic sign-in retry was blocked after a failed install setup. Use Sign in with GitHub to retry.',
@@ -2410,7 +3114,9 @@ export function App() {
         setPendingInstallationId(id);
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, '', cleanUrl);
-        const started = startGitHubSignIn(`/${routePath.workspaces()}`, { guardKey: `oauth_install_setup:${id}` });
+        const started = await startGitHubSignIn(`/${routePath.workspaces()}`, {
+          guardKey: `oauth_install_setup:${id}`,
+        });
         if (!started) {
           showError(
             'Automatic sign-in retry was blocked after a failed install setup. Use Sign in with GitHub to retry.',
@@ -2437,6 +3143,11 @@ export function App() {
   ]);
 
   const onConnectInstallation = useCallback(async () => {
+    if (
+      !(await (prepareWorkspaceTransitionToKeyRef.current?.(WORKSPACE_EXTERNAL_KEY, { confirmMode: 'cache' }) ??
+        Promise.resolve(true)))
+    )
+      return;
     try {
       const state = createInstallState();
       rememberInstallState(state);
@@ -2593,22 +3304,21 @@ export function App() {
       },
     ) => {
       try {
+        const targetRepoRef = parseRepoFullName(fullName);
+        if (
+          targetRepoRef &&
+          !(await (prepareWorkspaceTransitionToKeyRef.current?.(`repo:${targetRepoRef.owner}/${targetRepoRef.repo}`) ??
+            Promise.resolve(true)))
+        ) {
+          return;
+        }
         const prepared = await primeInstalledRepoState(fullName, options);
         if (!prepared) {
           navigate(routePath.workspaces(), options?.replace ? { replace: true } : undefined);
           return;
         }
-        const target = pickPreferredRepoMarkdownFile(prepared.markdownFiles);
-        if (target) {
-          navigate(
-            routePath.repoFile(prepared.repoRef.owner, prepared.repoRef.repo, target.path),
-            options?.replace ? { replace: true } : undefined,
-          );
-          return;
-        }
-
         navigate(
-          routePath.repoNew(prepared.repoRef.owner, prepared.repoRef.repo, DEFAULT_NEW_FILENAME),
+          routePath.repoDocuments(prepared.repoRef.owner, prepared.repoRef.repo),
           options?.replace ? { replace: true } : undefined,
         );
       } catch (err) {
@@ -2664,8 +3374,37 @@ export function App() {
           resetRepoState();
           setHasUnsavedChanges(false);
 
+          if (!filename) {
+            setCurrentFileName(null);
+            setCurrentDocumentSavedContent(null);
+            clearRenderedContent();
+            setContentLoadPending(false);
+            setViewPhase(null);
+            return;
+          }
+
           const fileKeys = Object.keys(files);
-          const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
+          const targetName = safeDecodeURIComponent(filename);
+          const pendingSessionContent = targetName
+            ? pendingWorkspaceSessionContentRef.current.get(targetName)
+            : undefined;
+          const overlaySessionFile = targetName
+            ? (overlayFiles.find((file) => file.path === targetName) ??
+              (pendingSessionContent !== undefined ? { path: targetName, content: pendingSessionContent } : undefined))
+            : undefined;
+          const deletedSessionFile = targetName
+            ? deletedBaseFiles.some((file) => file.path === targetName) && isWorkspaceSessionJsonlPath(targetName)
+            : false;
+          if (targetName && isWorkspaceSessionJsonlPath(targetName) && (overlaySessionFile || deletedSessionFile)) {
+            setCurrentFileName(targetName);
+            if (deletedSessionFile && !overlaySessionFile) {
+              renderDeletedSessionFileContent();
+            } else {
+              renderSessionFileContent(overlaySessionFile?.content ?? '');
+            }
+            setViewPhase(null);
+            return;
+          }
           const file = targetName ? files[targetName] : null;
           if (!file) {
             showError('File not found in gist');
@@ -2691,6 +3430,8 @@ export function App() {
           if (isSafeImageFileName(file.filename)) {
             setCurrentDocumentSavedContent(null);
             renderImageFileContent(file.filename, file.raw_url);
+          } else if (isWorkspaceSessionJsonlPath(file.filename)) {
+            renderSessionFileContent(content ?? '');
           } else {
             setCurrentDocumentSavedContent(content ?? '');
             renderDocumentContent(content ?? '', file.filename, null, undefined, {
@@ -2716,8 +3457,37 @@ export function App() {
         resetRepoState();
         setHasUnsavedChanges(false);
 
+        if (!filename) {
+          setCurrentFileName(null);
+          setCurrentDocumentSavedContent(null);
+          clearRenderedContent();
+          setContentLoadPending(false);
+          setViewPhase(null);
+          return;
+        }
+
         const fileKeys = Object.keys(gist.files);
-        const targetName = filename ? safeDecodeURIComponent(filename) : fileKeys[0];
+        const targetName = safeDecodeURIComponent(filename);
+        const pendingSessionContent = targetName
+          ? pendingWorkspaceSessionContentRef.current.get(targetName)
+          : undefined;
+        const overlaySessionFile = targetName
+          ? (overlayFiles.find((file) => file.path === targetName) ??
+            (pendingSessionContent !== undefined ? { path: targetName, content: pendingSessionContent } : undefined))
+          : undefined;
+        const deletedSessionFile = targetName
+          ? deletedBaseFiles.some((file) => file.path === targetName) && isWorkspaceSessionJsonlPath(targetName)
+          : false;
+        if (targetName && isWorkspaceSessionJsonlPath(targetName) && (overlaySessionFile || deletedSessionFile)) {
+          setCurrentFileName(targetName);
+          if (deletedSessionFile && !overlaySessionFile) {
+            renderDeletedSessionFileContent();
+          } else {
+            renderSessionFileContent(overlaySessionFile?.content ?? '');
+          }
+          setViewPhase(null);
+          return;
+        }
         const file = targetName ? gist.files[targetName] : null;
         if (!file) {
           showError('File not found in gist');
@@ -2728,6 +3498,8 @@ export function App() {
         if (isSafeImageFileName(file.filename)) {
           setCurrentDocumentSavedContent(null);
           renderImageFileContent(file.filename, file.raw_url);
+        } else if (isWorkspaceSessionJsonlPath(file.filename)) {
+          renderSessionFileContent(file.content ?? '');
         } else {
           setCurrentDocumentSavedContent(file.content ?? '');
           renderDocumentContent(file.content ?? '', file.filename, null, undefined, {
@@ -2744,9 +3516,14 @@ export function App() {
     [
       showError,
       renderDocumentContent,
+      renderDeletedSessionFileContent,
+      renderSessionFileContent,
       renderImageFileContent,
+      clearRenderedContent,
       activeView,
       currentFileName,
+      deletedBaseFiles,
+      overlayFiles,
       showRateLimitToastIfNeeded,
       resetRepoState,
       setCurrentDocumentSavedContent,
@@ -2768,6 +3545,12 @@ export function App() {
       repoSource?: MarkdownRepoSourceContext;
       knownMarkdownPaths: string[];
     }): boolean => {
+      if (!opts.binary && isWorkspaceSessionJsonlPath(opts.path)) {
+        setEditingBackend(null);
+        setHasUnsavedChanges(false);
+        renderSessionFileContent(opts.decoded);
+        return false;
+      }
       if (opts.forEdit) {
         if (opts.editSessionId != null && !canApplyExternalEditSession(opts.editSessionId)) {
           return true;
@@ -2818,6 +3601,7 @@ export function App() {
       setCurrentDocumentSavedContent,
       setHasUnsavedChanges,
       renderDocumentContent,
+      renderSessionFileContent,
       renderImageFileContent,
       renderBinaryFileContent,
     ],
@@ -2841,9 +3625,40 @@ export function App() {
         setViewPhase('loading');
       }
       try {
-        const stagedOverlayFile = overlayFiles.find((file) => file.path === path);
+        const pendingSessionContent = pendingWorkspaceSessionContentRef.current.get(path);
+        const stagedOverlayFile =
+          overlayFiles.find((file) => file.path === path) ??
+          (pendingSessionContent !== undefined ? { path, content: pendingSessionContent } : undefined);
+        const stagedDeletedBaseFile = deletedBaseFiles.find((file) => file.path === path);
         const baseRepoFile = findBaseRepoSidebarFile(path);
         const renamedBaseSourcePath = findRepoRenamedBaseSourcePath(path);
+        if (!stagedOverlayFile && stagedDeletedBaseFile && isWorkspaceSessionJsonlPath(path)) {
+          const storedSelectedRepo = getSelectedRepo();
+          const currentSelectedRepo = storedSelectedRepo?.full_name ?? null;
+          const currentSelectedRepoInstallationId = storedSelectedRepo?.installationId ?? null;
+          if (
+            !currentSelectedRepo ||
+            currentSelectedRepo.toLowerCase() !== repoName.toLowerCase() ||
+            currentSelectedRepoInstallationId !== instId
+          ) {
+            setSelectedRepo(repoName);
+            setSelectedRepoInstallationId(instId);
+            storeSelectedRepo({ full_name: repoName, installationId: instId });
+          }
+          setRepoAccessMode('installed');
+          setPublicRepoRef(null);
+          setCurrentRepoDocPath(path);
+          setCurrentRepoDocSha(baseRepoFile?.sha ?? null);
+          setSharedRepoInstallationId(null);
+          setCurrentGistId(null);
+          setGistFiles(null);
+          setCurrentFileName(path);
+          setEditingBackend(null);
+          setHasUnsavedChanges(false);
+          renderDeletedSessionFileContent();
+          setViewPhase(null);
+          return true;
+        }
         if (stagedOverlayFile || renamedBaseSourcePath) {
           let decoded = stagedOverlayFile?.content ?? '';
           let binary = false;
@@ -3004,6 +3819,7 @@ export function App() {
       getRepoMarkdownPaths,
       loadRepoMarkdownFiles,
       overlayFiles,
+      deletedBaseFiles,
       presentLoadedFileContent,
       activeInstalledRepoInstallationId,
       activeView,
@@ -3011,7 +3827,9 @@ export function App() {
       primeInstalledRepoSidebar,
       showRateLimitToastIfNeeded,
       canApplyExternalEditSession,
+      renderDeletedSessionFileContent,
       replaceRepoSnapshot,
+      setHasUnsavedChanges,
     ],
   );
 
@@ -3042,7 +3860,10 @@ export function App() {
         setGistFiles(null);
         setCurrentFileName(contents.path);
         setEditingBackend(null);
-        if (binary && isSafeImageFileName(contents.name)) {
+        if (!binary && isWorkspaceSessionJsonlPath(contents.path)) {
+          setHasUnsavedChanges(false);
+          renderSessionFileContent(decoded);
+        } else if (binary && isSafeImageFileName(contents.name)) {
           setCurrentDocumentSavedContent(null);
           renderImageFileContent(contents.name, publicRepoRawFileUrl(owner, repo, contents.path));
         } else if (binary) {
@@ -3089,11 +3910,13 @@ export function App() {
       loadPublicRepoMarkdownFiles,
       primePublicRepoSidebar,
       renderDocumentContent,
+      renderSessionFileContent,
       renderImageFileContent,
       renderBinaryFileContent,
       showError,
       showRateLimitToastIfNeeded,
       setCurrentDocumentSavedContent,
+      setHasUnsavedChanges,
       replaceRepoSnapshot,
     ],
   );
@@ -3285,16 +4108,32 @@ export function App() {
             Boolean(isAuthenticated && instId) &&
             selectedRepoFullName !== null &&
             selectedRepoFullName.toLowerCase() === repoFullName.toLowerCase();
-          const keepSelectionEmpty = shouldKeepRepoSelectionEmpty(routeState);
-          if (
-            useInstalledRepo &&
-            keepSelectionEmpty &&
-            repoAccessMode === 'installed' &&
-            baseSnapshotWorkspaceKey === sidebarWorkspaceKey &&
-            getRepoSidebarPaths().some(isWorkspaceSessionJsonlPath)
-          ) {
-            setRepoAccessMode('installed');
-            setPublicRepoRef(null);
+          setViewPhase('loading');
+          try {
+            if (useInstalledRepo && instId) {
+              const allFiles = await loadRepoAllFiles(instId, repoFullName);
+              setRepoAccessMode('installed');
+              setPublicRepoRef(null);
+              setSharedRepoInstallationId(null);
+              setCurrentGistId(null);
+              setGistFiles(null);
+              currentRepoDocPathRef.current = null;
+              currentFileNameRef.current = null;
+              setCurrentRepoDocPath(null);
+              setCurrentRepoDocSha(null);
+              setCurrentFileName(null);
+              setEditingBackend(null);
+              setCurrentDocumentSavedContent(null);
+              clearRenderedContent();
+              setContentLoadPending(false);
+              replaceRepoSnapshot(allFiles, { invalidateTerminal: false });
+              setViewPhase(null);
+              return;
+            }
+
+            const allFiles = await loadPublicRepoAllFiles(owner, repo);
+            setRepoAccessMode('public');
+            setPublicRepoRef({ owner, repo });
             setSharedRepoInstallationId(null);
             setCurrentGistId(null);
             setGistFiles(null);
@@ -3307,67 +4146,8 @@ export function App() {
             setCurrentDocumentSavedContent(null);
             clearRenderedContent();
             setContentLoadPending(false);
+            replaceRepoSnapshot(allFiles, { invalidateTerminal: false });
             setViewPhase(null);
-            return;
-          }
-          setViewPhase('loading');
-          try {
-            if (useInstalledRepo && instId) {
-              if (keepSelectionEmpty) {
-                const allFiles = await loadRepoAllFiles(instId, repoFullName);
-                setRepoAccessMode('installed');
-                setPublicRepoRef(null);
-                setSharedRepoInstallationId(null);
-                setCurrentGistId(null);
-                setGistFiles(null);
-                currentRepoDocPathRef.current = null;
-                currentFileNameRef.current = null;
-                setCurrentRepoDocPath(null);
-                setCurrentRepoDocSha(null);
-                setCurrentFileName(null);
-                setEditingBackend(null);
-                setCurrentDocumentSavedContent(null);
-                clearRenderedContent();
-                setContentLoadPending(false);
-                replaceRepoSnapshot(allFiles, { invalidateTerminal: false });
-                setViewPhase(null);
-                return;
-              }
-              const mdFiles = await loadRepoMarkdownFiles(instId, repoFullName);
-              if (mdFiles.length > 0) {
-                setRepoAccessMode('installed');
-                setPublicRepoRef(null);
-                replaceRepoSnapshot(mdFiles, { invalidateTerminal: false });
-                const target = pickPreferredRepoMarkdownFile(mdFiles);
-                if (!target) {
-                  navigate(routePath.repoNew(owner, repo, DEFAULT_NEW_FILENAME), { replace: true });
-                  return;
-                }
-                navigate(routePath.repoFile(owner, repo, target.path), { replace: true });
-                return;
-              }
-              navigate(routePath.repoNew(owner, repo, DEFAULT_NEW_FILENAME), { replace: true });
-              return;
-            }
-
-            const mdFiles = await loadPublicRepoMarkdownFiles(owner, repo);
-            if (mdFiles.length === 0) {
-              showError('No markdown files found in this repository');
-              return;
-            }
-            setRepoAccessMode('public');
-            setPublicRepoRef({ owner, repo });
-            replaceRepoSnapshot(mdFiles, { invalidateTerminal: false });
-            const target = pickPreferredRepoMarkdownFile(mdFiles);
-            if (!target) {
-              showError('No markdown files found in this repository');
-              return;
-            }
-            if (isSubdomainMode() && fileNameFromPath(target.path).toLowerCase() === 'index.md') {
-              await loadPublicRepoFile(owner, repo, target.path);
-              return;
-            }
-            navigate(routePath.publicRepoFile(owner, repo, target.path), { replace: true });
           } catch (err) {
             if (err instanceof SessionExpiredError) {
               handleSessionExpired();
@@ -3392,6 +4172,47 @@ export function App() {
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
           const decodedPath = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
+          const pendingSessionContent = takePendingWorkspaceSessionRouteContent(decodedPath);
+          if (pendingSessionContent?.mode === 'installed') {
+            const routeRepoFullName = buildRepoFullName(owner, repo);
+            if (pendingSessionContent.repoFullName.toLowerCase() === routeRepoFullName.toLowerCase()) {
+              setSelectedRepo(routeRepoFullName);
+              setSelectedRepoInstallationId(pendingSessionContent.installationId);
+              storeSelectedRepo({
+                full_name: routeRepoFullName,
+                installationId: pendingSessionContent.installationId,
+              });
+              setRepoAccessMode('installed');
+              setPublicRepoRef(null);
+              setSharedRepoInstallationId(null);
+              setCurrentGistId(null);
+              setGistFiles(null);
+              setCurrentRepoDocPath(decodedPath);
+              setCurrentRepoDocSha(findBaseRepoSidebarFile(decodedPath)?.sha ?? null);
+              setCurrentFileName(decodedPath);
+              setEditingBackend(null);
+              setHasUnsavedChanges(false);
+              renderSessionFileContent(pendingSessionContent.content);
+              setViewPhase(null);
+              return;
+            }
+          } else if (pendingSessionContent?.mode === 'public') {
+            if (pendingSessionContent.owner === owner && pendingSessionContent.repo === repo) {
+              setRepoAccessMode('public');
+              setPublicRepoRef({ owner, repo });
+              setSharedRepoInstallationId(null);
+              setCurrentGistId(null);
+              setGistFiles(null);
+              setCurrentRepoDocPath(decodedPath);
+              setCurrentRepoDocSha(null);
+              setCurrentFileName(decodedPath);
+              setEditingBackend(null);
+              setHasUnsavedChanges(false);
+              renderSessionFileContent(pendingSessionContent.content);
+              setViewPhase(null);
+              return;
+            }
+          }
           const instId = activeInstalledRepoInstallationId ?? getInstallationId();
           const repoFullName = buildRepoFullName(owner, repo).toLowerCase();
           const hasLoadedInstallationRepos =
@@ -3496,6 +4317,10 @@ export function App() {
           const owner = safeDecodeURIComponent(r.params.owner);
           const repo = safeDecodeURIComponent(r.params.repo);
           const path = safeDecodeURIComponent(r.params.path).replace(/^\/+/, '');
+          if (isWorkspaceSessionJsonlPath(path)) {
+            navigate(routePath.repoFile(owner, repo, path), { replace: true });
+            return;
+          }
           setDraftMode(false);
           const loadedInstalled = await loadRepoFile(owner, repo, path, true, {
             suppressError: true,
@@ -3548,12 +4373,17 @@ export function App() {
         }
         case 'edit': {
           const editSessionId = beginExternalEditSession();
+          const editFilename = r.params.filename ? safeDecodeURIComponent(r.params.filename) : null;
+          if (editFilename && isWorkspaceSessionJsonlPath(editFilename)) {
+            navigate(routePath.gistView(r.params.id, editFilename), { replace: true });
+            return;
+          }
           if (routeKeyFromRoute(r) === postSaveVerificationRef.current?.routeKey) {
             setViewPhase(null);
             return;
           }
           if (!isAuthenticated) {
-            const started = startGitHubSignIn(`/${routePath.gistEdit(r.params.id, r.params.filename)}`, {
+            const started = await startGitHubSignIn(`/${routePath.gistEdit(r.params.id, r.params.filename)}`, {
               guardKey: `oauth_edit:${r.params.id}:${r.params.filename ?? ''}`,
             });
             if (!started) {
@@ -3753,6 +4583,24 @@ export function App() {
           }
           const id = r.params.id;
           const filename = r.params.filename;
+          const decodedFilename = filename ? safeDecodeURIComponent(filename) : null;
+          const pendingSessionContent = decodedFilename
+            ? takePendingWorkspaceSessionRouteContent(decodedFilename)
+            : null;
+          if (pendingSessionContent?.mode === 'gist' && pendingSessionContent.gistId === id) {
+            setCurrentGistId(id);
+            setRepoAccessMode(null);
+            setPublicRepoRef(null);
+            setCurrentRepoDocPath(null);
+            setCurrentRepoDocSha(null);
+            setCurrentFileName(decodedFilename);
+            setEditingBackend(null);
+            resetRepoState();
+            setHasUnsavedChanges(false);
+            renderSessionFileContent(pendingSessionContent.content);
+            setViewPhase(null);
+            return;
+          }
           await loadGist(id, filename, !isAuthenticated);
           return;
         }
@@ -3772,8 +4620,6 @@ export function App() {
       loadEditorSharedRepoFile,
       loadPublicRepoFile,
       loadSharedRepoFile,
-      loadRepoMarkdownFiles,
-      loadPublicRepoMarkdownFiles,
       loadGist,
       showError,
       focusEditorSoon,
@@ -3785,6 +4631,7 @@ export function App() {
       handleSessionExpired,
       showRateLimitToastIfNeeded,
       showAlert,
+      findBaseRepoSidebarFile,
       defaultSidePane,
       selectedRepo,
       installationRepos,
@@ -3796,16 +4643,15 @@ export function App() {
       setHasUnsavedChanges,
       activeInstalledRepoInstallationId,
       clearRenderedContent,
+      renderSessionFileContent,
+      takePendingWorkspaceSessionRouteContent,
       beginExternalEditSession,
       canApplyExternalEditSession,
       loadRepoAllFiles,
+      loadPublicRepoAllFiles,
       shouldHydrateLocalDraftForRoute,
       resetRepoState,
       replaceRepoSnapshot,
-      baseSnapshotWorkspaceKey,
-      getRepoSidebarPaths,
-      repoAccessMode,
-      sidebarWorkspaceKey,
     ],
   );
 
@@ -3836,7 +4682,11 @@ export function App() {
       routeShowsHeaderLeftControls(prevRoute.current, true) &&
       routeShowsHeaderLeftControls(route, true);
     setPreserveHeaderLeftControlsWhileLoading(shouldPreserveHeaderLeftControls);
-    if (isContentRoute(route) && !shouldPreserveVerifiedContent) {
+    const hasPendingPrefetchedSession = pendingWorkspaceSessionRouteContentMatchesRoute(
+      pendingWorkspaceSessionRouteContentRef.current,
+      route,
+    );
+    if (isContentRoute(route) && !shouldPreserveVerifiedContent && !hasPendingPrefetchedSession) {
       clearRenderedContent();
       setContentLoadPending(true);
     } else {
@@ -3846,6 +4696,34 @@ export function App() {
     documentStack.clearStack();
     handleRoute(route);
   }, [clearRenderedContent, documentStack, handleRoute, isContentRoute, route, shouldPreserveVerifiedContent, user]);
+
+  useEffect(() => {
+    if (!initialized.current) return;
+    const sessionRoutePath = workspaceSessionJsonlPathFromRoute(route);
+    if (!sessionRoutePath) return;
+    const restoredOverlay = overlayFiles.find((file) => file.path === sessionRoutePath);
+    const restoredDelete = deletedBaseFiles.some((file) => file.path === sessionRoutePath);
+    if (!restoredOverlay && !restoredDelete) return;
+    const currentPath = currentRepoDocPath ?? currentFileName;
+    const renderedRestoredOverlay =
+      restoredOverlay &&
+      currentPath === sessionRoutePath &&
+      renderMode === 'session' &&
+      currentDocumentSavedContent === restoredOverlay.content;
+    const renderedRestoredDelete =
+      restoredDelete && currentPath === sessionRoutePath && renderMode === 'session-deleted';
+    if (renderedRestoredOverlay || renderedRestoredDelete) return;
+    void handleRoute(route);
+  }, [
+    currentDocumentSavedContent,
+    currentFileName,
+    currentRepoDocPath,
+    deletedBaseFiles,
+    handleRoute,
+    overlayFiles,
+    renderMode,
+    route,
+  ]);
 
   useEffect(() => {
     if (viewPhase === 'loading') return;
@@ -4092,6 +4970,87 @@ export function App() {
     return await importMountedTerminalDiff();
   }, [importMountedTerminalDiff, terminalVisible]);
 
+  const prepareWorkspaceTransitionToKey = useCallback(
+    async (nextWorkspaceKey: string, options?: PrepareWorkspaceTransitionOptions): Promise<boolean> => {
+      if (!isWorkspaceTransition(sidebarWorkspaceKey, nextWorkspaceKey)) return true;
+      if (!workspaceChangesPersistable) return true;
+      if (workspaceTransitionPromptInFlightRef.current) return await workspaceTransitionPromptInFlightRef.current;
+      const confirmMode = options?.confirmMode ?? 'discard';
+
+      const pendingTransition = (async () => {
+        await importMountedTerminalDiff({ silent: true, capturePersistedHome: true });
+        const snapshot = getWorkspaceChangesSnapshot();
+        const workspaceSavePlan = buildRepoWorkspaceTextSavePlan({
+          overlayFiles: snapshot.overlayFiles,
+          deletedBaseFiles: snapshot.deletedBaseFiles,
+          renamedBaseFiles: snapshot.renamedBaseFiles,
+          findBaseRepoSidebarFile,
+          resolveRepoBasePath,
+        });
+        const changedFiles = buildRepoWorkspaceChangedFileDetails(workspaceSavePlan.mutation, workspaceSaveBaseFiles);
+        const changeCount = changedFiles.length;
+        if (changeCount === 0) return true;
+
+        const confirmed = await showConfirm(
+          confirmMode === 'cache'
+            ? `Leave this workspace and recover ${changeCount} staged terminal change${changeCount === 1 ? '' : 's'} when you return?`
+            : `Leave this workspace and discard ${changeCount} staged terminal change${changeCount === 1 ? '' : 's'}?`,
+          {
+            title: 'Leave workspace?',
+            confirmLabel: confirmMode === 'cache' ? 'Leave' : 'Discard and leave',
+            intent: 'danger',
+            defaultFocus: 'cancel',
+          },
+        );
+        if (!confirmed) return false;
+        await importMountedTerminalDiff({ silent: true, capturePersistedHome: true });
+        const confirmedSnapshot = getWorkspaceChangesSnapshot();
+        if (confirmMode === 'cache') {
+          const recoveryStatus = await persistCurrentWorkspaceRecoverySnapshot(confirmedSnapshot);
+          if (recoveryStatus === 'unsafe') {
+            showWarningToast('Staged changes could not be cached safely because base file versions are unavailable.');
+            return false;
+          }
+          await importMountedTerminalDiff({ silent: true, suppressNextUnmountImport: true, skipImport: true });
+          return true;
+        }
+        discardAllRepoWorkspaceChanges();
+        await enqueueWorkspaceRecoveryWrite(() => deleteRepoWorkspaceRecoverySnapshot(sidebarWorkspaceKey));
+        await importMountedTerminalDiff({ silent: true, suppressNextUnmountImport: true, skipImport: true });
+        return true;
+      })();
+
+      workspaceTransitionPromptInFlightRef.current = pendingTransition;
+      try {
+        return await pendingTransition;
+      } finally {
+        if (workspaceTransitionPromptInFlightRef.current === pendingTransition) {
+          workspaceTransitionPromptInFlightRef.current = null;
+        }
+      }
+    },
+    [
+      discardAllRepoWorkspaceChanges,
+      enqueueWorkspaceRecoveryWrite,
+      findBaseRepoSidebarFile,
+      getWorkspaceChangesSnapshot,
+      importMountedTerminalDiff,
+      persistCurrentWorkspaceRecoverySnapshot,
+      resolveRepoBasePath,
+      showConfirm,
+      showWarningToast,
+      sidebarWorkspaceKey,
+      workspaceChangesPersistable,
+      workspaceSaveBaseFiles,
+    ],
+  );
+  prepareWorkspaceTransitionToKeyRef.current = prepareWorkspaceTransitionToKey;
+
+  useEffect(() => {
+    setRouteTransitionGuard(({ nextRoute }) => prepareWorkspaceTransitionToKey(workspaceKeyFromRoute(nextRoute)));
+    return () => setRouteTransitionGuard(null);
+  }, [prepareWorkspaceTransitionToKey, setRouteTransitionGuard]);
+
   const onTogglePreview = useCallback(async () => {
     await importVisibleTerminalDiff();
     setSidePane((pane) => (pane === 'preview' ? 'none' : 'preview'));
@@ -4119,6 +5078,146 @@ export function App() {
     await importVisibleTerminalDiff();
     setSidePane((pane) => (pane === 'terminal' ? 'none' : 'terminal'));
   }, [importVisibleTerminalDiff]);
+
+  const confirmTerminalResetForAgentAction = useCallback(
+    async (actionDescription: string): Promise<boolean> => {
+      const terminalInteractionHandle = terminalInteractionHandleRef.current;
+      if (!terminalInteractionHandle?.hasTopTerminalKeyInteractionSinceReset()) return true;
+      const terminalLabel = terminalInteractionHandle.hasSplitOpen() ? 'the first open terminal' : 'the terminal';
+      return await showConfirm(`This will reset ${terminalLabel} to ${actionDescription}. Continue?`, {
+        title: 'Reset terminal?',
+        confirmLabel: 'Reset and continue',
+        intent: 'warning',
+      });
+    },
+    [showConfirm],
+  );
+
+  const launchTerminalCommand = useCallback(
+    async (
+      command: string,
+      args: TerminalCommandRequest['args'],
+      unavailableMessage: string,
+      actionDescription: string,
+    ): Promise<boolean> => {
+      if (!import.meta.env.VITE_WEBCONTAINERS_API_KEY || !terminalRouteEligible || documentStack.hasStack) {
+        showFailureToast(unavailableMessage);
+        return false;
+      }
+      if (!(await confirmTerminalResetForAgentAction(actionDescription))) return false;
+      terminalCommandRequestIdRef.current += 1;
+      const requestId = terminalCommandRequestIdRef.current;
+      const handled = new Promise<boolean>((resolve) => {
+        terminalCommandRequestResolversRef.current.set(requestId, resolve);
+      });
+      setTerminalCommandRequest({
+        id: requestId,
+        command,
+        args,
+      });
+      setSidePane('terminal');
+      return await handled;
+    },
+    [confirmTerminalResetForAgentAction, documentStack.hasStack, showFailureToast, terminalRouteEligible],
+  );
+
+  const onLaunchClaude = useCallback(async () => {
+    return await launchTerminalCommand(
+      'claude',
+      [],
+      'Open a terminal-enabled workspace to launch Claude.',
+      'launch Claude',
+    );
+  }, [launchTerminalCommand]);
+
+  const onLaunchPi = useCallback(async () => {
+    return await launchTerminalCommand('pi', [], 'Open a terminal-enabled workspace to launch Pi.', 'launch Pi');
+  }, [launchTerminalCommand]);
+
+  const onAskClaude = useCallback(
+    async (message: string) => {
+      const trimmed = message.trim();
+      if (claudeCredentialAvailable === false) {
+        return await launchTerminalCommand(
+          'claude',
+          ['/login'],
+          'Open a terminal-enabled workspace to log in to Claude.',
+          'log in to Claude',
+        );
+      }
+      if (!trimmed) return false;
+      return await launchTerminalCommand(
+        'claude',
+        [trimmed],
+        'Open a terminal-enabled workspace to ask Claude.',
+        'ask Claude',
+      );
+    },
+    [claudeCredentialAvailable, launchTerminalCommand],
+  );
+
+  const onAskPi = useCallback(
+    async (message: string) => {
+      const trimmed = message.trim();
+      if (piCredentialAvailable === false) {
+        return await launchTerminalCommand(
+          'pi',
+          ['/login'],
+          'Open a terminal-enabled workspace to log in to Pi.',
+          'log in to Pi',
+        );
+      }
+      if (!trimmed) return false;
+      return await launchTerminalCommand('pi', [trimmed], 'Open a terminal-enabled workspace to ask Pi.', 'ask Pi');
+    },
+    [launchTerminalCommand, piCredentialAvailable],
+  );
+
+  const onContinueClaudeSession = useCallback(
+    async (sessionId: string) => {
+      if (claudeCredentialAvailable !== true) return;
+      await launchTerminalCommand(
+        'claude',
+        ['--resume', sessionId],
+        'Open a terminal-enabled workspace to continue this Claude session.',
+        'continue this Claude session',
+      );
+    },
+    [claudeCredentialAvailable, launchTerminalCommand],
+  );
+
+  const onContinuePiSession = useCallback(
+    async (sessionPath: string) => {
+      if (piCredentialAvailable !== true) return;
+      await launchTerminalCommand(
+        'pi',
+        buildPiSessionContinueArgs(sessionPath),
+        'Open a terminal-enabled workspace to continue this Pi session.',
+        'continue this Pi session',
+      );
+    },
+    [launchTerminalCommand, piCredentialAvailable],
+  );
+
+  const onTerminalCommandRequestHandled = useCallback((id: number) => {
+    const resolve = terminalCommandRequestResolversRef.current.get(id);
+    if (resolve) {
+      terminalCommandRequestResolversRef.current.delete(id);
+      resolve(true);
+    }
+    setTerminalCommandRequest((current) => (current?.id === id ? null : current));
+  }, []);
+
+  const onTerminalFocusWithinChange = useCallback((focused: boolean) => {
+    terminalFocusWithinRef.current = focused;
+    if (focused) {
+      terminalLastInteractionAtRef.current = Date.now();
+    }
+  }, []);
+
+  const onTerminalInteraction = useCallback(() => {
+    terminalLastInteractionAtRef.current = Date.now();
+  }, []);
 
   const loadReaderAiModels = useCallback(async () => {
     setReaderAiModelsLoading(true);
@@ -4861,6 +5960,7 @@ export function App() {
   // --- Sign out ---
   const signOut = useCallback(() => {
     void (async () => {
+      if (!(await (prepareWorkspaceTransitionToKeyRef.current?.(WORKSPACE_NONE_KEY) ?? Promise.resolve(true)))) return;
       await logout().catch(() => {});
       clearAuthDataCaches();
       resetReaderAiModelsForAuth(false);
@@ -5404,6 +6504,35 @@ export function App() {
     await applyRepoBatchMutationAtomic(instId, repoName, workspaceSavePlan.mutation);
     applyInstalledRepoWorkspaceMutationToTerminal(workspaceSavePlan.mutation);
     clearAllRepoWorkspaceChanges();
+    const savedSessionFiles = workspaceSavePlan.touchedFiles.filter((file) => isWorkspaceSessionJsonlPath(file.path));
+    const deletedSessionPaths = (workspaceSavePlan.mutation.deletes ?? []).filter(isWorkspaceSessionJsonlPath);
+    const renamedSessionFiles = (workspaceSavePlan.mutation.renames ?? []).filter(
+      (file) => isWorkspaceSessionJsonlPath(file.from) || isWorkspaceSessionJsonlPath(file.to),
+    );
+    if (savedSessionFiles.length > 0 || deletedSessionPaths.length > 0 || renamedSessionFiles.length > 0) {
+      setWorkspaceSessionContentSnapshot((current) => {
+        const currentContentByPath = current.workspaceKey === sidebarWorkspaceKey ? current.contentByPath : {};
+        const nextContentByPath = { ...currentContentByPath };
+        for (const path of deletedSessionPaths) {
+          delete nextContentByPath[path];
+        }
+        for (const file of renamedSessionFiles) {
+          const content = nextContentByPath[file.from];
+          delete nextContentByPath[file.from];
+          if (typeof content === 'string' && isWorkspaceSessionJsonlPath(file.to)) {
+            nextContentByPath[file.to] = content;
+          }
+        }
+        for (const file of savedSessionFiles) {
+          nextContentByPath[file.path] = file.content;
+        }
+        return {
+          workspaceKey: sidebarWorkspaceKey,
+          contentByPath: nextContentByPath,
+          loading: false,
+        };
+      });
+    }
     const refreshedFiles = await refreshRepoTreeAfterWrite({ invalidateTerminal: false });
     return {
       workspaceSavePlan,
@@ -5425,6 +6554,77 @@ export function App() {
     resolveRepoBasePath,
     selectedRepo,
     selectedRepoRef,
+    sidebarWorkspaceKey,
+  ]);
+
+  const commitGistWorkspaceChanges = useCallback(async () => {
+    if (!currentGistId) return null;
+
+    await importMountedTerminalDiff({ silent: true });
+    const snapshot = getWorkspaceChangesSnapshot();
+    const workspaceSavePlan = buildRepoWorkspaceTextSavePlan({
+      overlayFiles: snapshot.overlayFiles,
+      deletedBaseFiles: snapshot.deletedBaseFiles,
+      renamedBaseFiles: snapshot.renamedBaseFiles,
+      findBaseRepoSidebarFile,
+      resolveRepoBasePath,
+    });
+    if (workspaceSavePlan.changeCount === 0) {
+      return {
+        workspaceSavePlan,
+        gist: null,
+      };
+    }
+
+    const files: Record<string, { content: string } | { filename: string } | null> = {};
+    for (const path of workspaceSavePlan.mutation.deletes ?? []) {
+      files[path] = null;
+    }
+    for (const rename of workspaceSavePlan.mutation.renames ?? []) {
+      files[rename.from] = { filename: rename.to };
+    }
+    for (const file of workspaceSavePlan.mutation.creates ?? []) {
+      files[file.path] = { content: file.content };
+    }
+    for (const file of workspaceSavePlan.mutation.updates ?? []) {
+      files[file.path] = { content: file.content };
+    }
+
+    const gist = await updateGistFiles(currentGistId, files);
+    applyInstalledRepoWorkspaceMutationToTerminal(workspaceSavePlan.mutation);
+    clearAllRepoWorkspaceChanges();
+    setGistFiles(gist.files);
+    setCurrentGistUpdatedAt(gist.updated_at);
+    if (currentFileName) {
+      const currentGistFile = gist.files[currentFileName];
+      if (currentGistFile?.content != null) {
+        currentDocumentSavedContentRef.current = currentGistFile.content;
+        setCurrentDocumentSavedContent(currentGistFile.content);
+      }
+      updatePostSaveVerification({
+        routeKey: routeKeyForGist(gist.id, currentFileName),
+        status: 'verifying',
+        kind: 'gist',
+        gistId: gist.id,
+        filename: currentFileName,
+        expectedUpdatedAt: gist.updated_at,
+      });
+    }
+    return {
+      workspaceSavePlan,
+      gist,
+    };
+  }, [
+    applyInstalledRepoWorkspaceMutationToTerminal,
+    clearAllRepoWorkspaceChanges,
+    currentFileName,
+    currentGistId,
+    findBaseRepoSidebarFile,
+    getWorkspaceChangesSnapshot,
+    importMountedTerminalDiff,
+    resolveRepoBasePath,
+    setCurrentDocumentSavedContent,
+    updatePostSaveVerification,
   ]);
 
   const commitDocumentContent = useCallback(
@@ -5872,7 +7072,7 @@ export function App() {
   );
 
   const commitInstalledRepoTerminalOverlay = useCallback(async () => {
-    if (repoAccessMode !== 'installed') return false;
+    if (repoAccessMode !== 'installed' && currentGistId === null) return false;
     if (saveInFlightRef.current || readerAiSaveLocked) return false;
     if (pendingImageUploads.size > 0) {
       void showAlert('Wait for image uploads to finish before saving.');
@@ -5882,6 +7082,13 @@ export function App() {
     saveInFlightRef.current = true;
     setSaving(true);
     try {
+      if (currentGistId !== null) {
+        const workspaceCommit = await commitGistWorkspaceChanges();
+        if (!workspaceCommit) return false;
+        if (workspaceCommit.workspaceSavePlan.changeCount === 0) return false;
+        showSuccessToast('Saved');
+        return true;
+      }
       const workspaceCommit = await commitInstalledRepoWorkspaceChanges();
       if (!workspaceCommit) return false;
       if (workspaceCommit.workspaceSavePlan.changeCount === 0) return false;
@@ -5925,7 +7132,9 @@ export function App() {
       setSaving(false);
     }
   }, [
+    commitGistWorkspaceChanges,
     commitInstalledRepoWorkspaceChanges,
+    currentGistId,
     currentRepoDocPath,
     findBaseRepoSidebarFile,
     handleSessionExpired,
@@ -6156,31 +7365,31 @@ export function App() {
 
   const onSaveStagedChanges = useCallback(async () => {
     if (!repoWorkspaceSaveStatus?.stagedChangeCount) return;
-    const confirmed = await showConfirm(
-      `Commit ${repoWorkspaceSaveStatus.stagedChangeCount} unsaved change${repoWorkspaceSaveStatus.stagedChangeCount === 1 ? '' : 's'}?`,
-      {
-        confirmLabel: 'Save',
-      },
-    );
-    if (!confirmed) return;
     await commitInstalledRepoTerminalOverlay();
-  }, [commitInstalledRepoTerminalOverlay, repoWorkspaceSaveStatus, showConfirm]);
+  }, [commitInstalledRepoTerminalOverlay, repoWorkspaceSaveStatus]);
 
   const onDiscardStagedChanges = useCallback(async () => {
-    if (!repoWorkspaceSaveStatus?.stagedChangeCount) return;
-    const count = repoWorkspaceSaveStatus.stagedChangeCount;
+    if (!repoWorkspaceChangeStatus?.stagedChangeCount) return;
+    const count = repoWorkspaceChangeStatus.stagedChangeCount;
     const confirmed = await showConfirm(
-      `Discard ${count} change${count === 1 ? '' : 's'} from the terminal? This cannot be undone.`,
+      `Revert all ${count} terminal change${count === 1 ? '' : 's'}? This cannot be undone.`,
       {
-        title: 'Discard terminal changes',
-        confirmLabel: 'Discard',
+        title: 'Revert all terminal changes',
+        confirmLabel: 'Discard changes',
         intent: 'danger',
         defaultFocus: 'cancel',
       },
     );
     if (!confirmed) return;
     clearAllRepoWorkspaceChanges();
-  }, [clearAllRepoWorkspaceChanges, repoWorkspaceSaveStatus, showConfirm]);
+  }, [clearAllRepoWorkspaceChanges, repoWorkspaceChangeStatus, showConfirm]);
+
+  const onRevertStagedChange = useCallback(
+    (change: RepoWorkspaceChangedFileDetail) => {
+      discardRepoWorkspaceChange(change);
+    },
+    [discardRepoWorkspaceChange],
+  );
 
   const onSaveAndExit = useCallback(async () => {
     await commitAndExitEdit();
@@ -6264,42 +7473,142 @@ export function App() {
   }, [clearAuthDataCaches, showConfirm, showSuccessToast]);
 
   // --- Sidebar actions ---
+  const getSidebarFileRoutePath = useCallback(
+    (filePath: string) => {
+      const shouldEditFile =
+        activeView === 'edit' && isEditableTextFilePath(filePath) && !isWorkspaceSessionJsonlPath(filePath);
+      if (currentGistId) {
+        return shouldEditFile
+          ? routePath.gistEdit(currentGistId, filePath)
+          : routePath.gistView(currentGistId, filePath);
+      }
+      if (repoAccessMode === 'installed' && selectedRepoRef) {
+        return shouldEditFile
+          ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, filePath)
+          : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, filePath);
+      }
+      if (repoAccessMode === 'shared' && currentRouteRepoRef) {
+        return shouldEditFile
+          ? routePath.repoEdit(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath)
+          : routePath.repoFile(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath);
+      }
+      if (repoAccessMode === 'public' && publicRepoRef) {
+        return routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath);
+      }
+      return null;
+    },
+    [activeView, currentGistId, repoAccessMode, selectedRepoRef, currentRouteRepoRef, publicRepoRef],
+  );
+
+  const getSidebarFileHref = useCallback(
+    (filePath: string) => {
+      const routePathname = getSidebarFileRoutePath(filePath);
+      return routePathname === null ? null : `/${routePathname}`;
+    },
+    [getSidebarFileRoutePath],
+  );
+
   const navigateToSidebarFile = useCallback(
     (filePath: string) => {
+      const routePathname = getSidebarFileRoutePath(filePath);
+      if (routePathname === null) return;
       discardCurrentDocumentChanges();
-      const shouldEditFile = activeView === 'edit' && isEditableTextFilePath(filePath);
-      if (currentGistId) {
-        navigate(
-          shouldEditFile ? routePath.gistEdit(currentGistId, filePath) : routePath.gistView(currentGistId, filePath),
-          { state: null },
-        );
-      } else if (repoAccessMode === 'installed' && selectedRepoRef) {
-        navigate(
-          shouldEditFile
-            ? routePath.repoEdit(selectedRepoRef.owner, selectedRepoRef.repo, filePath)
-            : routePath.repoFile(selectedRepoRef.owner, selectedRepoRef.repo, filePath),
-          { state: null },
-        );
-      } else if (repoAccessMode === 'shared' && currentRouteRepoRef) {
-        navigate(
-          shouldEditFile
-            ? routePath.repoEdit(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath)
-            : routePath.repoFile(currentRouteRepoRef.owner, currentRouteRepoRef.repo, filePath),
-          { state: null },
-        );
-      } else if (repoAccessMode === 'public' && publicRepoRef) {
-        navigate(routePath.publicRepoFile(publicRepoRef.owner, publicRepoRef.repo, filePath), { state: null });
+      navigate(routePathname, { state: null });
+    },
+    [discardCurrentDocumentChanges, getSidebarFileRoutePath, navigate],
+  );
+
+  const openWorkspaceSession = useCallback(
+    (filePath: string) => {
+      const routePathname = getSidebarFileRoutePath(filePath);
+      if (routePathname === null) return;
+
+      const prefetchedSession = workspaceSessionFiles.find((session) => session.path === filePath);
+      let pendingSession: PendingWorkspaceSessionRouteContent | null = null;
+      if (prefetchedSession) {
+        if (currentGistId) {
+          pendingSession = {
+            mode: 'gist',
+            gistId: currentGistId,
+            path: filePath,
+            content: prefetchedSession.content,
+          };
+        } else if (repoAccessMode === 'installed' && activeInstalledRepoInstallationId && selectedRepo) {
+          pendingSession = {
+            mode: 'installed',
+            installationId: activeInstalledRepoInstallationId,
+            repoFullName: selectedRepo,
+            path: filePath,
+            content: prefetchedSession.content,
+          };
+        } else if (repoAccessMode === 'public' && publicRepoRef) {
+          pendingSession = {
+            mode: 'public',
+            owner: publicRepoRef.owner,
+            repo: publicRepoRef.repo,
+            path: filePath,
+            content: prefetchedSession.content,
+          };
+        }
       }
+
+      pendingWorkspaceSessionRouteContentRef.current = pendingSession;
+      discardCurrentDocumentChanges();
+      void navigate(routePathname, { state: null }).then((navigated) => {
+        if (!navigated && pendingWorkspaceSessionRouteContentRef.current?.path === filePath) {
+          pendingWorkspaceSessionRouteContentRef.current = null;
+        }
+      });
     },
     [
-      activeView,
+      activeInstalledRepoInstallationId,
       currentGistId,
       discardCurrentDocumentChanges,
-      repoAccessMode,
-      selectedRepoRef,
-      currentRouteRepoRef,
-      publicRepoRef,
+      getSidebarFileRoutePath,
       navigate,
+      publicRepoRef,
+      repoAccessMode,
+      selectedRepo,
+      workspaceSessionFiles,
+    ],
+  );
+
+  const onPostNote = useCallback(
+    async (message: string): Promise<boolean> => {
+      const text = message.trim();
+      if (!text) return false;
+      if (currentGistId === null && repoAccessMode !== 'installed') {
+        showFailureToast('Open a writable workspace to post a note.');
+        return false;
+      }
+
+      const existingPaths = new Set([
+        ...getRepoSidebarPaths(),
+        ...overlayFiles.map((file) => file.path),
+        ...Object.keys(gistFiles ?? {}),
+      ]);
+      let createdAt = new Date();
+      let path = buildNoteWorkspacePath(createdAt, shortRandomId());
+      while (existingPaths.has(path)) {
+        createdAt = new Date();
+        path = buildNoteWorkspacePath(createdAt, shortRandomId());
+      }
+
+      const content = createNoteJsonl(text, createdAt);
+      pendingWorkspaceSessionContentRef.current.set(path, content);
+      stageRepoOverlayFile(path, content, 'sidebar');
+      navigateToSidebarFile(path);
+      return true;
+    },
+    [
+      currentGistId,
+      getRepoSidebarPaths,
+      gistFiles,
+      navigateToSidebarFile,
+      overlayFiles,
+      repoAccessMode,
+      showFailureToast,
+      stageRepoOverlayFile,
     ],
   );
 
@@ -7231,25 +8540,81 @@ export function App() {
     user,
   ]);
 
+  const stageSessionReferenceIndex = useCallback(
+    (index: SessionReferenceIndex): boolean => {
+      if (currentGistId === null && repoAccessMode !== 'installed') {
+        showFailureToast('Open a writable workspace to update session references.');
+        return false;
+      }
+      stageRepoOverlayFile(SESSION_REFERENCE_INDEX_PATH, serializeSessionReferenceIndex(index), 'sidebar');
+      return true;
+    },
+    [currentGistId, repoAccessMode, showFailureToast, stageRepoOverlayFile],
+  );
+
+  const handleAddSessionChild = useCallback(
+    async (parentPath: string, childPath: string) => {
+      const index = parseSessionReferenceIndex(workspaceSessionReferenceIndexContent, workspaceSessionReferencePaths);
+      const result = addSessionReferenceChild(index, parentPath, childPath, workspaceSessionReferencePaths);
+      if (!result.ok) {
+        const message =
+          result.reason === 'cycle'
+            ? 'That reference would create a cycle.'
+            : result.reason === 'self'
+              ? 'A session cannot reference itself as a child.'
+              : 'That session is no longer available.';
+        await showAlert(message);
+        return;
+      }
+      if (!result.changed) return;
+      stageSessionReferenceIndex(result.index);
+    },
+    [showAlert, stageSessionReferenceIndex, workspaceSessionReferenceIndexContent, workspaceSessionReferencePaths],
+  );
+
+  const handleRemoveSessionChild = useCallback(
+    (parentPath: string, childPath: string) => {
+      const index = parseSessionReferenceIndex(workspaceSessionReferenceIndexContent, workspaceSessionReferencePaths);
+      const result = removeSessionReferenceChild(index, parentPath, childPath, workspaceSessionReferencePaths);
+      if (!result.changed) return;
+      stageSessionReferenceIndex(result.index);
+    },
+    [stageSessionReferenceIndex, workspaceSessionReferenceIndexContent, workspaceSessionReferencePaths],
+  );
+
+  const handleCleanupDeletedSessionReference = useCallback(
+    (path: string) => {
+      const existingPaths = new Set(workspaceSessionReferencePaths);
+      existingPaths.delete(path);
+      const index = parseSessionReferenceIndex(workspaceSessionReferenceIndexContent);
+      const result = cleanupDeletedSessionReference(index, path, existingPaths);
+      if (!result.changed) return;
+      stageSessionReferenceIndex(result.index);
+    },
+    [stageSessionReferenceIndex, workspaceSessionReferenceIndexContent, workspaceSessionReferencePaths],
+  );
+
   const handleDeleteFile = useCallback(
-    async (filePath: string) => {
+    async (filePath: string, options?: DeleteFileOptions): Promise<boolean> => {
       const store = getActiveDocumentStore();
-      if (!store) return;
+      if (!store) return false;
+      const confirmPersistedDelete = async (): Promise<boolean> => {
+        if (options?.confirm === false) return true;
+        return await showConfirm(`Delete "${filePath}"?`, {
+          intent: 'danger',
+          confirmLabel: 'Delete',
+        });
+      };
       const deletingCurrentRepoSelection = store.kind === 'repo' && currentRepoDocPath === filePath;
       if (store.kind === 'repo') {
         const canProceed = await prepareCurrentRepoEditorFileForMutation(filePath, 'deleting');
-        if (!canProceed) return;
+        if (!canProceed) return false;
       }
-      if (
-        !(await showConfirm(`Delete "${filePath}"?`, {
-          intent: 'danger',
-          confirmLabel: 'Delete',
-        }))
-      )
-        return;
       try {
         if (store.kind === 'gist') {
-          if (!currentGistId) return;
+          if (!currentGistId) return false;
+          if (!(await confirmPersistedDelete())) return false;
+          options?.onOptimisticDelete?.();
           const gist = await store.deleteFile({ name: filePath });
           setGistFiles(gist.files);
           const deletedCurrent = currentFileName === filePath;
@@ -7258,7 +8623,7 @@ export function App() {
           }
         } else {
           const repoFile = findRepoSidebarFile(filePath);
-          if (!repoFile) return;
+          if (!repoFile) return false;
           const baseRepoPath = resolveRepoBasePath(filePath);
           const instId = activeInstalledRepoInstallationId ?? getInstallationId();
           const repoName = selectedRepo ?? getSelectedRepo()?.full_name ?? null;
@@ -7266,13 +8631,16 @@ export function App() {
             // Overlay-only path (created by the terminal but not yet committed):
             // drop the overlay entry with no GitHub call.
             // clearRepoOverlayFile auto-absorbs into terminalBaseFiles.
+            options?.onOptimisticDelete?.();
             clearRepoOverlayFile(filePath);
             if (deletingCurrentRepoSelection) {
               clearCurrentInstalledRepoFileSelection();
             }
-            return;
+            return true;
           }
-          if (!instId || !repoName) return;
+          if (!instId || !repoName) return false;
+          if (!(await confirmPersistedDelete())) return false;
+          options?.onOptimisticDelete?.();
           await applyRepoBatchMutationAtomic(instId, repoName, {
             message: `Delete ${baseRepoPath}`,
             deletes: [baseRepoPath],
@@ -7285,10 +8653,11 @@ export function App() {
             clearCurrentInstalledRepoFileSelection();
           }
         }
+        return true;
       } catch (err) {
         if (err instanceof SessionExpiredError) {
           handleSessionExpired();
-          return;
+          return false;
         }
         showRateLimitToastIfNeeded(err);
         const message = isRepoWriteConflictError(err)
@@ -7297,6 +8666,7 @@ export function App() {
             ? err.message
             : 'Failed to delete file';
         void showAlert(message);
+        return false;
       }
     },
     [
@@ -7318,6 +8688,36 @@ export function App() {
       showConfirm,
       showRateLimitToastIfNeeded,
     ],
+  );
+
+  const handleDeleteSession = useCallback(
+    async (path: string) => {
+      let deletedOptimistically = false;
+      const markOptimisticallyDeleted = (): void => {
+        deletedOptimistically = true;
+        setOptimisticallyDeletedSessionPaths((current) => {
+          if (current.has(path)) return current;
+          return new Set([...current, path]);
+        });
+      };
+
+      const deleted = await handleDeleteFile(path, {
+        confirm: 'persisted',
+        onOptimisticDelete: markOptimisticallyDeleted,
+      });
+      if (deleted) {
+        handleCleanupDeletedSessionReference(path);
+        return;
+      }
+      if (!deletedOptimistically) return;
+      setOptimisticallyDeletedSessionPaths((current) => {
+        if (!current.has(path)) return current;
+        const next = new Set(current);
+        next.delete(path);
+        return next;
+      });
+    },
+    [handleCleanupDeletedSessionReference, handleDeleteFile],
   );
 
   const handleDeleteFolder = useCallback(
@@ -8009,7 +9409,7 @@ export function App() {
             confirmLabel: 'Reconnect',
           });
           if (reconnect) {
-            startGitHubSignIn(`${window.location.pathname}${window.location.search}`, { force: true });
+            void startGitHubSignIn(`${window.location.pathname}${window.location.search}`, { force: true });
           }
           return;
         }
@@ -8029,6 +9429,14 @@ export function App() {
     const targetRepo = targetRepos.find((repo) => repo.full_name === forkRepoDialog.selectedRepoFullName);
     if (!targetRepo) {
       await showAlert('Choose a target repo.');
+      return;
+    }
+    const targetRepoRef = parseRepoFullName(targetRepo.full_name);
+    if (
+      targetRepoRef &&
+      !(await (prepareWorkspaceTransitionToKeyRef.current?.(`repo:${targetRepoRef.owner}/${targetRepoRef.repo}`) ??
+        Promise.resolve(true)))
+    ) {
       return;
     }
 
@@ -8226,15 +9634,20 @@ export function App() {
   );
 
   const onSelectActiveInstallation = useCallback(
-    async (nextInstallationId: string) => {
-      if (!nextInstallationId || nextInstallationId === installationId) return;
+    async (nextInstallationId: string): Promise<boolean> => {
+      if (!nextInstallationId || nextInstallationId === installationId) return false;
+      if (!(await (prepareWorkspaceTransitionToKeyRef.current?.(WORKSPACE_NONE_KEY) ?? Promise.resolve(true)))) {
+        return false;
+      }
       try {
         const nextSessionState = await selectGitHubInstallation(nextInstallationId);
         applyInstallationSessionState(nextSessionState);
         clearInstalledRepoSelection();
+        return true;
       } catch (err) {
         showRateLimitToastIfNeeded(err);
         void showAlert(err instanceof Error ? err.message : 'Failed to switch installation');
+        return false;
       }
     },
     [applyInstallationSessionState, clearInstalledRepoSelection, installationId, showAlert, showRateLimitToastIfNeeded],
@@ -8303,6 +9716,14 @@ export function App() {
 
   const switchInstallationAndOpenRepo = useCallback(
     async (repo: InstallationRepo, targetInstallationId: string) => {
+      const repoRef = parseRepoFullName(repo.full_name);
+      if (
+        repoRef &&
+        !(await (prepareWorkspaceTransitionToKeyRef.current?.(`repo:${repoRef.owner}/${repoRef.repo}`) ??
+          Promise.resolve(true)))
+      ) {
+        return;
+      }
       await ensureInstalledRepoSession(targetInstallationId);
       await openInstalledRepo(repo.full_name, {
         id: repo.id,
@@ -8390,6 +9811,7 @@ export function App() {
   const onDisconnect = useCallback(async () => {
     const confirmed = await showConfirm('Disconnect all repos?');
     if (!confirmed) return;
+    if (!(await (prepareWorkspaceTransitionToKeyRef.current?.(WORKSPACE_NONE_KEY) ?? Promise.resolve(true)))) return;
 
     try {
       const nextSessionState = await disconnectInstallation();
@@ -8422,6 +9844,7 @@ export function App() {
       defaultFocus: 'cancel',
     });
     if (!confirmed) return;
+    if (!(await prepareWorkspaceTransitionToKey(WORKSPACE_NONE_KEY))) return;
 
     try {
       const nextSessionState = await disconnectInstallation(installationId);
@@ -8436,6 +9859,7 @@ export function App() {
     clearInstalledRepoSelection,
     installationId,
     linkedInstallations,
+    prepareWorkspaceTransitionToKey,
     showAlert,
     showConfirm,
     showRateLimitToastIfNeeded,
@@ -8476,7 +9900,13 @@ export function App() {
         ) : null;
       }
       case 'content': {
-        if (contentSourceViewVisible && currentDocumentSavedContent !== null) {
+        const contentSessionFile: ContentSessionViewFile | null =
+          renderMode === 'session' && currentFileName && currentDocumentSavedContent !== null
+            ? { path: currentFileName, content: currentDocumentSavedContent }
+            : renderMode === 'session-deleted' && currentFileName
+              ? { path: currentFileName, content: '', deleted: true }
+              : null;
+        if (contentSourceViewVisible && currentDocumentSavedContent !== null && contentSessionFile === null) {
           return (
             <EditView
               fileName={currentFileName}
@@ -8513,10 +9943,11 @@ export function App() {
           const hasFragment = previewRouteHasFragment(rawRoute);
           if (!isMarkdownFileName(routePathname) || hasFragment) {
             documentStack.clearStack();
-            navigate(routePathname);
-            if (historyPath !== `/${routePathname}`) {
-              window.history.replaceState(window.history.state, '', historyPath);
-            }
+            void navigate(routePathname).then((navigated) => {
+              if (navigated && historyPath !== `/${routePathname}`) {
+                window.history.replaceState(window.history.state, '', historyPath);
+              }
+            });
             return;
           }
           const mainEl = document.querySelector<HTMLElement>('.app-body main');
@@ -8539,6 +9970,27 @@ export function App() {
               scrollStorageKey={currentDocumentScrollKey}
               plainText={renderMode === 'ansi' && !contentImagePreview ? renderedText : null}
               plainTextFileName={renderMode === 'ansi' ? currentFileName : null}
+              sessionFile={contentSessionFile}
+              sessionFiles={workspaceSessionFiles}
+              sessionFilesLoading={workspaceSessionFilesLoading}
+              claudeCredentialAvailable={claudeCredentialAvailable}
+              piCredentialAvailable={piCredentialAvailable}
+              onLaunchClaude={user ? onLaunchClaude : undefined}
+              onLaunchPi={user ? onLaunchPi : undefined}
+              onAskClaude={onAskClaude}
+              onAskPi={onAskPi}
+              onPostNote={user ? onPostNote : undefined}
+              onOpenSession={openWorkspaceSession}
+              onSessionHref={getSidebarFileHref}
+              onDeleteSession={isSidebarReadOnly ? undefined : handleDeleteSession}
+              onAddSessionChild={isSidebarReadOnly ? undefined : handleAddSessionChild}
+              onRemoveSessionChild={isSidebarReadOnly ? undefined : handleRemoveSessionChild}
+              sessionReferenceIndex={workspaceSessionReferenceIndex}
+              onBackFromSession={() => {
+                void handleClearSelectedFile();
+              }}
+              onContinueClaudeSession={onContinueClaudeSession}
+              onContinuePiSession={onContinuePiSession}
               goToLineRequest={goToLineRequest}
               loading={contentLoadPending}
               imagePreview={contentImagePreview}
@@ -8593,10 +10045,6 @@ export function App() {
   const showSidebar = sidebarEligible && (sidebarVisibilityOverride ?? defaultShowSidebar);
   const repoSidebarBinding = useRepoSidebarBinding({
     workspace: repoWorkspace,
-    stagedChangeCount: repoWorkspaceSaveStatus?.stagedChangeCount ?? 0,
-    stagedChangeFiles: repoWorkspaceSaveStatus?.changedFiles ?? null,
-    onSaveStagedChanges,
-    onDiscardStagedChanges,
     hasOpenFile: currentRepoDocPath !== null || currentFileName !== null,
     fileFilter: sidebarFileFilter,
     onFileFilterChange: setSidebarFileFilter,
@@ -8698,6 +10146,9 @@ export function App() {
   const editingFileName = currentFileName ?? (isScratchDocument ? UNSAVED_FILE_LABEL : editTitle);
   const editPreviewEnabled = isScratchDocument || isMarkdownFileName(currentFileName ?? editTitle);
   const canRenderPreview = editPreviewEnabled && isDesktopWidth;
+  const showStagedChangesFloatingModule =
+    (repoWorkspaceChangeStatus?.stagedChangeCount ?? 0) > 0 &&
+    (activeView === 'content' || (activeView === 'edit' && editPreviewEnabled && previewVisible));
   const canSaveCurrentEdit =
     hasUnsavedChanges && !readerAiSaveLocked && !repoEditLoading && pendingImageUploadCount === 0;
   const showEditorCancel = activeView === 'edit' && !draftMode && repoAccessMode !== 'public';
@@ -8890,31 +10341,36 @@ export function App() {
   );
   const handleSignInWithGitHub = useCallback(
     (options?: { includeGists?: boolean }) => {
-      if (isSubdomainMode()) {
-        const { protocol, hostname, port } = window.location;
-        const apexHost = hostname.endsWith('.input.md')
-          ? 'input.md'
-          : hostname.endsWith('.localhost')
-            ? port
-              ? `localhost:${port}`
-              : 'localhost'
-            : 'input.md';
-        window.location.assign(`${protocol}//${apexHost}/input.md`);
-        return;
-      }
-      startGitHubSignIn(`/${routePath.workspaces()}`, { force: true, includeGists: options?.includeGists });
+      void (async () => {
+        if (isSubdomainMode()) {
+          if (!(await prepareWorkspaceTransitionToKey(WORKSPACE_EXTERNAL_KEY, { confirmMode: 'cache' }))) return;
+          const { protocol, hostname, port } = window.location;
+          const apexHost = hostname.endsWith('.input.md')
+            ? 'input.md'
+            : hostname.endsWith('.localhost')
+              ? port
+                ? `localhost:${port}`
+                : 'localhost'
+              : 'input.md';
+          window.location.assign(`${protocol}//${apexHost}/input.md`);
+          return;
+        }
+        await startGitHubSignIn(`/${routePath.workspaces()}`, { force: true, includeGists: options?.includeGists });
+      })();
     },
-    [startGitHubSignIn],
+    [prepareWorkspaceTransitionToKey, startGitHubSignIn],
   );
   const showHeaderEdit =
     activeView === 'content' &&
     isEditableTextFilePath(currentFileName) &&
+    !isWorkspaceSessionJsonlPath(currentFileName ?? '') &&
     (currentGistId !== null || (currentRepoDocPath !== null && repoAccessMode === 'installed'));
   const showHeaderSourceToggle =
     activeView === 'content' &&
     repoAccessMode === 'public' &&
     currentDocumentSavedContent !== null &&
     Boolean(currentFileName) &&
+    !isWorkspaceSessionJsonlPath(currentFileName ?? '') &&
     !contentLoadPending;
   const showHeaderForkRepo =
     activeView === 'content' &&
@@ -8925,6 +10381,7 @@ export function App() {
   const goToLineFileName = activeView === 'edit' ? editingFileName : currentFileName;
   const showHeaderGoToLine =
     Boolean(goToLineFileName && isSidebarTextFileName(goToLineFileName)) &&
+    !isWorkspaceSessionJsonlPath(goToLineFileName ?? '') &&
     (activeView === 'edit' ||
       !isMarkdownFileName(goToLineFileName) ||
       contentSourceViewVisible ||
@@ -8935,8 +10392,15 @@ export function App() {
   const showReaderAiPanel = showReaderAiToggle && readerAiVisible && !documentStack.hasStack;
   const mountReaderAiPanel = showReaderAiToggle;
   const readerAiToggleDisabled = viewPhase === 'loading' || documentStack.hasStack;
+  const preserveTerminalDuringWorkspaceLoading =
+    viewPhase === 'loading' && terminalVisible && mountedTerminalWorkspaceKey === sidebarWorkspaceKey;
+  const terminalApiKeyAvailable = Boolean(import.meta.env.VITE_WEBCONTAINERS_API_KEY);
+  const terminalAlreadyMountedForWorkspace =
+    terminalApiKeyAvailable && mountedTerminalWorkspaceKey === sidebarWorkspaceKey && !documentStack.hasStack;
   const showTerminalToggle =
-    Boolean(import.meta.env.VITE_WEBCONTAINERS_API_KEY) && terminalRouteEligible && !documentStack.hasStack;
+    terminalApiKeyAvailable &&
+    (terminalRouteEligible || preserveTerminalDuringWorkspaceLoading || terminalAlreadyMountedForWorkspace) &&
+    !documentStack.hasStack;
   const showTerminalPanel = showTerminalToggle && terminalVisible;
   const mountTerminalPanel =
     showTerminalToggle && (showTerminalPanel || mountedTerminalWorkspaceKey === sidebarWorkspaceKey);
@@ -8975,6 +10439,11 @@ export function App() {
     onToggleVisibilityShortcut: onToggleTerminal,
     onImportDiff: applyTerminalImportDiff,
     registerImportHandler: registerTerminalImportHandler,
+    commandRequest: terminalCommandRequest,
+    onCommandRequestHandled: onTerminalCommandRequestHandled,
+    interactionHandleRef: terminalInteractionHandleRef,
+    onFocusWithinChange: onTerminalFocusWithinChange,
+    onInteraction: onTerminalInteraction,
   });
   const headerSidebarToggleAvailable = activeView === 'content' || activeView === 'edit';
   const headerPreviewToggleAvailable = activeView === 'edit' && editPreviewEnabled;
@@ -9090,14 +10559,17 @@ export function App() {
   }, [route, user, installationId, installationRepos]);
   const onGoToWorkspace = useCallback(() => {
     if (!goToWorkspaceTarget) return;
-    onSelectRepo(goToWorkspaceTarget.repo.full_name, goToWorkspaceTarget.repo.id, goToWorkspaceTarget.repo.private);
-    const repoRef = parseRepoFullName(goToWorkspaceTarget.repo.full_name);
-    if (!repoRef) {
-      navigate(routePath.workspaces());
-      return;
-    }
-    navigate(routePath.repoFile(repoRef.owner, repoRef.repo, goToWorkspaceTarget.filePath));
-  }, [goToWorkspaceTarget, navigate, onSelectRepo]);
+    void (async () => {
+      const repoRef = parseRepoFullName(goToWorkspaceTarget.repo.full_name);
+      if (!repoRef) {
+        await navigate(routePath.workspaces());
+        return;
+      }
+      if (!(await prepareWorkspaceTransitionToKey(`repo:${repoRef.owner}/${repoRef.repo}`))) return;
+      onSelectRepo(goToWorkspaceTarget.repo.full_name, goToWorkspaceTarget.repo.id, goToWorkspaceTarget.repo.private);
+      await navigate(routePath.repoFile(repoRef.owner, repoRef.repo, goToWorkspaceTarget.filePath));
+    })();
+  }, [goToWorkspaceTarget, navigate, onSelectRepo, prepareWorkspaceTransitionToKey]);
   const recentReposForMenu = useMemo(
     () =>
       recentRepos.filter((repo) => {
@@ -9192,10 +10664,11 @@ export function App() {
       onInternalLinkNavigate: (rawRoute) => {
         const routePathname = previewRoutePathname(rawRoute);
         const historyPath = previewRouteHistoryPath(rawRoute);
-        navigate(routePathname);
-        if (historyPath !== `/${routePathname}`) {
-          window.history.replaceState(window.history.state, '', historyPath);
-        }
+        void navigate(routePathname).then((navigated) => {
+          if (navigated && historyPath !== `/${routePathname}`) {
+            window.history.replaceState(window.history.state, '', historyPath);
+          }
+        });
       },
       onRequestMarkdownLinkPreview,
       onPreviewImageClick: onOpenLightbox,
@@ -9306,8 +10779,8 @@ export function App() {
         onRetryRepos={() => onOpenRepoMenu('manual')}
         onRetryGists={() => onOpenRepoMenu('manual')}
         onSelectInstallation={async (nextInstallationId) => {
-          await onSelectActiveInstallation(nextInstallationId);
-          navigate(routePath.workspaces());
+          const selected = await onSelectActiveInstallation(nextInstallationId);
+          if (selected) navigate(routePath.workspaces());
         }}
         onSelectRepo={(fullName, id, isPrivate) => {
           void openInstalledRepo(fullName, { id, isPrivate });
@@ -9359,7 +10832,7 @@ export function App() {
         onSignInWithGitHub={handleSignInWithGitHub}
       />
       <div
-        class={`${showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}${showReaderAiPanel ? ' app-body--with-reader-ai' : ''}${showTerminalPanel ? ' app-body--with-terminal' : ''}${activeView === 'edit' ? ' app-body--edit' : ''}`}
+        class={`${showSidebar ? 'app-body app-body--with-sidebar' : 'app-body app-body--no-sidebar'}${showReaderAiPanel ? ' app-body--with-reader-ai' : ''}${showTerminalPanel ? ' app-body--with-terminal' : ''}${showStagedChangesFloatingModule ? ' app-body--with-staged-changes' : ''}${activeView === 'edit' ? ' app-body--edit' : ''}`}
         style={
           showSidebar || mountReaderAiPanel || mountTerminalPanel
             ? ({
@@ -9390,6 +10863,17 @@ export function App() {
         >
           <main>{renderView()}</main>
         </ErrorBoundary>
+        {showStagedChangesFloatingModule ? (
+          <StagedChangesFloatingModule
+            stagedChangeCount={repoWorkspaceChangeStatus?.stagedChangeCount ?? 0}
+            stagedChangeFiles={repoWorkspaceChangeStatus?.changedFiles ?? null}
+            saveTarget={currentGistId !== null ? 'gist' : 'repo'}
+            saving={saving}
+            onSave={repoWorkspaceSaveStatus ? onSaveStagedChanges : undefined}
+            onDiscard={onDiscardStagedChanges}
+            onRevertFile={onRevertStagedChange}
+          />
+        ) : null}
         {showReaderAiPanel ? <div class="reader-ai-backdrop" onClick={onToggleReaderAi} /> : null}
         {showTerminalPanel ? <div class="terminal-backdrop" onClick={onToggleTerminal} /> : null}
         {showReaderAiPanel || showTerminalPanel ? (

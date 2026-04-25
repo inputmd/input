@@ -2,7 +2,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import type { FileSystemTree, WebContainer } from '@webcontainer/api';
 import type { Ghostty, Terminal as GhosttyTerminal } from 'ghostty-web';
 import ghosttyWasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
-import { ChevronLeft, ChevronRight, ShieldCheck, SquareTerminal, Zap, ZapOff } from 'lucide-react';
+import { Bot, Check, ChevronLeft, ChevronRight, SquareTerminal, ZapOff } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { blurOnClose } from '../dom_utils.ts';
 import {
@@ -14,6 +14,7 @@ import { isLikelyBinaryBytes } from '../path_utils.ts';
 import {
   buildPersistedHomeSeed,
   buildPersistedHomeSyncScript,
+  isPersistedHomeWorkspaceFilePath,
   loadPersistedHomeEntries,
   logPersistedHomePaths,
   PERSISTED_HOME_SEED_FILENAME,
@@ -96,6 +97,23 @@ export interface TerminalLiveFile {
   content: string;
 }
 
+export type TerminalCommandArg = string | { kind: 'homePath'; path: string };
+
+export interface TerminalCommandRequest {
+  id: number;
+  command: string;
+  args?: TerminalCommandArg[];
+}
+
+export interface TerminalPanelInteractionHandle {
+  hasTopTerminalKeyInteractionSinceReset: () => boolean;
+  hasSplitOpen: () => boolean;
+}
+
+interface TerminalPanelInteractionHandleRef {
+  current: TerminalPanelInteractionHandle | null;
+}
+
 export interface TerminalPanelProps {
   className?: string;
   visible: boolean;
@@ -104,8 +122,6 @@ export interface TerminalPanelProps {
   apiKey: string | undefined;
   baseFilesLoadError?: string | null;
   baseFilesLoadingMessage?: string | null;
-  workspaceChangesPersisted?: boolean;
-  workspaceChangesNotice?: string | null;
   /**
    * Stable workspace snapshot mirrored into the WebContainer FS on mount and
    * when non-editor state changes.
@@ -138,11 +154,52 @@ export interface TerminalPanelProps {
   registerImportHandler?: (
     handler: ((options?: TerminalImportOptions) => Promise<TerminalImportDiff | null>) | null,
   ) => void;
+  commandRequest?: TerminalCommandRequest | null;
+  onCommandRequestHandled?: (id: number) => void;
+  interactionHandleRef?: TerminalPanelInteractionHandleRef;
+  onFocusWithinChange?: (focused: boolean) => void;
+  onInteraction?: () => void;
 }
 
 type SpawnedShell = Awaited<ReturnType<WebContainer['spawn']>>;
 
+const AVAILABLE_TERMINAL_AGENTS = [
+  { command: 'pi', displayName: 'Pi', bootLabel: 'pi', color: '\x1b[36m' },
+  { command: 'claude', displayName: 'Claude', bootLabel: 'claude', color: '\x1b[35m' },
+] as const;
+
+const ANSI_COLOR_RESET = '\x1b[0m';
+
+function isHomePathCommandArg(arg: TerminalCommandArg): arg is { kind: 'homePath'; path: string } {
+  return typeof arg === 'object' && arg.kind === 'homePath';
+}
+
+function terminalCommandDisplayName(command: string): string {
+  return AVAILABLE_TERMINAL_AGENTS.find((agent) => agent.command === command)?.displayName ?? command;
+}
+
+function terminalCommandStartingMessage(commandRequest: TerminalCommandRequest): string {
+  return `Starting ${terminalCommandDisplayName(commandRequest.command)}...`;
+}
+
+function terminalShellBootMessage(): string {
+  const agentList = AVAILABLE_TERMINAL_AGENTS.map(
+    (agent) => `${agent.color}${agent.bootLabel}${ANSI_COLOR_RESET}`,
+  ).join(', ');
+  return `Available agents: ${agentList}`;
+}
+
+async function resolveTerminalCommandArgs(wc: WebContainer, args: readonly TerminalCommandArg[]): Promise<string[]> {
+  const homeDir = args.some(isHomePathCommandArg) ? await resolveWebContainerHomeDirectory(wc) : null;
+  return args.map((arg) => {
+    if (typeof arg === 'string') return arg;
+    const normalizedPath = arg.path.trim().replace(/^\/+/, '');
+    return `${homeDir ?? ''}/${normalizedPath}`;
+  });
+}
+
 interface TerminalPanelGlobalState {
+  activeFilesystemOwnerId: number | null;
   ghosttyLoadPromise: Promise<Ghostty> | null;
   ghosttyModulePromise: Promise<typeof import('ghostty-web')> | null;
   lastHotReloadAt: number;
@@ -159,6 +216,7 @@ type TerminalPanelGlobalThis = typeof globalThis & {
 function getTerminalPanelGlobalState(): TerminalPanelGlobalState {
   const root = globalThis as TerminalPanelGlobalThis;
   root.__inputTerminalPanelGlobalState__ ??= {
+    activeFilesystemOwnerId: null,
     ghosttyLoadPromise: null,
     ghosttyModulePromise: null,
     lastHotReloadAt: 0,
@@ -169,6 +227,8 @@ function getTerminalPanelGlobalState(): TerminalPanelGlobalState {
   };
   return root.__inputTerminalPanelGlobalState__;
 }
+
+let nextTerminalPanelFilesystemOwnerId = 1;
 
 const HOT_RELOAD_UNMOUNT_IMPORT_GUARD_WINDOW_MS = 2000;
 
@@ -298,6 +358,15 @@ function buildManagedFiles(
 ): Record<string, string> {
   if (liveFilePath === null) return { ...baseFiles };
   return { ...baseFiles, [liveFilePath]: liveFileContent ?? '' };
+}
+
+function filterPersistedHomeWorkspaceFiles(files: Record<string, string>): Record<string, string> {
+  const filtered: Record<string, string> = {};
+  for (const [path, content] of Object.entries(files)) {
+    if (!isPersistedHomeWorkspaceFilePath(path)) continue;
+    filtered[path] = content;
+  }
+  return filtered;
 }
 
 function dirname(path: string): string {
@@ -651,6 +720,7 @@ async function provisionHomeOverlay(
 async function preparePersistedHomeRestore(
   wc: WebContainer,
   workspaceKey: string,
+  workspaceFiles: Record<string, string>,
   homeDir: string,
   options?: { includePersistedHome?: boolean; bootPerf?: TerminalBootPerfLogger },
 ): Promise<{ scriptPath: string; entries: PersistedHomeEntry[] }> {
@@ -664,7 +734,9 @@ async function preparePersistedHomeRestore(
   const entriesPromise =
     options?.includePersistedHome === false
       ? Promise.resolve([] as PersistedHomeEntry[])
-      : measureBootStage(options?.bootPerf, 'persistedHome.loadEntries', () => loadPersistedHomeEntries(workspaceKey));
+      : measureBootStage(options?.bootPerf, 'persistedHome.loadEntries', () =>
+          loadPersistedHomeEntries(workspaceKey, filterPersistedHomeWorkspaceFiles(workspaceFiles)),
+        );
   const supportScriptPromise = measureBootStage(options?.bootPerf, 'persistedHome.writeSupportScript', () =>
     writeContainerFile(wc, scriptPath, buildPersistedHomeSyncScript(seedPath)),
   );
@@ -907,10 +979,23 @@ function resetBannerTextForKey(key: ResetKey | null): string {
 }
 
 function formatAgentCredentialPresenceLabel(presence: PersistedHomeCredentialPresence): string {
-  if (presence.claude && presence.pi) return 'Claude, Pi authenticated';
-  if (presence.claude) return 'Claude authenticated';
-  if (presence.pi) return 'Pi authenticated';
+  if (presence.claude && presence.pi) return 'Claude, Pi';
+  if (presence.claude) return 'Claude';
+  if (presence.pi) return 'Pi';
   return 'Not authenticated';
+}
+
+function formatCredentialSyncMenuLines(
+  credentialSyncEnabled: boolean | null,
+  presence: PersistedHomeCredentialPresence,
+): { checked: boolean; label: string }[] {
+  if (credentialSyncEnabled === null) return [{ checked: false, label: 'Loading...' }];
+  if (!credentialSyncEnabled) return [{ checked: false, label: 'Credential sync off' }];
+
+  const lines: { checked: boolean; label: string }[] = [];
+  if (presence.claude) lines.push({ checked: true, label: 'Claude credentials synced' });
+  if (presence.pi) lines.push({ checked: true, label: 'Pi credentials synced' });
+  return lines.length > 0 ? lines : [{ checked: false, label: 'Credential sync on' }];
 }
 
 export function TerminalPanel({
@@ -921,8 +1006,6 @@ export function TerminalPanel({
   apiKey,
   baseFilesLoadError = null,
   baseFilesLoadingMessage = null,
-  workspaceChangesPersisted = true,
-  workspaceChangesNotice = null,
   baseFiles,
   baseFilesReady,
   liveFile,
@@ -932,6 +1015,11 @@ export function TerminalPanel({
   onToggleVisibilityShortcut,
   onImportDiff,
   registerImportHandler,
+  commandRequest = null,
+  onCommandRequestHandled,
+  interactionHandleRef,
+  onFocusWithinChange,
+  onInteraction,
 }: TerminalPanelProps) {
   const paneRuntimesRef = useRef<Record<PaneId, PaneRuntime>>({
     primary: {
@@ -954,7 +1042,6 @@ export function TerminalPanel({
   const [error, setError] = useState<string | null>(null);
   const [hostBridgeError, setHostBridgeError] = useState(false);
   const [overlayControlsExpanded, setOverlayControlsExpanded] = useState(true);
-  const [dismissedWorkspaceNoticeKey, setDismissedWorkspaceNoticeKey] = useState<string | null>(null);
   const [terminalThemeMode, setTerminalThemeMode] = useState<TerminalThemeMode>(() => getDocumentThemeMode());
   const startedRef = useRef(false);
   const hostBridgeRef = useRef<WebContainerHostBridgeSession | null>(null);
@@ -966,7 +1053,13 @@ export function TerminalPanel({
   const terminalFocusWithinRef = useRef(false);
   const unmountedRef = useRef(false);
   const wcRef = useRef<WebContainer | null>(null);
+  const filesystemOwnerIdRef = useRef<number | null>(null);
+  if (filesystemOwnerIdRef.current === null) {
+    filesystemOwnerIdRef.current = nextTerminalPanelFilesystemOwnerId++;
+  }
   const lastWrittenRef = useRef<Map<string, string>>(new Map());
+  const persistedHomeWorkspaceBaselineRef = useRef<Record<string, string> | null>(null);
+  const suppressNextUnmountImportRef = useRef(false);
   const baseFilesRef = useRef(baseFiles);
   baseFilesRef.current = baseFiles;
   const baseFilesLoadErrorRef = useRef(baseFilesLoadError);
@@ -997,6 +1090,8 @@ export function TerminalPanel({
   const [restartingWebContainer, setRestartingWebContainer] = useState(false);
   const onImportDiffRef = useRef(onImportDiff);
   onImportDiffRef.current = onImportDiff;
+  const onCommandRequestHandledRef = useRef(onCommandRequestHandled);
+  onCommandRequestHandledRef.current = onCommandRequestHandled;
   const workspaceKeyRef = useRef(workspaceKey);
   workspaceKeyRef.current = workspaceKey;
   const importInFlightRef = useRef<Promise<TerminalImportDiff | null> | null>(null);
@@ -1029,8 +1124,14 @@ export function TerminalPanel({
     primary: true,
     secondary: true,
   });
+  const keyInteractionSinceResetByPaneRef = useRef<Record<PaneId, boolean>>({
+    primary: false,
+    secondary: false,
+  });
   const singlePaneIdRef = useRef(singlePaneId);
   singlePaneIdRef.current = singlePaneId;
+  const splitOpenRef = useRef(splitOpen);
+  splitOpenRef.current = splitOpen;
   const activePaneIdRef = useRef(activePaneId);
   activePaneIdRef.current = activePaneId;
   const visiblePaneIds = useMemo<PaneId[]>(
@@ -1041,6 +1142,23 @@ export function TerminalPanel({
   visiblePaneIdsRef.current = visiblePaneIds;
   const lastBaseFilesLoadErrorRef = useRef<string | null>(null);
   const lastAppliedTerminalThemeModeRef = useRef<TerminalThemeMode>(terminalThemeMode);
+
+  useEffect(() => {
+    if (!interactionHandleRef) return;
+    const handle: TerminalPanelInteractionHandle = {
+      hasTopTerminalKeyInteractionSinceReset: () => {
+        const topPaneId = visiblePaneIdsRef.current[0] ?? singlePaneIdRef.current;
+        return keyInteractionSinceResetByPaneRef.current[topPaneId] === true;
+      },
+      hasSplitOpen: () => splitOpenRef.current,
+    };
+    interactionHandleRef.current = handle;
+    return () => {
+      if (interactionHandleRef.current === handle) {
+        interactionHandleRef.current = null;
+      }
+    };
+  }, [interactionHandleRef]);
 
   useEffect(() => {
     if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
@@ -1063,9 +1181,6 @@ export function TerminalPanel({
     observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
     return () => observer.disconnect();
   }, []);
-
-  const workspaceNoticeKey =
-    !workspaceChangesPersisted && workspaceChangesNotice ? `${workspaceKey}:${workspaceChangesNotice}` : null;
 
   const notifyBaseFilesReadyWaiters = useCallback(() => {
     const waiters = baseFilesReadyWaitersRef.current;
@@ -1098,6 +1213,26 @@ export function TerminalPanel({
   const getPreferredPaneId = useCallback((): PaneId => {
     if (visiblePaneIdsRef.current.includes(activePaneIdRef.current)) return activePaneIdRef.current;
     return visiblePaneIdsRef.current[0] ?? 'primary';
+  }, []);
+
+  const claimFilesystemOwnership = useCallback((): void => {
+    getTerminalPanelGlobalState().activeFilesystemOwnerId = filesystemOwnerIdRef.current;
+  }, []);
+
+  const hasFilesystemOwnership = useCallback((): boolean => {
+    return getTerminalPanelGlobalState().activeFilesystemOwnerId === filesystemOwnerIdRef.current;
+  }, []);
+
+  const clearPaneKeyInteraction = useCallback((paneId: PaneId) => {
+    keyInteractionSinceResetByPaneRef.current[paneId] = false;
+  }, []);
+
+  const clearAllPaneKeyInteractions = useCallback(() => {
+    keyInteractionSinceResetByPaneRef.current = { primary: false, secondary: false };
+  }, []);
+
+  const markPaneKeyInteraction = useCallback((paneId: PaneId) => {
+    keyInteractionSinceResetByPaneRef.current[paneId] = true;
   }, []);
 
   const fitPane = useCallback((paneId: PaneId) => {
@@ -1200,6 +1335,32 @@ export function TerminalPanel({
     [getPreferredPaneId],
   );
 
+  const stagePersistedHomeWorkspaceFiles = useCallback(
+    async (workspaceFiles: Record<string, string>, workspaceKey?: string) => {
+      const managedFiles = filterPersistedHomeWorkspaceFiles(
+        buildManagedFiles(baseFilesRef.current, liveFilePathRef.current, liveFileContentRef.current),
+      );
+      const diff = buildTerminalImportDiff({
+        managedFiles: persistedHomeWorkspaceBaselineRef.current ?? managedFiles,
+        actualFiles: workspaceFiles,
+        includeActiveEditPath: true,
+      });
+      persistedHomeWorkspaceBaselineRef.current = { ...workspaceFiles };
+      if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return;
+      await onImportDiffRef.current?.({
+        workspaceKey: workspaceKey ?? workspaceKeyRef.current,
+        diff,
+        options: { silent: true },
+      });
+    },
+    [],
+  );
+  const readPersistedHomeWorkspaceFiles = useCallback(() => {
+    return filterPersistedHomeWorkspaceFiles(
+      buildManagedFiles(baseFilesRef.current, liveFilePathRef.current, liveFileContentRef.current),
+    );
+  }, []);
+
   const {
     capturePersistedHomeState,
     closePersistenceDialog,
@@ -1224,10 +1385,13 @@ export function TerminalPanel({
     settlePersistedHomePrompt,
     startPersistedHomeSync,
   } = useTerminalPersistedHome({
+    canApplyPersistedHomeCapture: hasFilesystemOwnership,
     focusPane,
     persistedHomeTrustPrompt,
+    readPersistedHomeWorkspaceFiles,
     readPersistedHomeEntriesForWorkspace,
     restartWebContainerRef,
+    stagePersistedHomeWorkspaceFiles,
     unmountedRef,
     wcRef,
     workspaceKeyRef,
@@ -1241,12 +1405,7 @@ export function TerminalPanel({
         : 'Credential sync off';
   const agentCredentialStatusLabel = formatAgentCredentialPresenceLabel(persistedHomeCredentialPresence);
   const networkingStatusLabel = hostBridgeError ? 'Networking error' : 'Networking on';
-  const credentialSyncMenuNote =
-    credentialSyncEnabled === null
-      ? 'Loading...'
-      : credentialSyncEnabled
-        ? 'Credentials and sessions are automatically synced across terminals.'
-        : 'Untrusted repo, credentials and sessions will be deleted on exit.';
+  const credentialSyncMenuLines = formatCredentialSyncMenuLines(credentialSyncEnabled, persistedHomeCredentialPresence);
 
   const setShellExited = useCallback((paneId: PaneId, exited: boolean) => {
     shellExitedByPaneRef.current[paneId] = exited;
@@ -1407,7 +1566,18 @@ export function TerminalPanel({
       const wc = wcRef.current;
       enqueuePendingLiveSync();
       const pendingImport = enqueueTerminalFsTask(async (): Promise<TerminalImportDiff | null> => {
+        if (options?.suppressNextUnmountImport) {
+          suppressNextUnmountImportRef.current = true;
+        }
+        if (options?.skipImport) return null;
         if (!wc || !baseFilesReadyRef.current || !onImportDiffRef.current) return null;
+        if (!hasFilesystemOwnership()) return null;
+        if (options?.capturePersistedHome) {
+          await capturePersistedHomeState(wc, {
+            immediate: true,
+            targetWorkspaceKey: workspaceKeyRef.current,
+          });
+        }
         const managedFiles = buildManagedFiles(
           baseFilesRef.current,
           liveFilePathRef.current,
@@ -1421,6 +1591,7 @@ export function TerminalPanel({
           includeActiveEditPath: includeActiveEditPathInImportsRef.current,
         });
         if (Object.keys(diff.upserts).length === 0 && diff.deletes.length === 0) return null;
+        if (!hasFilesystemOwnership()) return null;
         await onImportDiffRef.current({
           workspaceKey: workspaceKeyRef.current,
           diff,
@@ -1437,13 +1608,18 @@ export function TerminalPanel({
         }
       }
     },
-    [enqueuePendingLiveSync, enqueueTerminalFsTask],
+    [capturePersistedHomeState, enqueuePendingLiveSync, enqueueTerminalFsTask, hasFilesystemOwnership],
   );
 
   const spawnShellSession = useCallback(
     async (
       paneId: PaneId,
-      options?: { clearTerminal?: boolean; syncManagedFiles?: boolean; announceReady?: boolean },
+      options?: {
+        clearTerminal?: boolean;
+        syncManagedFiles?: boolean;
+        announceReady?: boolean;
+        consumePendingCommand?: boolean;
+      },
     ) => {
       const wc = wcRef.current;
       const runtime = paneRuntimesRef.current[paneId];
@@ -1463,9 +1639,34 @@ export function TerminalPanel({
 
       if (options?.clearTerminal) {
         resetTerminalSurface(terminal);
+        clearPaneKeyInteraction(paneId);
       }
 
-      const spawnedShell = await wc.spawn('jsh', [], {
+      const commandRequest = options?.consumePendingCommand ? pendingCommandRequestRef.current : null;
+      if (commandRequest) {
+        writeTerminal(paneId, terminalCommandStartingMessage(commandRequest), {
+          forceFollow: true,
+          newline: true,
+        });
+      } else {
+        writeTerminal(paneId, terminalShellBootMessage(), {
+          forceFollow: true,
+          newline: true,
+        });
+      }
+      if (options?.consumePendingCommand) {
+        pendingCommandRequestRef.current = null;
+      }
+      const commandArgs = commandRequest ? await resolveTerminalCommandArgs(wc, commandRequest.args ?? []) : [];
+      if (
+        unmountedRef.current ||
+        wcRef.current !== wc ||
+        paneRuntimesRef.current[paneId] !== runtime ||
+        runtime.shellSessionId !== sessionId
+      ) {
+        return;
+      }
+      const spawnedShell = await wc.spawn(commandRequest?.command ?? 'jsh', commandArgs, {
         env: hostBridgeRef.current?.env,
         terminal: { cols: terminal.cols, rows: terminal.rows },
       });
@@ -1530,7 +1731,9 @@ export function TerminalPanel({
         try {
           writeTerminal(
             paneId,
-            `Shell exited${typeof exitCode === 'number' ? ` (code ${exitCode})` : ''}. Press Ctrl-C twice to restart.`,
+            `${commandRequest ? commandRequest.command : 'Shell'} exited${
+              typeof exitCode === 'number' ? ` (code ${exitCode})` : ''
+            }. Press Ctrl-C twice to restart.`,
             { forceFollow: true, newline: true },
           );
         } catch {
@@ -1540,7 +1743,15 @@ export function TerminalPanel({
 
       setShellReadyByPane((current) => ({ ...current, [paneId]: true }));
     },
-    [flushManagedSync, hideResetBanner, releasePaneShellSession, setFollowOutput, setShellExited, writeTerminal],
+    [
+      clearPaneKeyInteraction,
+      flushManagedSync,
+      hideResetBanner,
+      releasePaneShellSession,
+      setFollowOutput,
+      setShellExited,
+      writeTerminal,
+    ],
   );
 
   const handleResetHotkey = useCallback(
@@ -1620,6 +1831,10 @@ export function TerminalPanel({
       };
 
       const handleTerminalInput = (data: string) => {
+        if (data.length > 0) {
+          markPaneKeyInteraction(paneId);
+        }
+        onInteraction?.();
         setActivePaneId(paneId);
         if (data === '\x03') {
           if (handleResetHotkey(paneId, 'ctrl-c')) {
@@ -1667,6 +1882,15 @@ export function TerminalPanel({
         event.stopPropagation();
       };
       container.addEventListener('keydown', onContainerKeyDown, true);
+
+      const onContainerPaste = () => {
+        markPaneKeyInteraction(paneId);
+      };
+      const onContainerDrop = () => {
+        markPaneKeyInteraction(paneId);
+      };
+      container.addEventListener('paste', onContainerPaste, true);
+      container.addEventListener('drop', onContainerDrop, true);
 
       let resizeFrameId: number | null = null;
       let dragResizeTimeoutId: number | null = null;
@@ -1750,6 +1974,8 @@ export function TerminalPanel({
         onResizeDispose.dispose();
         onScrollDispose.dispose();
         container.removeEventListener('keydown', onContainerKeyDown, true);
+        container.removeEventListener('paste', onContainerPaste, true);
+        container.removeEventListener('drop', onContainerDrop, true);
         if (runtime.terminal === terminal) {
           runtime.terminal = null;
         }
@@ -1759,6 +1985,8 @@ export function TerminalPanel({
     [
       fitPane,
       handleResetHotkey,
+      markPaneKeyInteraction,
+      onInteraction,
       onToggleVisibilityShortcut,
       renderBaseFilesLoadError,
       terminalThemeMode,
@@ -1839,6 +2067,7 @@ export function TerminalPanel({
       setShellReadyByPane({ primary: false, secondary: false });
 
       if (options?.clearTerminal) {
+        clearAllPaneKeyInteractions();
         for (const paneId of visiblePaneIdsRef.current) {
           const paneTerminal = paneRuntimesRef.current[paneId].terminal;
           if (paneTerminal) {
@@ -1902,6 +2131,7 @@ export function TerminalPanel({
           return;
         }
 
+        claimFilesystemOwnership();
         await bootPerf.measure('clearWorkspace', () => clearWorkdir(wc));
         if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
           bootStatus = 'cancelled';
@@ -1914,6 +2144,7 @@ export function TerminalPanel({
           liveFilePathRef.current,
           liveFileContentRef.current,
         );
+        persistedHomeWorkspaceBaselineRef.current = filterPersistedHomeWorkspaceFiles(baseFilesRef.current);
         const initialFileCount = Object.keys(initialFiles).length;
         const initialTree = buildFileSystemTree(initialFiles);
         bootPerf.record('prepareWorkspaceTree', bootPerfNow() - initialFilesStartedAt, {
@@ -1966,7 +2197,7 @@ export function TerminalPanel({
         const persistedHomePrepPromise = (async () => {
           try {
             const homeDir = await homeDirPromise;
-            return await preparePersistedHomeRestore(wc, workspaceKeyRef.current, homeDir, {
+            return await preparePersistedHomeRestore(wc, workspaceKeyRef.current, baseFilesRef.current, homeDir, {
               includePersistedHome: includePersistedHomeSync,
               bootPerf,
             });
@@ -2072,7 +2303,9 @@ export function TerminalPanel({
           async () => {
             const paneIds = visiblePaneIdsRef.current;
             await Promise.all(
-              paneIds.map((paneId, index) => spawnShellSession(paneId, { announceReady: index === 0 })),
+              paneIds.map((paneId, index) =>
+                spawnShellSession(paneId, { announceReady: index === 0, consumePendingCommand: index === 0 }),
+              ),
             );
             if (unmountedRef.current || webContainerSessionIdRef.current !== sessionId) {
               bootStatus = 'cancelled';
@@ -2117,6 +2350,8 @@ export function TerminalPanel({
       apiKey,
       baseFilesLoadingMessage,
       capturePersistedHomeState,
+      claimFilesystemOwnership,
+      clearAllPaneKeyInteractions,
       ensurePaneSurface,
       fitPane,
       getPersistedHomeActiveSessionMode,
@@ -2140,7 +2375,7 @@ export function TerminalPanel({
   );
 
   const restartShell = useCallback(
-    async (paneId?: PaneId, options?: { clearTerminal?: boolean }): Promise<void> => {
+    async (paneId?: PaneId, options?: { clearTerminal?: boolean; consumePendingCommand?: boolean }): Promise<void> => {
       if (restartInFlightRef.current) {
         return await restartInFlightRef.current;
       }
@@ -2161,6 +2396,7 @@ export function TerminalPanel({
           await spawnShellSession(targetPaneId, {
             clearTerminal: options?.clearTerminal,
             syncManagedFiles: true,
+            consumePendingCommand: options?.consumePendingCommand,
           });
           focusPane(targetPaneId);
         } catch (err) {
@@ -2247,6 +2483,34 @@ export function TerminalPanel({
     [getPreferredPaneId, hideResetBanner, initializeWebContainerSession, writeTerminal],
   );
   restartWebContainerRef.current = restartWebContainer;
+
+  useEffect(() => {
+    if (!visible || !commandRequest) return;
+    if (handledCommandRequestIdRef.current === commandRequest.id) return;
+    handledCommandRequestIdRef.current = commandRequest.id;
+    pendingCommandRequestRef.current = commandRequest;
+    void (async () => {
+      try {
+        const topPaneId = singlePaneIdRef.current;
+        const topRuntime = paneRuntimesRef.current[topPaneId];
+        if (wcRef.current && topRuntime.terminal) {
+          await restartShell(topPaneId, { clearTerminal: true, consumePendingCommand: true });
+          if (pendingCommandRequestRef.current?.id === commandRequest.id && !unmountedRef.current) {
+            await restartShell(topPaneId, { clearTerminal: true, consumePendingCommand: true });
+          }
+          return;
+        }
+        await restartWebContainer();
+        if (pendingCommandRequestRef.current?.id === commandRequest.id && !unmountedRef.current) {
+          await restartWebContainer();
+        }
+      } finally {
+        if (!unmountedRef.current) {
+          onCommandRequestHandledRef.current?.(commandRequest.id);
+        }
+      }
+    })();
+  }, [commandRequest, restartShell, restartWebContainer, visible]);
 
   useEffect(() => {
     if (!persistedHomePromptState) return;
@@ -2500,10 +2764,16 @@ export function TerminalPanel({
     return () => {
       unmountedRef.current = true;
       notifyBaseFilesReadyWaiters();
-      const skipImportOnUnmount = didRecentHotReload();
+      const skipWorkspaceSyncOnUnmount = suppressNextUnmountImportRef.current;
+      const skipImportOnUnmount = didRecentHotReload() || skipWorkspaceSyncOnUnmount;
+      suppressNextUnmountImportRef.current = false;
       const currentWc = wcRef.current;
       const allowPersistedHomeCapture = getPersistedHomeActiveSessionMode() === 'include';
-      if (currentWc && allowPersistedHomeCapture) {
+      if (skipWorkspaceSyncOnUnmount) {
+        // The workspace transition guard already captured managed home state
+        // and either saved recovery or discarded staging. Avoid re-staging from
+        // the old keyed terminal during cleanup.
+      } else if (currentWc && allowPersistedHomeCapture) {
         // Pin the workspace key before the async capture — the ref can drift
         // after unmount if the parent re-renders with a new workspace.
         const targetWorkspaceKey = workspaceKeyRef.current;
@@ -2546,6 +2816,7 @@ export function TerminalPanel({
       setResettingShell(false);
       setRestartingWebContainer(false);
       lastWrittenRef.current = new Map();
+      persistedHomeWorkspaceBaselineRef.current = null;
     };
   }, [
     capturePersistedHomeState,
@@ -2617,18 +2888,6 @@ export function TerminalPanel({
       ) : (
         <>
           <div class={`terminal-panel__stack${splitOpen ? ' terminal-panel__stack--split' : ''}`}>
-            {workspaceNoticeKey && dismissedWorkspaceNoticeKey !== workspaceNoticeKey ? (
-              <button
-                type="button"
-                class="terminal-panel__notice"
-                onClick={() => {
-                  setDismissedWorkspaceNoticeKey(workspaceNoticeKey);
-                }}
-                aria-label="Hide terminal changes notice"
-              >
-                {workspaceChangesNotice}
-              </button>
-            ) : null}
             {visiblePaneIds.map((paneId, index) => (
               <div
                 key={paneId}
@@ -2679,7 +2938,7 @@ export function TerminalPanel({
                       }}
                     >
                       <ZapOff size={15} aria-hidden="true" />
-                      <span>Keep credential sync off</span>
+                      <span>Turn credential sync off</span>
                     </button>
                     <button
                       type="button"
@@ -2688,8 +2947,8 @@ export function TerminalPanel({
                         settlePersistedHomePrompt(true);
                       }}
                     >
-                      <ShieldCheck size={15} aria-hidden="true" />
-                      <span>Trust this {persistedHomePromptState.target}, enable credential sync</span>
+                      <Bot size={15} aria-hidden="true" />
+                      <span>Trust this {persistedHomePromptState.target}, turn credential sync on</span>
                     </button>
                   </div>
                   <p class="terminal-panel__trust-prompt-note">This will restart running terminals.</p>
@@ -2709,17 +2968,21 @@ export function TerminalPanel({
                       title={`${agentCredentialStatusLabel}. ${credentialSyncStatusLabel}. ${networkingStatusLabel}. Terminal session settings`}
                     >
                       {credentialSyncEnabled ? (
-                        <Zap size={14} aria-hidden="true" />
+                        <Bot size={14} aria-hidden="true" />
                       ) : (
                         <ZapOff size={14} aria-hidden="true" />
                       )}
-                      <span>{agentCredentialStatusLabel}</span>
                     </button>
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content class="terminal-panel__menu" side="top" align="end" sideOffset={8}>
                       <DropdownMenu.Label class="terminal-panel__menu-note">
-                        {credentialSyncMenuNote}
+                        {credentialSyncMenuLines.map((line) => (
+                          <span class="terminal-panel__menu-note-line" key={line.label}>
+                            {line.checked ? <Check size={12} aria-hidden="true" /> : null}
+                            <span>{line.label}</span>
+                          </span>
+                        ))}
                       </DropdownMenu.Label>
                       <DropdownMenu.Separator class="terminal-panel__menu-separator" />
                       <DropdownMenu.Item
@@ -2728,7 +2991,7 @@ export function TerminalPanel({
                           void openPersistenceDialog();
                         }}
                       >
-                        View synced data
+                        View synced credentials
                       </DropdownMenu.Item>
                       {showPersistedHomeTrustConfiguration ? (
                         <DropdownMenu.Item
@@ -2737,7 +3000,7 @@ export function TerminalPanel({
                             openPersistedHomeReconfigurePrompt();
                           }}
                         >
-                          Configure credential sync
+                          Configure
                         </DropdownMenu.Item>
                       ) : null}
                     </DropdownMenu.Content>

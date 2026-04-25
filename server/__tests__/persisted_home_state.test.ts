@@ -7,6 +7,10 @@ import {
   buildPersistedHomeSeed,
   buildPersistedHomeSyncScript,
   derivePersistedHomeCredentialPresence,
+  isPersistedHomePathExcluded,
+  mapPersistedHomePathToWorkspacePath,
+  mapWorkspacePathToPersistedHomePath,
+  mergePersistedHomeEntrySources,
   normalizePersistedHomePath,
   PERSISTED_HOME_SEED_FILENAME,
   PERSISTED_HOME_SYNC_SCRIPT_FILENAME,
@@ -58,22 +62,22 @@ test('persisted home sync script restores and snapshots managed home files', asy
   const entries = [
     { path: '.claude.json', content: '{\n  "theme": "dark"\n}\n' },
     { path: '.claude/.config.json', content: '{\n  "theme": "dark"\n}\n' },
-    { path: '.claude/.credentials.json', content: '{\n  "accessToken": "secret"\n}\n' },
-    { path: '.claude/cache/model-a.bin', content: 'cached bytes\n' },
+    { path: '.claude/.credentials.json', content: '{\n  "accessToken": "token-value"\n}\n' },
+    { path: '.claude/cache/model-a.bin', content: 'cached content\n' },
     { path: '.claude/projects/worktree-a.json', content: '{\n  "cwd": "/tmp/worktree-a"\n}\n' },
-    { path: '.claude/sessions/a.txt', content: 'first transcript\n' },
-    { path: '.claude/sessions/nested/b.txt', content: 'second transcript\n' },
-    { path: '.pi/agent/auth.json', content: '{\n  "openai": { "apiKey": "secret" }\n}\n' },
+    { path: '.claude/sessions/a.txt', content: 'session content one\n' },
+    { path: '.claude/sessions/nested/b.txt', content: 'session content two\n' },
+    { path: '.pi/agent/auth.json', content: '{\n  "provider": { "apiKey": "token-value" }\n}\n' },
     { path: '.pi/agent/bin/rg', content: '#!/bin/sh\nexit 0\n' },
     { path: '.pi/agent/extensions/example.js', content: 'export default function example() {}\n' },
     { path: '.pi/agent/keybindings.json', content: '{\n  "app.clear": ["ctrl+l"]\n}\n' },
-    { path: '.pi/agent/models.json', content: '[\n  { "provider": "openai", "id": "gpt-4.1" }\n]\n' },
-    { path: '.pi/agent/prompts/fix.md', content: '# fix\n\nTighten the implementation.\n' },
-    { path: '.pi/agent/settings.json', content: '{\n  "defaultProvider": "openai"\n}\n' },
+    { path: '.pi/agent/models.json', content: '[\n  { "provider": "provider", "id": "model-id" }\n]\n' },
+    { path: '.pi/agent/prompts/prompt.md', content: '# Prompt\n\nPrompt text.\n' },
+    { path: '.pi/agent/settings.json', content: '{\n  "defaultProvider": "provider"\n}\n' },
     { path: '.pi/agent/sessions/pi-session.jsonl', content: '{"type":"header"}\n{"type":"user"}\n' },
     { path: '.pi/agent/sessions/nested/pi-branch.jsonl', content: '{"type":"assistant"}\n' },
     { path: '.pi/agent/themes/contrast.json', content: '{\n  "meta": { "name": "contrast" }\n}\n' },
-    { path: '.jsh_history', content: 'npm test\ngit status\n' },
+    { path: '.jsh_history', content: 'command one\ncommand two\n' },
   ].map((entry, index) => ({ ...entry, mtime: baseMtime + index * 1_000 }));
   const entryByPath = new Map(entries.map((entry) => [entry.path, entry.content]));
   const mtimeByPath = new Map(entries.map((entry) => [entry.path, entry.mtime]));
@@ -120,10 +124,6 @@ test('persisted home sync script restores and snapshots managed home files', asy
   );
   t.is(await readFile(path.join(homeDir, '.claude.json'), 'utf8'), entryByPath.get('.claude.json'));
   t.is(
-    await readFile(path.join(homeDir, '.claude', 'cache', 'model-a.bin'), 'utf8'),
-    entryByPath.get('.claude/cache/model-a.bin'),
-  );
-  t.is(
     await readFile(path.join(homeDir, '.claude', 'projects', 'worktree-a.json'), 'utf8'),
     entryByPath.get('.claude/projects/worktree-a.json'),
   );
@@ -136,7 +136,6 @@ test('persisted home sync script restores and snapshots managed home files', asy
     entryByPath.get('.claude/sessions/nested/b.txt'),
   );
   t.is(await readFile(path.join(homeDir, '.pi', 'agent', 'auth.json'), 'utf8'), entryByPath.get('.pi/agent/auth.json'));
-  t.is(await readFile(path.join(homeDir, '.pi', 'agent', 'bin', 'rg'), 'utf8'), entryByPath.get('.pi/agent/bin/rg'));
   t.is(
     await readFile(path.join(homeDir, '.pi', 'agent', 'extensions', 'example.js'), 'utf8'),
     entryByPath.get('.pi/agent/extensions/example.js'),
@@ -150,8 +149,8 @@ test('persisted home sync script restores and snapshots managed home files', asy
     entryByPath.get('.pi/agent/models.json'),
   );
   t.is(
-    await readFile(path.join(homeDir, '.pi', 'agent', 'prompts', 'fix.md'), 'utf8'),
-    entryByPath.get('.pi/agent/prompts/fix.md'),
+    await readFile(path.join(homeDir, '.pi', 'agent', 'prompts', 'prompt.md'), 'utf8'),
+    entryByPath.get('.pi/agent/prompts/prompt.md'),
   );
   t.is(
     await readFile(path.join(homeDir, '.pi', 'agent', 'settings.json'), 'utf8'),
@@ -182,10 +181,8 @@ test('persisted home sync script restores and snapshots managed home files', asy
     Math.trunc((await stat(path.join(homeDir, '.pi', 'agent', 'settings.json'))).mtimeMs),
     mtimeByPath.get('.pi/agent/settings.json'),
   );
-  await t.throwsAsync(stat(path.join(homeDir, '.claude', 'cache', 'stale.bin')));
   await t.throwsAsync(stat(path.join(homeDir, '.claude', 'projects', 'stale.json')));
   await t.throwsAsync(stat(path.join(homeDir, '.claude', 'sessions', 'stale.txt')));
-  await t.throwsAsync(stat(path.join(homeDir, '.pi', 'agent', 'bin', 'stale-tool')));
   await t.throwsAsync(stat(path.join(homeDir, '.pi', 'agent', 'extensions', 'stale.js')));
   await t.throwsAsync(stat(path.join(homeDir, '.pi', 'agent', 'prompts', 'stale.md')));
   await t.throwsAsync(stat(path.join(homeDir, '.pi', 'agent', 'sessions', 'stale.jsonl')));
@@ -198,7 +195,9 @@ test('persisted home sync script restores and snapshots managed home files', asy
   t.is(snapshot.code, 0, snapshot.stderr);
   t.deepEqual(JSON.parse(snapshot.stdout.trim()), {
     type: 'snapshot',
-    entries: [...entries].sort((left, right) => left.path.localeCompare(right.path)),
+    entries: entries
+      .filter((entry) => !isPersistedHomePathExcluded(entry.path))
+      .sort((left, right) => left.path.localeCompare(right.path)),
   });
 });
 
@@ -235,6 +234,51 @@ test('persisted home target scope separates global claude config from workspace 
         { path: '.claude/sessions/example.jsonl', content: 'session\n', mtime: 4 },
       ],
     },
+  );
+});
+
+test('workspace persisted home paths map under .input', (t) => {
+  t.is(mapPersistedHomePathToWorkspacePath('.claude/sessions/example.jsonl'), '.input/.claude/sessions/example.jsonl');
+  t.is(
+    mapPersistedHomePathToWorkspacePath('.pi/agent/sessions/example.jsonl'),
+    '.input/.pi/agent/sessions/example.jsonl',
+  );
+  t.is(mapPersistedHomePathToWorkspacePath('.claude/.credentials.json'), null);
+  t.is(mapPersistedHomePathToWorkspacePath('.claude/cache/model-a.bin'), null);
+  t.is(mapPersistedHomePathToWorkspacePath('.pi/agent/bin/rg'), null);
+  t.is(mapWorkspacePathToPersistedHomePath('.input/.claude/sessions/example.jsonl'), '.claude/sessions/example.jsonl');
+  t.is(
+    mapWorkspacePathToPersistedHomePath('.input/.pi/agent/sessions/example.jsonl'),
+    '.pi/agent/sessions/example.jsonl',
+  );
+  t.is(mapWorkspacePathToPersistedHomePath('.input/.claude/.credentials.json'), null);
+  t.is(mapWorkspacePathToPersistedHomePath('.input/.claude/cache/model-a.bin'), null);
+  t.is(mapWorkspacePathToPersistedHomePath('.input/.pi/agent/bin/rg'), null);
+});
+
+test('persisted home merge preserves legacy workspace entries until workspace files replace them', (t) => {
+  t.deepEqual(
+    mergePersistedHomeEntrySources({
+      legacyWorkspaceEntries: [
+        { path: '.claude/sessions/legacy.jsonl', content: 'legacy session\n', mtime: 10 },
+        { path: '.claude/sessions/replaced.jsonl', content: 'legacy stale\n', mtime: 11 },
+        { path: '.claude/cache/ignored.bin', content: 'cache\n', mtime: 12 },
+      ],
+      workspaceEntries: [
+        { path: '.claude/sessions/replaced.jsonl', content: 'workspace current\n', mtime: null },
+        { path: '.pi/agent/sessions/current.jsonl', content: 'workspace pi\n', mtime: null },
+      ],
+      globalEntries: [
+        { path: '.claude/.credentials.json', content: 'global credentials\n', mtime: 20 },
+        { path: '.claude/sessions/not-global.jsonl', content: 'ignored wrong scope\n', mtime: 21 },
+      ],
+    }),
+    [
+      { path: '.claude/.credentials.json', content: 'global credentials\n', mtime: 20 },
+      { path: '.claude/sessions/legacy.jsonl', content: 'legacy session\n', mtime: 10 },
+      { path: '.claude/sessions/replaced.jsonl', content: 'workspace current\n', mtime: null },
+      { path: '.pi/agent/sessions/current.jsonl', content: 'workspace pi\n', mtime: null },
+    ],
   );
 });
 

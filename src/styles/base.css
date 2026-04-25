@@ -120,12 +120,12 @@
   --bracketed-text-underline-color: color-mix(in srgb, currentColor 58%, transparent);
   --error-color: #f85149;
   --warning-color: #d29922;
-  --success-color: #3fb950;
+  --success-color: #23884d;
   --highlighter-color: #ffd400;
   --highlighter-bright-color: #ffe45c;
   --highlighter-bg: color-mix(in srgb, var(--highlighter-color) 26%, transparent);
-  --success-bg: rgba(63, 185, 80, 0.18);
-  --success-border: #3fb950;
+  --success-bg: rgba(35, 136, 77, 0.18);
+  --success-border: #23884d;
   --danger-bg: #490202;
   --danger-border: #f85149;
   --sidebar-renaming-row-bg: #10151b;
@@ -188,12 +188,12 @@
   --bracketed-text-underline-color: color-mix(in srgb, currentColor 44%, transparent);
   --error-color: #cf222e;
   --warning-color: #9a6700;
-  --success-color: #1a7f37;
+  --success-color: #55ad7a;
   --highlighter-color: #ffcc00;
   --highlighter-bright-color: #e0a800;
   --highlighter-bg: color-mix(in srgb, var(--highlighter-color) 28%, transparent);
-  --success-bg: #dafbe1;
-  --success-border: #1a7f37;
+  --success-bg: #e4f6eb;
+  --success-border: #55ad7a;
   --danger-bg: #ffebe9;
   --danger-border: #cf222e;
   --sidebar-renaming-row-bg: #e2e2e1;
@@ -445,8 +445,13 @@ button.button-success-solid {
 
 button.button-success-solid:hover {
   border-color: color-mix(in srgb, var(--success-border) 86%, transparent);
-  background: color-mix(in srgb, var(--success-color) 86%, #000000 14%);
+  background: color-mix(in srgb, var(--success-color) 94%, #ffffff 6%);
   color: #ffffff;
+}
+
+[data-theme="light"] button.button-success-solid:hover {
+  border-color: color-mix(in srgb, var(--success-border) 86%, transparent);
+  background: color-mix(in srgb, var(--success-color) 96%, #000000 4%);
 }
 
 button.button-success-solid:focus,

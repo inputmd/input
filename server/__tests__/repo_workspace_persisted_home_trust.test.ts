@@ -80,7 +80,7 @@ test('untrusted public repos default credential sync off without blocking termin
   t.is(result.prompt?.defaultMode, 'exclude');
   t.true(result.prompt?.trustResolved ?? false);
   t.false('promptOnBoot' in (result.prompt ?? {}));
-  t.regex(result.prompt?.message ?? '', /trust this repo/i);
+  t.regex(result.prompt?.message ?? '', /trusted repos/i);
   t.is(result.prompt?.storageKey, 'user:raymond:repo:other-org/their-project');
 });
 

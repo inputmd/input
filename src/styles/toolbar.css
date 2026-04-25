@@ -429,10 +429,25 @@
 .toolbar-save-status-tooltip-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.toolbar-save-status-tooltip-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toolbar-save-status-tooltip-group-label {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .toolbar-save-status-tooltip-item {
@@ -445,6 +460,7 @@
 }
 
 .toolbar-save-status-tooltip-path {
+  flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -467,6 +483,29 @@
 .toolbar-save-status-tooltip-binary {
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.toolbar-save-status-tooltip-action {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--btn-bg) 62%, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.toolbar-save-status-tooltip-action:hover:not(:disabled) {
+  background: var(--btn-hover);
+  color: var(--text);
+}
+
+.toolbar-save-status-tooltip-action:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .author-menu-trigger {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { ApiError } from '../api_error';
+import type { TerminalCommandRequest, TerminalPanelInteractionHandle } from '../components/TerminalPanel';
 import type { GistFile } from '../github';
 import type { LinkedInstallation } from '../github_app';
 import { getPublicRepoTarball, getRepoTarball } from '../github_app';
@@ -53,6 +54,11 @@ interface UseRepoTerminalBindingArgs {
   registerImportHandler?: (
     handler: ((options?: TerminalImportOptions) => Promise<TerminalImportDiff | null>) | null,
   ) => void;
+  commandRequest?: TerminalCommandRequest | null;
+  onCommandRequestHandled?: (id: number) => void;
+  interactionHandleRef?: { current: TerminalPanelInteractionHandle | null };
+  onFocusWithinChange?: (focused: boolean) => void;
+  onInteraction?: () => void;
 }
 
 export function useRepoTerminalBinding({
@@ -86,10 +92,15 @@ export function useRepoTerminalBinding({
   onToggleVisibilityShortcut,
   onImportDiff,
   registerImportHandler,
+  commandRequest = null,
+  onCommandRequestHandled,
+  interactionHandleRef,
+  onFocusWithinChange,
+  onInteraction,
 }: UseRepoTerminalBindingArgs): RepoTerminalBinding {
   const cacheKey = `${workspaceKey}:${snapshotVersion}`;
   const [baseFilesLoadError, setBaseFilesLoadError] = useState<string | null>(null);
-  const workspaceChangesPersisted = repoAccessMode === 'installed';
+  const workspaceChangesPersisted = repoAccessMode === 'installed' || currentGistId !== null;
 
   const workdirName = useMemo(
     () =>
@@ -136,20 +147,6 @@ export function useRepoTerminalBinding({
       (repoAccessMode === 'public' && Boolean(publicRepoRef)),
     [activeInstalledRepoInstallationId, publicRepoRef, repoAccessMode, selectedRepo],
   );
-
-  const workspaceChangesNotice = useMemo(() => {
-    if (workspaceChangesPersisted) return null;
-    if (repoAccessMode === 'public' && publicRepoRef) {
-      return `Changes in this terminal won't be saved to ${publicRepoRef.owner}/${publicRepoRef.repo}.`;
-    }
-    if (repoAccessMode === 'shared' && currentRouteRepoRef) {
-      return `Changes in this terminal won't be saved to ${currentRouteRepoRef.owner}/${currentRouteRepoRef.repo}.`;
-    }
-    if (currentGistId) {
-      return "Changes in this terminal won't be saved to this gist.";
-    }
-    return "Changes in this terminal won't be saved.";
-  }, [currentGistId, currentRouteRepoRef, publicRepoRef, repoAccessMode, workspaceChangesPersisted]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -263,14 +260,17 @@ export function useRepoTerminalBinding({
         baseFilesLoadError,
         baseFilesLoadingMessage: requiresTerminalBaseSnapshot ? 'Fetching repo...' : null,
         liveFile,
-        workspaceChangesPersisted,
-        workspaceChangesNotice,
         persistedHomeTrustPrompt: persistedHomeTrustAccess.prompt,
         showPersistedHomeTrustConfiguration: persistedHomeTrustAccess.canConfigure,
         includeActiveEditPathInImports,
         onToggleVisibilityShortcut,
         onImportDiff: workspaceChangesPersisted ? onImportDiff : undefined,
         registerImportHandler: workspaceChangesPersisted ? registerImportHandler : undefined,
+        commandRequest,
+        onCommandRequestHandled,
+        interactionHandleRef,
+        onFocusWithinChange,
+        onInteraction,
       },
     }),
     [
@@ -281,12 +281,16 @@ export function useRepoTerminalBinding({
       requiresTerminalBaseSnapshot,
       includeActiveEditPathInImports,
       liveFile,
+      commandRequest,
+      onCommandRequestHandled,
+      interactionHandleRef,
+      onFocusWithinChange,
+      onInteraction,
       onToggleVisibilityShortcut,
       onImportDiff,
       persistedHomeTrustAccess,
       registerImportHandler,
       visible,
-      workspaceChangesNotice,
       workspaceChangesPersisted,
       workdirName,
       workspaceKey,

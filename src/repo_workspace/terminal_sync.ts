@@ -7,6 +7,9 @@ export interface TerminalImportDiff {
 
 export interface TerminalImportOptions {
   silent?: boolean;
+  capturePersistedHome?: boolean;
+  suppressNextUnmountImport?: boolean;
+  skipImport?: boolean;
 }
 
 export interface TerminalImportedWorkspaceChanges {

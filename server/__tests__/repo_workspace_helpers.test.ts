@@ -1,5 +1,10 @@
 import test from 'ava';
 import { countRepoWorkspaceSidebarFiles, filterRepoWorkspaceSidebarFiles } from '../../src/repo_workspace/helpers.ts';
+import {
+  isWorkspaceTransition,
+  workspaceKeyFromRoute,
+  workspaceKeysMatch,
+} from '../../src/repo_workspace/workspace_transition.ts';
 
 interface TestSidebarFile {
   path: string;
@@ -55,6 +60,33 @@ test('filterRepoWorkspaceSidebarFiles shows hidden files and folders when enable
   );
 });
 
+test('filterRepoWorkspaceSidebarFiles always shows input workspace files', (t) => {
+  const files = [
+    createSidebarFile('notes.md'),
+    createSidebarFile('.input/.pi/agent/sessions/example.jsonl'),
+    createSidebarFile('.input/.claude/sessions/example.json'),
+    createSidebarFile('.config/hidden.md'),
+  ];
+
+  t.deepEqual(
+    filterRepoWorkspaceSidebarFiles(files, 'all').map((file) => file.path),
+    ['notes.md', '.input/.pi/agent/sessions/example.jsonl', '.input/.claude/sessions/example.json'],
+  );
+  t.deepEqual(
+    filterRepoWorkspaceSidebarFiles(files, 'text').map((file) => file.path),
+    ['notes.md', '.input/.pi/agent/sessions/example.jsonl', '.input/.claude/sessions/example.json'],
+  );
+  t.deepEqual(
+    filterRepoWorkspaceSidebarFiles(files, 'markdown').map((file) => file.path),
+    ['notes.md', '.input/.pi/agent/sessions/example.jsonl', '.input/.claude/sessions/example.json'],
+  );
+  t.deepEqual(countRepoWorkspaceSidebarFiles(files), {
+    markdown: 1,
+    text: 3,
+    total: 3,
+  });
+});
+
 test('countRepoWorkspaceSidebarFiles tracks hidden visibility and includes .keep in text counts', (t) => {
   t.deepEqual(countRepoWorkspaceSidebarFiles(sidebarFiles), {
     markdown: 1,
@@ -66,4 +98,36 @@ test('countRepoWorkspaceSidebarFiles tracks hidden visibility and includes .keep
     text: 4,
     total: 5,
   });
+});
+
+test('workspaceKeyFromRoute groups files and edit routes by workspace', (t) => {
+  t.is(
+    workspaceKeyFromRoute({
+      name: 'repofile',
+      params: { owner: 'Owner', repo: 'Repo', path: 'README.md' },
+    }),
+    'repo:Owner/Repo',
+  );
+  t.is(
+    workspaceKeyFromRoute({
+      name: 'repoedit',
+      params: { owner: 'Owner', repo: 'Repo', path: 'README.md' },
+    }),
+    'repo:Owner/Repo',
+  );
+  t.is(
+    workspaceKeyFromRoute({
+      name: 'gist',
+      params: { id: 'abc123ef', filename: 'README.md' },
+    }),
+    'gist:abc123ef',
+  );
+  t.is(workspaceKeyFromRoute({ name: 'workspaces', params: {} }), 'workspace:none');
+});
+
+test('workspace transition detection ignores casing for repo-like keys', (t) => {
+  t.true(workspaceKeysMatch('repo:Owner/Repo', 'repo:owner/repo'));
+  t.false(isWorkspaceTransition('repo:Owner/Repo', 'repo:owner/repo'));
+  t.true(isWorkspaceTransition('repo:owner/repo', 'gist:abc123ef'));
+  t.true(isWorkspaceTransition('gist:abc123ef', 'workspace:none'));
 });
