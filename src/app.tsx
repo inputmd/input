@@ -6365,19 +6365,19 @@ export function App() {
     ],
   );
 
-  const handleClearSelectedFile = useCallback(async () => {
-    if (!currentRepoDocPath && !currentFileName) return;
+  const handleClearSelectedFile = useCallback(async (): Promise<boolean> => {
+    if (!currentRepoDocPath && !currentFileName) return false;
     if (activeView === 'edit' && readerAiNavigationLocked) {
       showFailureToast('Reader AI is working. Wait for it to finish before clearing the current file.');
-      return;
+      return false;
     }
     if (activeView === 'edit' && pendingImageUploads.size > 0) {
       showFailureToast('Wait for image uploads to finish before clearing the current file.');
-      return;
+      return false;
     }
     if (activeView === 'edit' && hasCurrentEditorUnsavedChanges) {
       const discard = await showConfirm('You have unsaved changes. Discard them and stop editing this file?');
-      if (!discard) return;
+      if (!discard) return false;
       discardCurrentDocumentChanges();
     }
     if (editingBackend === 'gist' && currentGistId && currentFileName === null) {
@@ -6385,7 +6385,7 @@ export function App() {
     }
     if (repoAccessMode === 'installed') {
       clearCurrentInstalledRepoFileSelection();
-      return;
+      return true;
     }
     setHasUnsavedChanges(false);
     setCurrentRepoDocPath(null);
@@ -6397,6 +6397,7 @@ export function App() {
     setCurrentDocumentSavedContent(null);
     clearRenderedContent();
     setViewPhase(null);
+    return true;
   }, [
     activeView,
     clearRenderedContent,
@@ -8548,9 +8549,7 @@ export function App() {
     showHiddenFiles: sidebarShowHiddenFiles,
     onShowHiddenFilesChange: setSidebarShowHiddenFiles,
     onSelectFile: handleSelectFile,
-    onClearSelection: () => {
-      void handleClearSelectedFile();
-    },
+    onClearSelection: handleClearSelectedFile,
     onViewOnGitHub: handleViewOnGitHub,
     onViewFolderOnGitHub: handleViewFolderOnGitHub,
     canViewOnGitHub:

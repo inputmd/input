@@ -70,7 +70,7 @@ export interface SidebarProps {
   readOnly?: boolean;
   showDailyNoteAction?: boolean;
   onSelectFile: (path: string) => void;
-  onClearSelection?: () => void;
+  onClearSelection?: () => boolean | undefined | Promise<boolean | undefined>;
   onViewOnGitHub: (path: string) => void;
   onViewFolderOnGitHub: (path: string) => void;
   canViewOnGitHub: boolean;
@@ -875,22 +875,17 @@ export function Sidebar({
     }
   };
 
-  const handleSidebarBackgroundClick = (event: MouseEvent) => {
+  const handleSidebarBackgroundClick = async (event: MouseEvent) => {
     if (event.target !== event.currentTarget) return;
     if (hasOpenFile) {
-      setCreateAtRoot(false);
-      const nextFocusedPath = activeFilePath ?? focusedPath ?? null;
-      if (nextFocusedPath) {
-        setFocusedPath(nextFocusedPath);
-        setCreateContextPath(nextFocusedPath);
-        rowRefs.current[nextFocusedPath]?.focus();
-      }
-      return;
+      if (!onClearSelection) return;
+      const cleared = await onClearSelection();
+      if (cleared === false) return;
     }
     setCreateAtRoot(true);
     setFocusedPath(null);
     setCreateContextPath(null);
-    onClearSelection?.();
+    if (!hasOpenFile) onClearSelection?.();
   };
 
   const renderFolderRow = (folder: SidebarFolderNode, depth: number, collapsed: boolean) => {

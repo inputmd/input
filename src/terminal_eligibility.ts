@@ -25,6 +25,7 @@ function editablePathFromRoute(route: Route): string | null {
 export function resolveTerminalRouteEligibility(options: ResolveTerminalRouteEligibilityOptions): boolean {
   if (options.readerAiContentEligible) return true;
   if (options.route.name === 'new') return true;
+  if (options.route.name === 'repodocuments') return true;
   const routeEditPath = editablePathFromRoute(options.route);
   if (isEditableTextFilePath(routeEditPath)) return true;
   if (options.routeView !== 'edit') return false;
