@@ -71,6 +71,11 @@ import {
 import { createOrReuseRepoFileShareLink, listRepoFileShareLinkResponses } from './repo_file_share_links.ts';
 import { extractTarball } from './repo_tarball.ts';
 import {
+  clearInstalledRepoTarballCache,
+  getOrLoadInstalledRepoTarballFiles,
+  getOrLoadPublicRepoTarballFiles,
+} from './repo_tarball_cache.ts';
+import {
   clearRememberedInstallationForUser,
   consumeOAuthState,
   createOAuthState,
@@ -1501,6 +1506,7 @@ async function handlePutContents(ctx: RouteContext): Promise<void> {
     body: JSON.stringify({ message, content, sha, branch }),
   });
   if (await gitHubResponseFailed(ctx.res, ghRes, ghPath)) return;
+  clearInstalledRepoTarballCache(installationId, owner, repo);
   json(ctx.res, 200, await ghRes.json());
 }
 
@@ -1523,6 +1529,7 @@ async function handleDeleteContents(ctx: RouteContext): Promise<void> {
     body: JSON.stringify({ message, sha, branch }),
   });
   if (await gitHubResponseFailed(ctx.res, ghRes, ghPath)) return;
+  clearInstalledRepoTarballCache(installationId, owner, repo);
   json(ctx.res, 200, await ghRes.json());
 }
 
@@ -1757,6 +1764,7 @@ async function handlePutEditorSharedRepoFile(ctx: RouteContext): Promise<void> {
     body: JSON.stringify({ message, content, sha }),
   });
   if (await gitHubResponseFailed(ctx.res, ghRes, ghPath)) return;
+  clearInstalledRepoTarballCache(installationId, owner, repo);
   json(ctx.res, 200, await ghRes.json());
 }
 
@@ -2411,6 +2419,7 @@ async function handleGitBatchMutation(ctx: RouteContext): Promise<void> {
     throw err;
   }
 
+  clearInstalledRepoTarballCache(installationId, owner, repo);
   json(ctx.res, 200, {
     commitSha: createdCommit.sha,
     previousHeadSha: headSha,
@@ -2532,6 +2541,7 @@ async function handleCompactRecentCommits(ctx: RouteContext): Promise<void> {
     throw new ClientError(graphqlMessage, 502);
   }
 
+  clearInstalledRepoTarballCache(installationId, owner, repo);
   json(ctx.res, 200, {
     branch,
     previousHeadSha: selection.headSha,
@@ -2901,6 +2911,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
           return;
         }
 
+        clearInstalledRepoTarballCache(installationId, owner, repo);
         applied.push(...applyablePaths);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
@@ -2970,6 +2981,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
             const message = await readGitHubErrorMessage(delRes);
             throw new Error(message);
           }
+          clearInstalledRepoTarballCache(installationId, owner, repo);
           applied.push(change.path);
           continue;
         }
@@ -3030,6 +3042,7 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
           const message = await readGitHubErrorMessage(putRes);
           throw new Error(message);
         }
+        clearInstalledRepoTarballCache(installationId, owner, repo);
         applied.push(change.path);
       } catch (err) {
         failed.push({ path: change.path, error: err instanceof Error ? err.message : 'Unknown error' });
@@ -3603,26 +3616,29 @@ async function handleRepoTarball(ctx: RouteContext): Promise<void> {
   const repo = ctx.match[3];
   const ref = ctx.url.searchParams.get('ref') || 'HEAD';
 
-  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tarball/${encodeURIComponent(ref)}`;
-  const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
-    headers: { Accept: 'application/vnd.github+json' },
-    signal: AbortSignal.timeout(REPO_TARBALL_TIMEOUT_MS),
-  });
-  if (!ghRes.ok) {
-    const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
-    if (isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+  const result = await getOrLoadInstalledRepoTarballFiles(installationId, owner, repo, ref, async () => {
+    const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tarball/${encodeURIComponent(ref)}`;
+    const ghRes = await githubFetchWithInstallationToken(installationId, ghPath, {
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(REPO_TARBALL_TIMEOUT_MS),
+    });
+    if (!ghRes.ok) {
+      const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+      if (isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+        copyGitHubRateLimitHeaders(ctx.res, ghRes);
+        return [];
+      }
       copyGitHubRateLimitHeaders(ctx.res, ghRes);
-      json(ctx.res, 200, { files: [] });
-      return;
+      throw new ClientError(err?.message ?? 'GitHub API error', ghRes.status);
     }
-    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
-    return;
-  }
 
-  if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
-  const files = await extractTarball(ghRes.body);
-  copyGitHubRateLimitHeaders(ctx.res, ghRes);
-  json(ctx.res, 200, { files });
+    if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
+    const files = await extractTarball(ghRes.body);
+    copyGitHubRateLimitHeaders(ctx.res, ghRes);
+    return files;
+  });
+  ctx.res.setHeader('X-Repo-Tarball-Cache', result.status);
+  json(ctx.res, 200, { files: result.files });
 }
 
 async function handlePublicRepoTarball(ctx: RouteContext): Promise<void> {
@@ -3631,24 +3647,27 @@ async function handlePublicRepoTarball(ctx: RouteContext): Promise<void> {
   const repo = decodeURIComponent(ctx.match[2]);
   const ref = ctx.url.searchParams.get('ref') || 'HEAD';
 
-  const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tarball/${encodeURIComponent(ref)}`;
-  const ghRes = await fetchPublicGitHub(ghPath, {
-    signal: AbortSignal.timeout(REPO_TARBALL_TIMEOUT_MS),
-  });
-  if (!ghRes.ok) {
-    const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
-    if (isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+  const result = await getOrLoadPublicRepoTarballFiles(owner, repo, ref, async () => {
+    const ghPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tarball/${encodeURIComponent(ref)}`;
+    const ghRes = await fetchPublicGitHub(ghPath, {
+      signal: AbortSignal.timeout(REPO_TARBALL_TIMEOUT_MS),
+    });
+    if (!ghRes.ok) {
+      const err = (await ghRes.json().catch(() => null)) as GitHubApiError | null;
+      if (isEmptyGitRepositoryError(ghRes.status, err?.message ?? '')) {
+        copyGitHubRateLimitHeaders(ctx.res, ghRes);
+        return [];
+      }
       copyGitHubRateLimitHeaders(ctx.res, ghRes);
-      json(ctx.res, 200, { files: [] });
-      return;
+      throw new ClientError(err?.message ?? 'GitHub API error', ghRes.status);
     }
-    respondGitHubError(ctx.res, ghRes, err?.message ?? 'GitHub API error', ghPath);
-    return;
-  }
-  if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
-  const files = await extractTarball(ghRes.body);
-  copyGitHubRateLimitHeaders(ctx.res, ghRes);
-  json(ctx.res, 200, { files });
+    if (!ghRes.body) throw new ClientError('GitHub did not return a tarball body', 502);
+    const files = await extractTarball(ghRes.body);
+    copyGitHubRateLimitHeaders(ctx.res, ghRes);
+    return files;
+  });
+  ctx.res.setHeader('X-Repo-Tarball-Cache', result.status);
+  json(ctx.res, 200, { files: result.files });
 }
 
 const CONTENTS_PATTERN = /^\/api\/github-app\/installations\/([^/]+)\/repos\/([^/]+)\/([^/]+)\/contents$/;
