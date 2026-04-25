@@ -569,7 +569,6 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   text-overflow: clip;
-  white-space: pre-line;
 }
 
 .rendered-markdown .prompt-answer-summary--user .prompt-answer-summary-continuation {
