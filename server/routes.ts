@@ -105,7 +105,10 @@ import {
   getUpstreamProxySessionId,
   storeUpstreamProxyResponseCookies,
 } from './upstream_proxy.ts';
-import { writeWebContainerHomeOverlayArchiveResponse } from './webcontainer_home_overlay_archive.ts';
+import {
+  writeWebContainerBridgeFilesResponse,
+  writeWebContainerHomeOverlayArchiveResponse,
+} from './webcontainer_home_overlay_archive.ts';
 
 interface RouteContext {
   req: http.IncomingMessage;
@@ -166,6 +169,10 @@ interface ShareRepoFileListQuery {
 
 async function handleWebContainerHomeOverlayArchive({ req, res }: RouteContext): Promise<void> {
   await writeWebContainerHomeOverlayArchiveResponse(req, res);
+}
+
+async function handleWebContainerBridgeFiles({ req, res }: RouteContext): Promise<void> {
+  await writeWebContainerBridgeFilesResponse(req, res);
 }
 
 async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): Promise<void> {
@@ -3722,6 +3729,7 @@ const routes: RouteDef[] = [
   { method: 'GET', pattern: PUBLIC_REPO_TREE_PATTERN, handler: handleGetPublicTree },
   { method: 'GET', pattern: PUBLIC_REPO_TARBALL_PATTERN, handler: handlePublicRepoTarball },
   { method: 'GET', pattern: /^\/api\/gists\/([a-f0-9]+)$/i, handler: handleGetPublicGist },
+  { method: 'GET', pattern: /^\/api\/webcontainer-bridge-files$/, handler: handleWebContainerBridgeFiles },
   { method: 'GET', pattern: /^\/api\/webcontainer-home-overlay\.tar$/, handler: handleWebContainerHomeOverlayArchive },
   { method: 'GET', pattern: /^\/api\/upstream-proxy\/.+$/, handler: handleUpstreamProxy },
   { method: 'HEAD', pattern: /^\/api\/upstream-proxy\/.+$/, handler: handleUpstreamProxy },

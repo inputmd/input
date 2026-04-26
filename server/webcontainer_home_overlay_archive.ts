@@ -20,12 +20,18 @@ interface OverlayArchiveSymlink extends OverlayArchiveBaseEntry {
 
 type OverlayArchiveEntry = OverlayArchiveFile | OverlayArchiveSymlink;
 
+export interface WebContainerBridgeFiles {
+  hostBridge: string;
+  hostRewrite: string;
+}
+
 const DEFAULT_OVERLAY_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'vendor', 'overlay');
 
 // The archive is built once at server startup and cached in memory for the
 // lifetime of the process. Changes to files under vendor/overlay/ during dev
 // will not be picked up until the server is restarted.
 let archivePromise: Promise<Uint8Array<ArrayBuffer>> | null = null;
+let bridgeFilesPromise: Promise<WebContainerBridgeFiles> | null = null;
 
 async function collectOverlayArchiveFiles(rootDir: string, currentDir = rootDir): Promise<OverlayArchiveEntry[]> {
   const entries = await readdir(currentDir, { withFileTypes: true });
@@ -126,9 +132,22 @@ export async function buildWebContainerHomeOverlayArchive(
   return archive;
 }
 
+export async function loadWebContainerBridgeFiles(rootDir = DEFAULT_OVERLAY_ROOT): Promise<WebContainerBridgeFiles> {
+  const [hostBridge, hostRewrite] = await Promise.all([
+    readFile(path.join(rootDir, 'host_bridge.mjs'), 'utf8'),
+    readFile(path.join(rootDir, 'host_rewrite.mjs'), 'utf8'),
+  ]);
+  return { hostBridge, hostRewrite };
+}
+
 export async function initWebContainerHomeOverlayArchive(): Promise<void> {
   archivePromise = buildWebContainerHomeOverlayArchive();
   await archivePromise;
+}
+
+export async function initWebContainerBridgeFiles(): Promise<void> {
+  bridgeFilesPromise = loadWebContainerBridgeFiles();
+  await bridgeFilesPromise;
 }
 
 async function getWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBuffer>> {
@@ -136,6 +155,13 @@ async function getWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBuff
     archivePromise = buildWebContainerHomeOverlayArchive();
   }
   return archivePromise;
+}
+
+async function getWebContainerBridgeFiles(): Promise<WebContainerBridgeFiles> {
+  if (bridgeFilesPromise === null) {
+    bridgeFilesPromise = loadWebContainerBridgeFiles();
+  }
+  return bridgeFilesPromise;
 }
 
 function isLocalhostStyleHost(host: string | undefined): boolean {
@@ -155,4 +181,18 @@ export async function writeWebContainerHomeOverlayArchiveResponse(
     'Cache-Control': isLocalhostStyleHost(req.headers.host) ? 'private, no-store' : 'private, max-age=900',
   });
   res.end(Buffer.from(archive));
+}
+
+export async function writeWebContainerBridgeFilesResponse(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const bridgeFiles = await getWebContainerBridgeFiles();
+  const body = Buffer.from(`${JSON.stringify(bridgeFiles)}\n`, 'utf8');
+  res.writeHead(200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': String(body.byteLength),
+    'Cache-Control': isLocalhostStyleHost(req.headers.host) ? 'private, no-store' : 'private, max-age=900',
+  });
+  res.end(body);
 }

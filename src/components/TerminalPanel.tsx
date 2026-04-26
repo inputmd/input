@@ -34,6 +34,7 @@ import {
 } from '../repo_workspace/terminal_sync.ts';
 import {
   buildWebContainerHomeOverlayProvisionScript,
+  WEBCONTAINER_BRIDGE_FILES_URL,
   WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL,
 } from '../webcontainer_home_overlay.ts';
 import {
@@ -323,6 +324,11 @@ const ANSI_ESCAPE_SEQUENCE_RE = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const HOME_OVERLAY_ARCHIVE_FILENAME = '.input-home-overlay.tar';
 const HOME_OVERLAY_PROVISION_FILENAME = '.input-home-overlay-provision.cjs';
 
+interface WebContainerBridgeFiles {
+  hostBridge: string;
+  hostRewrite: string;
+}
+
 type TerminalBootPerfValue = boolean | null | number | string;
 type TerminalBootPerfDetails = Record<string, TerminalBootPerfValue>;
 
@@ -521,6 +527,67 @@ async function fetchWebContainerHomeOverlayArchive(): Promise<Uint8Array<ArrayBu
     );
   }
   return archive;
+}
+
+async function fetchWebContainerBridgeFiles(): Promise<WebContainerBridgeFiles> {
+  const response = await fetch(WEBCONTAINER_BRIDGE_FILES_URL, {
+    ...(isLocalhostHostname() ? { cache: 'no-store' as RequestCache } : {}),
+    credentials: 'same-origin',
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load WebContainer bridge files (${response.status})`);
+  }
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType && !contentType.includes('application/json')) {
+    const preview = (await response.text()).replace(/\s+/g, ' ').trim().slice(0, 200);
+    throw new Error(`Unexpected WebContainer bridge files response type: ${contentType}; preview=${preview}`);
+  }
+  const parsed: unknown = await response.json();
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    typeof (parsed as { hostBridge?: unknown }).hostBridge !== 'string' ||
+    typeof (parsed as { hostRewrite?: unknown }).hostRewrite !== 'string'
+  ) {
+    throw new Error('Invalid WebContainer bridge files response');
+  }
+  return {
+    hostBridge: (parsed as { hostBridge: string }).hostBridge,
+    hostRewrite: (parsed as { hostRewrite: string }).hostRewrite,
+  };
+}
+
+async function provisionNetworkingBridgeFiles(
+  wc: WebContainer,
+  bootPerf: TerminalBootPerfLogger | undefined,
+  bridgeFilesSource: Promise<WebContainerBridgeFiles>,
+  homeDirSource: string | Promise<string>,
+): Promise<{ homeDir: string }> {
+  const [bridgeFiles, homeDir] = await Promise.all([
+    measureBootStage(bootPerf, 'bridgeFiles.awaitFiles', () => bridgeFilesSource),
+    typeof homeDirSource === 'string'
+      ? Promise.resolve(homeDirSource)
+      : measureBootStage(bootPerf, 'bridgeFiles.resolveHomeDirectory', () => homeDirSource),
+  ]);
+  await Promise.all([
+    measureBootStage(
+      bootPerf,
+      'bridgeFiles.writeHostBridge',
+      () => writeContainerFile(wc, joinHomePath(homeDir, 'host_bridge.mjs'), bridgeFiles.hostBridge),
+      {
+        bytes: bridgeFiles.hostBridge.length,
+      },
+    ),
+    measureBootStage(
+      bootPerf,
+      'bridgeFiles.writeHostRewrite',
+      () => writeContainerFile(wc, joinHomePath(homeDir, 'host_rewrite.mjs'), bridgeFiles.hostRewrite),
+      {
+        bytes: bridgeFiles.hostRewrite.length,
+      },
+    ),
+  ]);
+  return { homeDir };
 }
 
 async function provisionHomeOverlay(
@@ -1807,6 +1874,10 @@ export function TerminalPanel({
       );
       // Swallow unhandled rejection — the real consumer below will observe it.
       overlayArchivePromise.catch(() => {});
+      const bridgeFilesFetchPromise = enableNetworkingBridge
+        ? bootPerf.measure('bridgeFiles.fetch', () => fetchWebContainerBridgeFiles())
+        : null;
+      bridgeFilesFetchPromise?.catch(() => {});
 
       try {
         writeTerminal(logPaneId, 'Booting environment...\r\n', { forceFollow: true });
@@ -1868,6 +1939,12 @@ export function TerminalPanel({
 
         writeTerminal(logPaneId, 'Mounting agent bundles...\r\n', { forceFollow: true });
 
+        const bridgeProvisionPromise =
+          enableNetworkingBridge && bridgeFilesFetchPromise
+            ? provisionNetworkingBridgeFiles(wc, bootPerf, bridgeFilesFetchPromise, homeDirPromise)
+            : Promise.resolve(null);
+        bridgeProvisionPromise.catch(() => {});
+
         const overlayPromise = (async () => {
           try {
             const overlayResult = await provisionHomeOverlay(wc, bootPerf, overlayArchivePromise, homeDirPromise);
@@ -1896,16 +1973,19 @@ export function TerminalPanel({
           }
         })();
 
-        await overlayPromise;
-
-        // The bridge daemon and NODE_OPTIONS rewrite file are provided by the
-        // home overlay, so networking can only start after overlay provisioning
-        // has finished. It can still overlap the persisted-home preparation and
-        // restore below.
+        // The bridge daemon only needs host_bridge.mjs + host_rewrite.mjs, so
+        // networking can start once those two files are provisioned while the
+        // larger agent overlay continues in parallel.
         const hostBridgePromise: Promise<void> = enableNetworkingBridge
           ? (async () => {
               writeTerminal(logPaneId, 'Starting networking...\r\n', { forceFollow: true });
               try {
+                try {
+                  await bridgeProvisionPromise;
+                } catch (err) {
+                  console.warn('[terminal] bridge file preflight failed; waiting for full overlay', err);
+                  await overlayPromise;
+                }
                 const [homeDir, currentPath] = await Promise.all([homeDirPromise, currentPathPromise]);
                 hostBridgeRef.current = await bootPerf.measure('startHostBridge', () =>
                   startWebContainerHostBridge({
@@ -1938,6 +2018,8 @@ export function TerminalPanel({
               writeTerminal(logPaneId, 'Terminal networking disabled.\r\n', { forceFollow: true });
             })();
         hostBridgePromise.catch(() => {});
+
+        await overlayPromise;
 
         const persistedHomePrep = await persistedHomePrepPromise;
 

@@ -16,11 +16,11 @@ import { startSessionCleanup } from './session';
 import { serveIndexHtml, serveStatic } from './static_files';
 import { extractSubdomain } from './subdomain';
 import { startUpstreamProxyCookieJarCleanup } from './upstream_proxy';
-import { initWebContainerHomeOverlayArchive } from './webcontainer_home_overlay_archive';
+import { initWebContainerBridgeFiles, initWebContainerHomeOverlayArchive } from './webcontainer_home_overlay_archive';
 
 try {
   await initDictionary();
-  await initWebContainerHomeOverlayArchive();
+  await Promise.all([initWebContainerBridgeFiles(), initWebContainerHomeOverlayArchive()]);
 } catch (err) {
   console.error('Failed to initialize server startup assets:', err);
   process.exit(1);

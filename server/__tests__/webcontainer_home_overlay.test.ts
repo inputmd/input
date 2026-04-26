@@ -8,7 +8,10 @@ import {
   buildWebContainerHomeOverlayProvisionScript,
   WEBCONTAINER_HOME_OVERLAY_MANIFEST_PATH,
 } from '../../src/webcontainer_home_overlay.ts';
-import { buildWebContainerHomeOverlayArchive } from '../webcontainer_home_overlay_archive.ts';
+import {
+  buildWebContainerHomeOverlayArchive,
+  loadWebContainerBridgeFiles,
+} from '../webcontainer_home_overlay_archive.ts';
 
 interface TestTarFileEntry {
   contents: Uint8Array;
@@ -176,6 +179,21 @@ test('buildWebContainerHomeOverlayArchive packages overlay files and preserves e
   t.is(entries.get('.local/bin/tool-link')?.type, 'symlink');
   t.is(entries.get('.local/bin/tool-link')?.linkname, '../lib/tool');
   t.is(new TextDecoder().decode(entries.get(longPath)?.contents), 'console.log("long");\n');
+});
+
+test('loadWebContainerBridgeFiles loads bridge and rewrite modules', async (t) => {
+  const overlayDir = await mkdtemp(path.join(os.tmpdir(), 'input-bridge-files-'));
+  t.teardown(async () => {
+    await rm(overlayDir, { force: true, recursive: true });
+  });
+
+  await writeFile(path.join(overlayDir, 'host_bridge.mjs'), 'export const bridge = true;\n', 'utf8');
+  await writeFile(path.join(overlayDir, 'host_rewrite.mjs'), 'export const rewrite = true;\n', 'utf8');
+
+  const bridgeFiles = await loadWebContainerBridgeFiles(overlayDir);
+
+  t.is(bridgeFiles.hostBridge, 'export const bridge = true;\n');
+  t.is(bridgeFiles.hostRewrite, 'export const rewrite = true;\n');
 });
 
 test('buildWebContainerHomeOverlayProvisionScript provisions files, symlinks, modes, and stale cleanup', async (t) => {

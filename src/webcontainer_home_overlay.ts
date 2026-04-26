@@ -1,4 +1,5 @@
 export const WEBCONTAINER_HOME_OVERLAY_ARCHIVE_URL = '/api/webcontainer-home-overlay.tar';
+export const WEBCONTAINER_BRIDGE_FILES_URL = '/api/webcontainer-bridge-files';
 export const WEBCONTAINER_HOME_OVERLAY_MANIFEST_PATH = '.input-webcontainer-home-overlay.json';
 
 function normalizeWebContainerHomeOverlayPath(path: string): string {
