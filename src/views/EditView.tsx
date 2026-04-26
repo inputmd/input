@@ -40,7 +40,6 @@ import {
   restorePromptAnswerExpandedStates,
   restorePromptListCollapsedStates,
   setPromptListMode,
-  syncPromptAnswerExpandedStateInUrl,
   togglePromptAnswerExpandedState,
 } from '../prompt_list_state';
 import type { ReaderAiEditorOverlay } from '../reader_ai_editor_state';
@@ -1739,7 +1738,6 @@ export function EditView({
       event.preventDefault();
       claimScrollOwnership('preview');
       togglePromptAnswerExpandedState(promptMessage, { keepTopInViewOnCollapse: true });
-      if (promptMessage.matches('li.prompt-answer')) syncPromptAnswerExpandedStateInUrl(promptMessage);
       rememberPromptListStates();
       handlePreviewPromptListLayoutChange();
       return;
@@ -1807,7 +1805,6 @@ export function EditView({
       event.preventDefault();
       claimScrollOwnership('preview');
       togglePromptAnswerExpandedState(promptMessage, { keepTopInViewOnCollapse: true });
-      if (promptMessage.matches('li.prompt-answer')) syncPromptAnswerExpandedStateInUrl(promptMessage);
       rememberPromptListStates();
       handlePreviewPromptListLayoutChange();
       return;

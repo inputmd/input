@@ -1,5 +1,3 @@
-const PROMPT_ANSWER_EXPANDED_QUERY_PARAM = 'ple';
-const LEGACY_PROMPT_LIST_COLLAPSED_QUERY_PARAM = 'plc';
 const SUPPRESS_NEXT_PROMPT_ANSWER_TOGGLE_ATTR = 'data-suppress-next-prompt-answer-toggle';
 const PROMPT_ANSWER_STATE_KEY_SEPARATOR = ':';
 
@@ -107,29 +105,6 @@ export function capturePromptAnswerExpandedStates(root: ParentNode): PromptAnswe
   return snapshot;
 }
 
-function readPromptAnswerExpandedStateKeysFromLocation(): Set<string> {
-  const params = new URLSearchParams(window.location.search);
-  const raw = params.get(PROMPT_ANSWER_EXPANDED_QUERY_PARAM)?.trim() ?? '';
-  if (!raw) return new Set();
-  return new Set(
-    raw
-      .split('.')
-      .map((part) => part.trim())
-      .filter(Boolean),
-  );
-}
-
-function writePromptAnswerExpandedStateKeysToLocation(expandedKeys: Set<string>) {
-  const url = new URL(window.location.href);
-  url.searchParams.delete(LEGACY_PROMPT_LIST_COLLAPSED_QUERY_PARAM);
-  if (expandedKeys.size === 0) {
-    url.searchParams.delete(PROMPT_ANSWER_EXPANDED_QUERY_PARAM);
-  } else {
-    url.searchParams.set(PROMPT_ANSWER_EXPANDED_QUERY_PARAM, Array.from(expandedKeys).sort().join('.'));
-  }
-  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
-}
-
 export function restorePromptListCollapsedStates(
   root: ParentNode,
   snapshot?: ReadonlyMap<string, PromptListMode | boolean> | null,
@@ -147,7 +122,6 @@ export function restorePromptAnswerExpandedStates(
   root: ParentNode,
   snapshot?: ReadonlyMap<string, boolean> | null,
 ): void {
-  const persistedExpandedKeys = snapshot ? null : readPromptAnswerExpandedStateKeysFromLocation();
   root
     .querySelectorAll<HTMLElement>(
       'li.prompt-question[data-prompt-list-id][data-prompt-list-item-index], li.prompt-answer[data-prompt-list-id][data-prompt-list-item-index]',
@@ -158,11 +132,6 @@ export function restorePromptAnswerExpandedStates(
       const expanded = snapshot?.get(key);
       if (expanded != null) {
         setPromptAnswerExpandedState(message, expanded);
-        return;
-      }
-
-      if (message.matches('li.prompt-answer') && persistedExpandedKeys?.has(key)) {
-        setPromptAnswerExpandedState(message, true);
         return;
       }
 
@@ -322,13 +291,4 @@ export function togglePromptAnswerExpandedState(container: HTMLElement, options?
     if (promptingQuestion && isPromptListMessageVisible(promptingQuestion)) return;
     scrollPromptListMessageTopIntoView(promptingQuestion ?? container, options.behavior);
   }
-}
-
-export function syncPromptAnswerExpandedStateInUrl(container: HTMLElement): void {
-  const key = getPromptAnswerExpandedStateKey(container);
-  if (!key) return;
-  const expandedKeys = readPromptAnswerExpandedStateKeysFromLocation();
-  if (container.getAttribute('data-expanded') === 'true') expandedKeys.add(key);
-  else expandedKeys.delete(key);
-  writePromptAnswerExpandedStateKeysToLocation(expandedKeys);
 }

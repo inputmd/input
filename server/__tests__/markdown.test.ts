@@ -11,7 +11,6 @@ import {
   restorePromptListCollapsedStates,
   setPromptAnswerExpandedState,
   setPromptListMode,
-  syncPromptAnswerExpandedStateInUrl,
   togglePromptAnswerExpandedState,
 } from '../../src/prompt_list_state.ts';
 import { EMPTY_PROMPT_QUESTION_PLACEHOLDER } from '../../src/prompt_list_syntax.ts';
@@ -952,7 +951,7 @@ test('setPromptListMode applies collapse-all, collapse-responses, and expand-all
   });
 });
 
-test('syncPromptAnswerExpandedStateInUrl persists answer expansion keys while prompt lists default to collapse responses mode', (t) => {
+test('prompt answer expansion does not persist in the URL', (t) => {
   withDom(() => {
     const html = parseMarkdownToHtml(['~ Question', '⏺ Answer one.', '~ Follow up', '⏺ Answer two.'].join('\n'));
     const initialWrapper = document.createElement('div');
@@ -965,7 +964,7 @@ test('syncPromptAnswerExpandedStateInUrl persists answer expansion keys while pr
     if (!initialConversation || initialAnswers.length !== 2) return;
 
     togglePromptAnswerExpandedState(initialAnswers[0]);
-    syncPromptAnswerExpandedStateInUrl(initialAnswers[0]);
+    t.is(new URLSearchParams(window.location.search).get('ple'), null);
 
     const rerenderedWrapper = document.createElement('div');
     rerenderedWrapper.innerHTML = `<div class="rendered-markdown">${parseMarkdownToHtml('~ Question\n⏺ Answer one.\n~ Follow up\n⏺ Answer two.')}</div>`;
@@ -982,13 +981,9 @@ test('syncPromptAnswerExpandedStateInUrl persists answer expansion keys while pr
     );
     t.deepEqual(
       rerenderedAnswers.map((answer) => answer.getAttribute('data-expanded')),
-      ['true', 'false'],
+      ['false', 'false'],
     );
     t.is(rerenderedConversation?.getAttribute('data-collapsed'), 'true');
-    t.is(
-      new URLSearchParams(window.location.search).get('ple'),
-      `${initialConversation.getAttribute('data-prompt-list-id')}:${initialAnswers[0]?.getAttribute('data-prompt-list-item-index')}`,
-    );
   });
 });
 

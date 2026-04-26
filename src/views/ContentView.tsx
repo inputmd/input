@@ -22,7 +22,6 @@ import {
   restorePromptAnswerExpandedStates,
   restorePromptListCollapsedStates,
   setPromptListMode,
-  syncPromptAnswerExpandedStateInUrl,
   togglePromptAnswerExpandedState,
 } from '../prompt_list_state';
 import { getStoredScrollPosition, setStoredScrollPosition } from '../scroll_positions';
@@ -401,7 +400,6 @@ export function ContentView({
       if (messageToggleSuppressed || pointerDragged || hasNonCollapsedSelectionIntersectingNode(promptMessage)) return;
       event.preventDefault();
       togglePromptAnswerExpandedState(promptMessage, { keepTopInViewOnCollapse: true });
-      if (promptMessage.matches('li.prompt-answer')) syncPromptAnswerExpandedStateInUrl(promptMessage);
       rememberPromptListStates();
       return;
     }
@@ -484,7 +482,6 @@ export function ContentView({
     ) {
       event.preventDefault();
       togglePromptAnswerExpandedState(promptMessage, { keepTopInViewOnCollapse: true });
-      if (promptMessage.matches('li.prompt-answer')) syncPromptAnswerExpandedStateInUrl(promptMessage);
       rememberPromptListStates();
       return;
     }
