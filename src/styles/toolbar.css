@@ -69,12 +69,11 @@
   display: none;
 }
 
-.toolbar-left-loading {
+.toolbar-brand-loading {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 35px;
-  min-width: 40px;
+  color: inherit;
 }
 
 .toolbar-spinner {
