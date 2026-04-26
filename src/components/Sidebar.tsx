@@ -768,7 +768,7 @@ export function Sidebar({
     }
   };
 
-  const filterLabel = fileFilter === 'markdown' ? 'Markdown' : fileFilter === 'text' ? 'Text' : 'All files';
+  const filterLabel = fileFilter === 'markdown' ? 'Markdown' : fileFilter === 'text' ? 'Text files' : 'All files';
   const filterControl = (
     <DropdownMenu.Root onOpenChange={blurOnClose}>
       <DropdownMenu.Trigger asChild>
