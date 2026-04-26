@@ -3285,6 +3285,30 @@ export function App() {
             selectedRepoFullName !== null &&
             selectedRepoFullName.toLowerCase() === repoFullName.toLowerCase();
           const keepSelectionEmpty = shouldKeepRepoSelectionEmpty(routeState);
+          if (
+            useInstalledRepo &&
+            keepSelectionEmpty &&
+            repoAccessMode === 'installed' &&
+            baseSnapshotWorkspaceKey === sidebarWorkspaceKey &&
+            getRepoSidebarPaths().some(isWorkspaceSessionJsonlPath)
+          ) {
+            setRepoAccessMode('installed');
+            setPublicRepoRef(null);
+            setSharedRepoInstallationId(null);
+            setCurrentGistId(null);
+            setGistFiles(null);
+            currentRepoDocPathRef.current = null;
+            currentFileNameRef.current = null;
+            setCurrentRepoDocPath(null);
+            setCurrentRepoDocSha(null);
+            setCurrentFileName(null);
+            setEditingBackend(null);
+            setCurrentDocumentSavedContent(null);
+            clearRenderedContent();
+            setContentLoadPending(false);
+            setViewPhase(null);
+            return;
+          }
           setViewPhase('loading');
           try {
             if (useInstalledRepo && instId) {
@@ -3777,6 +3801,10 @@ export function App() {
       shouldHydrateLocalDraftForRoute,
       resetRepoState,
       replaceRepoSnapshot,
+      baseSnapshotWorkspaceKey,
+      getRepoSidebarPaths,
+      repoAccessMode,
+      sidebarWorkspaceKey,
     ],
   );
 
