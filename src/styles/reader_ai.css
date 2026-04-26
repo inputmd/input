@@ -2511,7 +2511,7 @@
 .terminal-panel__surface > canvas {
   display: block;
   transform: translate(10px, 0);
-  opacity: 0.72;
+  opacity: 0.8;
   transition: opacity 140ms ease;
 }
 
