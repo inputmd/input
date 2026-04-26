@@ -720,32 +720,37 @@ export function Toolbar({
     <header class="toolbar">
       <div class="toolbar-left">
         {showLeftLoading && !preserveLeftControlsWhileLoading ? (
-          <div class="toolbar-left-loading" role="status" aria-label="Loading workspace">
-            <span class="toolbar-spinner" aria-hidden="true" />
+          <div class="toolbar-brand-loading" role="status" aria-label="Loading workspace">
+            <span class="toolbar-brand-logo-wrap" aria-hidden="true">
+              <span class="toolbar-spinner" />
+            </span>
           </div>
         ) : (
           <>
             {showLeftLoading ? (
-              <div class="toolbar-left-loading" role="status" aria-label="Loading workspace">
-                <span class="toolbar-spinner" aria-hidden="true" />
+              <div class="toolbar-brand-loading" role="status" aria-label="Loading workspace">
+                <span class="toolbar-brand-logo-wrap" aria-hidden="true">
+                  <span class="toolbar-spinner" />
+                </span>
               </div>
-            ) : null}
-            <a
-              href={brandHref}
-              class="toolbar-brand-link"
-              aria-label={brandLabel}
-              onClick={(event) => {
-                event.preventDefault();
-                navigate(brandRoute);
-              }}
-            >
-              <span class="toolbar-sr-only">{brandLabel}</span>
-              <span class="toolbar-brand-logo-wrap" aria-hidden="true">
-                <svg class="toolbar-brand-logo" viewBox="0 0 19 19" aria-hidden="true" focusable="false">
-                  <use href="/logo.svg#logo-mark" />
-                </svg>
-              </span>
-            </a>
+            ) : (
+              <a
+                href={brandHref}
+                class="toolbar-brand-link"
+                aria-label={brandLabel}
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigate(brandRoute);
+                }}
+              >
+                <span class="toolbar-sr-only">{brandLabel}</span>
+                <span class="toolbar-brand-logo-wrap" aria-hidden="true">
+                  <svg class="toolbar-brand-logo" viewBox="0 0 19 19" aria-hidden="true" focusable="false">
+                    <use href="/logo.svg#logo-mark" />
+                  </svg>
+                </span>
+              </a>
+            )}
             {showSidebarToggle ? (
               <button
                 type="button"
