@@ -445,7 +445,7 @@ function readStoredClampedPaneWidth(storageKey: string): number | null {
 
 function defaultSidePaneForViewport(): SidePane {
   if (typeof window === 'undefined') return 'none';
-  return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'preview' : 'none';
+  return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'terminal' : 'none';
 }
 
 function defaultEditorSidePane(): SidePane {
@@ -463,7 +463,7 @@ function readStoredSidePanePreference(): SidePane {
       return 'preview';
     }
   } catch {}
-  return 'none';
+  return defaultSidePaneForViewport();
 }
 
 function readStoredSidePaneWidth(): number {
@@ -925,6 +925,7 @@ export function App() {
   const setHasUserTypedUnsavedChangesRef = useRef<(value: boolean) => void>(() => {});
   const prevRouteNameRef = useRef(route.name);
   const sidePaneSkipPersistRef = useRef(false);
+  const terminalTemporarilyHiddenForCompactRef = useRef(false);
   const terminalImportHandlerRef = useRef<TerminalImportHandler | null>(null);
   const pendingGistDraftDirtyRef = useRef(false);
   const editContentRef = useRef(editContent);
@@ -3925,6 +3926,31 @@ export function App() {
     media.addEventListener('change', onChange);
     return () => media.removeEventListener('change', onChange);
   }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia(TERMINAL_COMPACT_MEDIA_QUERY);
+    let wasCompact = media.matches;
+    const onChange = (event: MediaQueryListEvent) => {
+      const isCompact = event.matches;
+      const enteredCompact = !wasCompact && isCompact;
+      const leftCompact = wasCompact && !isCompact;
+      wasCompact = isCompact;
+      if (leftCompact && terminalTemporarilyHiddenForCompactRef.current) {
+        terminalTemporarilyHiddenForCompactRef.current = false;
+        setSidePane((current) => (current === 'none' ? 'terminal' : current));
+        return;
+      }
+      if (!enteredCompact || sidePane !== 'terminal') return;
+      const recentlyInteracted =
+        Date.now() - terminalLastInteractionAtRef.current <= TERMINAL_RECENT_INTERACTION_WINDOW_MS;
+      if (terminalFocusWithinRef.current || recentlyInteracted) return;
+      terminalTemporarilyHiddenForCompactRef.current = true;
+      sidePaneSkipPersistRef.current = true;
+      setSidePane('none');
+    };
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, [sidePane]);
 
   useEffect(() => {
     setLocalRateLimit(readStoredGitHubRateLimitSnapshot('serverLocal'));
