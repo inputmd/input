@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
@@ -60,19 +60,69 @@ function outputLines(stdout: string): string[] {
     .filter(Boolean);
 }
 
-test('shared overlay fd, find, eval, shopt, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
+test('shared overlay fd, find, eval, shopt, curl, printf, wc, uniq, sed, awk, and xargs commands are executable', async (t) => {
   t.is((await stat(path.join(overlayBinDir, 'fd'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'find'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'rg'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'grep'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'eval'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'shopt'))).mode & 0o777, 0o755);
+  t.is((await stat(path.join(overlayBinDir, 'curl'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'printf'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'wc'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'uniq'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'sed'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'awk'))).mode & 0o777, 0o755);
   t.is((await stat(path.join(overlayBinDir, 'xargs'))).mode & 0o777, 0o755);
+});
+
+test('shared overlay curl rewrites allowlisted URLs through the host bridge', async (t) => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-curl-'));
+  t.teardown(async () => {
+    await rm(cwd, { force: true, recursive: true });
+  });
+  const fakeCurlPath = path.join(cwd, 'real-curl.cjs');
+  await writeFile(
+    fakeCurlPath,
+    "#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n');\n",
+    'utf8',
+  );
+  await chmod(fakeCurlPath, 0o755);
+
+  const result = await runCommand(
+    'curl',
+    [
+      '-i',
+      'https://registry.npmjs.org/bn.js',
+      'registry.npmjs.org/@scope%2fpkg',
+      'http://registry.npmjs.org/-/ping',
+      '--url',
+      'https://npmjs.org/package/bn.js',
+      '-H',
+      'Referer: https://registry.npmjs.org/not-a-url-argument',
+      'https://example.com/unchanged',
+    ],
+    {
+      cwd,
+      env: {
+        INPUT_HOST_BRIDGE_URL: 'http://127.0.0.1:4318',
+        INPUT_REAL_CURL: fakeCurlPath,
+      },
+    },
+  );
+
+  t.is(result.code, 0, result.stderr);
+  t.deepEqual(JSON.parse(result.stdout), [
+    '-i',
+    'http://127.0.0.1:4318/proxy/registry.npmjs.org/bn.js',
+    'http://127.0.0.1:4318/proxy/registry.npmjs.org/@scope%2fpkg',
+    'http://127.0.0.1:4318/proxy/registry.npmjs.org/-/ping',
+    '--url',
+    'http://127.0.0.1:4318/proxy/npmjs.org/package/bn.js',
+    '-H',
+    'Referer: https://registry.npmjs.org/not-a-url-argument',
+    'https://example.com/unchanged',
+  ]);
 });
 
 test('shared overlay fd and find commands support basic file discovery', async (t) => {

@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+'use strict';
+
+try {
+  const { runCurl } = require('../lib/input-curl.cjs');
+  process.exitCode = runCurl(process.argv.slice(2));
+} catch (err) {
+  process.stderr.write(`curl: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.exitCode = 1;
+}
