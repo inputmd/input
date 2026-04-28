@@ -30,10 +30,12 @@ export const REWRITE_HOSTS = [
   'generativelanguage.googleapis.com',
   'github.com',
   'mcp-proxy.anthropic.com',
+  'npmjs.org',
   'opencode.ai',
   'oauth2.googleapis.com',
   'openrouter.ai',
   'platform.claude.com',
+  'registry.npmjs.org',
   'router.huggingface.co',
   'www.googleapis.com',
 ];
