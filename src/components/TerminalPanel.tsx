@@ -961,6 +961,9 @@ export function TerminalPanel({
   const webContainerSessionIdRef = useRef(0);
   const restartInFlightRef = useRef<Promise<void> | null>(null);
   const restartWebContainerInFlightRef = useRef<Promise<void> | null>(null);
+  const pendingCommandRequestRef = useRef<TerminalCommandRequest | null>(null);
+  const handledCommandRequestIdRef = useRef<number | null>(null);
+  const terminalFocusWithinRef = useRef(false);
   const unmountedRef = useRef(false);
   const wcRef = useRef<WebContainer | null>(null);
   const lastWrittenRef = useRef<Map<string, string>>(new Map());
@@ -1769,6 +1772,7 @@ export function TerminalPanel({
     lastAppliedTerminalThemeModeRef.current = terminalThemeMode;
     if (previousThemeMode === terminalThemeMode || !startedRef.current) return;
     let cancelled = false;
+    const shouldRestoreFocus = terminalFocusWithinRef.current;
     void (async () => {
       for (const paneId of ['primary', 'secondary'] as const) {
         const runtime = paneRuntimesRef.current[paneId];
@@ -1784,7 +1788,9 @@ export function TerminalPanel({
         await spawnShellSession(paneId, { clearTerminal: true });
         if (cancelled || unmountedRef.current) return;
       }
-      focusPane();
+      if (shouldRestoreFocus) {
+        focusPane();
+      }
     })();
     return () => {
       cancelled = true;
@@ -2098,7 +2104,6 @@ export function TerminalPanel({
         }
 
         setFsReady(true);
-        focusPane(logPaneId);
       } catch (err) {
         bootStatus = 'error';
         throw err;
@@ -2114,7 +2119,6 @@ export function TerminalPanel({
       capturePersistedHomeState,
       ensurePaneSurface,
       fitPane,
-      focusPane,
       getPersistedHomeActiveSessionMode,
       getPreferredPaneId,
       importTerminalDiff,
@@ -2593,6 +2597,20 @@ export function TerminalPanel({
       class={`terminal-panel${visible ? '' : ' terminal-panel--hidden'}${className ? ` ${className}` : ''}`}
       aria-label="Terminal"
       aria-hidden={visible ? undefined : 'true'}
+      onFocusCapture={() => {
+        terminalFocusWithinRef.current = true;
+        onInteraction?.();
+        onFocusWithinChange?.(true);
+      }}
+      onBlurCapture={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+        terminalFocusWithinRef.current = false;
+        onFocusWithinChange?.(false);
+      }}
+      onPointerDownCapture={() => {
+        onInteraction?.();
+      }}
     >
       {error ? (
         <div class="terminal-panel__error">{error}</div>
