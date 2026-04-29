@@ -76,7 +76,7 @@ test('shared overlay fd, find, eval, shopt, curl, printf, wc, uniq, sed, awk, an
   t.is((await stat(path.join(overlayBinDir, 'xargs'))).mode & 0o777, 0o755);
 });
 
-test('shared overlay curl rewrites allowlisted URLs through the host bridge', async (t) => {
+test('shared overlay curl rewrites HTTP URLs through the host bridge', async (t) => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'input-overlay-curl-'));
   t.teardown(async () => {
     await rm(cwd, { force: true, recursive: true });
@@ -100,7 +100,7 @@ test('shared overlay curl rewrites allowlisted URLs through the host bridge', as
       'https://npmjs.org/package/bn.js',
       '-H',
       'Referer: https://registry.npmjs.org/not-a-url-argument',
-      'https://example.com/unchanged',
+      'https://example.com/rewritten',
     ],
     {
       cwd,
@@ -114,14 +114,14 @@ test('shared overlay curl rewrites allowlisted URLs through the host bridge', as
   t.is(result.code, 0, result.stderr);
   t.deepEqual(JSON.parse(result.stdout), [
     '-i',
-    'http://127.0.0.1:4318/proxy/registry.npmjs.org/bn.js',
-    'http://127.0.0.1:4318/proxy/registry.npmjs.org/@scope%2fpkg',
-    'http://127.0.0.1:4318/proxy/registry.npmjs.org/-/ping',
+    'http://127.0.0.1:4318/proxy/https/registry.npmjs.org/bn.js',
+    'http://127.0.0.1:4318/proxy/https/registry.npmjs.org/@scope%2fpkg',
+    'http://127.0.0.1:4318/proxy/http/registry.npmjs.org/-/ping',
     '--url',
-    'http://127.0.0.1:4318/proxy/npmjs.org/package/bn.js',
+    'http://127.0.0.1:4318/proxy/https/npmjs.org/package/bn.js',
     '-H',
     'Referer: https://registry.npmjs.org/not-a-url-argument',
-    'https://example.com/unchanged',
+    'http://127.0.0.1:4318/proxy/https/example.com/rewritten',
   ]);
 });
 

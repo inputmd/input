@@ -39,6 +39,7 @@ interface BufferedBridgeRequest {
   headers: Record<string, string>;
   method: string;
   path: string;
+  targetScheme: 'http' | 'https';
   targetHost: string;
 }
 
@@ -168,8 +169,11 @@ export function buildWebContainerSpawnEnv(homeDir: string, currentPath: string):
   };
 }
 
-function createProxyFetchUrl(targetHost: string, path: string): string {
-  return new URL(`/api/upstream-proxy/${encodeURIComponent(targetHost)}${path}`, window.location.origin).toString();
+function createProxyFetchUrl(targetScheme: 'http' | 'https', targetHost: string, path: string): string {
+  return new URL(
+    `/api/upstream-proxy/${encodeURIComponent(targetScheme)}/${encodeURIComponent(targetHost)}${path}`,
+    window.location.origin,
+  ).toString();
 }
 
 export async function startWebContainerHostBridge({
@@ -247,7 +251,7 @@ export async function startWebContainerHostBridge({
       if (typeof originalUserAgent === 'string' && originalUserAgent.trim()) {
         requestHeaders.set(UPSTREAM_PROXY_USER_AGENT_HEADER, originalUserAgent.trim());
       }
-      const response = await fetch(createProxyFetchUrl(request.targetHost, request.path), {
+      const response = await fetch(createProxyFetchUrl(request.targetScheme, request.targetHost, request.path), {
         body: requestBody,
         headers: requestHeaders,
         method: request.method,
@@ -322,6 +326,7 @@ export async function startWebContainerHostBridge({
           headers: frame.headers,
           method: frame.method,
           path: frame.path,
+          targetScheme: frame.targetScheme,
           targetHost: frame.targetHost,
         });
         return;

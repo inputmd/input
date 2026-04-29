@@ -25,6 +25,7 @@ export interface HostBridgeRequestStartFrame {
   type: 'request-start';
   requestId: string;
   method: string;
+  targetScheme: 'http' | 'https';
   targetHost: string;
   path: string;
   headers: Record<string, string>;

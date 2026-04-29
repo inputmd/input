@@ -65,7 +65,7 @@ test('host rewrite overlay builds the local host bridge URL for matching upstrea
     'http://127.0.0.1:4318',
   );
 
-  t.is(nextUrl.toString(), 'http://127.0.0.1:4318/proxy/api.anthropic.com/v1/messages?beta=true');
+  t.is(nextUrl.toString(), 'http://127.0.0.1:4318/proxy/https/api.anthropic.com/v1/messages?beta=true');
 });
 
 test('host rewrite overlay rewrites https.request(url, callback) to the local bridge URL', async (t) => {
@@ -79,7 +79,7 @@ test('host rewrite overlay rewrites https.request(url, callback) to the local br
   );
 
   t.true(patchedArgs[0] instanceof URL);
-  t.is(String(patchedArgs[0]), 'http://127.0.0.1:4318/proxy/api.anthropic.com/v1/messages');
+  t.is(String(patchedArgs[0]), 'http://127.0.0.1:4318/proxy/https/api.anthropic.com/v1/messages');
   t.is(patchedArgs[1], callback);
 });
 
@@ -105,7 +105,7 @@ test('host rewrite overlay rewrites https.request(options) without mutating inpu
     host: '127.0.0.1:4318',
     hostname: '127.0.0.1',
     method: 'POST',
-    path: '/proxy/api.anthropic.com/v1/messages',
+    path: '/proxy/https/api.anthropic.com/v1/messages',
     port: '4318',
     protocol: 'http:',
     servername: '127.0.0.1',
@@ -161,6 +161,6 @@ test('host rewrite overlay rewrites downloads host requests through the local br
 
   t.is(
     nextUrl?.toString(),
-    'http://127.0.0.1:4318/proxy/downloads.claude.ai/claude-code-releases/plugins/claude-plugins-official/latest',
+    'http://127.0.0.1:4318/proxy/https/downloads.claude.ai/claude-code-releases/plugins/claude-plugins-official/latest',
   );
 });

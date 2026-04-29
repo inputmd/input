@@ -1,4 +1,6 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
 import type http from 'node:http';
+import { BlockList, isIP } from 'node:net';
 import { Transform } from 'node:stream';
 import { UPSTREAM_PROXY_SESSION_HEADER, UPSTREAM_PROXY_USER_AGENT_HEADER } from '../shared/upstream_proxy.ts';
 import {
@@ -57,6 +59,35 @@ const UPSTREAM_PROXY_COOKIE_JAR_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const UPSTREAM_PROXY_COOKIE_ESTIMATED_OVERHEAD_BYTES = 64;
 const UPSTREAM_PROXY_REQUEST_BODY_TOO_LARGE_MESSAGE = 'Upstream proxy request body too large';
 const UPSTREAM_PROXY_RESPONSE_BODY_TOO_LARGE_MESSAGE = 'Upstream proxy response body too large';
+const UPSTREAM_PROXY_MAX_REDIRECTS = 10;
+const UPSTREAM_PROXY_ALLOWED_SCHEMES = new Set(['http:', 'https:']);
+const UPSTREAM_PROXY_ALLOWED_PORTS = new Set([80, 443]);
+
+const upstreamProxyBlockedIpRanges = new BlockList();
+upstreamProxyBlockedIpRanges.addSubnet('0.0.0.0', 8, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('10.0.0.0', 8, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('100.64.0.0', 10, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('127.0.0.0', 8, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('169.254.0.0', 16, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('172.16.0.0', 12, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('192.0.0.0', 24, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('192.0.2.0', 24, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('192.168.0.0', 16, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('198.18.0.0', 15, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('198.51.100.0', 24, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('203.0.113.0', 24, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('224.0.0.0', 4, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('240.0.0.0', 4, 'ipv4');
+upstreamProxyBlockedIpRanges.addSubnet('::', 128, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('::1', 128, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('64:ff9b::', 96, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('100::', 64, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('2001::', 23, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('2001:db8::', 32, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('fc00::', 7, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('fe80::', 10, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('fec0::', 10, 'ipv6');
+upstreamProxyBlockedIpRanges.addSubnet('ff00::', 8, 'ipv6');
 
 export const UPSTREAM_PROXY_STRIPPED_REQUEST_HEADERS = new Set([
   'accept-encoding',
@@ -115,6 +146,17 @@ interface UpstreamProxySessionJar {
   updatedAtMs: number;
 }
 
+export interface UpstreamProxyResolvedAddress {
+  address: string;
+  family: 4 | 6;
+}
+
+export type UpstreamProxyLookup = (hostname: string) => Promise<readonly UpstreamProxyResolvedAddress[]>;
+
+export interface UpstreamProxyAccessOptions {
+  allowAnyPublicHost?: boolean;
+}
+
 export interface UpstreamProxyCookieJarLimits {
   maxSessions: number;
   maxHostsPerSession: number;
@@ -135,10 +177,16 @@ const upstreamProxyCookieJars = new Map<string, UpstreamProxySessionJar>();
 const upstreamProxyInflightRequests = new Map<string, number>();
 let upstreamProxyCookieJarCleanupStarted = false;
 
-function normalizeProxyTargetHost(rawHost: string): string {
-  const normalized = rawHost.trim().toLowerCase();
+function normalizeProxyTargetScheme(rawScheme: string): 'http' | 'https' {
+  const normalized = rawScheme.trim().toLowerCase();
+  if (normalized === 'http' || normalized === 'https') return normalized;
+  throw new ClientError('Unsupported upstream proxy scheme', 400);
+}
+
+function normalizeProxyTargetAuthority(rawAuthority: string): string {
+  const normalized = rawAuthority.trim().toLowerCase();
   if (!normalized) throw new ClientError('Missing upstream host segment', 400);
-  if (!isAllowedUpstreamProxyHost(normalized)) throw new ClientError('Upstream host not allowed', 403);
+  if (/[\s/@\\]/.test(normalized)) throw new ClientError('Invalid upstream host segment', 400);
   return normalized;
 }
 
@@ -151,6 +199,71 @@ function hostnameMatchesPattern(hostname: string, pattern: string): boolean {
 function isAllowedUpstreamProxyHost(hostname: string): boolean {
   if (UPSTREAM_PROXY_ALLOWED_HOSTS.has(hostname)) return true;
   return UPSTREAM_PROXY_ALLOWED_HOST_PATTERNS.some((pattern) => hostnameMatchesPattern(hostname, pattern));
+}
+
+function normalizeUpstreamProxyHostname(hostname: string): string {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized.startsWith('[') && normalized.endsWith(']') ? normalized.slice(1, -1) : normalized;
+}
+
+function isLocalishUpstreamProxyHostname(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === 'local' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.home.arpa')
+  );
+}
+
+function isBlockedUpstreamProxyIpAddress(address: string): boolean {
+  const normalized = normalizeUpstreamProxyHostname(address);
+  if (normalized.startsWith('::ffff:')) return true;
+  const family = isIP(normalized);
+  if (family === 0) return false;
+  return upstreamProxyBlockedIpRanges.check(normalized, family === 4 ? 'ipv4' : 'ipv6');
+}
+
+function getUpstreamProxyUrlPort(url: URL): number {
+  if (url.port) return Number.parseInt(url.port, 10);
+  return url.protocol === 'http:' ? 80 : 443;
+}
+
+function assertUpstreamProxySchemeAndPort(url: URL): void {
+  if (!UPSTREAM_PROXY_ALLOWED_SCHEMES.has(url.protocol)) {
+    throw new ClientError('Unsupported upstream proxy scheme', 400);
+  }
+  const port = getUpstreamProxyUrlPort(url);
+  if (!Number.isInteger(port) || !UPSTREAM_PROXY_ALLOWED_PORTS.has(port)) {
+    throw new ClientError('Upstream proxy port not allowed', 403);
+  }
+}
+
+async function defaultUpstreamProxyLookup(hostname: string): Promise<readonly UpstreamProxyResolvedAddress[]> {
+  const results = await dnsLookup(hostname, { all: true, verbatim: true });
+  return results.map((result) => ({
+    address: result.address,
+    family: result.family as 4 | 6,
+  }));
+}
+
+async function resolveUpstreamProxyHostname(
+  hostname: string,
+  lookup: UpstreamProxyLookup = defaultUpstreamProxyLookup,
+): Promise<readonly UpstreamProxyResolvedAddress[]> {
+  const family = isIP(hostname);
+  if (family !== 0) {
+    return [{ address: hostname, family: family as 4 | 6 }];
+  }
+  try {
+    const results = await lookup(hostname);
+    if (results.length === 0) throw new ClientError('Upstream host could not be resolved', 502);
+    return results;
+  } catch (err) {
+    if (err instanceof ClientError) throw err;
+    throw new ClientError('Upstream host could not be resolved', 502);
+  }
 }
 
 function normalizeProxySessionId(rawSessionId: string | string[] | undefined): string | null {
@@ -463,14 +576,90 @@ function pathMatchesCookiePath(requestPath: string, cookiePath: string): boolean
   return cookiePath.endsWith('/') || requestPath[cookiePath.length] === '/';
 }
 
-export function buildUpstreamProxyUrl(pathname: string, search = ''): URL {
+export function buildUpstreamProxyUrl(pathname: string, search = '', options: UpstreamProxyAccessOptions = {}): URL {
   const subPath = pathname.replace(/^\/api\/upstream-proxy\/?/, '');
-  if (!subPath) throw new ClientError('Missing upstream host segment', 400);
-  const slashIndex = subPath.indexOf('/');
-  const rawHost = decodeURIComponent(slashIndex === -1 ? subPath : subPath.slice(0, slashIndex));
-  const targetHost = normalizeProxyTargetHost(rawHost);
-  const restPath = slashIndex === -1 ? '/' : subPath.slice(slashIndex);
-  return new URL(`https://${targetHost}${restPath}${search}`);
+  if (!subPath) throw new ClientError('Missing upstream scheme segment', 400);
+  const schemeSlashIndex = subPath.indexOf('/');
+  if (schemeSlashIndex === -1) throw new ClientError('Missing upstream host segment', 400);
+  const targetScheme = normalizeProxyTargetScheme(decodeURIComponent(subPath.slice(0, schemeSlashIndex)));
+  const hostAndPath = subPath.slice(schemeSlashIndex + 1);
+  const hostSlashIndex = hostAndPath.indexOf('/');
+  const rawAuthority = decodeURIComponent(hostSlashIndex === -1 ? hostAndPath : hostAndPath.slice(0, hostSlashIndex));
+  const targetAuthority = normalizeProxyTargetAuthority(rawAuthority);
+  const restPath = hostSlashIndex === -1 ? '/' : hostAndPath.slice(hostSlashIndex);
+  const upstreamUrl = new URL(`${targetScheme}://${targetAuthority}${restPath}${search}`);
+  assertUpstreamProxySchemeAndPort(upstreamUrl);
+
+  const hostname = normalizeUpstreamProxyHostname(upstreamUrl.hostname);
+  if (!options.allowAnyPublicHost && !isAllowedUpstreamProxyHost(hostname)) {
+    throw new ClientError('Upstream host not allowed', 403);
+  }
+  return upstreamUrl;
+}
+
+export async function assertUpstreamProxyUrlAllowed(
+  upstreamUrl: URL,
+  options: UpstreamProxyAccessOptions & { lookup?: UpstreamProxyLookup } = {},
+): Promise<void> {
+  assertUpstreamProxySchemeAndPort(upstreamUrl);
+  const hostname = normalizeUpstreamProxyHostname(upstreamUrl.hostname);
+  if (!hostname || isLocalishUpstreamProxyHostname(hostname)) {
+    throw new ClientError('Upstream host not allowed', 403);
+  }
+  if (!options.allowAnyPublicHost && !isAllowedUpstreamProxyHost(hostname)) {
+    throw new ClientError('Upstream host not allowed', 403);
+  }
+  const resolvedAddresses = await resolveUpstreamProxyHostname(hostname, options.lookup);
+  if (resolvedAddresses.some((result) => isBlockedUpstreamProxyIpAddress(result.address))) {
+    throw new ClientError('Upstream host resolves to a blocked address', 403);
+  }
+}
+
+export async function fetchUpstreamProxyUrl(
+  upstreamUrl: URL,
+  init: RequestInit & { duplex?: 'half' },
+  options: UpstreamProxyAccessOptions & {
+    lookup?: UpstreamProxyLookup;
+    proxySessionId?: string | null;
+  } = {},
+): Promise<{ response: Response; url: URL }> {
+  let currentUrl = upstreamUrl;
+  const method = (init.method ?? 'GET').toUpperCase();
+  const canFollowRedirect = method === 'GET' || method === 'HEAD';
+
+  for (let redirectCount = 0; redirectCount <= UPSTREAM_PROXY_MAX_REDIRECTS; redirectCount += 1) {
+    await assertUpstreamProxyUrlAllowed(currentUrl, options);
+    const headers = new Headers(init.headers);
+    headers.delete('cookie');
+    attachUpstreamProxyCookies(headers, options.proxySessionId ?? null, currentUrl.hostname, currentUrl.pathname);
+    const response = await fetch(currentUrl, {
+      ...init,
+      headers,
+      redirect: 'manual',
+    });
+    const location = response.headers.get('location');
+    if (response.status < 300 || response.status >= 400 || !location) {
+      return { response, url: currentUrl };
+    }
+    let redirectUrl: URL;
+    try {
+      redirectUrl = new URL(location, currentUrl);
+    } catch {
+      return { response, url: currentUrl };
+    }
+    await assertUpstreamProxyUrlAllowed(redirectUrl, options);
+    if (!canFollowRedirect) {
+      return { response, url: currentUrl };
+    }
+    try {
+      await response.body?.cancel();
+    } catch {
+      // ignore
+    }
+    currentUrl = redirectUrl;
+  }
+
+  throw new ClientError('Too many upstream redirects', 508);
 }
 
 export function buildUpstreamProxyRequestHeaders(headers: http.IncomingHttpHeaders): Headers {

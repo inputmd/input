@@ -41,11 +41,18 @@ function parseProxyUrl(rawUrl) {
   if (!url.pathname.startsWith('/proxy/')) return null;
   const subPath = url.pathname.slice('/proxy/'.length);
   if (!subPath) return null;
-  const slashIndex = subPath.indexOf('/');
-  const targetHost = decodeURIComponent(slashIndex === -1 ? subPath : subPath.slice(0, slashIndex));
-  const restPath = slashIndex === -1 ? '/' : subPath.slice(slashIndex);
+  const schemeSlashIndex = subPath.indexOf('/');
+  if (schemeSlashIndex === -1) return null;
+  const targetScheme = decodeURIComponent(subPath.slice(0, schemeSlashIndex));
+  if (targetScheme !== 'http' && targetScheme !== 'https') return null;
+  const hostAndPath = subPath.slice(schemeSlashIndex + 1);
+  const hostSlashIndex = hostAndPath.indexOf('/');
+  const targetHost = decodeURIComponent(hostSlashIndex === -1 ? hostAndPath : hostAndPath.slice(0, hostSlashIndex));
+  if (!targetHost) return null;
+  const restPath = hostSlashIndex === -1 ? '/' : hostAndPath.slice(hostSlashIndex);
   return {
     path: `${restPath}${url.search}`,
+    targetScheme,
     targetHost,
   };
 }
@@ -137,6 +144,7 @@ const server = http.createServer((req, res) => {
     method: req.method || 'GET',
     path: parsed.path,
     requestId,
+    targetScheme: parsed.targetScheme,
     targetHost: parsed.targetHost,
     type: 'request-start',
   });

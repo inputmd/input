@@ -123,9 +123,7 @@ function parseCurlUrl(rawValue) {
   if (typeof rawValue !== 'string' || rawValue.length === 0) return null;
   try {
     const parsed = new URL(rawValue);
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && shouldRewriteHost(parsed.hostname)
-      ? parsed
-      : null;
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed : null;
   } catch {
     // curl accepts bare host/path values. Only infer https for allowlisted hosts.
   }
@@ -143,7 +141,8 @@ function parseCurlUrl(rawValue) {
 function buildHostBridgeProxyUrl(url, rawBaseUrl = process.env.INPUT_HOST_BRIDGE_URL) {
   const baseUrl = new URL(rawBaseUrl || DEFAULT_HOST_BRIDGE_URL);
   const nextUrl = new URL(baseUrl.href);
-  nextUrl.pathname = `${baseUrl.pathname.replace(/\/$/, '')}/proxy/${encodeURIComponent(url.hostname)}${url.pathname}`;
+  const scheme = url.protocol.replace(/:$/, '');
+  nextUrl.pathname = `${baseUrl.pathname.replace(/\/$/, '')}/proxy/${encodeURIComponent(scheme)}/${encodeURIComponent(url.host)}${url.pathname}`;
   nextUrl.search = url.search;
   return nextUrl.toString();
 }

@@ -6,10 +6,12 @@ import { ClientError } from '../errors.ts';
 import {
   acquireUpstreamProxyConcurrency,
   assertUpstreamProxyContentLengthWithinLimit,
+  assertUpstreamProxyUrlAllowed,
   attachUpstreamProxyCookies,
   buildUpstreamProxyRequestHeaders,
   buildUpstreamProxyUrl,
   createUpstreamProxyBodyLimitTransform,
+  fetchUpstreamProxyUrl,
   getUpstreamProxyForwardedUserAgent,
   getUpstreamProxySessionId,
   resetUpstreamProxyStateForTests,
@@ -64,17 +66,111 @@ test.serial('upstream proxy helper exposes the allowed upstream hosts', (t) => {
 });
 
 test.serial('upstream proxy helper builds the upstream URL from the proxy pathname', (t) => {
-  const upstream = buildUpstreamProxyUrl('/api/upstream-proxy/api.anthropic.com/v1/messages', '?beta=true');
+  const upstream = buildUpstreamProxyUrl('/api/upstream-proxy/https/api.anthropic.com/v1/messages', '?beta=true');
 
   t.is(upstream.toString(), 'https://api.anthropic.com/v1/messages?beta=true');
 });
 
 test.serial('upstream proxy helper allows configured wildcard provider hosts', (t) => {
-  const azureUpstream = buildUpstreamProxyUrl('/api/upstream-proxy/my-resource.openai.azure.com/openai/v1/responses');
+  const azureUpstream = buildUpstreamProxyUrl(
+    '/api/upstream-proxy/https/my-resource.openai.azure.com/openai/v1/responses',
+  );
   t.is(azureUpstream.toString(), 'https://my-resource.openai.azure.com/openai/v1/responses');
 
-  const vertexUpstream = buildUpstreamProxyUrl('/api/upstream-proxy/us-central1-aiplatform.googleapis.com/v1/projects');
+  const vertexUpstream = buildUpstreamProxyUrl(
+    '/api/upstream-proxy/https/us-central1-aiplatform.googleapis.com/v1/projects',
+  );
   t.is(vertexUpstream.toString(), 'https://us-central1-aiplatform.googleapis.com/v1/projects');
+});
+
+test.serial('upstream proxy helper allows arbitrary public hosts for authenticated sessions', async (t) => {
+  const upstream = buildUpstreamProxyUrl('/api/upstream-proxy/http/example.com/path', '?q=1', {
+    allowAnyPublicHost: true,
+  });
+
+  t.is(upstream.toString(), 'http://example.com/path?q=1');
+  await t.notThrowsAsync(
+    assertUpstreamProxyUrlAllowed(upstream, {
+      allowAnyPublicHost: true,
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    }),
+  );
+});
+
+test.serial('upstream proxy helper keeps arbitrary hosts blocked for anonymous sessions', (t) => {
+  const err = t.throws(() => buildUpstreamProxyUrl('/api/upstream-proxy/https/example.com/path'), {
+    instanceOf: ClientError,
+  });
+
+  t.is(err?.statusCode, 403);
+});
+
+test.serial('upstream proxy helper rejects unsupported schemes and ports', (t) => {
+  const schemeErr = t.throws(() => buildUpstreamProxyUrl('/api/upstream-proxy/ftp/example.com/path'), {
+    instanceOf: ClientError,
+  });
+  t.is(schemeErr?.statusCode, 400);
+
+  const portErr = t.throws(
+    () =>
+      buildUpstreamProxyUrl('/api/upstream-proxy/https/example.com%3A8443/path', '', {
+        allowAnyPublicHost: true,
+      }),
+    { instanceOf: ClientError },
+  );
+  t.is(portErr?.statusCode, 403);
+});
+
+test.serial('upstream proxy helper rejects local and private targets', async (t) => {
+  const localhost = buildUpstreamProxyUrl('/api/upstream-proxy/http/localhost/path', '', {
+    allowAnyPublicHost: true,
+  });
+  const localhostErr = await t.throwsAsync(assertUpstreamProxyUrlAllowed(localhost, { allowAnyPublicHost: true }), {
+    instanceOf: ClientError,
+  });
+  t.is(localhostErr?.statusCode, 403);
+
+  const privateHost = buildUpstreamProxyUrl('/api/upstream-proxy/https/example.com/path', '', {
+    allowAnyPublicHost: true,
+  });
+  const privateErr = await t.throwsAsync(
+    assertUpstreamProxyUrlAllowed(privateHost, {
+      allowAnyPublicHost: true,
+      lookup: async () => [{ address: '10.0.0.5', family: 4 }],
+    }),
+    { instanceOf: ClientError },
+  );
+  t.is(privateErr?.statusCode, 403);
+});
+
+test.serial('upstream proxy fetch validates redirect targets before following', async (t) => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  t.teardown(() => {
+    globalThis.fetch = originalFetch;
+  });
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(null, {
+      headers: { location: 'http://127.0.0.1/latest/meta-data' },
+      status: 302,
+    });
+  };
+
+  const err = await t.throwsAsync(
+    fetchUpstreamProxyUrl(
+      new URL('https://example.com/start'),
+      { method: 'GET' },
+      {
+        allowAnyPublicHost: true,
+        lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      },
+    ),
+    { instanceOf: ClientError },
+  );
+
+  t.is(err?.statusCode, 403);
+  t.is(fetchCount, 1);
 });
 
 test.serial('upstream proxy helper strips hop-by-hop and local-only request headers', (t) => {

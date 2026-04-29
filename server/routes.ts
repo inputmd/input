@@ -96,11 +96,11 @@ import type { Session, UserInstallation } from './types.ts';
 import {
   acquireUpstreamProxyConcurrency,
   assertUpstreamProxyContentLengthWithinLimit,
-  attachUpstreamProxyCookies,
   buildUpstreamProxyRequestHeaders,
   buildUpstreamProxyUrl,
   copyUpstreamProxyResponseHeaders,
   createUpstreamProxyBodyLimitTransform,
+  fetchUpstreamProxyUrl,
   getUpstreamProxyForwardedUserAgent,
   getUpstreamProxySessionId,
   storeUpstreamProxyResponseCookies,
@@ -177,9 +177,10 @@ async function handleWebContainerBridgeFiles({ req, res }: RouteContext): Promis
 
 async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): Promise<void> {
   const session = getSession(req);
+  const proxyAccess = { allowAnyPublicHost: typeof session?.githubUserId === 'number' };
   if (!checkUpstreamProxyRateLimit(req, res, session?.githubUserId ?? null)) return;
 
-  const upstreamUrl = buildUpstreamProxyUrl(pathname, url.search);
+  const upstreamUrl = buildUpstreamProxyUrl(pathname, url.search, proxyAccess);
   const method = req.method ?? 'GET';
   const hasBody = method !== 'GET' && method !== 'HEAD';
   if (hasBody) {
@@ -214,7 +215,6 @@ async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): P
   const upstreamHeaders = buildUpstreamProxyRequestHeaders(req.headers);
   const proxySessionId = getUpstreamProxySessionId(req.headers);
   const forwardedUserAgent = getUpstreamProxyForwardedUserAgent(req.headers);
-  attachUpstreamProxyCookies(upstreamHeaders, proxySessionId, upstreamUrl.hostname, upstreamUrl.pathname);
   if (forwardedUserAgent) {
     upstreamHeaders.set('user-agent', forwardedUserAgent);
   }
@@ -235,13 +235,20 @@ async function handleUpstreamProxy({ req, res, url, pathname }: RouteContext): P
       fetchInit.body = Readable.toWeb(req.pipe(requestBodyStream));
       fetchInit.duplex = 'half';
     }
-    const upstream = await fetch(upstreamUrl, fetchInit as RequestInit);
+    const { response: upstream, url: finalUpstreamUrl } = await fetchUpstreamProxyUrl(
+      upstreamUrl,
+      fetchInit as RequestInit,
+      {
+        ...proxyAccess,
+        proxySessionId,
+      },
+    );
     assertUpstreamProxyContentLengthWithinLimit(
       upstream.headers.get('content-length'),
       UPSTREAM_PROXY_MAX_RESPONSE_BYTES,
       'response',
     );
-    storeUpstreamProxyResponseCookies(proxySessionId, upstreamUrl.hostname, upstream.headers);
+    storeUpstreamProxyResponseCookies(proxySessionId, finalUpstreamUrl.hostname, upstream.headers);
 
     res.statusCode = upstream.status;
     copyUpstreamProxyResponseHeaders(upstream, res);

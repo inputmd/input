@@ -136,7 +136,8 @@ export function shouldSwallowHostBridgeUrl(url) {
 export function buildHostBridgeProxyUrl(url, rawBaseUrl = process.env.INPUT_HOST_BRIDGE_URL) {
   const baseUrl = resolveHostBridgeBaseUrl(rawBaseUrl);
   const nextUrl = new URL(baseUrl.href);
-  nextUrl.pathname = `${baseUrl.pathname.replace(/\/$/, '')}/proxy/${encodeURIComponent(url.hostname)}${url.pathname}`;
+  const scheme = url.protocol.replace(/:$/, '');
+  nextUrl.pathname = `${baseUrl.pathname.replace(/\/$/, '')}/proxy/${encodeURIComponent(scheme)}/${encodeURIComponent(url.host)}${url.pathname}`;
   nextUrl.search = url.search;
   return nextUrl;
 }

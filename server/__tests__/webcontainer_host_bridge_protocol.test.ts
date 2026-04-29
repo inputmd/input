@@ -11,6 +11,7 @@ test('host bridge protocol encodes and decodes newline-delimited frames', (t) =>
     method: 'POST',
     path: '/v1/messages',
     requestId: '123',
+    targetScheme: 'https',
     targetHost: 'api.anthropic.com',
     type: 'request-start',
   };
