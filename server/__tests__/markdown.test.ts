@@ -652,6 +652,14 @@ test('rendered markdown italic styling is scoped to prompt lists without a custo
   t.false(css.includes('.rendered-markdown em {\n  color:'));
 });
 
+test('inline comment styles are faint and not italicized', (t) => {
+  const css = readFileSync(new URL('../../src/styles/markdown.css', import.meta.url), 'utf8');
+
+  t.true(css.includes('color: color-mix(in srgb, var(--text-secondary) 80%, transparent);'));
+  t.false(css.includes('.inline-comment {\n  color: var(--text-secondary);\n  font-style: italic;'));
+  t.false(css.includes('.io-hl-inline-comment {\n  color: var(--text-secondary);\n  font-style: italic;'));
+});
+
 test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t) => {
   const html = withDom(() => parseMarkdownToHtml('Email test@example.com for details.'));
 
