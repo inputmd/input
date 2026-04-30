@@ -1145,8 +1145,7 @@
 
 .rendered-markdown .inline-comment,
 .markdown-link-preview-body .inline-comment {
-  color: var(--text-secondary);
-  font-style: italic;
+  color: color-mix(in srgb, var(--text-secondary) 80%, transparent);
   white-space: pre-wrap;
 }
 
@@ -1183,8 +1182,7 @@
 }
 
 .rendered-markdown .io-hl-inline-comment {
-  color: var(--text-secondary);
-  font-style: italic;
+  color: color-mix(in srgb, var(--text-secondary) 80%, transparent);
 }
 
 .rendered-markdown .io-hl-critic-substitution {
