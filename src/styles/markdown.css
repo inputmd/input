@@ -1095,7 +1095,7 @@
   font-weight: 700;
 }
 
-.rendered-markdown em {
+.rendered-markdown .prompt-list em {
   font-style: italic;
 }
 
