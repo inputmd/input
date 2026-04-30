@@ -381,6 +381,13 @@ test('marked renders plus-prefixed list items as collapsed toggle lists', (t) =>
   t.true(html.includes('<li>Child</li>'));
 });
 
+test('marked keeps blank parent list markers on their own line before nested lists', (t) => {
+  const html = marked.parse('- foo\n  - foo\n-\n  - bar');
+
+  t.true(typeof html === 'string');
+  t.true(html.includes('<li><br>\n<ul>\n<li>bar</li>'));
+});
+
 test('parseMarkdownToHtml keeps prompt list inline markdown inside custom prompt list items', (t) => {
   const html = withDom(() => parseMarkdownToHtml('~ Ask about **Solomonoff induction**'));
 
@@ -635,6 +642,14 @@ test('prompt-list collapsed assistant styles do not shrink messages with font or
   t.false(css.includes('[data-theme="light"] .rendered-markdown li.prompt-answer'));
   t.false(css.includes('[data-theme="dark"] .rendered-markdown li.prompt-answer'));
   t.true(css.includes('.rendered-markdown .prompt-list-tree--branched::before'));
+});
+
+test('rendered markdown italic styling is scoped to prompt lists without a custom color', (t) => {
+  const css = readFileSync(new URL('../../src/styles/markdown.css', import.meta.url), 'utf8');
+
+  t.false(css.includes('.rendered-markdown em {'));
+  t.regex(css, /\.rendered-markdown \.prompt-list em \{\n {2}font-style: italic;\n\}/);
+  t.false(css.includes('.rendered-markdown em {\n  color:'));
 });
 
 test('parseMarkdownToHtml unwraps stripped mailto autolinks into plain text', (t) => {

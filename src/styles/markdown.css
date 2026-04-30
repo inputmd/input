@@ -1953,8 +1953,7 @@
   font-weight: 700;
 }
 
-.rendered-markdown em {
-  color: color-mix(in srgb, var(--text) 76%, var(--warning-color));
+.rendered-markdown .prompt-list em {
   font-style: italic;
 }
 

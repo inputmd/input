@@ -156,9 +156,15 @@ function isToggleListItemToken(item: Tokens.ListItem): boolean {
   return /^\s*\+\s+/.test(item.raw);
 }
 
+function renderMarkdownListItemBody(renderer: RendererThis<string, string>, item: Tokens.ListItem): string {
+  const [firstToken, ...remainingTokens] = item.tokens;
+  if (firstToken?.type === 'space') return `<br>\n${renderer.parser.parse(remainingTokens)}`;
+  return renderer.parser.parse(item.tokens);
+}
+
 function renderMarkdownListItem(renderer: RendererThis<string, string>, item: Tokens.ListItem, syncAttr = ''): string {
   if (!isToggleListItemToken(item)) {
-    const body = renderer.parser.parse(item.tokens);
+    const body = renderMarkdownListItemBody(renderer, item);
     return `<li${syncAttr}>${body}</li>\n`;
   }
 
