@@ -713,7 +713,8 @@
 .toolbar-split-button-group > button:focus-visible,
 .toolbar-split-button-group > button[data-state="open"],
 .toggle-button-group > .preview-toggle-btn:focus,
-.toggle-button-group > .preview-toggle-btn:focus-visible {
+.toggle-button-group > .preview-toggle-btn:focus-visible,
+.toggle-button-group > .preview-toggle-btn-selected {
   z-index: 2;
 }
 
@@ -852,9 +853,35 @@
   color: var(--btn-text);
 }
 
+.toolbar-toggle-controls .preview-toggle-btn-selected,
+.toolbar-toggle-controls .preview-toggle-btn-selected:focus,
+.toolbar-toggle-controls .preview-toggle-btn-selected:focus-visible,
+.toolbar-terminal-trigger.preview-toggle-btn-selected,
+.toolbar-terminal-trigger.preview-toggle-btn-selected:focus,
+.toolbar-terminal-trigger.preview-toggle-btn-selected:focus-visible {
+  border-color: #fff;
+  outline: none;
+}
+
 .preview-toggle-btn:disabled {
   pointer-events: none;
   opacity: 0.5;
+}
+
+.toolbar-toggle-controls .preview-toggle-btn-model--terminal-open:disabled {
+  opacity: 1;
+}
+
+.toolbar-toggle-controls .preview-toggle-btn-model--terminal-open .reader-ai-model-trigger-label {
+  color: color-mix(in srgb, var(--text-secondary) 62%, transparent);
+}
+
+.toolbar-toggle-controls .preview-toggle-btn-model--terminal-open .reader-ai-model-trigger-icon {
+  color: color-mix(in srgb, var(--text-secondary) 54%, transparent);
+}
+
+.toolbar-toggle-controls .preview-toggle-btn-model--terminal-open .reader-ai-model-trigger-badge {
+  opacity: 0.55;
 }
 
 @media (max-width: 900px) {

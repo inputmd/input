@@ -7,7 +7,6 @@ import {
   CodeXml,
   ExternalLink,
   Eye,
-  EyeOff,
   Globe,
   Link2,
   Lock,
@@ -352,8 +351,9 @@ export function Toolbar({
     null;
   const selectedInstallationLabel = selectedInstallation?.accountLogin ?? selectedInstallation?.installationId ?? null;
   const selectedRepoName = selectedRepo?.split('/').at(-1) ?? selectedRepo;
-  const showHeaderToggleGroup = showPreviewToggle || showAiToggle;
-  const showAiModelSelector = showAiToggle && view === 'edit' && !terminalVisible;
+  const showHeaderToggleGroup = showPreviewToggle || showAiToggle || showTerminalToggle;
+  const showAiModelSelector = showAiToggle && view === 'edit';
+  const aiModelSelectorDisabled = aiDisabled || terminalVisible;
   const canOpenSaveMenu = !saving && (canSave || showCancel);
   const collaboratorCountLabel = `${documentCollaborators.length} editor${documentCollaborators.length === 1 ? '' : 's'}`;
   const sidebarToggleLabel = `${sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'} (${sidebarShortcutLabel})`;
@@ -378,9 +378,9 @@ export function Toolbar({
   }, []);
 
   useEffect(() => {
-    if (showAiModelSelector) return;
+    if (showAiModelSelector && !aiModelSelectorDisabled) return;
     setModelSelectorOpen(false);
-  }, [showAiModelSelector]);
+  }, [showAiModelSelector, aiModelSelectorDisabled]);
 
   useEffect(() => {
     return () => {
@@ -1223,18 +1223,22 @@ export function Toolbar({
               {showPreviewToggle ? (
                 <button
                   type="button"
-                  class={`preview-toggle-btn preview-toggle-btn-preview${previewVisible ? '' : ' preview-toggle-btn-off'}`}
+                  class={`preview-toggle-btn preview-toggle-btn-preview${
+                    previewVisible ? ' preview-toggle-btn-selected' : ' preview-toggle-btn-off'
+                  }`}
                   title={previewToggleLabel}
                   aria-label={previewToggleLabel}
                   onClick={onTogglePreview}
                 >
-                  {previewVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                  <Eye size={16} />
                 </button>
               ) : null}
               {showAiToggle ? (
                 <button
                   type="button"
-                  class={`preview-toggle-btn toolbar-ai-toggle${aiVisible ? '' : ' preview-toggle-btn-off'}`}
+                  class={`preview-toggle-btn toolbar-ai-toggle${
+                    aiVisible ? ' preview-toggle-btn-selected' : ' preview-toggle-btn-off'
+                  }`}
                   title={readerAiToggleLabel}
                   aria-label={readerAiToggleLabel}
                   disabled={aiDisabled}
@@ -1254,8 +1258,10 @@ export function Toolbar({
                   onEnableLocalCodex={onEnableLocalCodex}
                   open={modelSelectorOpen}
                   onOpenChange={setModelSelectorOpen}
-                  disabled={aiDisabled}
-                  triggerClassName="preview-toggle-btn preview-toggle-btn-model"
+                  disabled={aiModelSelectorDisabled}
+                  triggerClassName={`preview-toggle-btn preview-toggle-btn-model${
+                    terminalVisible ? ' preview-toggle-btn-model--terminal-open' : ''
+                  }`}
                   triggerAriaLabel="Reader AI model"
                   menuClassName="reader-ai-model-menu"
                   align="end"
@@ -1263,19 +1269,21 @@ export function Toolbar({
                   showLoginForMoreModels={showAiLoginPrompt}
                 />
               ) : null}
+              {showTerminalToggle ? (
+                <button
+                  type="button"
+                  class={`preview-toggle-btn toolbar-terminal-trigger toolbar-terminal-toggle toolbar-terminal-toggle-icon${
+                    terminalVisible ? ' preview-toggle-btn-selected' : ' preview-toggle-btn-off'
+                  }`}
+                  title="Toggle terminal"
+                  aria-label="Toggle terminal"
+                  onClick={onToggleTerminal}
+                >
+                  <SquareTerminal size={16} />
+                </button>
+              ) : null}
             </div>
           </div>
-        ) : null}
-        {showTerminalToggle ? (
-          <button
-            type="button"
-            class={`preview-toggle-btn toolbar-terminal-trigger toolbar-terminal-toggle toolbar-terminal-toggle-icon${terminalVisible ? '' : ' preview-toggle-btn-off'}`}
-            title="Toggle terminal"
-            aria-label="Toggle terminal"
-            onClick={onToggleTerminal}
-          >
-            <SquareTerminal size={16} />
-          </button>
         ) : null}
         {user ? (
           <DropdownMenu.Root onOpenChange={blurOnClose}>
