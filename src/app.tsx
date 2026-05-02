@@ -490,7 +490,7 @@ function readStoredClampedPaneWidth(storageKey: string): number | null {
 
 function defaultSidePaneForViewport(): SidePane {
   if (typeof window === 'undefined') return 'none';
-  return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'terminal' : 'none';
+  return window.matchMedia(DESKTOP_MEDIA_QUERY).matches ? 'preview' : 'none';
 }
 
 function defaultEditorSidePane(): SidePane {
