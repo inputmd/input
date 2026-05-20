@@ -1,5 +1,7 @@
 # Input
 
+_New: Also check out [OpenResearch](https://openresearch.co), a structured-editor counterpart to input.md._
+
 Input is a multi-file Markdown document editor, like Obsidian or HackMD,
 where every workspace is a Git repo connected via the GitHub API.
 
