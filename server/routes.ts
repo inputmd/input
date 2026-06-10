@@ -81,7 +81,7 @@ import {
   removeInstallationForUser,
   selectInstallationForUser,
 } from './session.ts';
-import { verifyRepoFileShareToken } from './share_tokens.ts';
+import { type VerifiedRepoFileShareToken, verifyRepoFileShareToken } from './share_tokens.ts';
 import { stripManagedSubdomain } from './subdomain.ts';
 import type { Session, UserInstallation } from './types.ts';
 
@@ -1422,38 +1422,7 @@ async function handleGetSharedRepoFile(ctx: RouteContext): Promise<void> {
     return;
   }
 
-  const ghPath = `/repos/${encodeURIComponent(payload.owner)}/${encodeURIComponent(payload.repo)}/contents/${encodePathPreserveSlashes(payload.path)}`;
-  const ghRes = await githubFetchWithInstallationToken(payload.installationId, ghPath);
-  const data = (await ghRes.json().catch(() => null)) as {
-    type?: string;
-    path?: string;
-    sha?: string;
-    name?: string;
-    content?: string;
-    encoding?: string;
-  } | null;
-  if (!data || data.type !== 'file' || typeof data.sha !== 'string' || typeof data.path !== 'string') {
-    throw new ClientError('Expected a file', 400);
-  }
-  copyGitHubRateLimitHeaders(ctx.res, ghRes);
-  if (!data.path.toLowerCase().endsWith('.md')) {
-    json(ctx.res, 410, { error: 'Shared file is no longer a markdown file' });
-    return;
-  }
-  if (typeof data.content !== 'string' || data.encoding !== 'base64') {
-    throw new ClientError('Unexpected file payload from GitHub', 502);
-  }
-
-  json(ctx.res, 200, {
-    owner: payload.owner,
-    repo: payload.repo,
-    path: data.path,
-    name: data.name ?? data.path.split('/').pop() ?? data.path,
-    sha: data.sha,
-    content: data.content,
-    encoding: data.encoding,
-    expiresAt: new Date(payload.exp * 1000).toISOString(),
-  });
+  await respondWithSharedRepoFile(ctx, payload);
 }
 
 async function handleGetSharedRepoFileByRef(ctx: RouteContext): Promise<void> {
@@ -1475,8 +1444,20 @@ async function handleGetSharedRepoFileByRef(ctx: RouteContext): Promise<void> {
     return;
   }
 
+  await respondWithSharedRepoFile(ctx, payload);
+}
+
+async function respondWithSharedRepoFile(ctx: RouteContext, payload: VerifiedRepoFileShareToken): Promise<void> {
   const ghPath = `/repos/${encodeURIComponent(payload.owner)}/${encodeURIComponent(payload.repo)}/contents/${encodePathPreserveSlashes(payload.path)}`;
   const ghRes = await githubFetchWithInstallationToken(payload.installationId, ghPath);
+  if (!ghRes.ok) {
+    if (ghRes.status === 404) {
+      json(ctx.res, 404, { error: 'Shared file not found' });
+      return;
+    }
+    respondGitHubError(ctx.res, ghRes, 'Failed to fetch shared file', ghPath);
+    return;
+  }
   const data = (await ghRes.json().catch(() => null)) as {
     type?: string;
     path?: string;
