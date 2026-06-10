@@ -24,7 +24,13 @@ export function startGistCacheCleanup(): void {
 
 function gistCacheSet(id: string, entry: GistCacheEntry): void {
   const existing = gistCache.get(id);
-  if (existing) gistCacheTotalBytes -= existing.size;
+  if (existing) {
+    gistCacheTotalBytes -= existing.size;
+    // Delete so the eviction loop below cannot subtract this entry's size a
+    // second time, and so the refreshed entry moves to the back of the
+    // insertion-order eviction queue.
+    gistCache.delete(id);
+  }
 
   while (gistCacheTotalBytes + entry.size > GIST_CACHE_MAX_BYTES && gistCache.size > 0) {
     const oldest = gistCache.keys().next().value;
