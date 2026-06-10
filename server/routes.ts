@@ -1103,10 +1103,12 @@ async function handleListGists(ctx: RouteContext): Promise<void> {
   const session = requireAuthSession(ctx);
   if (!checkRateLimitForSession(ctx, session)) return;
   const qs = new URLSearchParams();
-  const page = ctx.url.searchParams.get('page') ?? '1';
-  const perPage = ctx.url.searchParams.get('per_page') ?? '30';
-  qs.set('page', page);
-  qs.set('per_page', perPage);
+  const requestedPage = Number(ctx.url.searchParams.get('page') || '1');
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+  const requestedPerPage = Number(ctx.url.searchParams.get('per_page') || '30');
+  const perPage = Number.isFinite(requestedPerPage) ? Math.min(100, Math.max(1, Math.floor(requestedPerPage))) : 30;
+  qs.set('page', String(page));
+  qs.set('per_page', String(perPage));
   await proxyGitHubJson(ctx, session, `/gists?${qs.toString()}`);
 }
 
