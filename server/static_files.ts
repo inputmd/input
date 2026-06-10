@@ -36,9 +36,16 @@ export async function serveIndexHtml(res: http.ServerResponse, subdomainOwner: s
 }
 
 export async function serveStatic(res: http.ServerResponse, pathname: string): Promise<boolean> {
-  const safePath = path.normalize(decodeURIComponent(pathname));
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    // Malformed percent-encoding (e.g. "/%"); fall through to the SPA shell.
+    return false;
+  }
+  const safePath = path.normalize(decoded);
   const filePath = path.join(DIST_DIR, safePath);
-  if (!filePath.startsWith(DIST_DIR)) return false;
+  if (filePath !== DIST_DIR && !filePath.startsWith(DIST_DIR + path.sep)) return false;
 
   try {
     const s = await stat(filePath);
