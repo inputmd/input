@@ -131,7 +131,7 @@ export function parseDocumentEditorsFromMarkdown(markdown: string): ParsedDocume
 
   for (let index = 0; index < lines.length; index += 1) {
     const current = lines[index];
-    const match = /^([ \t]*)editors\s*:\s*(.*)$/.exec(current);
+    const match = /^([ \t]*)editors\s*:\s*(.*)$/i.exec(current);
     if (!match) continue;
 
     const parentIndent = countIndent(match[1]);

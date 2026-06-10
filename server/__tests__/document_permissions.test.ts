@@ -53,6 +53,69 @@ Body`),
   );
 });
 
+test('parseDocumentEditorsFromMarkdown matches the editors field name case-insensitively', (t) => {
+  t.deepEqual(
+    parseDocumentEditorsFromMarkdown(`---
+Editors:
+  - Alice
+---
+Body`),
+    {
+      editors: ['alice'],
+      error: null,
+    },
+  );
+
+  t.deepEqual(
+    parseDocumentEditorsFromMarkdown(`---
+EDITORS: [bob]
+---
+Body`),
+    {
+      editors: ['bob'],
+      error: null,
+    },
+  );
+});
+
+test('canGitHubUserEditMarkdownDocument accepts a capitalized Editors field', (t) => {
+  const markdown = `---
+Editors:
+  - alice
+---
+Body`;
+
+  t.true(canGitHubUserEditMarkdownDocument(markdown, 'alice'));
+  t.false(canGitHubUserEditMarkdownDocument(markdown, 'bob'));
+});
+
+test('validateEditorsPreserved treats a re-cased editors field name as unchanged', (t) => {
+  const original = `---
+editors:
+  - alice
+---
+Body`;
+  const updated = `---
+Editors:
+  - alice
+---
+Updated body`;
+  t.is(validateEditorsPreserved(original, updated), null);
+});
+
+test('validateEditorsPreserved rejects removing a capitalized Editors field', (t) => {
+  const original = `---
+Editors:
+  - alice
+---
+Body`;
+  const updated = `---
+title: No editors
+---
+Body`;
+  t.is(validateEditorsPreserved(original, updated), 'Editors list cannot be removed');
+});
+
 test('parseDocumentEditorsFromMarkdown reports malformed editors front matter', (t) => {
   const parsed = parseDocumentEditorsFromMarkdown(`---
 editors:
