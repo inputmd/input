@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
+  Blocks,
   Check,
   ChevronDown,
   ChevronRight,
@@ -701,9 +702,7 @@ export function Toolbar({
               >
                 <span class="toolbar-sr-only">{brandLabel}</span>
                 <span class="toolbar-brand-logo-wrap" aria-hidden="true">
-                  <svg class="toolbar-brand-logo" viewBox="0 0 19 19" aria-hidden="true" focusable="false">
-                    <use href="/logo.svg#logo-mark" />
-                  </svg>
+                  <Blocks class="toolbar-brand-logo" size={20} aria-hidden="true" focusable="false" />
                 </span>
               </a>
             )}
