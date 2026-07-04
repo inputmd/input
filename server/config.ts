@@ -49,5 +49,22 @@ export function isAllowedOrigin(origin: string): boolean {
   return false;
 }
 
+/**
+ * Origins that may make *credentialed* cross-origin requests. This is narrower
+ * than isAllowedOrigin: arbitrary `https://<sub>.input.md` user subdomains are
+ * allowed for non-credentialed CORS but must NOT be able to drive authenticated
+ * API calls (the app itself only ever fetches same-origin with credentials).
+ */
+export function isCredentialedCorsOrigin(origin: string): boolean {
+  if (STATIC_ORIGINS.has(origin)) return true;
+  // Dev only: http://<sub>.localhost:<port>
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'http:' && url.hostname.endsWith('.localhost');
+  } catch {
+    return false;
+  }
+}
+
 export const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self' 'sha256-wBdtWdXsHnAU2DdByySW4LlXFAScrBvmBgkXtydwJdg='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com http://127.0.0.1:8788 http://localhost:8788; font-src 'self' https:";
+  "default-src 'self'; script-src 'self' 'sha256-wBdtWdXsHnAU2DdByySW4LlXFAScrBvmBgkXtydwJdg='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com http://127.0.0.1:8788 http://localhost:8788; font-src 'self' https:; form-action 'self'; base-uri 'self'";

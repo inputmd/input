@@ -1042,9 +1042,6 @@ export function persistReaderAiMessagesToHistory(
   activeChangeSetId?: string,
 ): void {
   if (typeof window === 'undefined') return;
-  const store = loadReaderAiHistoryStore();
-  const nextEntries = { ...store.entries };
-  const nextOrder = store.order.filter((key) => key !== historyKey);
   const normalizedMessages = normalizeReaderAiMessages(messages);
   if (normalizedMessages.length === 0) {
     return;
@@ -1068,8 +1065,12 @@ export function persistReaderAiMessagesToHistory(
   if (changeSets && changeSets.length > 0) entry.changeSets = changeSets.slice(-12);
   if (activeChangeSetId && changeSets?.some((changeSet) => changeSet.id === activeChangeSetId))
     entry.activeChangeSetId = activeChangeSetId;
-  nextEntries[historyKey] = entry;
-  nextOrder.unshift(historyKey);
+  // Read the freshest store right before writing and merge only this key, so a
+  // concurrent write from another tab isn't clobbered (the history is one shared
+  // blob; a stale whole-map replacement would drop the other tab's entries).
+  const store = loadReaderAiHistoryStore();
+  const nextEntries = { ...store.entries, [historyKey]: entry };
+  const nextOrder = [historyKey, ...store.order.filter((key) => key !== historyKey)];
   const trimmedOrder = nextOrder.slice(0, READER_AI_HISTORY_MAX_ENTRIES);
   for (const key of Object.keys(nextEntries)) {
     if (!trimmedOrder.includes(key)) delete nextEntries[key];

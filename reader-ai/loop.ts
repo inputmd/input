@@ -365,6 +365,9 @@ export async function* runReaderAiLoop(
 
   // -- Agentic tool-call loop --
   let currentBody: ReadableStream<Uint8Array> | null = firstUpstream.body;
+  // Tracks the in-flight stream read so the finally can wait for it to settle
+  // (releasing its lock) before cancelling the body.
+  let activeStreamPromise: Promise<void> | null = null;
 
   try {
     for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -392,6 +395,7 @@ export async function* runReaderAiLoop(
           streamError = err;
           queue.error(err);
         });
+      activeStreamPromise = streamPromise;
 
       // Yield text deltas in real-time as they arrive from the stream
       try {
@@ -403,6 +407,7 @@ export async function* runReaderAiLoop(
       }
 
       await streamPromise;
+      activeStreamPromise = null;
       currentBody = null;
 
       if (streamError) {
@@ -649,6 +654,11 @@ export async function* runReaderAiLoop(
     }
     throw err;
   } finally {
+    // Abort any in-flight read and wait for it to settle before cancelling the
+    // body — cancelling a still-locked stream throws and would orphan the
+    // background parseUpstreamStream read.
+    abortController.abort();
+    if (activeStreamPromise) await activeStreamPromise.catch(() => {});
     if (currentBody) await currentBody.cancel().catch(() => {});
   }
 

@@ -1285,7 +1285,7 @@ test('parseMarkdownDocument drops only invalid custom css rules', (t) => {
       `---
 css: |
   h1 {}
-  p { position: fixed; color: red; }
+  p { position: relative; color: red; }
   h2 { color: #123456; }
 ---
 hello`,
@@ -1295,11 +1295,11 @@ hello`,
   t.truthy(document.customCss);
   t.truthy(document.customCssScope);
   t.is(document.cssWarning, 'Some custom CSS rules were ignored');
-  t.true(document.customCss?.includes('position: fixed'));
+  t.true(document.customCss?.includes('position: relative'));
   t.false(document.customCss?.includes('h1'));
   t.true(
     document.customCss?.includes(
-      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] p { position: fixed; color: red; }`,
+      `.rendered-markdown[data-markdown-custom-css="${document.customCssScope}"] p { position: relative; color: red; }`,
     ),
   );
   t.true(

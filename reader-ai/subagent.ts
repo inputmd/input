@@ -88,7 +88,9 @@ export async function executeSubagent(options: SubagentOptions): Promise<string>
     const result = await parseUpstreamStream(
       upstream.body,
       (delta) => {
-        output += delta;
+        // Bound accumulation during streaming; the final output is truncated to
+        // READER_AI_TASK_MAX_OUTPUT_CHARS below regardless.
+        if (output.length <= READER_AI_TASK_MAX_OUTPUT_CHARS * 2) output += delta;
       },
       { repairBoundaries: config.model.trim().toLowerCase().endsWith(':free') },
     );

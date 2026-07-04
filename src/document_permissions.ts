@@ -135,6 +135,12 @@ export function parseDocumentEditorsFromMarkdown(markdown: string): ParsedDocume
     if (!match) continue;
 
     const parentIndent = countIndent(match[1]);
+    // Only honor `editors` as a structured top-level front-matter key. An
+    // indented `editors:` line belongs to another key's nested mapping or to a
+    // block scalar's body (e.g. inside `css: |`), and must not grant access —
+    // otherwise a handle appearing in arbitrary front-matter content would be
+    // treated as an editor.
+    if (parentIndent !== 0) continue;
     const value = match[2].trim();
     let parsedEditors: string[] | null = null;
     if (value) {

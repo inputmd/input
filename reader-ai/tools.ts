@@ -537,7 +537,13 @@ export function executeReaderAiSearchDocument(
   if (!matcher) return `(invalid regular expression: ${args.query})`;
   const ctx = Math.max(0, Math.min(args.context_lines ?? 2, 10));
   const matchIndices: number[] = [];
+  // Bound total time for regex searches so a pathological pattern spread across
+  // many lines can't stall the event loop (per-line input is capped separately).
+  const deadline = args.is_regex ? Date.now() + READER_AI_REGEX_SEARCH_BUDGET_MS : 0;
   for (let i = 0; i < lines.length; i++) {
+    if (deadline && (i & 0x3ff) === 0 && Date.now() > deadline) {
+      return '(search timed out; use a more specific query or disable regex)';
+    }
     if (matcher(lines[i])) matchIndices.push(i);
   }
   if (matchIndices.length === 0) return 'No matches found.';
@@ -570,17 +576,36 @@ export function executeReaderAiSearchDocument(
   return result;
 }
 
+// ReDoS guards for model-supplied regex: cap the input each match sees and
+// reject the classic catastrophic-backtracking shape. The search loop also
+// enforces a wall-clock budget across lines (see executeReaderAiSearchDocument).
+const READER_AI_REGEX_MAX_LINE_CHARS = 4000;
+const READER_AI_REGEX_SEARCH_BUDGET_MS = 500;
+
+/**
+ * Heuristic for the classic catastrophic-backtracking shape: an unbounded
+ * quantifier applied to a group whose body also contains one, e.g. `(a+)+`,
+ * `(a*)*`, `(\d+){2,}`. Not exhaustive, but blocks the common exponential
+ * patterns before they can stall the event loop.
+ */
+function looksLikeCatastrophicRegex(pattern: string): boolean {
+  return /\([^)]*[+*][^)]*\)\s*(?:[+*]|\{\d+,\}?)/.test(pattern);
+}
+
 /** Build a line-matching function from query + is_regex flag. Returns null on invalid regex. */
 function buildLineMatcher(query: string, isRegex?: boolean): ((line: string) => boolean) | null {
   if (isRegex) {
     if (query.length > READER_AI_MAX_REGEX_PATTERN_LENGTH) return null;
+    if (looksLikeCatastrophicRegex(query)) return null;
+    const capLine = (line: string) =>
+      line.length > READER_AI_REGEX_MAX_LINE_CHARS ? line.slice(0, READER_AI_REGEX_MAX_LINE_CHARS) : line;
     try {
       const re = new RegExp(query, 'iv');
-      return (line: string) => re.test(line);
+      return (line: string) => re.test(capLine(line));
     } catch {
       try {
         const re = new RegExp(query, 'i');
-        return (line: string) => re.test(line);
+        return (line: string) => re.test(capLine(line));
       } catch {
         return null;
       }

@@ -12,6 +12,12 @@ export interface SseParserCallbacks {
 
 export interface SseParserOptions {
   dispatchFinalEvent?: boolean;
+  /**
+   * Maximum length (chars) an unterminated line may reach before the parser
+   * throws. Bounds memory when an untrusted upstream streams data without
+   * newlines. 0 (default) disables the cap.
+   */
+  maxBufferLength?: number;
 }
 
 export function parseSseFieldValue(line: string, prefix: `${string}:`): string {
@@ -32,6 +38,7 @@ export function createSseParser(
   let dataLines: string[] = [];
   let lastEventId = '';
   let retry: number | undefined;
+  const maxBufferLength = options.maxBufferLength ?? 0;
 
   const resetEvent = () => {
     eventName = '';
@@ -115,6 +122,9 @@ export function createSseParser(
       if (!chunk) return;
       buffer += chunk;
       processBufferedLines(false);
+      if (maxBufferLength > 0 && buffer.length > maxBufferLength) {
+        throw new Error(`SSE line exceeded ${maxBufferLength} characters without a newline`);
+      }
     },
     end() {
       processBufferedLines(true);
@@ -140,7 +150,7 @@ export async function* readSseStream(
       onEvent: (event) => queuedEvents.push(event),
       onComment: options.onComment,
     },
-    { dispatchFinalEvent: options.dispatchFinalEvent },
+    { dispatchFinalEvent: options.dispatchFinalEvent, maxBufferLength: options.maxBufferLength },
   );
 
   try {
@@ -158,6 +168,15 @@ export async function* readSseStream(
       yield queuedEvents.shift()!;
     }
   } finally {
+    // If the consumer stops iterating early (break/throw) the stream is still
+    // open — cancel it so the underlying HTTP response/connection is released
+    // instead of being left half-open until GC. Cancelling an already-finished
+    // stream is a harmless no-op.
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore cancellation failures (already closed / errored).
+    }
     reader.releaseLock();
   }
 }

@@ -132,9 +132,12 @@ export async function listGists(page = 1, perPage = 30, options?: { forceRefresh
     if (cached) return cached;
   }
 
+  const generation = gistListCache.getGeneration(cacheKey);
   const res = await apiFetch(`/gists?per_page=${perPage}&page=${page}`);
   const data = (await res.json()) as GistSummary[];
-  gistListCache.set(cacheKey, data);
+  // Skip the write if a mutation landed while this request was in flight, so a
+  // stale response can't clobber a fresher cached value.
+  gistListCache.setIfCurrent(cacheKey, data, generation);
   return data;
 }
 
@@ -144,9 +147,12 @@ export async function getGist(id: string, options?: { forceRefresh?: boolean }):
     if (cached) return cached;
   }
 
+  const generation = gistDetailCache.getGeneration(id);
   const res = await apiFetch(`/gists/${encodeURIComponent(id)}`);
   const data = (await res.json()) as GistDetail;
-  gistDetailCache.set(id, data);
+  // Skip the write if a mutation landed while this request was in flight, so a
+  // stale response can't clobber a fresher cached value.
+  gistDetailCache.setIfCurrent(id, data, generation);
   return data;
 }
 

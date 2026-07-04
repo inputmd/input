@@ -2,7 +2,7 @@ import { ApiError, responseToApiError } from './api_error';
 import { emitCacheEvent } from './cache_events';
 import { recordGitHubRateLimitFromResponse, recordServerLocalRateLimitFromResponse } from './github_rate_limit';
 import { SyncedCache } from './synced_cache';
-import { type CacheEntry, readCacheTtlMs } from './util';
+import { type CacheEntry, decodeBase64ToUtf8, readCacheTtlMs } from './util';
 
 const INSTALLATION_ID_KEY = 'github_app_installation_id';
 const SELECTED_REPO_KEY = 'github_app_selected_repo';
@@ -356,6 +356,7 @@ function clearRepoContentsCacheForRepo(installationId: string, repoFullName: str
   // Best-effort: clear any legacy cache keys that were stored with non-normalized repo names.
   repoContentsCache.clearByPrefix(`${installationId}|${repoFullName}|`);
 
+  repoTreeCacheGeneration += 1;
   const treeKeyPrefix = `tree|${installationId}|${normalizedRepo}|`;
   for (const key of repoTreeCache.keys()) {
     if (key.startsWith(treeKeyPrefix)) repoTreeCache.delete(key);
@@ -369,6 +370,7 @@ export function setRepoContentsCacheTtlMs(ttlMs: number): void {
 
 export function clearGitHubAppCaches(): void {
   repoContentsCache.clearAll();
+  repoTreeCacheGeneration += 1;
   repoTreeCache.clear();
   emitCacheEvent({ type: 'all:cleared' });
 }
@@ -404,12 +406,15 @@ export async function getRepoContents(
     if (cached) return cached;
   }
 
+  const generation = repoContentsCache.getGeneration(cacheKey);
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams({ path });
   if (ref) qs.set('ref', ref);
   const res = await authFetch(`${installationUrl(installationId, 'repos', owner, repo)}/contents?${qs.toString()}`);
   const data = (await res.json()) as RepoContents;
-  repoContentsCache.set(cacheKey, data);
+  // Skip the write if the repo was mutated/invalidated while this request was in
+  // flight, so a stale response can't clobber a fresher cached value.
+  repoContentsCache.setIfCurrent(cacheKey, data, generation);
   return data;
 }
 
@@ -424,13 +429,14 @@ export async function getPublicRepoContents(
   const cached = repoContentsCache.get(cacheKey);
   if (cached) return cached;
 
+  const generation = repoContentsCache.getGeneration(cacheKey);
   const qs = new URLSearchParams({ path });
   if (ref) qs.set('ref', ref);
   const res = await publicFetch(
     `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs.toString()}`,
   );
   const data = (await res.json()) as RepoContents;
-  repoContentsCache.set(cacheKey, data);
+  repoContentsCache.setIfCurrent(cacheKey, data, generation);
   return data;
 }
 
@@ -447,6 +453,10 @@ export interface RepoTreeResult {
 }
 
 const repoTreeCache = new Map<string, CacheEntry<RepoTreeResult>>();
+const REPO_TREE_CACHE_MAX_ENTRIES = 200;
+// Bumped whenever tree entries are invalidated, so an in-flight getRepoTree
+// can detect a mutation that landed while it was fetching (see setCachedRepoTree).
+let repoTreeCacheGeneration = 0;
 
 function repoTreeCacheKey(identity: string, repoFullName: string, ref?: string): string {
   const normalizedRepo = normalizeRepoFullNameForCache(repoFullName);
@@ -467,7 +477,16 @@ function getCachedRepoTree(key: string): RepoTreeResult | null {
   return cached.value;
 }
 
-function setCachedRepoTree(key: string, value: RepoTreeResult): void {
+function setCachedRepoTree(key: string, value: RepoTreeResult, generation?: number): void {
+  // Drop the write if the tree cache was invalidated while this fetch was in
+  // flight, so a stale response can't repopulate a just-cleared key.
+  if (generation !== undefined && generation !== repoTreeCacheGeneration) return;
+  // Bound growth over a long session (many repos/refs): evict the oldest entry
+  // when at capacity. Map iteration order is insertion order.
+  if (!repoTreeCache.has(key) && repoTreeCache.size >= REPO_TREE_CACHE_MAX_ENTRIES) {
+    const oldest = repoTreeCache.keys().next().value;
+    if (oldest !== undefined) repoTreeCache.delete(oldest);
+  }
   repoTreeCache.set(key, { value, expiresAt: Date.now() + repoContentsCacheTtlMs });
 }
 
@@ -481,6 +500,7 @@ export async function getRepoTree(
   const cached = getCachedRepoTree(key);
   if (cached) return cached;
 
+  const generation = repoTreeCacheGeneration;
   const { owner, repo } = splitFullName(repoFullName);
   const qs = new URLSearchParams();
   if (ref) qs.set('ref', ref);
@@ -489,7 +509,7 @@ export async function getRepoTree(
   const url = `${installationUrl(installationId, 'repos', owner, repo)}/tree${qsStr ? `?${qsStr}` : ''}`;
   const res = await authFetch(url);
   const data = (await res.json()) as RepoTreeResult;
-  setCachedRepoTree(key, data);
+  setCachedRepoTree(key, data, generation);
   return data;
 }
 
@@ -504,6 +524,7 @@ export async function getPublicRepoTree(
   const cached = getCachedRepoTree(key);
   if (cached) return cached;
 
+  const generation = repoTreeCacheGeneration;
   const qs = new URLSearchParams();
   if (ref) qs.set('ref', ref);
   if (!markdownOnly) qs.set('markdown_only', '0');
@@ -511,7 +532,7 @@ export async function getPublicRepoTree(
   const url = `/api/public/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tree${qsStr ? `?${qsStr}` : ''}`;
   const res = await publicFetch(url);
   const data = (await res.json()) as RepoTreeResult;
-  setCachedRepoTree(key, data);
+  setCachedRepoTree(key, data, generation);
   return data;
 }
 
@@ -638,7 +659,7 @@ export function tryBuildRepoFilesFromCache(
     const cached = repoContentsCache.get(cacheKey);
     if (!cached || Array.isArray(cached) || cached.type !== 'file' || !cached.content) return null;
     try {
-      const content = atob(cached.content);
+      const content = decodeBase64ToUtf8(cached.content);
       files.push({ path: entry.path, content, size: content.length });
     } catch {
       return null;

@@ -174,7 +174,28 @@ async function pipeWebResponseBodyToNodeResponse(
       if (done || res.writableEnded) break;
       const canContinue = res.write(value);
       if (!canContinue) {
-        await new Promise<void>((resolve) => res.once('drain', () => resolve()));
+        // Wait for the socket to drain, but bail out if the client goes away — a
+        // destroyed socket never emits 'drain', so without racing 'close'/'error'
+        // this would hang forever and never reach the finally cleanup below.
+        const drained = await new Promise<boolean>((resolve) => {
+          const onDrain = () => {
+            cleanup();
+            resolve(true);
+          };
+          const onStop = () => {
+            cleanup();
+            resolve(false);
+          };
+          const cleanup = () => {
+            res.off('drain', onDrain);
+            res.off('close', onStop);
+            res.off('error', onStop);
+          };
+          res.once('drain', onDrain);
+          res.once('close', onStop);
+          res.once('error', onStop);
+        });
+        if (!drained) break;
       }
     }
   } catch (err) {
@@ -361,8 +382,10 @@ function oauthBaseUrl(req: http.IncomingMessage): string {
 
 function normalizeReturnTo(raw: string | null): string {
   if (!raw) return '/auth';
-  // Only allow same-origin relative paths.
-  if (!raw.startsWith('/') || raw.startsWith('//')) return '/auth';
+  // Only allow same-origin relative paths. Reject network-path references: a
+  // second char of '/' (`//host`) or '\' (`/\host`, which browsers normalize to
+  // `//host`) would redirect off-site after login.
+  if (!raw.startsWith('/') || raw[1] === '/' || raw[1] === '\\') return '/auth';
   return raw;
 }
 
@@ -452,6 +475,22 @@ async function fetchGitHubInstallation(installationId: string): Promise<GitHubIn
     throw new ClientError('Invalid installation', 403);
   }
   return (await ghRes.json()) as GitHubInstallation;
+}
+
+async function userHasInstallationAccess(session: Session, installationId: string): Promise<boolean> {
+  // Verify with the *user's* token that they actually belong to this
+  // installation. The app-JWT check only proves the installation exists; without
+  // this an authenticated user could link an arbitrary (enumerable) installation
+  // id and gain read/write access to another account's repositories.
+  try {
+    const ghRes = await githubFetchWithUserToken(
+      session,
+      `/user/installations/${encodeURIComponent(installationId)}/repositories?per_page=1`,
+    );
+    return ghRes.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function githubFetchWithUserToken(session: Session, path: string, init: RequestInit = {}): Promise<Response> {
@@ -1031,6 +1070,11 @@ async function handleCreateSession(ctx: RouteContext): Promise<void> {
     installation = await fetchGitHubInstallation(installationId);
   } catch {
     json(ctx.res, 403, { error: 'Invalid installation' });
+    return;
+  }
+
+  if (!(await userHasInstallationAccess(session, installationId))) {
+    json(ctx.res, 403, { error: 'You do not have access to this installation' });
     return;
   }
 
@@ -2404,6 +2448,13 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
     const gistFiles = gistData?.files && typeof gistData.files === 'object' ? gistData.files : {};
     const gistUpdates: Record<string, { content: string } | null> = {};
     for (const change of changes) {
+      // Gists are flat: reject unsafe/unexpected filenames uniformly, matching
+      // the path validation the repo branch does via normalizeRepoRelativePath.
+      const filename = change.path.trim();
+      if (!filename || filename === '.' || filename === '..' || /[\\/]/.test(filename)) {
+        failed.push({ path: change.path, error: 'Invalid file name' });
+        continue;
+      }
       const currentContent =
         change.type === 'create'
           ? null
@@ -2494,8 +2545,12 @@ async function handleReaderAiApply(ctx: RouteContext): Promise<void> {
           const existing = blobsByPath.get(change.normalizedPath);
           if (change.expectedVersion) {
             let currentContent: string | null = null;
-            if (existing?.url) {
-              const blobRes = await githubFetchWithInstallationToken(installationId, existing.url);
+            if (existing) {
+              // Build the blob path from the sha. `existing.url` is an absolute
+              // api.github.com URL, which githubFetchWithInstallationToken would
+              // re-prefix into an invalid `https://api.github.comhttps://...`.
+              const blobPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${encodeURIComponent(existing.sha)}`;
+              const blobRes = await githubFetchWithInstallationToken(installationId, blobPath);
               const blobData = (await blobRes.json().catch(() => null)) as {
                 content?: string;
                 encoding?: string;
@@ -3305,6 +3360,7 @@ async function handleReaderAiChat(ctx: RouteContext): Promise<void> {
 
 const REPO_TARBALL_MAX_FILES = 100;
 const REPO_TARBALL_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+const REPO_TARBALL_MAX_TOTAL_BYTES = 64 * 1024 * 1024; // 64 MB aggregate across all text files
 const REPO_TARBALL_TIMEOUT_MS = 30_000;
 
 interface TarballFile {
@@ -3318,11 +3374,17 @@ async function extractTarball(stream: ReadableStream<Uint8Array>): Promise<Tarba
   const extract = tar.extract();
   const gunzip = createGunzip();
 
+  let totalBytes = 0;
   return new Promise((resolve, reject) => {
     extract.on('entry', (header, entryStream, next) => {
       if (header.type !== 'file') {
         entryStream.resume();
         next();
+        return;
+      }
+      // Enforce the file-count cap before buffering this entry's contents.
+      if (files.length >= REPO_TARBALL_MAX_FILES) {
+        extract.destroy(new Error('too_many_files'));
         return;
       }
       // Tarball paths are prefixed with <owner>-<repo>-<sha>/
@@ -3343,7 +3405,16 @@ async function extractTarball(stream: ReadableStream<Uint8Array>): Promise<Tarba
       }
 
       const chunks: Buffer[] = [];
-      entryStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      entryStream.on('data', (chunk: Buffer) => {
+        // Bound total buffered bytes across all files so a repo of many large
+        // text files can't exhaust the heap (this endpoint has a public variant).
+        totalBytes += chunk.length;
+        if (totalBytes > REPO_TARBALL_MAX_TOTAL_BYTES) {
+          extract.destroy(new Error('tarball_too_large'));
+          return;
+        }
+        chunks.push(chunk);
+      });
       entryStream.on('end', () => {
         const buf = Buffer.concat(chunks);
         // Skip binary files — check for null bytes in the first 8KB
@@ -3353,10 +3424,6 @@ async function extractTarball(stream: ReadableStream<Uint8Array>): Promise<Tarba
           return;
         }
         files.push({ path, content: buf.toString('utf8'), size: buf.length });
-        if (files.length > REPO_TARBALL_MAX_FILES) {
-          extract.destroy(new Error('too_many_files'));
-          return;
-        }
         next();
       });
       entryStream.on('error', next);
@@ -3366,6 +3433,13 @@ async function extractTarball(stream: ReadableStream<Uint8Array>): Promise<Tarba
     extract.on('error', (err) => {
       if (err.message === 'too_many_files') {
         reject(new ClientError(`Repository has more than ${REPO_TARBALL_MAX_FILES} text files`, 400));
+      } else if (err.message === 'tarball_too_large') {
+        reject(
+          new ClientError(
+            `Repository text content exceeds ${Math.floor(REPO_TARBALL_MAX_TOTAL_BYTES / (1024 * 1024))} MB`,
+            400,
+          ),
+        );
       } else {
         reject(err);
       }

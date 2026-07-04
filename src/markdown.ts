@@ -878,6 +878,12 @@ function footnoteId(raw: string): string {
   return normalized || 'note';
 }
 
+// Prefix the slug with the 1-based order index so distinct keys that slug to the
+// same value (e.g. `[^Foo]` and `[^foo]`) don't collide into one DOM id.
+function footnoteDomId(index: number, key: string): string {
+  return `${index}-${footnoteId(key)}`;
+}
+
 function countIndent(raw: string): number {
   let indent = 0;
   for (const char of raw) {
@@ -2039,6 +2045,47 @@ function isSafeCssValue(value: string): boolean {
   return /^[a-z0-9\s#(),.%+/'"_-]+$/i.test(normalized);
 }
 
+/**
+ * Property/value combinations to reject even when the property is allowlisted
+ * and the value passes isSafeCssValue. `position: fixed/absolute` lets content
+ * break out of its container to overlay the viewport (clickjacking).
+ */
+function isDisallowedCssDeclaration(property: string, value: string): boolean {
+  return property === 'position' && /^(?:fixed|absolute)$/i.test(value.trim());
+}
+
+function sanitizeInlineStyleValue(style: string): string {
+  const safe: string[] = [];
+  for (const declaration of style.split(';')) {
+    const trimmed = declaration.trim();
+    if (!trimmed) continue;
+    const separatorIndex = trimmed.indexOf(':');
+    if (separatorIndex <= 0) continue;
+    const property = trimmed.slice(0, separatorIndex).trim().toLowerCase();
+    const value = trimmed.slice(separatorIndex + 1).trim();
+    if (!ALLOWED_CSS_PROPERTIES.has(property)) continue;
+    if (!isSafeCssValue(value)) continue;
+    if (isDisallowedCssDeclaration(property, value)) continue;
+    safe.push(`${property}: ${value}`);
+  }
+  return safe.join('; ');
+}
+
+/**
+ * Run every inline `style` attribute in rendered markdown through the same
+ * property/value allowlist used for front-matter CSS. DOMPurify keeps the
+ * `style` attribute verbatim, which would otherwise let body HTML use
+ * `url(...)` (tracking beacons / exfiltration) or positioning tricks that the
+ * CSS allowlist is meant to block.
+ */
+function sanitizeInlineStyleAttributes(root: ParentNode): void {
+  root.querySelectorAll('[style]').forEach((element) => {
+    const safe = sanitizeInlineStyleValue(element.getAttribute('style') ?? '');
+    if (safe) element.setAttribute('style', safe);
+    else element.removeAttribute('style');
+  });
+}
+
 function isAllowedSimpleSelector(selector: string): boolean {
   const trimmed = selector.trim();
   if (!trimmed) return false;
@@ -2204,6 +2251,10 @@ function sanitizeMarkdownCustomCss(
         break;
       }
       if (!isSafeCssValue(value)) {
+        invalidDeclaration = true;
+        break;
+      }
+      if (isDisallowedCssDeclaration(property, value)) {
         invalidDeclaration = true;
         break;
       }
@@ -2759,7 +2810,7 @@ function applyFootnoteReferences(root: ParentNode, definitions: Map<string, stri
         orderById.set(rawId, index);
       }
       const refs = referenceIds.get(rawId) ?? [];
-      const domId = footnoteId(rawId);
+      const domId = footnoteDomId(index, rawId);
       const refId = `fnref-${index}-${refs.length + 1}-${domId}`;
       refs.push(refId);
       referenceIds.set(rawId, refs);
@@ -2799,8 +2850,8 @@ function appendFootnotesSection(
   const list = document.createElement('ol');
   section.appendChild(list);
 
-  for (const id of references.order) {
-    const domId = footnoteId(id);
+  references.order.forEach((id, orderPosition) => {
+    const domId = footnoteDomId(orderPosition + 1, id);
     const li = document.createElement('li');
     li.id = `fn-${domId}`;
 
@@ -2816,6 +2867,7 @@ function appendFootnotesSection(
         'data-inline-cite',
         'data-cite-key',
       ],
+      FORBID_TAGS: SANITIZE_FORBID_TAGS,
     });
     const wrapper = document.createElement('div');
     wrapper.innerHTML = sanitized;
@@ -2841,7 +2893,7 @@ function appendFootnotesSection(
     }
 
     list.appendChild(li);
-  }
+  });
 
   root.appendChild(section);
 }
@@ -2876,6 +2928,14 @@ function applyInlineCitationNumbers(root: ParentNode): void {
     anchor.setAttribute('aria-label', `Citation ${number}`);
   });
 }
+
+// Forbid form-submission elements in rendered markdown: DOMPurify keeps these
+// by default, and a form inside a (third-party) document could POST captured
+// input to any origin (phishing). Removing the <form> itself neutralizes the
+// submission vector — orphan inputs can't submit — so `input` is kept, since
+// GFM task lists render `<input type="checkbox">`. Backed by `form-action
+// 'self'` in the CSP.
+const SANITIZE_FORBID_TAGS = ['form', 'textarea', 'select', 'option'];
 
 function sanitizeHtml(dirty: string, config?: object): string {
   if (typeof domPurify.sanitize === 'function') {
@@ -3048,6 +3108,7 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
       'data-inline-cite',
       'data-cite-key',
     ],
+    FORBID_TAGS: SANITIZE_FORBID_TAGS,
   });
   const template = document.createElement('template');
   template.innerHTML = sanitized;
@@ -3055,6 +3116,9 @@ export function parseMarkdownDocument(text: string, options?: ParseMarkdownOptio
   const footnoteReferences = applyFootnoteReferences(template.content, extractedFootnotes.definitions);
   appendFootnotesSection(template.content, footnoteReferences, extractedFootnotes.definitions);
   applyInlineCitationNumbers(template.content);
+  // Filter untrusted inline styles (body + footnotes) through the CSS allowlist
+  // before the app's own trusted style passes (e.g. leading-indent) run below.
+  sanitizeInlineStyleAttributes(template.content);
 
   template.content.querySelectorAll('a').forEach((anchor: HTMLAnchorElement) => {
     const href = sanitizeMarkdownHref(anchor.getAttribute('href') ?? '');

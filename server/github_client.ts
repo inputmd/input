@@ -6,6 +6,7 @@ import { base64url, requireEnv } from './http_helpers';
 import type { TokenCacheRecord } from './types';
 
 const installationTokenCache = new Map<string, TokenCacheRecord>();
+const installationTokenInflight = new Map<string, Promise<TokenCacheRecord>>();
 const MAX_TOKEN_CACHE_SIZE = 1000;
 const RATE_LIMIT_RE = /rate limit|secondary rate limit|abuse/i;
 
@@ -143,6 +144,26 @@ async function getInstallationToken(installationId: string, repositoryIds?: numb
   const cached = installationTokenCache.get(key);
   if (cached && cached.expiresAtMs - Date.now() > 60_000) return cached;
 
+  // Coalesce concurrent mints for the same key so a burst after cache expiry
+  // doesn't fire many parallel token requests (avoids a thundering herd against
+  // GitHub's secondary rate limits).
+  const inflight = installationTokenInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = mintInstallationToken(installationId, repositoryIds, key);
+  installationTokenInflight.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    installationTokenInflight.delete(key);
+  }
+}
+
+async function mintInstallationToken(
+  installationId: string,
+  repositoryIds: number[] | undefined,
+  key: string,
+): Promise<TokenCacheRecord> {
   const jwt = await createAppJwt();
   const res = await fetch(
     `https://api.github.com/app/installations/${encodeURIComponent(String(installationId))}/access_tokens`,
@@ -370,8 +391,12 @@ export async function atomicForceUpdateGitHubRef(
 }
 
 export function encodePathPreserveSlashes(path: string): string {
-  return String(path)
-    .split('/')
-    .map((segment) => encodeURIComponent(segment))
-    .join('/');
+  const segments = String(path).split('/');
+  // Reject parent-traversal segments: these encode to a literal `..` that the
+  // GitHub URL then normalizes, letting a crafted repo path escape the
+  // `/contents/` prefix and reach unintended API endpoints.
+  if (segments.includes('..')) {
+    throw new ClientError('Invalid path', 400);
+  }
+  return segments.map((segment) => encodeURIComponent(segment)).join('/');
 }

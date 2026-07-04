@@ -9,6 +9,16 @@ interface SyncedCacheOptions<T> {
   ttlMs: number;
 }
 
+/**
+ * Opaque token capturing a cache key's state at a point in time. Pass it to
+ * `setIfCurrent` after an async fetch to avoid clobbering a fresher value that
+ * a concurrent mutation (or another tab) wrote while the fetch was in flight.
+ */
+export interface CacheGeneration {
+  key: number;
+  epoch: number;
+}
+
 export class SyncedCache<T> {
   private memory = new Map<string, CacheEntry<T>>();
   private channel: BroadcastChannel | null = null;
@@ -17,6 +27,10 @@ export class SyncedCache<T> {
   private readonly cloneFn: (value: T) => T;
   private readonly validateFn: (parsed: CacheEntry<T>) => boolean;
   private ttlMs: number;
+  // Per-key + global counters used to detect a mutation that landed while a
+  // read-through fetch was in flight (see getGeneration / setIfCurrent).
+  private keyGenerations = new Map<string, number>();
+  private epoch = 0;
 
   constructor(options: SyncedCacheOptions<T>) {
     this.storageKeyPrefix = options.storageKeyPrefix;
@@ -48,18 +62,42 @@ export class SyncedCache<T> {
       expiresAt: Date.now() + this.ttlMs,
     };
     this.memory.set(key, entry);
+    this.bumpKeyGeneration(key);
     this.writeStored(key, entry);
     this.channel?.postMessage({ type: `${this.messagePrefix}-key-updated`, cacheKey: key });
   }
 
+  /** Snapshot a key's generation before an async read-through fetch. */
+  getGeneration(key: string): CacheGeneration {
+    return { key: this.keyGenerations.get(key) ?? 0, epoch: this.epoch };
+  }
+
+  /**
+   * Store a fetched value only if nothing mutated this key (or the whole cache)
+   * since `token` was captured. Prevents an out-of-order fetch resolution from
+   * clobbering a fresher value written by a concurrent mutation or another tab.
+   */
+  setIfCurrent(key: string, value: T, token: CacheGeneration): boolean {
+    const current = this.getGeneration(key);
+    if (current.key !== token.key || current.epoch !== token.epoch) return false;
+    this.set(key, value);
+    return true;
+  }
+
+  private bumpKeyGeneration(key: string): void {
+    this.keyGenerations.set(key, (this.keyGenerations.get(key) ?? 0) + 1);
+  }
+
   delete(key: string): void {
     this.memory.delete(key);
+    this.bumpKeyGeneration(key);
     localStorage.removeItem(this.storageKey(key));
     this.channel?.postMessage({ type: `${this.messagePrefix}-key-cleared`, cacheKey: key });
   }
 
   clearAll(): void {
     this.memory.clear();
+    this.epoch += 1;
     this.removeStoredByPrefix('');
     this.channel?.postMessage({ type: `${this.messagePrefix}-all-cleared` });
   }
@@ -68,6 +106,9 @@ export class SyncedCache<T> {
     for (const key of this.memory.keys()) {
       if (key.startsWith(prefix)) this.memory.delete(key);
     }
+    // Bump the global epoch so an in-flight fetch for a not-yet-cached key under
+    // this prefix is also invalidated (its per-key generation may be untracked).
+    this.epoch += 1;
     this.removeStoredByPrefix(prefix);
     this.channel?.postMessage({ type: `${this.messagePrefix}-prefix-cleared`, cacheKeyPrefix: prefix });
   }
@@ -119,6 +160,9 @@ export class SyncedCache<T> {
   }
 
   private syncFromStorage(cacheKey: string): void {
+    // Another tab changed this key; bump its generation so any in-flight local
+    // fetch does not clobber the value we just synced in.
+    this.bumpKeyGeneration(cacheKey);
     const stored = this.readStored(cacheKey);
     if (!stored) {
       this.memory.delete(cacheKey);
@@ -142,6 +186,7 @@ export class SyncedCache<T> {
         if (!msg || !msg.type?.startsWith(this.messagePrefix)) return;
         if (msg.type === `${this.messagePrefix}-all-cleared`) {
           this.memory.clear();
+          this.epoch += 1;
           return;
         }
         if (msg.type === `${this.messagePrefix}-key-updated` && msg.cacheKey) {
@@ -150,9 +195,11 @@ export class SyncedCache<T> {
         }
         if (msg.type === `${this.messagePrefix}-key-cleared` && msg.cacheKey) {
           this.memory.delete(msg.cacheKey);
+          this.bumpKeyGeneration(msg.cacheKey);
           return;
         }
         if (msg.type === `${this.messagePrefix}-prefix-cleared` && msg.cacheKeyPrefix) {
+          this.epoch += 1;
           for (const key of this.memory.keys()) {
             if (key.startsWith(msg.cacheKeyPrefix)) this.memory.delete(key);
           }

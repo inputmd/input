@@ -39,6 +39,24 @@ function getClientIp(req: http.IncomingMessage): string {
   return req.socket.remoteAddress || 'unknown';
 }
 
+function evictRateLimitEntries(now: number): void {
+  // Drop everything expired first.
+  for (const [key, entry] of rateLimitWindows) {
+    if (now >= entry.resetAtMs) rateLimitWindows.delete(key);
+  }
+  // If still at capacity (all live), drop the oldest-inserted entries (Map keeps
+  // insertion order) to make room, so a burst of new keys can't lock out all
+  // subsequent legitimate clients.
+  if (rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES) {
+    const overflow = rateLimitWindows.size - MAX_RATE_LIMIT_ENTRIES + 1;
+    let removed = 0;
+    for (const key of rateLimitWindows.keys()) {
+      rateLimitWindows.delete(key);
+      if (++removed >= overflow) break;
+    }
+  }
+}
+
 function setRateLimitHeaders(res: http.ServerResponse, max: number, remaining: number, resetAtMs: number): void {
   res.setHeader('X-Input-RateLimit-Limit', String(max));
   res.setHeader('X-Input-RateLimit-Remaining', String(Math.max(0, remaining)));
@@ -51,9 +69,7 @@ function checkLimit(key: string, max: number, res: http.ServerResponse): boolean
 
   if (!entry || now >= entry.resetAtMs) {
     if (!entry && rateLimitWindows.size >= MAX_RATE_LIMIT_ENTRIES) {
-      setRateLimitHeaders(res, max, 0, now + RATE_LIMIT_WINDOW_MS);
-      json(res, 429, { error: 'Too many requests' });
-      return false;
+      evictRateLimitEntries(now);
     }
     entry = { count: 0, resetAtMs: now + RATE_LIMIT_WINDOW_MS };
     rateLimitWindows.set(key, entry);

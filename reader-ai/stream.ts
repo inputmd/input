@@ -7,6 +7,12 @@ import { readSseStream } from '../shared/sse.ts';
 import { appendStreamText, shouldInsertStreamBoundarySpace } from '../shared/stream_boundary_dictionary.ts';
 import type { StreamParseOptions, StreamParseResult, ToolCall } from './types.ts';
 
+// Bound memory when reading from an untrusted upstream (e.g. a bring-your-own
+// endpoint): reject a single SSE line that grows past this without a newline,
+// and stop accumulating once the visible content exceeds this many chars.
+const MAX_STREAM_LINE_CHARS = 5_000_000;
+const MAX_STREAM_CONTENT_CHARS = 5_000_000;
+
 function mergeToolCallFragment(existing: string, incoming: string | undefined): string {
   if (!incoming) return existing;
   if (!existing) return incoming;
@@ -56,7 +62,7 @@ export async function parseUpstreamStream(
   const accumulators = new Map<string, { id: string; name: string; arguments: string }>();
   const repairBoundaries = options.repairBoundaries ?? true;
 
-  for await (const event of readSseStream(body)) {
+  for await (const event of readSseStream(body, { maxBufferLength: MAX_STREAM_LINE_CHARS })) {
     const data = event.data;
     if (!data || data === '[DONE]') continue;
     try {
@@ -112,6 +118,8 @@ export async function parseUpstreamStream(
     } catch {
       // ignore malformed chunks
     }
+    // Stop reading a runaway stream; breaking cancels the underlying body.
+    if (content.length > MAX_STREAM_CONTENT_CHARS) break;
   }
 
   if (pendingVisibleDelta) {
