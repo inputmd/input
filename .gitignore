@@ -17,6 +17,7 @@ dist-ssr
 .data/
 
 # Editor directories and files
+.qmux/
 .claude/
 .vscode/*
 !.vscode/extensions.json
