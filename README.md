@@ -176,4 +176,4 @@ setup, environment variables, development workflow, and deployment notes.
 
 ## License
 
-[AGPL-V3 (C) 2026](https://opensource.org/license/agpl-3-0-only)
+MIT (C) 2026
